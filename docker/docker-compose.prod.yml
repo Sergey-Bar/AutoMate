@@ -1,0 +1,140 @@
+# Automate — Production Docker Compose
+# Usage:
+#   docker compose -f docker/docker-compose.prod.yml --env-file docker/.env up -d
+#   docker compose -f docker/docker-compose.prod.yml down
+#   docker compose -f docker/docker-compose.prod.yml down -v   # also removes volumes
+#
+# Prerequisites:
+#   - Build images first (see docs/deployment.md)
+#   - Copy docker/.env.example to docker/.env and fill in all REQUIRED values
+
+name: automate-prod
+
+services:
+  # ─── Database ───────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-automate}"
+      POSTGRES_USER: "${POSTGRES_USER:-automate}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-automate} -d ${POSTGRES_DB:-automate}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── Unified API (Fastify — AI QA Orchestrator + Dashboard) ─────────────────
+
+  api:
+    image: "${API_IMAGE:-automate/api:latest}"
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set}"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET must be set}"
+      VAULT_SECRET: "${VAULT_SECRET:?VAULT_SECRET must be set}"
+      AUTOMATE_API_KEY: "${AUTOMATE_API_KEY:?AUTOMATE_API_KEY must be set}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:80}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://host.docker.internal:11434}"
+      WEBWRIGHT_URL: "${WEBWRIGHT_URL:-http://webwright:8000}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(r.ok)process.exit(0);else process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ─── Unified Web (React SPA served by Nginx) ────────────────────────────────
+
+  web:
+    image: "${WEB_IMAGE:-automate/web:latest}"
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ─── Webwright Sidecar (FastAPI AI service) ──────────────────────────────────
+
+  webwright:
+    image: "${WEBWRIGHT_IMAGE:-automate/webwright:latest}"
+    build:
+      context: ..
+      dockerfile: services/webwright/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "8000"
+      WEBWRIGHT_API_KEY: "${WEBWRIGHT_API_KEY:-}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://host.docker.internal:11434}"
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8000/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ─── Nginx Reverse Proxy (public entry point) ────────────────────────────────
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      webwright:
+        condition: service_healthy
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:80/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+# ─── Volumes ────────────────────────────────────────────────────────────────
+
+volumes:
+  pgdata:
+    driver: local
+
+# ─── Networks ───────────────────────────────────────────────────────────────
+
+networks:
+  automate-net:
+    driver: bridge

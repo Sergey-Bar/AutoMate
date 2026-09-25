@@ -1,0 +1,106 @@
+# Automate Unified Platform — Docker Compose
+# Run: docker compose -f docker-compose.unified.yml up -d
+# Stop: docker compose -f docker-compose.unified.yml down
+# Wipe: docker compose -f docker-compose.unified.yml down -v
+# Environment template: .env.unified.example
+#
+# New platform services: api, web, postgres (+ optional ollama with --profile ai)
+
+name: automate-unified
+
+services:
+  # ─── New Platform ─────────────────────────────────────────────────────────
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3100:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set}"
+      AUTOMATE_API_KEY: "${AUTOMATE_API_KEY:?AUTOMATE_API_KEY must be set}"
+      VAULT_SECRET: "${VAULT_SECRET:?VAULT_SECRET must be set}"
+      REPORTER_SECRET: "${REPORTER_SECRET}"
+      COOKIE_SECRET: "${COOKIE_SECRET}"
+      AUTOMATE_SERVICE_SECRET: "${AUTOMATE_SERVICE_SECRET}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:5173}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://ollama:11434}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(r.ok)process.exit(0);else process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    # Internal-only by default. To expose locally, add "5432:5432" here temporarily.
+    environment:
+      POSTGRES_DB: automate
+      POSTGRES_USER: automate
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U automate -d automate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    networks:
+      - automate-net
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+
+networks:
+  automate-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  ollama_models:

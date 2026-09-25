@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+
+# Local agent state
+.kilo/
+
+# Test and automation artifacts
+.artifacts/
+**/test-results/
+**/playwright-report/
+**/blob-report/
+**/.playwright/
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Temp / junk
+Tempplaywright-mcp/
+%TEMP%/
+nul
+
+# Legacy AI product (AutoMate/) — a separate git repo. Ignore both case forms
+# so it stays excluded on case-sensitive filesystems (Linux CI) too.
+Automate/
+AutoMate/
+
+# Auth / credentials
+**/auth.json
+**/.automate/
+**/.automate/
+
+# Sisyphus agent state
+.sisyphus/
+
+# OpenCode agent state
+.omo/
+
+# Coverage
+coverage/
+
+# Vitest cache
+.vite/

@@ -1,0 +1,48 @@
+# Nightly — Extended quality gates (security scan)
+name: Nightly Quality Gates
+
+on:
+  schedule:
+    # Run at 03:00 UTC every weekday
+    - cron: '0 3 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks requires full history for secret scanning
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit unified platform dependencies
+        # Release-blocking: fails on HIGH/CRITICAL vulnerabilities.
+        run: pnpm audit --audit-level=high
+
+      - name: Run gitleaks secret scan
+        # Uses .gitleaks.toml — test fixtures and example placeholders are allowlisted.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semgrep static security scan
+        # Uses .semgrep.yml local rules — no Semgrep Cloud token required.
+        # Scans TypeScript/JavaScript for SQL injection, secret logging, unsafe type casts.
+        run: |
+          pip install semgrep --quiet
+          semgrep --config .semgrep.yml --error apps/ packages/

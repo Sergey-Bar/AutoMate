@@ -1,0 +1,2 @@
+# Pre-commit: full lint, typecheck, and test gates run via `pnpm verify` and CI.
+# (Per-file lint-staged wiring is intentionally deferred; see AGENTS.md.)
