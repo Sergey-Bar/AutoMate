@@ -45,14 +45,13 @@ Tempplaywright-mcp/
 %TEMP%/
 nul
 
-# Legacy AI product (AutoMate/) — a separate git repo. Ignore both case forms
-# so it stays excluded on case-sensitive filesystems (Linux CI) too.
-Automate/
-AutoMate/
+# Legacy AI product (AutoMate/) — a separate git repo. Ignore both root-level
+# case forms so it stays excluded on case-sensitive filesystems too.
+/Automate/
+/AutoMate/
 
 # Auth / credentials
 **/auth.json
-**/.automate/
 **/.automate/
 
 # Sisyphus agent state
