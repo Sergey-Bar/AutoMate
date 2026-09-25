@@ -1,0 +1,31 @@
+{
+  "name": "@automate/connector-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "attw": "attw --pack .",
+    "publint": "publint"
+  },
+  "dependencies": {
+    "bottleneck": "^2.19.5",
+    "cockatiel": "^3.2.1",
+    "lru-cache": "^11.3.6",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.9",
+    "vitest": "^4.0.0"
+  }
+}

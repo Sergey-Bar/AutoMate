@@ -1,0 +1,34 @@
+---
+title: Automate
+description: Self-hosted Playwright QA Dashboard
+template: splash
+hero:
+  tagline: Real-time test monitoring, failure analysis, and historical trends — zero infrastructure.
+  actions:
+    - text: Get Started
+      link: /getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/automate-hq/automate
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## Why Automate?
+
+<CardGrid>
+  <Card title="Zero Infrastructure" icon="rocket">
+    SQLite + single binary. No Postgres, Redis, or Java. Deploy in one command.
+  </Card>
+  <Card title="Playwright-Native" icon="puzzle">
+    Custom reporter streams results in real-time via WebSocket. Not a generic test tool.
+  </Card>
+  <Card title="Self-Hosted" icon="laptop">
+    Your data stays on your machine. No SaaS lock-in, no per-seat pricing.
+  </Card>
+  <Card title="Failure Analysis" icon="magnifier">
+    Screenshot diffs, video playback, trace viewer, step timeline — everything to debug failures fast.
+  </Card>
+</CardGrid>

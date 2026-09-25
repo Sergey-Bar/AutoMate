@@ -1,0 +1,119 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'e2e/**'
+      - 'playwright.config.*'
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'e2e/**'
+      - 'playwright.config.*'
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-non-ai:
+    name: Playwright E2E (non-AI specs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run non-AI E2E tests
+        # Exclude AI-dependent specs that require a live Ollama model (chat-flow, sql-browser)
+        run: npx playwright test --grep-invert "chat|sql.browser|sql-browser"
+        env:
+          CI: 'true'
+          OLLAMA_HOST: 'http://nonexistent:11434'
+
+      - name: Upload test artifacts on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-artifacts-non-ai
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+  e2e-full:
+    name: Playwright E2E (full — with Ollama)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Pull llama3.1 model
+        run: |
+          curl -sf http://localhost:11434/api/pull \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"llama3.1"}' \
+            --retry 5 --retry-delay 5 --retry-all-errors
+
+      - name: Run all Playwright tests
+        run: npx playwright test
+        env:
+          CI: 'true'
+          OLLAMA_HOST: 'http://localhost:11434'
+
+      - name: Upload test artifacts on failure
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-artifacts-full
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

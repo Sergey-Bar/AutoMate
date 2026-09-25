@@ -1,0 +1,308 @@
+@import "tailwindcss";
+@source "./**/*.{ts,tsx,js,jsx}";
+/* Note: geist fonts loaded via CDN in index.html or fallback to Inter/system-ui */
+
+/* ─── Tailwind theme ──────────────────────────────────────────────────────── */
+@theme {
+  --font-sans: var(--font-geist-sans), 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), 'JetBrains Mono', 'Fira Code', monospace;
+
+  --color-bg-base:     oklch(0.09 0.01 265);
+  --color-bg-surface:  oklch(0.13 0.008 265);
+  --color-bg-elevated: oklch(0.18 0.006 265);
+
+  --color-text-primary:   oklch(0.94 0 0);
+  --color-text-secondary: oklch(0.65 0 0);
+  --color-text-tertiary:  oklch(0.45 0 0);
+
+  --color-border-subtle:  oklch(1 0 0 / 7%);
+  --color-border-default: oklch(1 0 0 / 11%);
+  --color-border-focus:   oklch(0.6 0.18 250 / 80%);
+
+  /* Test status */
+  --color-pass:        oklch(0.72 0.19 145);
+  --color-pass-bg:     oklch(0.72 0.19 145 / 14%);
+  --color-fail:        oklch(0.67 0.22 25);
+  --color-fail-bg:     oklch(0.67 0.22 25 / 14%);
+  --color-flaky:       oklch(0.78 0.17 68);
+  --color-flaky-bg:    oklch(0.78 0.17 68 / 14%);
+  --color-running:     oklch(0.68 0.19 250);
+  --color-running-bg:  oklch(0.68 0.19 250 / 14%);
+  --color-skip:        oklch(0.52 0.03 265);
+  --color-skip-bg:     oklch(0.52 0.03 265 / 14%);
+  --color-queued:      oklch(0.42 0 0);
+  --color-queued-bg:   oklch(0.42 0 0 / 14%);
+
+  /* Surface variants */
+  --color-bg-surface-active: oklch(0.22 0.012 265);
+  --color-surface-2: oklch(0.15 0.008 265);
+  --color-surface-3: oklch(0.20 0.006 265);
+
+  /* Semantic */
+  --color-warning:    oklch(0.75 0.18 55);
+  --color-warning-bg: oklch(0.75 0.18 55 / 14%);
+
+  /* Chart palette */
+  --color-chart-1: oklch(0.488 0.243 264.376);
+  --color-chart-2: oklch(0.696 0.17 162.48);
+  --color-chart-3: oklch(0.769 0.188 70.08);
+  --color-chart-4: oklch(0.627 0.265 303.9);
+  --color-chart-5: oklch(0.645 0.246 16.439);
+}
+
+/* ─── shadcn/ui CSS variables ─────────────────────────────────────────────── */
+@layer base {
+  :root {
+    --background: var(--color-bg-base);
+    --foreground: var(--color-text-primary);
+    --card: var(--color-bg-surface);
+    --card-foreground: var(--color-text-primary);
+    --popover: var(--color-bg-elevated);
+    --popover-foreground: var(--color-text-primary);
+    --primary: var(--color-running);
+    --primary-foreground: #fff;
+    --secondary: var(--color-bg-elevated);
+    --secondary-foreground: var(--color-text-primary);
+    --muted: var(--color-bg-elevated);
+    --muted-foreground: var(--color-text-tertiary);
+    --accent: var(--color-bg-surface-active);
+    --accent-foreground: var(--color-text-primary);
+    --destructive: var(--color-fail);
+    --destructive-foreground: #fff;
+    --border: var(--color-border-default);
+    --input: var(--color-border-default);
+    --ring: var(--color-border-focus);
+    --radius: 0.5rem;
+  }
+  .dark {
+    --background: var(--color-bg-base);
+    --foreground: var(--color-text-primary);
+    --card: var(--color-bg-surface);
+    --card-foreground: var(--color-text-primary);
+    --popover: var(--color-bg-elevated);
+    --popover-foreground: var(--color-text-primary);
+    --primary: var(--color-running);
+    --primary-foreground: #fff;
+    --secondary: var(--color-bg-elevated);
+    --secondary-foreground: var(--color-text-primary);
+    --muted: var(--color-bg-elevated);
+    --muted-foreground: var(--color-text-tertiary);
+    --accent: var(--color-bg-surface-active);
+    --accent-foreground: var(--color-text-primary);
+    --destructive: var(--color-fail);
+    --destructive-foreground: #fff;
+    --border: var(--color-border-default);
+    --input: var(--color-border-default);
+    --ring: var(--color-border-focus);
+  }
+
+  * {
+    border-color: var(--border);
+    box-sizing: border-box;
+  }
+
+  html { color-scheme: dark; }
+  html.light { color-scheme: light; }
+
+  body {
+    background: var(--color-bg-base);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    min-height: 100dvh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Prevent layout shift on live counters */
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Focus ring — consistent across all interactive elements */
+  :focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 15%);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(1 0 0 / 25%); }
+}
+
+/* ─── Glassmorphism helpers (used in exactly 3 places) ────────────────────── */
+.glass-command-palette {
+  backdrop-filter: blur(12px) saturate(180%);
+  background: oklch(0.09 0.01 265 / 80%);
+}
+
+.glass-sticky-header {
+  backdrop-filter: blur(8px) saturate(160%);
+  background: oklch(0.13 0.008 265 / 85%);
+}
+
+.glass-toast {
+  backdrop-filter: blur(8px) saturate(160%);
+  background: oklch(0.18 0.006 265 / 88%);
+}
+
+/* ─── Live pulse animation ────────────────────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 var(--color-running); }
+  70%  { box-shadow: 0 0 0 4px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.pulse-ring { animation: pulse-ring 1.8s ease-in-out infinite; }
+
+/* ─── Skeleton shimmer animation ────────────────────────────────────────────── */
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-bg-surface) 0%,
+    oklch(1 0 0 / 5%) 40%,
+    oklch(1 0 0 / 5%) 60%,
+    var(--color-bg-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+html.light .skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-bg-surface) 0%,
+    oklch(0 0 0 / 4%) 40%,
+    oklch(0 0 0 / 4%) 60%,
+    var(--color-bg-surface) 100%
+  );
+}
+
+/* ─── xterm theme overrides ───────────────────────────────────────────────── */
+.xterm { height: 100%; }
+.xterm-viewport::-webkit-scrollbar { width: 4px; }
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 15%);
+  border-radius: 2px;
+}
+
+/* ─── Light theme overrides ────────────────────────────────────────────────── */
+html.light {
+  --color-bg-base:     oklch(0.97 0.005 265);
+  --color-bg-surface:  oklch(1.0 0 0);
+  --color-bg-elevated: oklch(0.95 0.003 265);
+
+  --color-text-primary:   oklch(0.15 0.01 265);
+  --color-text-secondary: oklch(0.40 0.01 265);
+  --color-text-tertiary:  oklch(0.55 0.01 265);
+
+  --color-border-subtle:  oklch(0 0 0 / 7%);
+  --color-border-default: oklch(0 0 0 / 14%);
+  --color-border-focus:   oklch(0.5 0.20 250 / 80%);
+
+  /* Status colors stay the same — they are chromatic and work on both backgrounds */
+
+  /* Chart palette — slightly boosted for white bg */
+  --color-chart-1: oklch(0.50 0.24 264);
+  --color-chart-2: oklch(0.60 0.18 162);
+  --color-chart-3: oklch(0.65 0.19 70);
+  --color-chart-4: oklch(0.55 0.26 304);
+  --color-chart-5: oklch(0.56 0.25 16);
+
+  /* Surface variant overrides */
+  --color-bg-surface-active: oklch(0.92 0.01 265);
+  --color-surface-2: oklch(0.96 0.005 265);
+  --color-surface-3: oklch(0.93 0.005 265);
+  --color-warning:    oklch(0.65 0.18 55);
+  --color-warning-bg: oklch(0.65 0.18 55 / 14%);
+}
+
+/* Light glassmorphism overrides */
+html.light .glass-command-palette {
+  background: oklch(1.0 0 0 / 80%);
+}
+html.light .glass-sticky-header {
+  background: oklch(1.0 0 0 / 85%);
+}
+html.light .glass-toast {
+  background: oklch(0.97 0.005 265 / 90%);
+}
+
+/* Light scrollbar */
+html.light ::-webkit-scrollbar-thumb {
+  background: oklch(0 0 0 / 15%);
+}
+html.light ::-webkit-scrollbar-thumb:hover {
+  background: oklch(0 0 0 / 25%);
+}
+html.light .xterm-viewport::-webkit-scrollbar-thumb {
+  background: oklch(0 0 0 / 15%);
+}
+
+/* ─── Micro-interactions ──────────────────────────────────────────────────── */
+
+/* Table / list rows — subtle hover background */
+.row-hover {
+  transition: background 50ms ease;
+}
+.row-hover:hover {
+  background: oklch(1 0 0 / 3%);
+}
+
+/* Clickable cards — lift on hover */
+.card-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px oklch(0 0 0 / 15%);
+}
+.card-hover:active {
+  transform: translateY(0);
+}
+
+/* Icon buttons — scale + circle on hover */
+.icon-btn-hover {
+  transition: transform 100ms ease, background 100ms ease;
+  border-radius: 6px;
+}
+.icon-btn-hover:hover {
+  transform: scale(1.05);
+  background: oklch(1 0 0 / 6%);
+}
+.icon-btn-hover:active {
+  transform: scale(0.95);
+}
+
+/* Links — underline grows from center */
+.link-underline {
+  position: relative;
+  text-decoration: none;
+}
+.link-underline::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  width: 0;
+  height: 1px;
+  background: currentColor;
+  transition: width 150ms ease, left 150ms ease;
+}
+.link-underline:hover::after {
+  left: 0;
+  width: 100%;
+}
+
+/* Light theme micro-interaction overrides */
+html.light .row-hover:hover {
+  background: oklch(0 0 0 / 3%);
+}
+html.light .icon-btn-hover:hover {
+  background: oklch(0 0 0 / 6%);
+}

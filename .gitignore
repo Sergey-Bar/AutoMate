@@ -1,0 +1,68 @@
+# Dependencies
+node_modules/
+
+# Local agent state
+**/.sisyphus/
+.autopilot-progress.json
+.autoqa-progress.json
+
+# Local runtime state
+**/.automate/
+**/.automate-dashboard/
+
+# Test and report artifacts
+**/coverage/
+**/test-results/
+**/playwright-report/
+**/blob-report/
+reports/
+
+# TypeScript incremental state
+*.tsbuildinfo
+
+# Python cache
+**/__pycache__/
+*.py[cod]
+
+# Turbo
+.turbo/
+
+# Build output
+dist/
+build/
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Database
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+apps/desktop/src-tauri/target/
+
+# Stryker mutation testing
+stryker-tmp/
+.stryker-tmp/
+mutation-report.html
+mutation-report.json

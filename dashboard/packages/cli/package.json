@@ -1,0 +1,28 @@
+{
+  "name": "@automate/cli",
+  "version": "0.1.0",
+  "description": "CLI setup wizard for Automate Playwright dashboard",
+  "type": "module",
+  "bin": {
+    "Automate": "dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --clean",
+    "test": "vitest run",
+    "prepublishOnly": "pnpm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@vitest/coverage-v8": "^4.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "~5.9",
+    "vitest": "^4.0.0"
+  },
+  "keywords": ["playwright", "Automate", "cli", "setup", "dashboard"],
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

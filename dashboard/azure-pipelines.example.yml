@@ -1,0 +1,88 @@
+# Azure DevOps Pipelines — Playwright Tests with Automate Quality Gate
+#
+# Prerequisites:
+#   - Dashboard running and accessible (set DASHBOARD_HOST variable)
+#   - AUTOMATE_DASHBOARD_API_KEY configured as a secret pipeline variable
+#   - @automate/reporter installed in your project
+#
+# Copy this file to azure-pipelines.yml and update the variables section.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - '*'
+
+variables:
+  DASHBOARD_HOST: 'your-dashboard.example.com'   # Change to your Dashboard host
+  DASHBOARD_PORT: '4000'
+  REPORTER_PORT: '4001'
+  nodeVersion: '22'
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: Test
+    displayName: Playwright Tests + Quality Gate
+    jobs:
+      - job: RunTests
+        displayName: Run Tests
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(nodeVersion)
+            displayName: Use Node.js $(nodeVersion)
+
+          - script: npm ci
+            displayName: Install dependencies
+
+          - script: npx playwright install --with-deps chromium
+            displayName: Install Playwright browsers
+
+          # Run tests and capture the run ID from reporter output.
+          # Tests are allowed to fail here — the gate step decides.
+          - script: |
+              set +e
+              npx playwright test 2>&1 | tee playwright-output.txt
+              TEST_EXIT=$?
+              RUN_ID=$(grep -oP '(?<=Automate run: )\S+' playwright-output.txt | head -1)
+              echo "##vso[task.setvariable variable=RUN_ID]$RUN_ID"
+              echo "Captured run ID: $RUN_ID"
+              exit 0
+            displayName: Run Playwright tests
+            env:
+              AUTOMATE_DASHBOARD_URL: ws://$(DASHBOARD_HOST):$(REPORTER_PORT)
+              AUTOMATE_DASHBOARD_API_KEY: $(AUTOMATE_DASHBOARD_API_KEY)
+
+          - publish: playwright-report
+            artifact: playwright-report
+            condition: always()
+            displayName: Publish test report
+
+      - job: QualityGate
+        displayName: Check Quality Gate
+        dependsOn: RunTests
+        variables:
+          RUN_ID: $[ dependencies.RunTests.outputs['RunTests.RUN_ID'] ]
+        steps:
+          - script: |
+              if [ -z "$(RUN_ID)" ]; then
+                echo "No run ID captured — skipping gate check."
+                exit 0
+              fi
+              bash scripts/check-gate.sh \
+                --url "http://$(DASHBOARD_HOST):$(DASHBOARD_PORT)" \
+                --run-id "$(RUN_ID)" \
+                --api-key "$(AUTOMATE_DASHBOARD_API_KEY)" \
+                --wait \
+                --timeout 300
+            displayName: Enforce quality gate
+            env:
+              AUTOMATE_DASHBOARD_API_KEY: $(AUTOMATE_DASHBOARD_API_KEY)
+          # Exit code from check-gate.sh propagates to the pipeline.
+          # If gate fails (exit 1), this job fails and the pipeline is marked Failed.

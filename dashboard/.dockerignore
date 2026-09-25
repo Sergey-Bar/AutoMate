@@ -1,0 +1,45 @@
+# Dependencies (re-installed inside container)
+**/node_modules
+
+# Build outputs (re-created by builder stage)
+**/dist
+**/*.tsbuildinfo
+# **/*.d.ts  — DO NOT exclude: vite-env.d.ts is a source file required for tsc
+# Only exclude tsbuildinfo (generated)
+
+# Runtime data (must be volume-mounted, never baked in)
+apps/server/data
+apps/server/test-results
+test-results
+
+# Test files (not needed in production image)
+**/*.test.ts
+**/*.spec.ts
+**/__tests__
+
+# SQLite database files (runtime data — must not be baked in)
+drizzle/*.db
+**/*.db
+
+# Git and IDE
+.git
+.gitignore
+.vscode
+.claude
+
+# Planning and docs
+.planning
+PMO
+e2e
+SHORTCUTS.md
+DEPLOYMENT.md
+
+# Env files (secrets — never bake in)
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+nul

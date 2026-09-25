@@ -1,0 +1,49 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": [
+    "conversation",
+    "sql.browser",
+    "sql-browser",
+    "license-checker-rseidelsohn",
+    "ISC",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Apache-2.0",
+    "0BSD",
+    "CC0-1.0",
+    "CC-BY-3.0",
+    "CC-BY-4.0",
+    "Unlicense",
+    "Python-2.0",
+    "BlueOak-1.0.0"
+  ],
+  "workspaces": {
+    "apps/server": {
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["@automate/connector-sdk"]
+    },
+    "apps/web": {
+      "entry": ["src/routes/**/*.tsx"],
+      "project": ["src/**/*.{ts,tsx}"]
+    },
+    "packages/shared": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/connector-sdk": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/connectors/github": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/connectors/jira": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/connectors/slack": {
+      "project": ["src/**/*.ts"]
+    },
+    "packages/connectors/sql-browser": {
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

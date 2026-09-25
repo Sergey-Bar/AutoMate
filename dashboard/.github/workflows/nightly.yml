@@ -1,0 +1,125 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Stryker Mutation Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Run Stryker
+        run: npx stryker run
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stryker-report
+          path: reports/mutation/
+          retention-days: 30
+
+  lighthouse:
+    name: Lighthouse CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm --filter @automate/dashboard-client build
+      - name: Run Lighthouse
+        run: npx @lhci/cli autorun
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: lighthouse-report
+          path: .lighthouseci/
+          retention-days: 30
+
+  k6:
+    name: k6 Load Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - name: Build and start server
+        run: |
+          pnpm --filter @automate/dashboard-server build
+          pnpm --filter @automate/dashboard-server start &
+          sleep 5
+        env:
+          AUTOMATE_DASHBOARD_API_KEY: test-nightly-key
+      - name: Run k6 smoke test
+        run: k6 run k6/smoke.js
+        env:
+          DASHBOARD_URL: http://localhost:4000
+          AUTOMATE_DASHBOARD_API_KEY: test-nightly-key
+
+  e2e:
+    name: Full E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Push database schema
+        run: pnpm --filter @automate/dashboard-server run db:push
+        env:
+          AUTOMATE_DASHBOARD_API_KEY: test-nightly-key
+      - name: Run E2E tests
+        run: pnpm test:e2e
+        env:
+          AUTOMATE_DASHBOARD_API_KEY: test-nightly-key
+          RATE_LIMIT_MAX: '10000'
+          NODE_ENV: test
+          CI: 'true'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-report
+          path: |
+            playwright-report/
+            apps/server/test-results/
+          retention-days: 30

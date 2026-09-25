@@ -1,0 +1,16 @@
+{
+  "name": "@automate/connector-sql-browser",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "typescript": "~5.9",
+    "vitest": "^4.0.0"
+  }
+}

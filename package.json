@@ -1,0 +1,83 @@
+{
+  "name": "automate",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.6.5",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:pact": "vitest run --config vitest.config.pact.ts",
+    "bench": "node benchmarks/health.bench.mjs",
+    "bench:endpoints": "node benchmarks/endpoints.bench.mjs",
+    "validate": "pnpm install && pnpm build && pnpm typecheck && pnpm lint",
+    "verify": "pnpm build && pnpm test && pnpm typecheck && pnpm lint",
+    "prepare": "husky",
+    "size": "size-limit",
+    "knip": "knip",
+    "lighthouse": "lhci autorun",
+    "validate-packages": "pnpm --filter @automate/shared run attw && pnpm --filter @automate/shared run publint && pnpm --filter @automate/connector-sdk run attw && pnpm --filter @automate/connector-sdk run publint",
+    "coverage:ratchet": "node scripts/coverage-ratchet.mjs",
+    "changeset": "changeset",
+    "version": "changeset version",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@axe-core/playwright": "^4.11.1",
+    "@changesets/cli": "^2.30.0",
+    "@eslint/js": "^9.21.0",
+    "@fast-check/vitest": "^0.4.1",
+    "@lhci/cli": "^0.15.1",
+    "@pact-foundation/pact": "^16.3.1",
+    "@playwright/test": "^1.58.2",
+    "@size-limit/file": "^12.0.1",
+    "@stryker-mutator/core": "^9.6.0",
+    "@stryker-mutator/vitest-runner": "^9.6.0",
+    "@types/node": "^22.13.10",
+    "@vitest/coverage-v8": "^4.1.0",
+    "autocannon": "^8.0.0",
+    "dependency-cruiser": "^17.4.0",
+    "eslint": "^9.21.0",
+    "eslint-plugin-compat": "^7.0.1",
+    "eslint-plugin-playwright": "^2.0.0",
+    "eslint-plugin-test-flakiness": "^1.4.0",
+    "fast-check": "^4.7.0",
+    "husky": "^9.1.7",
+    "knip": "^6.3.0",
+    "lint-staged": "^16.4.0",
+    "publint": "^0.3.18",
+    "size-limit": "^12.0.1",
+    "turbo": "^2.4.4",
+    "typescript": "~5.9",
+    "typescript-eslint": "^8.25.0",
+    "vitest": "^4.0.0",
+    "zod-fast-check": "^0.10.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ],
+    "overrides": {
+      "picomatch": "^4.0.4",
+      "flatted": "^3.4.2",
+      "brace-expansion": "^5.0.5"
+    }
+  },
+  "version": "1.0.0",
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --fix",
+    "{apps,packages}/**/*.{ts,tsx}": "vitest related --run"
+  },
+  "browserslist": [
+    "defaults and fully supports es6-module"
+  ],
+  "dependencies": {
+    "remeda": "^2.34.0",
+    "ts-pattern": "^5.9.0",
+    "type-fest": "^5.6.0"
+  }
+}

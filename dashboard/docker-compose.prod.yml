@@ -1,0 +1,160 @@
+# Automate — docker-compose.prod.yml
+# Production override. Apply on top of the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# What this override adds over the base compose:
+#   • JSON-file log rotation (max 10 MB × 3 files per service)
+#   • restart: always  (auto-recover from crashes and reboots)
+#   • Tightened healthcheck timing (15s interval, 3s timeout)
+#   • Read-only root filesystem + tmpfs for /tmp and runtime write paths
+#   • no-new-privileges security option
+#   • nginx service promoted out of the optional profile (always active)
+#   • TLS volume mounts for Let's Encrypt certificates
+#   • OCI-style container labels for visibility / GitOps tooling
+#
+# Prerequisites:
+#   1. Set AUTOMATE_DASHBOARD_API_KEY and CORS_ORIGIN in .env
+#   2. Obtain TLS certificates (see nginx-prod.conf and DEPLOY.md)
+#   3. Point DOMAIN to your server's IP in DNS before starting nginx
+
+name: automate
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Application service — production hardening
+  # ─────────────────────────────────────────────────────────────────────────────
+  automate:
+
+    # ---------------------------  Restart policy  ------------------------------
+    restart: always
+
+    # ---------------------------  Logging  ------------------------------------
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        # Tag log lines with container name for easy grep
+        tag: "{{.Name}}"
+
+    # ---------------------------  Healthcheck  --------------------------------
+    # Tighter than the base: faster detection of dead containers in production.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:4000/health/live').then(r=>{if(r.ok)process.exit(0);else process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+
+    # ---------------------------  Filesystem hardening  -----------------------
+    # Read-only root FS forces explicit declaration of writable paths.
+    # The application user (appuser) writes only to volume-backed directories.
+    read_only: true
+    tmpfs:
+      # Node.js / OS scratch space (npm tmp, pid files, etc.)
+      - /tmp:size=64m,mode=1777
+      # pnpm/corepack cache (needed at runtime by pnpm lifecycle scripts)
+      - /home/appuser/.local:size=32m
+
+    # ---------------------------  Security options  ---------------------------
+    security_opt:
+      - no-new-privileges:true
+
+    # ---------------------------  Environment  --------------------------------
+    environment:
+      NODE_ENV: production
+      HOST: "0.0.0.0"
+      PORT: "4000"
+      REPORTER_PORT: "4001"
+      LOG_LEVEL: info
+      # Restrict CORS in production — set to your actual domain in .env:
+      #   CORS_ORIGIN=https://your-domain.com
+      CORS_ORIGIN: "${CORS_ORIGIN:-https://your-domain.com}"
+      AUTOMATE_DASHBOARD_API_KEY: "${AUTOMATE_DASHBOARD_API_KEY}"
+      REPORTER_SECRET: "${REPORTER_SECRET:-}"
+      PUBLIC_DASHBOARD_URL: "${PUBLIC_DASHBOARD_URL:-}"
+      SENTRY_DSN: "${SENTRY_DSN:-}"
+      DATA_DIR: /app/apps/server/data
+      ARTIFACTS_DIR: /app/apps/server/test-results
+
+    # ---------------------------  Labels  -------------------------------------
+    labels:
+      com.automate.role: "app"
+      com.automate.managed-by: "docker-compose"
+      org.opencontainers.image.source: "https://github.com/automate-hq/automate"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # nginx — TLS termination + reverse proxy
+  # In production nginx is NOT profile-gated — it is always active.
+  # ─────────────────────────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.27-alpine
+    # Remove the dev profile so nginx always starts in prod
+    profiles: []
+    restart: always
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      # Production nginx config with TLS (replaces the base nginx.conf mount)
+      - ./nginx-prod.conf:/etc/nginx/conf.d/default.conf:ro
+      # Let's Encrypt certificate directory (populated by certbot on the host)
+      # Replace /etc/letsencrypt with your actual cert path if using a different CA.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      # Certbot webroot challenge directory (used during cert renewal)
+      - /var/www/certbot:/var/www/certbot:ro
+      # nginx cache (writable) — separate from the read-only app container
+      - nginx_cache:/var/cache/nginx
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+        tag: "{{.Name}}"
+
+    read_only: true
+    tmpfs:
+      # nginx requires writable /tmp, /var/run, and /var/log/nginx at runtime
+      - /tmp:size=32m,mode=1777
+      - /var/run:size=8m
+      - /var/log/nginx:size=32m
+
+    security_opt:
+      - no-new-privileges:true
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/ || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    depends_on:
+      automate:
+        condition: service_healthy
+
+    labels:
+      com.automate.role: "proxy"
+      com.automate.managed-by: "docker-compose"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  # Re-declare base volumes (no-op if already declared in docker-compose.yml).
+  automate_dashboard_data:
+    driver: local
+  automate_dashboard_artifacts:
+    driver: local
+  # nginx write cache (avoids touching the read-only FS)
+  nginx_cache:
+    driver: local

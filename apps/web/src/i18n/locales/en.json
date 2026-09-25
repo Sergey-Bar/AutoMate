@@ -1,0 +1,17 @@
+{
+  "nav.dashboard": "Dashboard",
+  "nav.automate": "AutoMate",
+  "nav.connectors": "Connectors",
+  "nav.model": "Model",
+  "nav.vault": "Vault",
+  "nav.sql": "SQL Browser",
+  "settings.title": "Settings",
+  "settings.connectors": "Connectors",
+  "settings.model": "Model",
+  "settings.vault": "Vault",
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.loading": "Loading...",
+  "common.error": "Error",
+  "common.success": "Success"
+}

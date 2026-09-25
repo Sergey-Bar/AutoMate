@@ -1,0 +1,94 @@
+// Jenkinsfile — Playwright Tests with Automate Quality Gate
+//
+// Prerequisites:
+//   - Dashboard running and accessible (set DASHBOARD_HOST)
+//   - AUTOMATE_DASHBOARD_API_KEY configured as a Jenkins credential
+//   - @automate/reporter installed in your project
+//   - curl and bash available on the build agent
+//
+// Declarative pipeline — copy to Jenkinsfile and update the DASHBOARD_HOST.
+
+pipeline {
+    agent any
+
+    environment {
+        DASHBOARD_HOST   = 'your-dashboard.example.com'   // Change to your host
+        DASHBOARD_PORT   = '4000'
+        REPORTER_PORT    = '4001'
+        // Bind the Jenkins secret credential to an env var
+        AUTOMATE_DASHBOARD_API_KEY = credentials('automate-api-key')
+    }
+
+    stages {
+        stage('Install') {
+            steps {
+                sh 'node --version && npm --version'
+                sh 'npm ci'
+            }
+        }
+
+        stage('Install Playwright') {
+            steps {
+                sh 'npx playwright install --with-deps chromium'
+            }
+        }
+
+        stage('Run Tests') {
+            steps {
+                // Run tests and stream to Dashboard reporter.
+                // continue-on-error: the gate stage decides pass/fail.
+                script {
+                    def status = sh(
+                        script: '''
+                            npx playwright test 2>&1 | tee playwright-output.txt
+                            grep -oP "(?<=Automate run: )\\S+" playwright-output.txt | head -1 > run-id.txt || true
+                        ''',
+                        returnStatus: true
+                    )
+                    env.PLAYWRIGHT_EXIT_CODE = status.toString()
+                }
+            }
+            environment {
+                AUTOMATE_DASHBOARD_URL = "ws://${env.DASHBOARD_HOST}:${env.REPORTER_PORT}"
+            }
+            post {
+                always {
+                    // Archive playwright report even on failure
+                    archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                script {
+                    def runId = sh(script: 'cat run-id.txt 2>/dev/null || echo ""', returnStdout: true).trim()
+                    if (!runId) {
+                        echo "No run ID captured — skipping gate check."
+                        return
+                    }
+                    def gateExit = sh(
+                        script: """
+                            bash scripts/check-gate.sh \\
+                              --url "http://${env.DASHBOARD_HOST}:${env.DASHBOARD_PORT}" \\
+                              --run-id "${runId}" \\
+                              --api-key "${env.AUTOMATE_DASHBOARD_API_KEY}" \\
+                              --wait \\
+                              --timeout 300
+                        """,
+                        returnStatus: true
+                    )
+                    if (gateExit != 0) {
+                        error("Quality gate FAILED — pass rate below threshold. Check Dashboard for details.")
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+    }
+}
