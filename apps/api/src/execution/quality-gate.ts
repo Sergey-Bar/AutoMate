@@ -160,6 +160,13 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
       ...policy.rules.filter((rule) => rule.required).map((rule) => rule.domain),
     ]),
   ];
+  if (
+    requiredDomains.includes('browser') &&
+    domains.browser === 'passed' &&
+    evidenceRefs.length === 0
+  ) {
+    reasons.push('evidence:MISSING_REQUIRED_EVIDENCE');
+  }
   for (const domain of requiredDomains) {
     const status = domains[domain] ?? 'unknown';
     const reason = reasonForDomain(domain, status);
@@ -195,7 +202,8 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
     (reason) =>
       reason.endsWith(':UNKNOWN') ||
       reason.endsWith(':NOT_CONFIGURED') ||
-      reason.endsWith(':MISSING_EVIDENCE'),
+      reason.endsWith(':MISSING_EVIDENCE') ||
+      reason.endsWith('evidence:MISSING_REQUIRED_EVIDENCE'),
   );
   const hasWarning = reasons.some((reason) => reason.endsWith(':WARNING'));
   let status: GateEvaluation['status'];

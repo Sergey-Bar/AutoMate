@@ -108,7 +108,7 @@ export const outboxEvents = pgTable(
     aggregateId: text('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
     eventVersion: integer('event_version').notNull().default(2),
-    payload: jsonb('payload').notNull(),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     dedupeKey: text('dedupe_key').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
@@ -117,6 +117,7 @@ export const outboxEvents = pgTable(
     uniqueIndex('outbox_events_dedupe_idx').on(table.dedupeKey),
     index('outbox_events_sequence_idx').on(table.sequence),
     index('outbox_events_expiry_idx').on(table.expiresAt),
+    index('outbox_events_workspace_sequence_idx').on(table.workspaceId, table.sequence),
   ],
 );
 

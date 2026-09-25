@@ -17,7 +17,7 @@ The local endpoints are:
 - API: `http://127.0.0.1:53000`
 - PostgreSQL: `127.0.0.1:55432`
 
-Use `.env.example` as the variable checklist. `AUTOMATE_API_KEY`, `REPORTER_SECRET`, and `RUNNER_REGISTRATION_SECRET` are separate credentials. `COOKIE_SECRET`, `VAULT_SECRET`, and `ARTIFACT_ROOT` must be supplied for a persistent deployment. Do not commit `.env` files or secret values.
+Use `.env.example` as the variable checklist. `AUTOMATE_API_KEY`, `REPORTER_SECRET`, and `RUNNER_REGISTRATION_SECRET` are separate credentials. `COOKIE_SECRET`, `VAULT_SECRET`, and `ARTIFACT_ROOT` must be supplied for a persistent local deployment. Production additionally requires `OBJECT_STORE_ENDPOINT`, `OBJECT_STORE_BUCKET`, `OBJECT_STORE_REGION`, `OBJECT_STORE_ACCESS_KEY_ID`, and `OBJECT_STORE_SECRET_ACCESS_KEY`; the API refuses to start without that durable S3-compatible artifact store. HTTPS is required unless `OBJECT_STORE_ALLOW_INSECURE=true` is explicitly set for a private development store. During a storage cutover, set `ARTIFACT_READ_FALLBACK_ROOT` to a mounted copy of the legacy artifact directory; remove it after the fallback window closes. Do not commit `.env` files or secret values.
 
 Stop services without deleting evidence:
 

@@ -51,4 +51,22 @@ describe('EncryptedSpool', () => {
     expect(spool.open(sealed)).toEqual({ sequence: 1, payload: { status: 'succeeded' } });
     expect(() => new EncryptedSpool(Buffer.alloc(32, 8)).open(sealed)).toThrow();
   });
+
+  it('derives a stable key from a secret and fingerprints it', () => {
+    const first = new EncryptedSpool('runner-secret');
+    const second = new EncryptedSpool('runner-secret');
+    expect(first.keyId()).toBe(second.keyId());
+    expect(new EncryptedSpool('other-secret').keyId()).not.toBe(first.keyId());
+    expect(() => new EncryptedSpool(Buffer.alloc(16, 7))).toThrow('32 bytes');
+    expect(() => new EncryptedSpool('')).toThrow();
+  });
+
+  it('fails closed on tampered and incomplete frames', () => {
+    const spool = new EncryptedSpool('runner-secret');
+    const sealed = spool.seal({ sequence: 2, payload: { status: 'failed' } });
+    const tampered = Buffer.from(sealed);
+    tampered[tampered.length - 1] ^= 0xff;
+    expect(() => spool.open(tampered)).toThrow(/authentication/u);
+    expect(() => spool.open(sealed.subarray(0, 8))).toThrow(/envelope/u);
+  });
 });

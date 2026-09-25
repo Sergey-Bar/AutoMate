@@ -27,6 +27,17 @@ const valid = {
   metricsToken: undefined,
   retentionDays: 30,
   seedDemoRun: false,
+  objectStore: {
+    endpoint: 'https://objects.example.com',
+    bucket: 'automate-artifacts',
+    region: 'eu-central-1',
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'a-valid-object-store-secret',
+      forcePathStyle: false,
+      allowInsecureHttp: false,
+      maxBytes: 1024,
+    timeoutMs: 5000,
+  },
 };
 
 describe('runner registration startup policy', () => {

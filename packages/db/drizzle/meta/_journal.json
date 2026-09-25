@@ -36,6 +36,13 @@
       "when": 1790344536419,
       "tag": "0004_orange_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790400000000,
+      "tag": "0005_canonical_run_results",
+      "breakpoints": true
     }
   ]
 }

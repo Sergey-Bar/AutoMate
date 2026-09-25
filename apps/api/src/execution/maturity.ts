@@ -1,18 +1,13 @@
-export type IntegrationMaturityLevel = 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | 'L5';
-export type IntegrationEvidenceStatus = 'verified' | 'not_configured' | 'unsupported';
+import {
+  IntegrationMaturitySchema,
+  type IntegrationMaturity,
+  type IntegrationMaturityLevel,
+  type IntegrationEvidenceStatus,
+} from '@automate/shared-contracts';
 
-export interface IntegrationMaturity {
-  id: string;
-  name: string;
-  domain: string;
-  level: IntegrationMaturityLevel;
-  capabilities: string[];
-  adapterVersion: string;
-  evidenceStatus: IntegrationEvidenceStatus;
-  evidence: string[];
-}
+export type { IntegrationMaturity, IntegrationMaturityLevel, IntegrationEvidenceStatus };
 
-export const INTEGRATION_MATURITY_REGISTRY: readonly IntegrationMaturity[] = [
+const INTEGRATION_MATURITY_SOURCE = [
   {
     id: 'playwright-test',
     name: 'Playwright Test',
@@ -174,6 +169,9 @@ export const INTEGRATION_MATURITY_REGISTRY: readonly IntegrationMaturity[] = [
     evidence: [],
   },
 ];
+
+export const INTEGRATION_MATURITY_REGISTRY: readonly IntegrationMaturity[] =
+  IntegrationMaturitySchema.array().parse(INTEGRATION_MATURITY_SOURCE);
 
 export function listIntegrationMaturity(): IntegrationMaturity[] {
   return INTEGRATION_MATURITY_REGISTRY.map((entry) => ({

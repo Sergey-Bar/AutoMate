@@ -14,7 +14,7 @@ import { z } from 'zod/v4';
 export const REPORTER_EVENT_VERSION = '1' as const;
 
 export const ReporterEventSchema = z.object({
-  version: z.string().default(REPORTER_EVENT_VERSION),
+  version: z.literal(REPORTER_EVENT_VERSION).default(REPORTER_EVENT_VERSION),
   type: z.string(),
   runId: z.string(),
   timestamp: z.string(),

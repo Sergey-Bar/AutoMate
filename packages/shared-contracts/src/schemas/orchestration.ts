@@ -59,7 +59,7 @@ export const RunnerEventSchema = z.object({
   fencingToken: z.number().int().min(1),
   sequence: z.number().int().min(1),
   type: z.enum(['progress', 'artifact', 'terminal']),
-  payload: z.record(z.string(), z.unknown()),
+  payload: z.object({ definitionHash: Digest.optional() }).passthrough(),
 });
 export const JobStateSchema = StateSchema;
 export type AutomationDefinition = z.infer<typeof AutomationDefinitionSchema>;

@@ -13,7 +13,7 @@ import { z } from 'zod/v4';
 export const REALTIME_EVENT_VERSION = '1' as const;
 
 export const RealtimeEventSchema = z.object({
-  version: z.string().default(REALTIME_EVENT_VERSION),
+  version: z.literal(REALTIME_EVENT_VERSION).default(REALTIME_EVENT_VERSION),
   type: z.string(),
   timestamp: z.string(),
 });

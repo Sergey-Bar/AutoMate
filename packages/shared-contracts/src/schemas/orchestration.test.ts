@@ -31,7 +31,7 @@ describe('orchestration contracts', () => {
         type: 'terminal',
         payload: { state: 'succeeded', definitionHash: 'latest' },
       }).success,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       RunnerEventSchema.safeParse({
         eventId: 'event-1',

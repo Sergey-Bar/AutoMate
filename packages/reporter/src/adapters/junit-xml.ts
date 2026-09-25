@@ -5,17 +5,28 @@ import type { ProducerAdapter } from '../adapter.js';
 interface TestCase {
   name: string;
   classname?: string;
+  file?: string;
   time?: number;
   status: string;
+  declaredStatus?: string;
   message?: string;
 }
 
-function statusFrom(raw: string | undefined, children: Set<string>): CanonicalRunResult['status'] {
-  if (children.has('failure')) return 'failed';
-  if (children.has('error')) return 'failed';
+function statusFrom(
+  declaredStatus: string | undefined,
+  children: Set<string>,
+): CanonicalRunResult['status'] {
+  if (children.has('failure') || children.has('error')) return 'failed';
   if (children.has('skipped')) return 'skipped';
-  if (raw === 'passed') return 'passed';
-  return 'unknown';
+  if (declaredStatus !== undefined) {
+    if (declaredStatus === 'passed') return 'passed';
+    if (declaredStatus === 'failed') return 'failed';
+    if (declaredStatus === 'skipped') return 'skipped';
+    if (declaredStatus === 'flaky') return 'flaky';
+    if (declaredStatus === 'timedOut') return 'timedOut';
+    return 'unknown';
+  }
+  return 'passed';
 }
 
 export const junitXmlAdapter: ProducerAdapter = {
@@ -32,8 +43,10 @@ export const junitXmlAdapter: ProducerAdapter = {
         current = {
           name: attributes.name ?? 'unnamed test',
           classname: attributes.classname,
+          file: attributes.file,
           time: attributes.time ? Number(attributes.time) * 1000 : undefined,
           status: 'unknown',
+          declaredStatus: attributes.status,
         };
         currentText = '';
         currentChildren.clear();
@@ -49,7 +62,7 @@ export const junitXmlAdapter: ProducerAdapter = {
     });
     parser.on('closetag', (tag) => {
       if (tag.name === 'testcase' && current) {
-        current.status = statusFrom(undefined, currentChildren);
+        current.status = statusFrom(current.declaredStatus, currentChildren);
         current.message = currentText.trim() || undefined;
         testCases.push(current);
         current = undefined;
@@ -62,7 +75,7 @@ export const junitXmlAdapter: ProducerAdapter = {
     const attempts = testCases.map((testCase, index) => ({
       index: index + 1,
       testId: `${testCase.classname ?? 'suite'}:${testCase.name}`,
-      specPath: 'unknown.spec.ts',
+      specPath: testCase.file ?? 'unknown.spec.ts',
       title: testCase.name,
       suite: testCase.classname,
       status: testCase.status,

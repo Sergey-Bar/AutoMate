@@ -126,27 +126,31 @@ QA-Doctor is a clean, read-only reference at `d981ba356313ae8cea0538ca85c665e88b
 
 ## Phase 1 validation evidence
 
-| Gate                  | Result                    | Evidence                                                                                                                                              |
-| --------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Frozen install        | passed with host override | `pnpm install --frozen-lockfile --config.engine-strict=false` completed without lockfile mutation; the committed policy remains Node `>=22.19.0 <23`. |
-| Formatting            | passed                    | Scoped governance-file `pnpm format:check` passed; legacy product formatting is not silently rewritten.                                               |
-| Lint                  | passed                    | Root `pnpm lint` passed, including browser/shared-contract import boundaries.                                                                         |
-| Typecheck             | passed                    | Root and workspace typechecks passed after removing ignored child-route imports.                                                                      |
-| Drizzle check         | passed                    | `drizzle-kit check` reported a consistent migration graph.                                                                                            |
-| Unit tests            | passed                    | Full Turbo test suite passed; the PGlite API suite is covered with 30-second hook/test limits.                                                        |
-| Build                 | passed                    | Full Turbo build passed; build configs exclude test sources.                                                                                          |
-| Security              | passed                    | High-severity audit threshold passed after scoped overrides; remaining findings are 2 low and 12 moderate.                                            |
-| API E2E               | passed                    | `pnpm test:e2e:api` passed 3 API vertical-slice tests.                                                                                                |
-| Local integration     | passed                    | PGlite identity integration passed installation bootstrap and session revocation persistence tests.                                                   |
-| Browser E2E           | passed                    | Authenticated `pnpm test:e2e:vertical` passed all 5 API/browser/SSE cases using the canonical session route.                                          |
-| Full verify composite | passed                    | Full `pnpm verify` passed under pinned Node 22.19.0; the host Node 24 launcher remains intentionally rejected by the engine policy.                   |
+| Gate                  | Result                    | Evidence                                                                                                                                                                                  |
+| --------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frozen install        | passed with host override | `pnpm install --frozen-lockfile --config.engine-strict=false` completed without lockfile mutation; the committed policy is now Node `>=24.0.0 <25` (see the runtime contract note below). |
+| Formatting            | passed                    | Scoped governance-file `pnpm format:check` passed; legacy product formatting is not silently rewritten.                                                                                   |
+| Lint                  | passed                    | Root `pnpm lint` passed, including browser/shared-contract import boundaries.                                                                                                             |
+| Typecheck             | passed                    | Root and workspace typechecks passed after removing ignored child-route imports.                                                                                                          |
+| Drizzle check         | passed                    | `drizzle-kit check` reported a consistent migration graph.                                                                                                                                |
+| Unit tests            | passed                    | Full Turbo test suite passed; the PGlite API suite is covered with 30-second hook/test limits.                                                                                            |
+| Build                 | passed                    | Full Turbo build passed; build configs exclude test sources.                                                                                                                              |
+| Security              | passed                    | High-severity audit threshold passed after scoped overrides; remaining findings are 2 low and 12 moderate.                                                                                |
+| API E2E               | passed                    | `pnpm test:e2e:api` passed 3 API vertical-slice tests.                                                                                                                                    |
+| Local integration     | passed                    | PGlite identity integration passed installation bootstrap and session revocation persistence tests.                                                                                       |
+| Browser E2E           | passed                    | Authenticated `pnpm test:e2e:vertical` passed all 5 API/browser/SSE cases using the canonical session route.                                                                              |
+| Full verify composite | passed                    | Full `pnpm verify` passed under the then-pinned runtime; the engine policy no longer rejects a Node 24 launcher (see the runtime contract note below).                                    |
+
+### Runtime contract note
+
+The gate evidence in this section was collected under the previous runtime major, which this repository no longer pins; the pre-change values remain in git history. On 2026-09-25 the committed runtime contract moved to Node 24: root engines `>=24.0.0 <25`, `.nvmrc`/`.node-version` `24.21.0`, CI `NODE_VERSION: 24.x`, and Docker base images `node:24.21.0`. The engine-policy block on a Node 24 launcher is therefore resolved, and the full `pnpm verify` composite must be re-run under the new contract before this evidence is refreshed.
 
 ## Phase implementation status
 
 | Phase | Local implementation status                                                                                         | Remaining boundary                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | 0     | complete                                                                                                            | Production provenance and source-auth security review remain deferred.                 |
-| 1     | complete for local governance                                                                                       | CI still lacks external secret-scanning jobs; Node 22.19.0 is the release runtime.     |
+| 1     | complete for local governance                                                                                       | CI still lacks external secret-scanning jobs; Node 24.21.0 is the release runtime.     |
 | 2     | contracts, adapters, API result boundary, and fixtures implemented                                                  | Durable outbox and full producer breadth remain Phase 3/5 work.                        |
 | 3     | config owner, cookie sessions, identity schema, session repository, artifact store, and replay boundary implemented | Two-instance PostgreSQL/SSE tests and vault/audit retention are not yet proven.        |
 | 4     | canonical KPI/gate policies and RunExplorer API/UI implemented                                                      | Dashboard projections still need durable database read models.                         |

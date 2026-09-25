@@ -427,6 +427,12 @@ export interface ExecutionStore {
     },
   ): Promise<ArtifactDescriptor>;
   getArtifact(artifactId: string): Promise<StoredArtifact | null>;
+  /**
+   * Metadata-only lookup. Lets callers tell a missing artifact row apart from a
+   * row whose bytes could not be read, which `getArtifact` reports as null for
+   * both. Optional so existing store doubles keep working.
+   */
+  getArtifactDescriptor?(artifactId: string): Promise<ArtifactDescriptor | null>;
   listArtifacts(runId: string): Promise<ArtifactDescriptor[]>;
   createPolicy(
     input: Omit<QualityPolicy, 'id' | 'hash' | 'createdAt' | 'updatedAt'>,

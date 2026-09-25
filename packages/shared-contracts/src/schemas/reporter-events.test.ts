@@ -34,17 +34,14 @@ describe('ReporterEventSchema', () => {
     }
   });
 
-  it('captures an explicit version field even if it differs', () => {
+  it('rejects an incompatible version', () => {
     const result = ReporterEventSchema.safeParse({
       version: '2',
       type: 'future:event',
       runId: 'run-001',
       timestamp: '2026-01-01T00:00:00.000Z',
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.version).toBe('2');
-    }
+    expect(result.success).toBe(false);
   });
 
   it('defaults version to "1" when not provided', () => {

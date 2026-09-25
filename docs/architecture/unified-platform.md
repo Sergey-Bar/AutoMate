@@ -12,7 +12,7 @@ The Q-Ace ecosystem currently consists of two independent monorepos: `Automate` 
 We will adopt a **modular monolith** architecture for the unified platform. This approach balances the development velocity of a single codebase with the clear boundaries of independent domains.
 
 ### Target Architecture
-- **Backend**: Hono + Effect running on Node.js 22+.
+- **Backend**: Hono + Effect running on Node.js 24+.
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Frontend**: React 19 + TanStack Router + Tailwind CSS 4.
 - **Package Boundaries**:

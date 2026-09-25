@@ -2,7 +2,7 @@
   <h1>Automate</h1>
   <p><strong>A local-first control plane for test evidence, run intelligence, and isolated automation.</strong></p>
   <p>
-    <a href="https://nodejs.org/"><img alt="Node.js 22.19" src="https://img.shields.io/badge/Node.js-22.19-5FA04E?logo=node.js"></a>
+    <a href="https://nodejs.org/"><img alt="Node.js 24.21" src="https://img.shields.io/badge/Node.js-24.21-5FA04E?logo=node.js"></a>
     <a href="https://pnpm.io/"><img alt="pnpm 10.30.2" src="https://img.shields.io/badge/pnpm-10.30.2-F69220?logo=pnpm&logoColor=white"></a>
     <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5.9" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white"></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-2EA44F.svg"></a>
@@ -59,7 +59,7 @@ flowchart LR
 
 ### Prerequisites
 
-- Node.js `22.19.x`
+- Node.js `24.x`
 - pnpm `10.30.2`
 - Docker Engine is optional and only required for the Compose workflow
 

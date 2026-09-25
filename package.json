@@ -23,9 +23,9 @@
     "test:e2e": "playwright test",
     "test:e2e:api": "playwright test --project=vertical-slice --grep \"API\"",
     "test:e2e:vertical": "playwright test --project=vertical-slice",
-    "db:generate": "pnpm --config.engine-strict=false --filter @automate/db db:generate",
-    "db:migrate": "pnpm --config.engine-strict=false --filter @automate/db db:migrate",
-    "db:check": "pnpm --config.engine-strict=false --filter @automate/db exec drizzle-kit check",
+    "db:generate": "pnpm --filter @automate/db db:generate",
+    "db:migrate": "pnpm --filter @automate/db db:migrate",
+    "db:check": "pnpm --filter @automate/db exec drizzle-kit check",
     "compose:config": "docker compose -f docker-compose.unified.yml config",
     "migrate:plan": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js plan",
     "migrate:validate": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js validate",
@@ -59,7 +59,7 @@
     "vitest": "^4.1.5"
   },
   "engines": {
-    "node": ">=22.19.0 <23",
+    "node": ">=24.0.0 <25",
     "pnpm": "10.30.2"
   }
 }

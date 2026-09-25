@@ -1,8 +1,10 @@
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod/v4';
 
 const defaultProjectRoot = fileURLToPath(new URL('../fixtures/playwright-smoke/', import.meta.url));
+const defaultSpoolRoot = join(tmpdir(), 'automate-runner-spool');
 
 function csv(value: string): string[] {
   return [
@@ -56,6 +58,14 @@ const RunnerConfigSchema = z
     allowedTargetUrls: z.string().default('http://127.0.0.1:3000').transform(origins),
     artifactMaxBytes: z.coerce.number().int().min(1).max(500_000_000).default(50_000_000),
     logMaxBytes: z.coerce.number().int().min(1_024).max(50_000_000).default(5_000_000),
+    spoolRoot: z.string().min(1).default(defaultSpoolRoot),
+    spoolKey: z.string().min(16).optional(),
+    spoolMaxEntries: z.coerce.number().int().min(1).max(1_000_000).default(10_000),
+    spoolMaxBytes: z.coerce.number().int().min(1_024).max(2_000_000_000).default(64_000_000),
+    spoolCompactThresholdBytes: z.coerce.number().int().min(1_024).max(2_000_000_000).default(8_000_000),
+    spoolRetryMaxAttempts: z.coerce.number().int().min(1).max(100).default(8),
+    spoolRetryBaseDelayMs: z.coerce.number().int().min(1).max(60_000).default(250),
+    spoolRetryMaxDelayMs: z.coerce.number().int().min(1).max(600_000).default(30_000),
     redactions: z.string().default('').transform(csv),
   })
   .superRefine((value, context) => {
@@ -99,6 +109,14 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     allowedTargetUrls: input['RUNNER_ALLOWED_TARGET_URLS'],
     artifactMaxBytes: input['RUNNER_ARTIFACT_MAX_BYTES'],
     logMaxBytes: input['RUNNER_LOG_MAX_BYTES'],
+    spoolRoot: input['RUNNER_SPOOL_ROOT'],
+    spoolKey: input['RUNNER_SPOOL_KEY'],
+    spoolMaxEntries: input['RUNNER_SPOOL_MAX_ENTRIES'],
+    spoolMaxBytes: input['RUNNER_SPOOL_MAX_BYTES'],
+    spoolCompactThresholdBytes: input['RUNNER_SPOOL_COMPACT_THRESHOLD_BYTES'],
+    spoolRetryMaxAttempts: input['RUNNER_SPOOL_RETRY_MAX_ATTEMPTS'],
+    spoolRetryBaseDelayMs: input['RUNNER_SPOOL_RETRY_BASE_DELAY_MS'],
+    spoolRetryMaxDelayMs: input['RUNNER_SPOOL_RETRY_MAX_DELAY_MS'],
     redactions: input['RUNNER_REDACT_VALUES'],
   });
 }

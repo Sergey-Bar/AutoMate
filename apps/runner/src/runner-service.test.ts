@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MemorySpool, type SpoolEntry, type SpoolQueue } from '@automate/runner-sdk';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   RunnerConfigurationError,
@@ -8,12 +9,13 @@ import {
   type ExecutionProvider,
   type ExecutionResult,
 } from './execution.js';
-import type {
-  ArtifactDescriptor,
-  ExecutionEventInput,
-  JobClaim,
-  JobCompletion,
-  RunnerHeartbeat,
+import {
+  ExecutionEventInputSchema,
+  type ArtifactDescriptor,
+  type ExecutionEventInput,
+  type JobClaim,
+  type JobCompletion,
+  type RunnerHeartbeat,
 } from './protocol.js';
 import { RunnerService, type RunnerProtocol } from './runner-service.js';
 
@@ -46,6 +48,10 @@ class FakeProtocol implements RunnerProtocol {
   readonly events: ExecutionEventInput[] = [];
   readonly completions: JobCompletion[] = [];
   readonly artifacts: string[] = [];
+  failures = 0;
+  conflict = false;
+  conflictStatus = 'conflict';
+  onComplete?: () => void;
   private queued: JobClaim[] = [];
 
   enqueue(value: JobClaim): void {
@@ -73,12 +79,16 @@ class FakeProtocol implements RunnerProtocol {
     _fencingToken: number,
     events: ExecutionEventInput[],
   ): Promise<{ results: Array<{ eventId: string; sequence: number; status: string }> }> {
+    if (this.failures > 0) {
+      this.failures -= 1;
+      throw new Error('runner API is unreachable');
+    }
     this.events.push(...events);
     return {
       results: events.map((event) => ({
         eventId: event.eventId,
         sequence: event.sequence,
-        status: 'accepted',
+        status: this.conflict ? this.conflictStatus : 'accepted',
       })),
     };
   }
@@ -107,8 +117,25 @@ class FakeProtocol implements RunnerProtocol {
   }
 
   async complete(_jobId: string, completion: JobCompletion): Promise<unknown> {
+    if (this.failures > 0) {
+      this.failures -= 1;
+      throw new Error('runner API is unreachable');
+    }
     this.completions.push(completion);
+    this.onComplete?.();
     return {};
+  }
+}
+
+class FailFirstCompletionSpool extends MemorySpool {
+  failNextCompletion = true;
+
+  override async enqueue(entry: SpoolEntry): Promise<void> {
+    if (entry.kind === 'completion' && this.failNextCompletion) {
+      this.failNextCompletion = false;
+      throw new Error('spool temporarily unavailable');
+    }
+    await super.enqueue(entry);
   }
 }
 
@@ -126,7 +153,12 @@ class FakeExecutor implements ExecutionProvider {
   }
 }
 
-function service(protocol: RunnerProtocol, executor: ExecutionProvider): RunnerService {
+function service(
+  protocol: RunnerProtocol,
+  executor: ExecutionProvider,
+  spool: SpoolQueue = new MemorySpool(),
+  onError: (error: unknown) => void = vi.fn(),
+): RunnerService {
   return new RunnerService({
     runnerId: 'runner-1',
     capabilities: ['playwright', 'chromium'],
@@ -136,7 +168,8 @@ function service(protocol: RunnerProtocol, executor: ExecutionProvider): RunnerS
     heartbeatIntervalMs: 60_000,
     protocol,
     executor,
-    onError: vi.fn(),
+    spool,
+    onError,
   });
 }
 
@@ -241,5 +274,139 @@ describe('RunnerService', () => {
       phase: 'config_failed',
       outcome: 'config_failed',
     });
+  });
+});
+
+describe('RunnerService spool delivery', () => {
+  function passingExecutor(): FakeExecutor {
+    return new FakeExecutor(async () => ({
+      status: 'passed',
+      resultPath: '',
+      workspacePath: '',
+      artifacts: [],
+      stdout: '',
+      stderr: '',
+    }));
+  }
+
+  it('queues events and completion before sending and replays them in order', async () => {
+    const spool = new MemorySpool();
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+    protocol.failures = 2;
+    const pendingOnFailure: number[] = [];
+    const errors = vi.fn();
+    const runner = service(protocol, passingExecutor(), spool, (error: unknown) => {
+      pendingOnFailure.push(spool.pending());
+      errors(error);
+    });
+    protocol.onComplete = () => runner.stop();
+
+    await runner.run();
+
+    expect(pendingOnFailure.length).toBeGreaterThan(0);
+    expect(pendingOnFailure.every((count) => count > 0)).toBe(true);
+    expect(protocol.events.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
+    expect(protocol.events.map((event) => event.type)).toEqual([
+      'run.assigned',
+      'run.phase_changed',
+      'run.started',
+      'run.phase_changed',
+      'run.completed',
+    ]);
+    expect(protocol.completions).toEqual([
+      expect.objectContaining({ status: 'passed', phase: 'complete' }),
+    ]);
+    expect(spool.pending()).toBe(0);
+  });
+
+  it('retries a completion after a transient spool enqueue failure', async () => {
+    const spool = new FailFirstCompletionSpool();
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim('job-completion-retry'));
+    const runner = service(protocol, passingExecutor(), spool);
+    const stop = setTimeout(() => runner.stop(), 20);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(protocol.completions).toHaveLength(1);
+    expect(spool.pending()).toBe(0);
+  });
+
+  it('replays entries restored from a previous process and continues the sequence', async () => {
+    const spool = new MemorySpool();
+    const restored = ExecutionEventInputSchema.parse({
+      version: '1',
+      runId: 'run-job-1',
+      eventId: 'restored-event',
+      sequence: 4,
+      occurredAt: new Date().toISOString(),
+      type: 'test.completed',
+      payload: {
+        testId: 'test-0',
+        attempt: 1,
+        status: 'passed',
+        finishedAt: new Date().toISOString(),
+      },
+    });
+    await spool.enqueue({
+      id: restored.eventId,
+      jobId: 'job-1',
+      kind: 'event',
+      sequence: 4,
+      leaseId: 'lease-job-1',
+      fencingToken: 2,
+      payload: restored,
+    });
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+    const runner = service(protocol, passingExecutor(), spool);
+    protocol.onComplete = () => runner.stop();
+
+    await runner.run();
+
+    expect(protocol.events.map((event) => event.sequence)).toEqual([4, 5, 6, 7, 8, 9]);
+    expect(protocol.events[0]?.eventId).toBe('restored-event');
+    expect(spool.pending()).toBe(0);
+    expect(protocol.completions).toHaveLength(1);
+  });
+
+  it('dead-letters stale lease entries so a re-claimed job can drain the spool', async () => {
+    const spool = new MemorySpool();
+    const protocol = new FakeProtocol();
+    protocol.conflict = true;
+    protocol.conflictStatus = 'stale_lease';
+    protocol.enqueue(claim('job-stale'));
+    const errors = vi.fn();
+    const runner = service(protocol, passingExecutor(), spool, errors);
+    const stop = setTimeout(() => runner.stop(), 25);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(errors).toHaveBeenCalled();
+    expect(spool.pending()).toBe(0);
+  });
+
+  it('keeps unacknowledged events queued when the API reports a non-terminal conflict', async () => {
+    const spool = new MemorySpool();
+    const protocol = new FakeProtocol();
+    protocol.conflict = true;
+    protocol.enqueue(claim());
+    const errors = vi.fn();
+    const runner = service(protocol, passingExecutor(), spool, errors);
+    const stop = setTimeout(() => runner.stop(), 20);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(errors).toHaveBeenCalled();
+    expect(protocol.events.length).toBeGreaterThan(0);
+    expect(protocol.events[0]?.sequence).toBe(1);
+    expect(Math.max(...protocol.events.map((event) => event.sequence))).toBe(5);
+    expect(protocol.events.at(-1)?.sequence).toBe(5);
+    expect(spool.pending()).toBe(6);
+    expect(protocol.completions).toEqual([]);
   });
 });

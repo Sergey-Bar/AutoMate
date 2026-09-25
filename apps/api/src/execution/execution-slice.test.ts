@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
+import { IntegrationMaturitySchema } from '@automate/shared-contracts';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
 import {
@@ -276,6 +277,7 @@ describe('canonical execution store and routes', () => {
     expect(maturity.status).toBe(200);
     const body = (await maturity.json()) as { integrations: unknown[] };
     expect(body.integrations.length).toBeGreaterThan(5);
+    expect(() => body.integrations.map((item) => IntegrationMaturitySchema.parse(item))).not.toThrow();
     expect(listIntegrationMaturity().some((item) => item.id === 'playwright-test')).toBe(true);
   });
 

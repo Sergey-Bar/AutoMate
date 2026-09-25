@@ -508,8 +508,8 @@
       "apiE2e": "passed-3-tests",
       "browserE2e": "passed-5-tests",
       "localIntegration": "passed-pglite-identity-session",
-      "verifyComposite": "passed-node-22.19.0",
-      "hostNode24Composite": "blocked-engine-policy"
+      "verifyComposite": "passed-pinned-previous-runtime",
+      "hostNode24Composite": "unblocked-pending-rerun"
     }
   },
   "implementation": {

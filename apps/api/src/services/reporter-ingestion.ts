@@ -6,6 +6,11 @@ export interface ReporterIngestionResult {
   result?: CanonicalRunResult;
 }
 
+export interface ReporterResultStore {
+  ingest(input: unknown): ReporterIngestionResult | Promise<ReporterIngestionResult>;
+  get(runId: string): CanonicalRunResult | undefined | Promise<CanonicalRunResult | undefined>;
+}
+
 export class ReporterIngestionService {
   private readonly results = new Map<string, { fingerprint: string; result: CanonicalRunResult }>();
 
