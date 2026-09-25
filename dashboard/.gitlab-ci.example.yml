@@ -1,0 +1,76 @@
+# GitLab CI — Playwright Tests with Automate Quality Gate
+#
+# Prerequisites:
+#   - Dashboard running and accessible (set DASHBOARD_HOST in CI/CD variables)
+#   - AUTOMATE_DASHBOARD_API_KEY set as a protected CI/CD variable
+#   - @automate/reporter installed in your project
+#
+# Copy this file to .gitlab-ci.yml and update the DASHBOARD_HOST variable.
+
+variables:
+  DASHBOARD_HOST: "your-dashboard.example.com"   # Change to your Dashboard host
+  DASHBOARD_PORT: "4000"
+  REPORTER_PORT: "4001"
+
+stages:
+  - install
+  - test
+  - gate
+
+install:
+  stage: install
+  image: node:22-slim
+  script:
+    - npm ci
+  cache:
+    key: $CI_COMMIT_REF_SLUG
+    paths:
+      - node_modules/
+  artifacts:
+    paths:
+      - node_modules/
+
+playwright-test:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.49.0-noble
+  needs: [install]
+  script:
+    # Run tests, capture run ID from reporter output
+    - |
+      npx playwright test 2>&1 | tee playwright-output.txt
+      RUN_ID=$(grep -oP '(?<=Automate run: )\S+' playwright-output.txt | head -1)
+      echo "RUN_ID=$RUN_ID" >> playwright.env
+  environment:
+    variables:
+      AUTOMATE_DASHBOARD_URL: "ws://${DASHBOARD_HOST}:${REPORTER_PORT}"
+      AUTOMATE_DASHBOARD_API_KEY: $AUTOMATE_DASHBOARD_API_KEY
+  allow_failure: true   # Let gate job decide pass/fail
+  artifacts:
+    when: always
+    paths:
+      - playwright-report/
+      - playwright.env
+    expire_in: 1 week
+
+quality-gate:
+  stage: gate
+  image: alpine:3.19
+  needs: [playwright-test]
+  before_script:
+    - apk add --no-cache curl bash
+  script:
+    - source playwright.env
+    - |
+      if [ -z "$RUN_ID" ]; then
+        echo "No run ID found — skipping gate check."
+        exit 0
+      fi
+    - |
+      bash scripts/check-gate.sh \
+        --url "http://${DASHBOARD_HOST}:${DASHBOARD_PORT}" \
+        --run-id "$RUN_ID" \
+        --api-key "$AUTOMATE_DASHBOARD_API_KEY" \
+        --wait \
+        --timeout 300
+  # The exit code from check-gate.sh determines job pass/fail.
+  # GitLab will mark the pipeline as failed if exit code is 1.

@@ -1,0 +1,1037 @@
+{
+  "version": "1.1.0",
+  "tools": {
+    "runs.list_recent": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runs"
+        ],
+        "properties": {
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "name",
+                "status",
+                "startedAt",
+                "duration",
+                "totalTests",
+                "passed",
+                "failed"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "status": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "startedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "totalTests": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "passed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "failed": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "runs.get_summary_by_id": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "run"
+        ],
+        "properties": {
+          "run": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "name",
+              "status",
+              "startedAt",
+              "duration",
+              "totalTests",
+              "passed",
+              "failed",
+              "skipped",
+              "suites"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "status": {
+                "type": "string",
+                "minLength": 1
+              },
+              "startedAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "duration": {
+                "type": "number",
+                "minimum": 0
+              },
+              "totalTests": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "suites": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "environment": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "tests.get_failures_by_run": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "failures"
+        ],
+        "properties": {
+          "failures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "testId",
+                "name",
+                "suiteName",
+                "errorMessage",
+                "duration"
+              ],
+              "properties": {
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "suiteName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "errorMessage": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "errorStack": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "duration": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "analytics.get_pass_rate": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 30
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "passRate",
+          "totalRuns",
+          "period"
+        ],
+        "properties": {
+          "passRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "totalRuns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "period": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "from",
+              "to"
+            ],
+            "properties": {
+              "from": {
+                "type": "string",
+                "minLength": 1
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "analytics.get_duration_trend": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "default": 30
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "trend"
+        ],
+        "properties": {
+          "trend": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "date",
+                "avgDuration",
+                "runCount"
+              ],
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "avgDuration": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "runCount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tests.get_error_clusters": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "clusters"
+        ],
+        "properties": {
+          "clusters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "clusterId",
+                "pattern",
+                "count",
+                "severity",
+                "examples"
+              ],
+              "properties": {
+                "clusterId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "pattern": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "severity": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "examples": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "tests.get_predictive_candidates": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "changedFiles"
+        ],
+        "properties": {
+          "changedFiles": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "workspaceId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "candidates",
+          "mode"
+        ],
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "testId",
+                "testName",
+                "score",
+                "reason"
+              ],
+              "properties": {
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "score": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "full",
+              "static_only"
+            ]
+          }
+        }
+      }
+    },
+    "quarantine.list_quarantined": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tests"
+        ],
+        "properties": {
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "testTitle",
+                "reason",
+                "quarantinedAt",
+                "quarantinedBy"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testTitle": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testFile": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "reason": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quarantinedAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "quarantinedBy": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "quarantine.get_details": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "testTitle"
+        ],
+        "properties": {
+          "testTitle": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quarantine"
+        ],
+        "properties": {
+          "quarantine": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "testTitle",
+              "reason",
+              "quarantinedAt",
+              "quarantinedBy"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "testTitle": {
+                "type": "string",
+                "minLength": 1
+              },
+              "testFile": {
+                "type": "string",
+                "minLength": 1
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quarantinedAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "quarantinedBy": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "runs.compare": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "baseRunId",
+          "headRunId"
+        ],
+        "properties": {
+          "baseRunId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "headRunId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "newFailures",
+          "fixed",
+          "regressions",
+          "summary"
+        ],
+        "properties": {
+          "newFailures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "testId",
+                "testName",
+                "errorMessage"
+              ],
+              "properties": {
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "errorMessage": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "fixed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "testId",
+                "testName"
+              ],
+              "properties": {
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testName": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "regressions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "testId",
+                "testName",
+                "baseStatus",
+                "headStatus"
+              ],
+              "properties": {
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "baseStatus": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "headStatus": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "baseTotal",
+              "headTotal",
+              "basePassed",
+              "headPassed"
+            ],
+            "properties": {
+              "baseTotal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "headTotal": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "basePassed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "headPassed": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "tests.get_flaky": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90,
+            "default": 14
+          },
+          "minFlipCount": {
+            "type": "integer",
+            "minimum": 2,
+            "maximum": 100,
+            "default": 3
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "flakyTests"
+        ],
+        "properties": {
+          "flakyTests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "stableId",
+                "testName",
+                "testFile",
+                "flakyCount",
+                "totalRuns",
+                "lastSeen"
+              ],
+              "properties": {
+                "stableId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testName": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testFile": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "flakyCount": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "totalRuns": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "lastSeen": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schedules.list": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schedules"
+        ],
+        "properties": {
+          "schedules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "cronExpr",
+                "enabled",
+                "createdAt"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "cronExpr": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "enabled": {
+                  "type": "boolean"
+                },
+                "lastRunAt": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "createdAt": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "schedules.get_by_id": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scheduleId"
+        ],
+        "properties": {
+          "scheduleId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schedule"
+        ],
+        "properties": {
+          "schedule": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "cronExpr",
+              "enabled",
+              "createdAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "cronExpr": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runOptions": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "lastRunAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "createdAt": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "integrations.get_status": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "integrations"
+        ],
+        "properties": {
+          "integrations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "configured"
+              ],
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "configured": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "runs.get_gate_status": {
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId"
+        ],
+        "properties": {
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "gateStatus",
+          "passed",
+          "passRate",
+          "threshold",
+          "failedTests",
+          "totalTests"
+        ],
+        "properties": {
+          "gateStatus": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "skipped"
+            ]
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "passRate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "threshold": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "failedTests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalTests": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "errorCodes": [
+    "UNAUTHORIZED",
+    "TOOL_NOT_FOUND",
+    "INVALID_INPUT",
+    "INTERNAL_ERROR",
+    "FEATURE_DISABLED"
+  ]
+}

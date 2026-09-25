@@ -1,0 +1,65 @@
+rules:
+  - id: no-vault-password-log
+    patterns:
+      - pattern: console.log(...)
+      - pattern-either:
+          - pattern: console.log($X, ...) where $X contains 'password'
+          - pattern: console.log($X, ...) where $X contains 'secret'
+          - pattern: console.log($X, ...) where $X contains 'decrypted'
+          - pattern: console.log(..., $X, ...) where $X contains 'vault'
+    message: >
+      Potential secret exposure: console.log() near vault/password/secret context.
+      Remove this log or redact the sensitive value before logging.
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: MEDIUM
+
+  - id: no-raw-sql-injection
+    pattern: |
+      `$SQL ${$VAR} $REST`
+    pattern-regex: "(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)"
+    message: >
+      Raw SQL string interpolation detected. Use parameterized queries (Drizzle ORM
+      or prepared statements) instead of template literals to prevent SQL injection.
+    languages: [typescript, javascript]
+    severity: ERROR
+    metadata:
+      category: security
+      confidence: MEDIUM
+
+  - id: zod-safeParse-required
+    pattern: $SCHEMA.parse($INPUT)
+    message: >
+      Use $SCHEMA.safeParse($INPUT) instead of $SCHEMA.parse($INPUT).
+      Calling .parse() throws on invalid input; .safeParse() returns a typed Result
+      that must be handled explicitly. See AGENTS.md error handling guidelines.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: no-any-cast
+    pattern: $EXPR as any
+    message: >
+      Avoid 'as any' type cast. Use a specific type, 'as unknown', or narrow the type
+      properly. This is also enforced by @typescript-eslint/no-explicit-any.
+    languages: [typescript]
+    severity: WARNING
+    metadata:
+      category: correctness
+      confidence: HIGH
+
+  - id: no-empty-catch
+    pattern: |
+      try { ... } catch ($ERR) {}
+    message: >
+      Empty catch block detected. Either handle the error explicitly or log it with
+      (err as Error).message. Never swallow exceptions silently.
+    languages: [typescript, javascript]
+    severity: WARNING
+    metadata:
+      category: correctness
+      confidence: HIGH

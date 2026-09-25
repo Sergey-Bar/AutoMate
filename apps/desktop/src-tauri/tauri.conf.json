@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Automate",
+  "version": "0.1.0",
+  "identifier": "com.automate.app",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter @automate/web dev",
+    "beforeBuildCommand": "pnpm --filter @automate/web build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Automate",
+        "width": 1280,
+        "height": 900,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:3000 ws://localhost:3000"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "shell": {
+      "sidecar": [
+        {
+          "path": "sidecar/automate-server",
+          "args": true
+        }
+      ],
+      "scope": [
+        {
+          "name": "run-server",
+          "cmd": "sidecar/automate-server",
+          "args": ["--port", "3000"]
+        }
+      ]
+    }
+  }
+}

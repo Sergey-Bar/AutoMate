@@ -1,0 +1,70 @@
+{
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module"
+  },
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "plugins": ["@typescript-eslint", "test-flakiness"],
+  "env": {
+    "node": true,
+    "es2022": true
+  },
+  "reportUnusedDisableDirectives": false,
+  "ignorePatterns": [
+    "dist/",
+    "node_modules/",
+    "*.config.ts",
+    "*.config.js",
+    "build/",
+    ".turbo/"
+  ],
+  "overrides": [
+    {
+      "files": ["apps/client/src/**/*.tsx", "apps/client/src/**/*.ts"],
+      "parserOptions": {
+        "ecmaFeatures": {
+          "jsx": true
+        }
+      },
+      "plugins": ["react-hooks", "compat"],
+      "env": {
+        "browser": true
+      },
+      "rules": {
+        "react-hooks/exhaustive-deps": "warn",
+        "compat/compat": "warn"
+      }
+    },
+    {
+      "files": ["apps/server/src/**/*.ts"],
+      "env": {
+        "node": true
+      }
+    },
+    {
+      "files": ["e2e/**/*.ts"],
+      "plugins": ["playwright"],
+      "extends": ["plugin:playwright/recommended"],
+      "env": {
+        "node": true
+      }
+    }
+  ],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["warn", {
+      "argsIgnorePattern": "^_",
+      "varsIgnorePattern": "^_",
+      "caughtErrorsIgnorePattern": "^_"
+    }],
+    "@typescript-eslint/no-explicit-any": "error",
+    "@typescript-eslint/triple-slash-reference": "off",
+    "@typescript-eslint/no-var-requires": "off",
+    "prefer-const": "error",
+    "test-flakiness/no-random-data": "warn",
+    "test-flakiness/no-hard-coded-timeout": "warn"
+  }
+}

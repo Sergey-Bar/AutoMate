@@ -1,0 +1,37 @@
+# Automate — Docker Compose with Ollama sidecar
+# Run: docker compose up
+# Air-gapped: pre-pull ollama image + model weights, then deploy
+
+services:
+  automate:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./connectors:/app/connectors
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - NODE_ENV=production
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-data:

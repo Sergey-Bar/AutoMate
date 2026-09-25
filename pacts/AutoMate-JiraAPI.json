@@ -1,0 +1,137 @@
+{
+  "consumer": {
+    "name": "Automate"
+  },
+  "interactions": [
+    {
+      "description": "a request to create a Jira issue",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a Jira project TEST exists"
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "fields": {
+              "description": {
+                "content": [
+                  {
+                    "content": [
+                      {
+                        "text": "Created by Pact",
+                        "type": "text"
+                      }
+                    ],
+                    "type": "paragraph"
+                  }
+                ],
+                "type": "doc",
+                "version": 1
+              },
+              "issuetype": {
+                "name": "Bug"
+              },
+              "project": {
+                "key": "TEST"
+              },
+              "summary": "Pact test issue"
+            }
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "method": "POST",
+        "path": "/rest/api/3/issue"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "id": "10001",
+            "key": "TEST-1",
+            "self": "http://localhost/rest/api/3/issue/10001"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": 201
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "description": "a request to search Jira issues by JQL",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "some Jira issues exist in project TEST"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "path": "/rest/api/3/search",
+        "query": {
+          "jql": [
+            "project=TEST"
+          ],
+          "maxResults": [
+            "10"
+          ]
+        }
+      },
+      "response": {
+        "body": {
+          "content": {
+            "issues": [
+              {
+                "fields": {
+                  "summary": "First issue"
+                },
+                "key": "TEST-1"
+              },
+              {
+                "fields": {
+                  "summary": "Second issue"
+                },
+                "key": "TEST-2"
+              }
+            ],
+            "maxResults": 10,
+            "total": 2
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pactRust": {
+      "ffi": "0.5.4",
+      "models": "1.3.11"
+    },
+    "pactSpecification": {
+      "version": "4.0"
+    }
+  },
+  "provider": {
+    "name": "JiraAPI"
+  }
+}

@@ -1,0 +1,110 @@
+# Automate — Production Docker Compose override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This file is a Compose override that tightens settings for production:
+#   - JSON-file log rotation (10 MB × 3 files per service)
+#   - restart: always (survive host reboots)
+#   - Healthchecks for both services
+#   - Read-only root filesystem + tmpfs /tmp for automate
+#   - no-new-privileges security option
+#   - Named volume for app data (avoids bind-mount ownership issues)
+#   - Ollama resource limits (LLM workloads need headroom)
+
+services:
+  automate:
+    restart: always
+
+    # ── Logging ────────────────────────────────────────────────────────────────
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # ── Healthcheck ────────────────────────────────────────────────────────────
+    # node:22-bookworm-slim ships without curl; use Node's built-in fetch instead.
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://localhost:3000/health').then(r=>{ if(!r.ok) process.exit(1) }).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+
+    # ── Security hardening ─────────────────────────────────────────────────────
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+
+    # ── Named volume for persistent data ──────────────────────────────────────
+    # Replaces the bind mount `./data:/app/data` from the base compose file.
+    volumes:
+      - automate_data:/app/data
+      - ./connectors:/app/connectors:ro
+
+    # ── Resource limits ────────────────────────────────────────────────────────
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+
+    environment:
+      - NODE_ENV=production
+      - OLLAMA_HOST=http://ollama:11434
+      # Set VAULT_PASSWORD in your deployment secrets / .env file — never commit it.
+      # - VAULT_PASSWORD=
+
+  ollama:
+    restart: always
+
+    # ── Logging ────────────────────────────────────────────────────────────────
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # ── Healthcheck ────────────────────────────────────────────────────────────
+    # Ollama returns HTTP 200 on GET / when it is ready to serve.
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # ── Resource limits ────────────────────────────────────────────────────────
+    # LLM inference needs more CPU/RAM than the app container.
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+
+    # ── GPU support (NVIDIA) ───────────────────────────────────────────────────
+    # Uncomment the block below if your host has an NVIDIA GPU and nvidia-container-toolkit
+    # installed. The `runtime: nvidia` key requires Docker Engine ≥ 19.03.
+    #
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# ── Named volumes ──────────────────────────────────────────────────────────────
+# automate_data persists the SQLite database and vault across container restarts
+# and image rebuilds.  ollama-data is declared in the base file and reused here.
+volumes:
+  automate_data:
+  ollama-data:

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Automate Web JS",
+    "path": "apps/web/dist/assets/*.js",
+    "limit": "500 kB",
+    "gzip": true
+  },
+  {
+    "name": "Automate Web CSS",
+    "path": "apps/web/dist/assets/*.css",
+    "limit": "50 kB",
+    "gzip": true
+  },
+  {
+    "name": "Automate Web Total",
+    "path": "apps/web/dist/assets/*.{js,css}",
+    "limit": "550 kB",
+    "gzip": true
+  }
+]

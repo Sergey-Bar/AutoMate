@@ -1,0 +1,39 @@
+# Gitleaks configuration for Automate
+# https://github.com/gitleaks/gitleaks#configuration
+
+title = "Automate Gitleaks Config"
+
+[extend]
+# Use gitleaks default ruleset (covers AWS, GCP, GitHub tokens, generic secrets)
+useDefault = true
+
+# Allowlist for known safe patterns
+[allowlist]
+description = "Automate allowlist — test fixtures, example files, and known safe values"
+
+paths = [
+  '''node_modules/''',
+  '''dist/''',
+  '''build/''',
+  '''coverage/''',
+  '''\.turbo/''',
+  '''pnpm-lock\.yaml''',
+  '''.*\.lock$''',
+  '''.*\.snap$''',
+]
+
+# Allow known test values used in test fixtures
+regexes = [
+  # AES-GCM encrypted test vectors (look like base64 but are safe test data)
+  '''AUTOMATE_DASHBOARD_API_KEY.*test''',
+  # Generic "example" placeholders
+  '''your[-_]?(api[-_]?key|token|secret|password)''',
+  # Placeholder values in .env.example files
+  '''your_.*_here''',
+]
+
+[[rules]]
+id = "vault-test-fixture"
+description = "Skip vault test fixture encrypted payloads"
+regex = '''[A-Za-z0-9+/]{40,}={0,2}'''
+path = '''.*\.test\.ts$'''

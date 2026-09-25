@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "coverageAnalysis": "perTest",
+  "concurrency": 4,
+  "timeoutMS": 60000,
+  "maxTestRunnerReuse": 3,
+  "tempDirName": "stryker-tmp",
+  "cleanTempDir": true,
+  "mutate": [
+    "apps/server/src/routes/**/*.ts",
+    "apps/server/src/services/**/*.ts",
+    "apps/server/src/plugins/**/*.ts",
+    "apps/server/src/agent/**/*.ts",
+    "apps/server/src/connectors/**/*.ts",
+    "apps/web/src/components/**/*.{ts,tsx}",
+    "apps/web/src/hooks/**/*.{ts,tsx}",
+    "packages/connectors/*/src/**/*.ts",
+    "packages/connector-sdk/src/**/*.ts",
+    "packages/shared/src/**/*.ts",
+    "!**/*.test.{ts,tsx}",
+    "!**/*.spec.{ts,tsx}",
+    "!**/test-utils.{ts,tsx}",
+    "!**/types.ts",
+    "!**/*.d.ts"
+  ],
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".stryker-tmp",
+    "stryker-tmp",
+    "e2e",
+    "playwright-report"
+  ],
+  "ignoreStatic": true,
+  "reporters": [
+    "progress",
+    "clear-text",
+    "html",
+    "json"
+  ],
+  "htmlReporter": {
+    "fileName": "mutation-report.html"
+  },
+  "jsonReporter": {
+    "fileName": "mutation-report.json"
+  },
+  "incremental": true,
+  "thresholds": {
+    "high": 90,
+    "low": 70,
+    "break": 75
+  }
+}

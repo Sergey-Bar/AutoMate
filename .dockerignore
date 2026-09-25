@@ -1,0 +1,45 @@
+# Dependencies — reinstalled inside Docker
+node_modules
+**/node_modules
+
+# Version control
+.git
+.gitignore
+
+# Build artifacts (built inside Docker)
+dist/
+**/dist/
+
+# Test files — not needed in production image
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dev / editor files
+.vscode
+.idea
+*.log
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Tauri / desktop (not built in Docker)
+apps/desktop
+
+# Coverage / reports
+coverage/
+**/coverage/
+.nyc_output
+
+# Playwright E2E
+e2e/
+playwright-report/
+test-results/

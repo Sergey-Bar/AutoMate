@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "mutate": [
+    "packages/connectors/jira/src/index.ts",
+    "packages/connectors/slack/src/index.ts",
+    "packages/connectors/github/src/index.ts",
+    "packages/connectors/sql-browser/src/safety.ts",
+    "packages/connectors/sql-browser/src/index.ts",
+    "packages/connector-sdk/src/base-connector.ts",
+    "packages/shared/src/index.ts"
+  ],
+  "reporters": ["clear-text"],
+  "timeoutMS": 30000,
+  "incremental": true
+}

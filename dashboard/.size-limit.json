@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Dashboard Client JS",
+    "path": "apps/client/dist/assets/*.js",
+    "limit": "500 kB",
+    "gzip": true
+  },
+  {
+    "name": "Dashboard Client CSS",
+    "path": "apps/client/dist/assets/*.css",
+    "limit": "50 kB",
+    "gzip": true
+  }
+]

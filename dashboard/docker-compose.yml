@@ -1,0 +1,76 @@
+# Automate — docker-compose.yml
+# Usage:
+#   docker-compose up -d            # start app only (direct port access)
+#   docker-compose --profile nginx up -d  # start app + nginx reverse proxy
+#
+# First run: image is built automatically if not present
+# Stop: docker-compose down (volumes preserved)
+# Wipe: docker-compose down -v (volumes destroyed — data loss!)
+
+name: automate
+
+services:
+  automate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: automate:local
+    restart: unless-stopped
+    ports:
+      - "4000:4000"   # Fastify: REST + browser WS + SPA
+      - "4001:4001"   # Reporter WS (ws-reporter.ts connects here)
+    volumes:
+      - automate_dashboard_data:/app/apps/server/data
+      - automate_dashboard_artifacts:/app/apps/server/test-results
+    environment:
+      NODE_ENV: production
+      HOST: "0.0.0.0"
+      PORT: "4000"
+      REPORTER_PORT: "4001"
+      LOG_LEVEL: info
+      # CORS: allow dashboard to be loaded from the nginx domain
+      # Override with your actual domain in production:
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:5173}"
+      # Auth: required — set AUTOMATE_DASHBOARD_API_KEY in your environment or .env file.
+      # The server will refuse to start in production if this is unset or set to "changeme".
+      # Example: AUTOMATE_DASHBOARD_API_KEY=your-secret-key docker compose up -d
+      AUTOMATE_DASHBOARD_API_KEY: "${AUTOMATE_DASHBOARD_API_KEY}"
+      REPORTER_SECRET: "${REPORTER_SECRET:-}"
+      # Sentry (optional — leave blank to disable):
+      SENTRY_DSN: ""
+      PUBLIC_DASHBOARD_URL: ""
+      # Data paths (must match volume mount targets):
+      DATA_DIR: /app/apps/server/data
+      ARTIFACTS_DIR: /app/apps/server/test-results
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health/live').then(r=>{if(r.ok)process.exit(0);else process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["nginx"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      automate:
+        condition: service_healthy
+
+volumes:
+  automate_dashboard_data:
+    driver: local
+  automate_dashboard_artifacts:
+    driver: local

@@ -1,0 +1,96 @@
+# CircleCI — Playwright Tests with Automate Quality Gate
+#
+# Prerequisites:
+#   - Dashboard running and accessible (set DASHBOARD_HOST in CircleCI project settings)
+#   - AUTOMATE_DASHBOARD_API_KEY configured as a CircleCI project environment variable
+#   - @automate/reporter installed in your project
+#
+# Copy this file to .circleci/config.yml.
+
+version: 2.1
+
+parameters:
+  dashboard_host:
+    type: string
+    default: "your-dashboard.example.com"   # Change to your Dashboard host
+  dashboard_port:
+    type: integer
+    default: 4000
+  reporter_port:
+    type: integer
+    default: 4001
+
+executors:
+  node:
+    docker:
+      - image: cimg/node:22.0
+  playwright:
+    docker:
+      - image: mcr.microsoft.com/playwright:v1.49.0-noble
+
+jobs:
+  install:
+    executor: node
+    steps:
+      - checkout
+      - run: npm ci
+      - persist_to_workspace:
+          root: .
+          paths:
+            - node_modules
+
+  playwright-test:
+    executor: playwright
+    steps:
+      - checkout
+      - attach_workspace:
+          at: .
+      - run:
+          name: Run Playwright tests (with Dashboard reporter)
+          command: |
+            set +e
+            npx playwright test 2>&1 | tee /tmp/playwright-output.txt
+            RUN_ID=$(grep -oP '(?<=Automate run: )\S+' /tmp/playwright-output.txt | head -1)
+            echo "export RUN_ID=$RUN_ID" >> $BASH_ENV
+            echo "Captured run ID: $RUN_ID"
+            exit 0   # Let gate job decide pass/fail
+          environment:
+            AUTOMATE_DASHBOARD_URL: ws://<< pipeline.parameters.dashboard_host >>:<< pipeline.parameters.reporter_port >>
+      - store_artifacts:
+          path: playwright-report
+          destination: playwright-report
+
+  quality-gate:
+    docker:
+      - image: alpine:3.19
+    steps:
+      - checkout
+      - run:
+          name: Install curl and bash
+          command: apk add --no-cache curl bash
+      - run:
+          name: Check quality gate
+          command: |
+            # RUN_ID is passed via pipeline parameters or set by the test job
+            if [ -z "${RUN_ID}" ]; then
+              echo "No run ID — skipping gate check."
+              exit 0
+            fi
+            bash scripts/check-gate.sh \
+              --url "http://<< pipeline.parameters.dashboard_host >>:<< pipeline.parameters.dashboard_port >>" \
+              --run-id "$RUN_ID" \
+              --api-key "$AUTOMATE_DASHBOARD_API_KEY" \
+              --wait \
+              --timeout 300
+          # Exit code 0 = gate passed, 1 = gate failed (CircleCI will mark job as failed)
+
+workflows:
+  test-and-gate:
+    jobs:
+      - install
+      - playwright-test:
+          requires:
+            - install
+      - quality-gate:
+          requires:
+            - playwright-test

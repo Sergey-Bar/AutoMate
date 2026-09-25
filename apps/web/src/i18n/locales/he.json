@@ -1,0 +1,17 @@
+{
+  "nav.dashboard": "לוח בקרה",
+  "nav.automate": "אוטומציה",
+  "nav.connectors": "מחברים",
+  "nav.model": "מודל",
+  "nav.vault": "כספת",
+  "nav.sql": "דפדפן SQL",
+  "settings.title": "הגדרות",
+  "settings.connectors": "מחברים",
+  "settings.model": "מודל",
+  "settings.vault": "כספת",
+  "common.save": "שמור",
+  "common.cancel": "ביטול",
+  "common.loading": "טוען...",
+  "common.error": "שגיאה",
+  "common.success": "הצלחה"
+}

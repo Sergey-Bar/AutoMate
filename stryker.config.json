@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner"],
+  "mutate": [
+    "apps/server/src/routes/vault.ts",
+    "apps/server/src/routes/chat.ts",
+    "apps/server/src/routes/model-config.ts",
+    "apps/server/src/routes/ws.ts",
+    "apps/server/src/routes/connectors.ts",
+    "apps/server/src/routes/conversations.ts",
+    "apps/server/src/agent/planner.ts",
+    "apps/server/src/agent/orchestrator-loop.ts",
+    "apps/server/src/agent/orchestrator.ts",
+    "apps/server/src/agent/executor.ts",
+    "apps/server/src/connectors/registry.ts",
+    "apps/server/src/connectors/mcp-connector.ts",
+    "apps/server/src/connectors/mcp-client.ts",
+    "apps/server/src/services/event-hub.ts"
+  ],
+  "reporters": ["clear-text", "html"],
+
+  "timeoutMS": 30000,
+  "incremental": true,
+  "thresholds": {
+    "high": 90,
+    "low": 70,
+    "break": 75
+  }
+}

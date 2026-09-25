@@ -1,0 +1,38 @@
+# Gitleaks configuration for Automate
+# https://github.com/gitleaks/gitleaks#configuration
+
+title = "Automate Gitleaks Config"
+
+[extend]
+# Use gitleaks default ruleset (covers AWS, GCP, GitHub tokens, generic secrets)
+useDefault = true
+
+# Allowlist for known safe patterns
+[allowlist]
+description = "Automate allowlist — test fixtures, example files, and known safe values"
+
+paths = [
+  '''node_modules/''',
+  '''dist/''',
+  '''build/''',
+  '''coverage/''',
+  '''pnpm-lock\.yaml''',
+  '''.*\.lock$''',
+  '''.*\.snap$''',
+]
+
+# Allow known test values used in Playwright configs and test fixtures
+regexes = [
+  # Dashboard Playwright test API key (playwright.config.ts)
+  '''test-api-key''',
+  # Generic "example" placeholders
+  '''your[-_]?(api[-_]?key|token|secret|password)''',
+  # Placeholder values in .env.example files
+  '''your_.*_here''',
+]
+
+[[rules]]
+id = "test-fixture"
+description = "Skip test fixture encrypted payloads"
+regex = '''[A-Za-z0-9+/]{40,}={0,2}'''
+path = '''(__fixtures__|__mocks__|test-data)/.*\.ts$'''
