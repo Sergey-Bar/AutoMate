@@ -11,7 +11,7 @@ This is a **pnpm workspace monorepo** containing the unified Automate platform.
 | `apps/api` | Unified API | Hono v4, Effect, Drizzle ORM, PostgreSQL 16 |
 | `apps/web` | Unified Web | React 19, Vite, TanStack Router, Tailwind CSS 4 |
 
-The platform uses **pnpm 10+**, **Node.js 22+**, **TypeScript 5.9**, and **Vitest 4** for unit tests.
+The platform uses **pnpm 10+**, **Node.js 24+**, **TypeScript 5.9**, and **Vitest 4** for unit tests.
 
 ---
 

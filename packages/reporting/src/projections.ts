@@ -1,5 +1,6 @@
 import type { CanonicalRunResult as RunResult } from '@automate/shared-contracts';
-import { fingerprint } from './policy.js';
+import { CanonicalStatusSchema } from '@automate/shared-contracts';
+import { fingerprint, NON_PRODUCT_STATUSES } from './policy.js';
 
 export interface RunSummary {
   id: string;
@@ -17,20 +18,18 @@ export interface RunSummary {
   timedOut: number;
   cancelled: number;
   unknown: number;
+  /** Non-product outcomes (blocked, configFailed, infraFailed, runnerFailed). */
+  nonProduct: number;
+  /** Every canonical status, including the non-product taxonomy values. */
+  byStatus: Record<RunResult['status'], number>;
   completeness: RunResult['completeness']['state'];
   fingerprint: string;
 }
 
 export function projectRunSummary(result: RunResult): RunSummary {
-  const counts: Record<RunResult['status'], number> = {
-    passed: 0,
-    failed: 0,
-    flaky: 0,
-    skipped: 0,
-    timedOut: 0,
-    unknown: 0,
-    cancelled: 0,
-  };
+  const counts: Record<RunResult['status'], number> = Object.fromEntries(
+    CanonicalStatusSchema.options.map((status) => [status, 0]),
+  ) as Record<RunResult['status'], number>;
   let total = 0;
   for (const attempt of result.attempts) {
     total += 1;
@@ -52,6 +51,8 @@ export function projectRunSummary(result: RunResult): RunSummary {
     timedOut: counts.timedOut,
     cancelled: counts.cancelled,
     unknown: counts.unknown,
+    nonProduct: NON_PRODUCT_STATUSES.reduce((total, status) => total + counts[status], 0),
+    byStatus: counts,
     completeness: result.completeness.state,
     fingerprint: fingerprint(result),
   };

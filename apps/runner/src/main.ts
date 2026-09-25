@@ -1,4 +1,6 @@
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { DurableSpool, readOrCreateSpoolKey } from '@automate/runner-sdk';
 import { RunnerApiClient } from './client.js';
 import { parseRunnerConfig } from './config.js';
 import { PlaywrightExecutionAdapter } from './execution.js';
@@ -49,6 +51,15 @@ export async function main(env: Record<string, string | undefined> = process.env
     logMaxBytes: config.logMaxBytes,
     redactions: config.redactions,
   });
+  const spoolKey =
+    config.spoolKey ?? (await readOrCreateSpoolKey(join(config.spoolRoot, 'spool.key')));
+  const spool = await DurableSpool.open({
+    directory: config.spoolRoot,
+    key: spoolKey,
+    maxEntries: config.spoolMaxEntries,
+    maxBytes: config.spoolMaxBytes,
+    compactThresholdBytes: config.spoolCompactThresholdBytes,
+  });
   const service = new RunnerService({
     runnerId,
     capabilities: config.capabilities,
@@ -58,12 +69,19 @@ export async function main(env: Record<string, string | undefined> = process.env
     heartbeatIntervalMs: config.heartbeatIntervalMs,
     redactions: [
       ...config.redactions,
-      config.registrationSecret ?? '',
-      config.credential ?? '',
+      config.registrationSecret,
+      config.credential,
+      spoolKey,
       token,
-    ],
+    ].filter((value): value is string => Boolean(value)),
     protocol: client,
     executor,
+    spool,
+    retryPolicy: {
+      maxAttempts: config.spoolRetryMaxAttempts,
+      baseDelayMs: config.spoolRetryBaseDelayMs,
+      maxDelayMs: config.spoolRetryMaxDelayMs,
+    },
   });
   const health = new HealthServer({
     host: config.healthHost,

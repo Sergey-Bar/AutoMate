@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
+import type {
+  SpoolConflictReason,
+  SpoolEntry,
+  SpoolQueue,
+  SpoolRetryPolicy,
+} from '@automate/runner-sdk';
 import {
   QA_CONTRACT_VERSION,
   type RunPhase,
@@ -14,6 +20,7 @@ import {
   type JobClaim,
   type JobCompletion,
   type RunnerHeartbeat,
+  RunnerApiError,
 } from './protocol.js';
 
 export interface RunnerProtocol {
@@ -56,6 +63,8 @@ export interface RunnerServiceOptions {
   redactions?: readonly string[];
   protocol: RunnerProtocol;
   executor: ExecutionProvider;
+  spool: SpoolQueue;
+  retryPolicy?: SpoolRetryPolicy;
   now?: () => Date;
   onError?: (error: unknown) => void;
 }
@@ -68,6 +77,18 @@ interface ActiveJob {
   eventChain: Promise<void>;
   promise: Promise<void>;
 }
+
+interface DeliveryOutcome {
+  settled: boolean;
+  conflict?: SpoolConflictReason;
+}
+
+const TERMINAL_SPOOL_CONFLICTS = new Set<SpoolConflictReason>([
+  'stale_lease',
+  'terminal_event',
+  'event_hash_mismatch',
+  'run_not_found',
+]);
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -95,6 +116,8 @@ type EventDraft = {
   type: ExecutionEventInput['type'];
   payload: ExecutionEventInput['payload'];
 };
+
+const MAX_EVENT_BATCH = 100;
 
 type TerminalStatus =
   | 'passed'
@@ -139,18 +162,47 @@ function terminal(
   };
 }
 
+function conflictFromStatus(status: string | undefined): SpoolConflictReason | undefined {
+  if (
+    status === 'stale_lease' ||
+    status === 'terminal_event' ||
+    status === 'sequence_gap' ||
+    status === 'event_hash_mismatch' ||
+    status === 'run_not_found'
+  ) {
+    return status;
+  }
+  return undefined;
+}
+
+function conflictFromError(error: unknown): SpoolConflictReason | undefined {
+  if (error instanceof RunnerApiError && (error.status === 409 || error.code === 'stale_lease')) {
+    return 'stale_lease';
+  }
+  return undefined;
+}
+
 export class RunnerService {
   private readonly active = new Map<string, ActiveJob>();
   private readonly lifecycle = new AbortController();
   private readonly now: () => Date;
   private readonly onError: (error: unknown) => void;
+  private readonly retryPolicy: SpoolRetryPolicy;
   private running = false;
   private stopping = false;
   private ready = false;
   private lastHeartbeatAt = 0;
+  private flushPromise: Promise<void> | null = null;
+  private flushAgain = false;
+  private flushNotBefore = 0;
 
   constructor(private readonly options: RunnerServiceOptions) {
     this.now = options.now ?? (() => new Date());
+    this.retryPolicy = options.retryPolicy ?? {
+      maxAttempts: 8,
+      baseDelayMs: 250,
+      maxDelayMs: 30_000,
+    };
     this.onError =
       options.onError ??
       ((error) => {
@@ -204,6 +256,7 @@ export class RunnerService {
   private async tick(): Promise<void> {
     if (this.lifecycle.signal.aborted) return;
     try {
+      if (this.options.spool.pending() > 0) void this.scheduleFlush();
       if (this.now().getTime() - this.lastHeartbeatAt >= this.options.heartbeatIntervalMs) {
         await this.heartbeat();
       }
@@ -242,7 +295,7 @@ export class RunnerService {
       leaseId: claim.leaseId,
       phase: 'assigned',
       controller,
-      sequence: 0,
+      sequence: this.options.spool.lastSequence(claim.jobId),
       eventChain: Promise.resolve(),
       promise: Promise.resolve(),
     };
@@ -255,8 +308,14 @@ export class RunnerService {
     let workspacePath: string | undefined;
     let completionAttempted = false;
     const complete = async (completion: JobCompletion): Promise<void> => {
+      state.eventChain = state.eventChain.catch(() => undefined).then(async () => {
+        await this.options.spool.enqueue(
+          this.entry(claim, 'completion', state.sequence, randomUUID(), completion),
+        );
+      });
+      await state.eventChain;
       completionAttempted = true;
-      await this.options.protocol.complete(claim.jobId, completion);
+      await this.scheduleFlush();
     };
     try {
       const specification = record(claim.spec['configuration']);
@@ -443,12 +502,141 @@ export class RunnerService {
       occurredAt: this.now().toISOString(),
       ...draft,
     });
-    state.eventChain = state.eventChain.then(async () => {
-      await this.options.protocol.sendEventBatch(claim.jobId, claim.leaseId, claim.fencingToken, [
-        event,
-      ]);
+    state.eventChain = state.eventChain.catch(() => undefined).then(async () => {
+      await this.options.spool.enqueue(
+        this.entry(claim, 'event', event.sequence, event.eventId, event),
+      );
+      await this.scheduleFlush();
     });
     await state.eventChain;
+  }
+
+  private entry(
+    claim: JobClaim,
+    kind: SpoolEntry['kind'],
+    sequence: number,
+    id: string,
+    payload: unknown,
+  ): SpoolEntry {
+    return {
+      id,
+      jobId: claim.jobId,
+      kind,
+      sequence,
+      leaseId: claim.leaseId,
+      fencingToken: claim.fencingToken,
+      payload,
+    };
+  }
+
+  private scheduleFlush(): Promise<void> {
+    if (this.flushPromise) {
+      this.flushAgain = true;
+      return this.flushPromise;
+    }
+    const run = async (): Promise<void> => {
+      do {
+        this.flushAgain = false;
+        const waitMs = this.flushNotBefore - Date.now();
+        if (waitMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+        await this.flush();
+      } while (this.flushAgain && !this.stopping && !this.lifecycle.signal.aborted);
+    };
+    this.flushPromise = run()
+      .catch(this.onError)
+      .finally(() => {
+        this.flushPromise = null;
+        if (this.flushAgain) void this.scheduleFlush();
+      });
+    return this.flushPromise;
+  }
+
+  private async flush(): Promise<void> {
+    const pending = await this.options.spool.peek(MAX_EVENT_BATCH);
+    let index = 0;
+    const settledIds: string[] = [];
+    while (index < pending.length) {
+      const batch = this.batch(pending, index);
+      let outcome: DeliveryOutcome;
+      try {
+        outcome = await this.deliver(batch);
+      } catch (error) {
+        this.onError(error);
+        this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+        return;
+      }
+      if (!outcome.settled) {
+        if (outcome.conflict && TERMINAL_SPOOL_CONFLICTS.has(outcome.conflict)) {
+          settledIds.push(...batch.map((entry) => entry.id));
+          index += batch.length;
+          this.onError(
+            new Error(`Runner spool entry permanently rejected (${outcome.conflict})`),
+          );
+          continue;
+        }
+        this.onError(new Error('Runner spool entries are not acknowledged and stay queued'));
+        this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+        return;
+      }
+      settledIds.push(...batch.map((entry) => entry.id));
+      index += batch.length;
+    }
+    if (settledIds.length === 0) return;
+    try {
+      await this.options.spool.ack(settledIds);
+      this.flushNotBefore = 0;
+    } catch (error) {
+      this.onError(error);
+      this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+    }
+  }
+
+  private batch(pending: readonly SpoolEntry[], index: number): SpoolEntry[] {
+    const head = pending[index];
+    if (!head) return [];
+    if (head.kind !== 'event') return [head];
+    const batch: SpoolEntry[] = [];
+    for (const entry of pending.slice(index)) {
+      if (batch.length >= MAX_EVENT_BATCH || entry.jobId !== head.jobId || entry.kind !== head.kind) {
+        break;
+      }
+      batch.push(entry);
+    }
+    return batch;
+  }
+
+  private async deliver(batch: SpoolEntry[]): Promise<DeliveryOutcome> {
+    const head = batch[0];
+    if (!head) return { settled: true };
+    if (head.kind === 'completion') {
+      try {
+        await this.options.protocol.complete(head.jobId, head.payload as JobCompletion);
+        return { settled: true };
+      } catch (error) {
+        const conflict = conflictFromError(error);
+        if (conflict) return { settled: false, conflict };
+        throw error;
+      }
+    }
+    const response = await this.options.protocol.sendEventBatch(
+      head.jobId,
+      head.leaseId,
+      head.fencingToken,
+      batch.map((entry) => entry.payload as ExecutionEventInput),
+    );
+    const settled = new Set(
+      response.results
+        .filter((result) => result.status === 'accepted' || result.status === 'duplicate')
+        .map((result) => result.eventId),
+    );
+    const failed = batch.find(
+      (entry) => !settled.has((entry.payload as ExecutionEventInput).eventId),
+    );
+    if (!failed) return { settled: true };
+    const status = response.results.find(
+      (result) => result.eventId === (failed.payload as ExecutionEventInput).eventId,
+    )?.status;
+    return { settled: false, conflict: conflictFromStatus(status) };
   }
 
   private wait(milliseconds: number): Promise<void> {

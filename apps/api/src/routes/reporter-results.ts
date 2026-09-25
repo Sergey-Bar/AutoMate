@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { CanonicalRunResultSchema } from '@automate/shared-contracts';
-import { ReporterIngestionService } from '../services/reporter-ingestion.js';
+import type { ReporterResultStore } from '../services/reporter-ingestion.js';
 
-export function createReporterResultsRoute(service: ReporterIngestionService) {
+export function createReporterResultsRoute(service: ReporterResultStore) {
   const app = new Hono();
   app.post('/api/v1/reporter/results', async (context) => {
     const reporterSecret = process.env['REPORTER_SECRET'];
@@ -13,7 +13,7 @@ export function createReporterResultsRoute(service: ReporterIngestionService) {
     const parsed = CanonicalRunResultSchema.safeParse(body);
     if (!parsed.success)
       return context.json({ status: 'quarantined', reason: 'invalid canonical result' }, 422);
-    const result = service.ingest(parsed.data);
+    const result = await service.ingest(parsed.data);
     if (result.status === 'conflict')
       return context.json({ status: 'quarantined', reason: 'conflicting result' }, 409);
     return context.json(

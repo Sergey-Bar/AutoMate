@@ -50,6 +50,7 @@ export class ApiError extends Error {
 
 export interface RunEventSubscription {
   onEvent: (event: RunEvent) => void;
+  onRefetch?: () => void;
   onReconnect?: () => void;
   onConnectionChange?: (connected: boolean) => void;
 }
@@ -189,7 +190,7 @@ export const defaultApiClient: ApiClient = {
       ),
       QuarantineEntrySchema,
     ),
-  subscribeToRunEvents: ({ onEvent, onReconnect, onConnectionChange }) => {
+  subscribeToRunEvents: ({ onEvent, onRefetch, onReconnect, onConnectionChange }) => {
     if (typeof EventSource === 'undefined') return () => undefined;
     const source = new EventSource('/api/v1/events', { withCredentials: true });
     const lastSequence = new Map<string, number>();
@@ -246,14 +247,19 @@ export const defaultApiClient: ApiClient = {
     for (const type of RunEventTypeSchema.options) {
       source.addEventListener(type, handleMessage as EventListener);
     }
+    source.addEventListener('run:updated', handleMessage as EventListener);
     source.addEventListener('message', handleMessage as EventListener);
+    const handleRefetch = () => onRefetch?.();
+    source.addEventListener('refetch', handleRefetch);
 
     return () => {
       for (const type of RunEventTypeSchema.options) {
         source.removeEventListener(type, handleMessage as EventListener);
       }
-      source.removeEventListener('message', handleMessage as EventListener);
-      source.close();
+       source.removeEventListener('run:updated', handleMessage as EventListener);
+       source.removeEventListener('message', handleMessage as EventListener);
+       source.removeEventListener('refetch', handleRefetch);
+       source.close();
     };
   },
 };

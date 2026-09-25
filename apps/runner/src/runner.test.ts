@@ -30,4 +30,42 @@ describe('runner configuration', () => {
     expect(config.allowedTargetUrls).toEqual(['https://example.test']);
     expect(config.labels).toEqual(['linux', 'trusted']);
   });
+
+  it('exposes bounded spool configuration for the durable event queue', () => {
+    const config = parseRunnerConfig({
+      AUTOMATE_API_URL: 'http://localhost:3000',
+      RUNNER_INSTANCE_ID: 'runner-1',
+      RUNNER_CREDENTIAL: 'token',
+    });
+    expect(config).toMatchObject({
+      spoolMaxEntries: 10_000,
+      spoolMaxBytes: 64_000_000,
+      spoolKey: undefined,
+    });
+    expect(config.spoolRoot).toContain('automate-runner-spool');
+
+    const tuned = parseRunnerConfig({
+      AUTOMATE_API_URL: 'http://localhost:3000',
+      RUNNER_INSTANCE_ID: 'runner-1',
+      RUNNER_CREDENTIAL: 'token',
+      RUNNER_SPOOL_ROOT: '/var/lib/automate/spool',
+      RUNNER_SPOOL_KEY: 'a-stable-spool-key',
+      RUNNER_SPOOL_MAX_ENTRIES: '25',
+      RUNNER_SPOOL_MAX_BYTES: '1048576',
+    });
+    expect(tuned).toMatchObject({
+      spoolRoot: '/var/lib/automate/spool',
+      spoolKey: 'a-stable-spool-key',
+      spoolMaxEntries: 25,
+      spoolMaxBytes: 1_048_576,
+    });
+    expect(() =>
+      parseRunnerConfig({
+        AUTOMATE_API_URL: 'http://localhost:3000',
+        RUNNER_INSTANCE_ID: 'runner-1',
+        RUNNER_CREDENTIAL: 'token',
+        RUNNER_SPOOL_KEY: 'short',
+      }),
+    ).toThrow();
+  });
 });

@@ -1,18 +1,56 @@
 import { z } from 'zod/v4';
 
+/**
+ * Canonical run/event wire contract (`automate.run@2`).
+ *
+ * This version is the authority for RunResult, ReporterEvent and
+ * RealtimeEnvelope. It is intentionally independent of the runner protocol
+ * version so a protocol bump can never silently change run/event meaning.
+ */
+export const RUN_CONTRACT_VERSION = '2' as const;
+export const RUN_CONTRACT_ID = `automate.run@${RUN_CONTRACT_VERSION}` as const;
+
+/** Runner protocol version — deliberately not the same number as the run contract. */
+export const RUNNER_PROTOCOL_VERSION = '1' as const;
+
+/** Time-boxed flat reporter decoder kept for backwards compatibility. */
+export const LEGACY_FLAT_V1_CONTRACT_ID = 'legacy-flat-v1' as const;
+
 const TimestampSchema = z
   .string()
   .refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid timestamp');
+const ParentTraversalPattern = /(?:^|[\\/])\.\.(?:[\\/]|$)/u;
+const WindowsDrivePattern = /^[A-Za-z]:[\\/]/u;
+const LocalFileSchemePattern = /^file:/iu;
+
+/**
+ * Single path-safety rule shared by canonical paths and evidence URIs.
+ *
+ * A value is safe only when it is relative and local-free: no absolute
+ * POSIX (`/x`) or Windows (`\\host\x`, `\x`, `C:\x`) form, no `file:` scheme,
+ * no parent-traversal segment, and no null byte.
+ */
+function isSafeRelativeReference(value: string): boolean {
+  return (
+    !value.includes('\0') &&
+    !value.startsWith('/') &&
+    !value.startsWith('\\') &&
+    !WindowsDrivePattern.test(value) &&
+    !LocalFileSchemePattern.test(value) &&
+    !ParentTraversalPattern.test(value)
+  );
+}
+
 const RelativePathSchema = z
   .string()
   .min(1)
   .refine(
-    (value) =>
-      !value.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(value) && !value.startsWith('file:'),
-    'Path must be relative and non-local',
+    isSafeRelativeReference,
+    'Path must be relative, non-local, null-byte free, and free of parent traversal',
   );
 const DigestSchema = z.string().regex(/^[a-f0-9]{64}$/u, 'Expected a SHA-256 digest');
 const StatusSchema = z.enum([
+  // Product-result values.
   'passed',
   'failed',
   'flaky',
@@ -20,9 +58,14 @@ const StatusSchema = z.enum([
   'timedOut',
   'unknown',
   'cancelled',
+  // Non-product outcomes stay distinct from a product failure.
+  'blocked',
+  'configFailed',
+  'infraFailed',
+  'runnerFailed',
 ]);
 const RetentionSchema = z.object({
-  class: z.enum(['standard', 'quarantine', 'legal_hold']),
+  class: z.enum(['standard', 'quarantine', 'legal_hold', 'expired']),
   reason: z.string().min(1).optional(),
 });
 const EvidenceReferenceSchema = z.object({
@@ -30,9 +73,8 @@ const EvidenceReferenceSchema = z.object({
     .string()
     .min(1)
     .refine(
-      (value) =>
-        !value.startsWith('file:') && !value.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(value),
-      'Evidence URI must not be a local file path',
+      isSafeRelativeReference,
+      'Evidence URI must not be a local file path or contain parent traversal',
     ),
   mediaType: z.string().min(1),
   byteSize: z.number().int().nonnegative(),
@@ -64,13 +106,22 @@ const ProvenanceSchema = z.object({
   shard: z.object({ index: z.number().int().min(0), total: z.number().int().min(1) }).optional(),
 });
 const ProofSchema = z.object({
-  state: z.enum(['verified', 'unverified']),
+  state: z.enum([
+    'verified',
+    'unverified',
+    'proven',
+    'unproven',
+    'inconclusive',
+    'contradictory',
+    'unavailable',
+    'stale',
+  ]),
   digest: DigestSchema,
   verifier: z.string().min(1),
   verifiedAt: TimestampSchema.optional(),
 });
 const CompletenessSchema = z.object({
-  state: z.enum(['complete', 'partial', 'unknown']),
+  state: z.enum(['complete', 'partial', 'unknown', 'rejected']),
   missingShards: z.array(z.number().int().min(0)).default([]),
   duplicateShards: z.array(z.number().int().min(0)).default([]),
 });
@@ -101,7 +152,7 @@ const StepSchema: z.ZodType<Step> = z.lazy(() =>
   }),
 );
 const RunResultSchema = z.object({
-  contractVersion: z.literal('2'),
+  contractVersion: z.literal(RUN_CONTRACT_VERSION),
   identity: RunIdentitySchema,
   status: StatusSchema,
   startedAt: TimestampSchema,
@@ -117,7 +168,7 @@ const RunResultSchema = z.object({
   raw: z.record(z.string(), z.unknown()).default({}),
 });
 const EventBaseSchema = z.object({
-  contractVersion: z.literal('2'),
+  contractVersion: z.literal(RUN_CONTRACT_VERSION),
   eventId: z.string().min(1),
   occurredAt: TimestampSchema,
   runId: z.string().min(1),
@@ -142,7 +193,7 @@ const ReporterEventSchema = z.discriminatedUnion('type', [
   EventBaseSchema.extend({ type: z.literal('artifact.ready'), data: EvidenceReferenceSchema }),
 ]);
 const RealtimeEnvelopeSchema = z.object({
-  contractVersion: z.literal('2'),
+  contractVersion: z.literal(RUN_CONTRACT_VERSION),
   cursor: z.string().min(1),
   eventType: z.string().min(1),
   runId: z.string().min(1).optional(),
@@ -165,8 +216,17 @@ type InstallationSession = z.infer<typeof InstallationSessionSchema>;
 type Proof = z.infer<typeof ProofSchema>;
 type RealtimeEnvelope = z.infer<typeof RealtimeEnvelopeSchema>;
 type ReporterEvent = z.infer<typeof ReporterEventSchema>;
+type ReporterEventType = ReporterEvent['type'];
 type Retention = z.infer<typeof RetentionSchema>;
 type RunResult = z.infer<typeof RunResultSchema>;
+
+/**
+ * Every versioned reporter event type this contract knows about. Ingestion
+ * boundaries use it to reject unknown types instead of accepting-and-dropping.
+ */
+const REPORTER_EVENT_TYPES: ReporterEventType[] = ReporterEventSchema.options.map(
+  (option) => option.shape.type.value,
+);
 
 export {
   AttemptSchema,
@@ -174,6 +234,7 @@ export {
   EvidenceReferenceSchema,
   InstallationSessionSchema,
   ProofSchema,
+  REPORTER_EVENT_TYPES,
   RealtimeEnvelopeSchema,
   ReporterEventSchema,
   RetentionSchema,
@@ -189,6 +250,7 @@ export type {
   Proof,
   RealtimeEnvelope,
   ReporterEvent,
+  ReporterEventType,
   Retention,
   RunResult,
   Step,

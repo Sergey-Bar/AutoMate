@@ -70,7 +70,12 @@ export class LocalArtifactStore {
   }
 }
 
-export class LocalArtifactBytesStore {
+export interface ArtifactBytesStore {
+  put(storageKey: string, bytes: Uint8Array): Promise<void>;
+  get(storageKey: string): Promise<Uint8Array | null>;
+}
+
+export class LocalArtifactBytesStore implements ArtifactBytesStore {
   constructor(private readonly store: LocalArtifactStore) {}
 
   async put(storageKey: string, bytes: Uint8Array): Promise<void> {
@@ -83,5 +88,24 @@ export class LocalArtifactBytesStore {
     } catch {
       return null;
     }
+  }
+}
+
+export class FallbackArtifactBytesStore implements ArtifactBytesStore {
+  constructor(
+    private readonly primary: ArtifactBytesStore,
+    private readonly fallback: ArtifactBytesStore,
+    private readonly onFallback?: (storageKey: string) => void,
+  ) {}
+
+  async put(storageKey: string, bytes: Uint8Array): Promise<void> {
+    await this.primary.put(storageKey, bytes);
+  }
+
+  async get(storageKey: string): Promise<Uint8Array | null> {
+    const primary = await this.primary.get(storageKey);
+    if (primary !== null) return primary;
+    this.onFallback?.(storageKey);
+    return this.fallback.get(storageKey);
   }
 }

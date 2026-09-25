@@ -468,7 +468,7 @@ Reference: Kilo Gateway documents an OpenAI-compatible endpoint and live model c
 
 | Area | Conflicting state | Target |
 |---|---|---|
-| Node | Root says `>=22.0.0`, but locked packages require newer Node 22 minors | `.nvmrc` `22.19.0`; engines `>=22.19.0 <23` |
+| Node | Legacy drift between root engines, `.nvmrc`, docs, and locked package requirements | `.nvmrc` `24.21.0`; engines `>=24.0.0 <25`; CI `24.x`; Docker `node:24.21.0` |
 | pnpm | Source 10.6.5, source docs 9, target 10.30.2 | Exactly `pnpm@10.30.2` in root, CI, Docker, docs |
 | TypeScript | Repeated `~5.9`, `^5.9.0`, `^5.9.3` | One catalog entry, `~5.9.3` |
 | Zod | Dashboard source v3; target v4 | Port source schemas to Zod 4; no dual runtime |
@@ -774,7 +774,7 @@ Grafana may consume a separate read model or bounded-cardinality metrics, but in
 
 ### 9.1 Toolchain authority
 
-- Node `22.19.0`, pnpm `10.30.2`, TypeScript `5.9.3`.
+- Node `24.21.0`, pnpm `10.30.2`, TypeScript `5.9.3`.
 - PostgreSQL 16 for development, integration, and migration tests.
 - MinIO is the local S3-compatible integration-test implementation; the application uses only the shared storage port.
 - Rootless Podman is the local OCI execution provider; a hosted provider may implement the same port with Kubernetes Jobs.

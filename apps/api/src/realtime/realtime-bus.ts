@@ -61,7 +61,7 @@ export interface CanonicalRealtimeEvent {
 export type RealtimeBusEvent = RunUpdatedPayload | CanonicalRealtimeEvent;
 
 export interface RealtimeBus {
-  publish(event: RealtimeBusEvent): void;
+  publish(event: RealtimeBusEvent): void | Promise<void>;
   subscribe(callback: (event: RunUpdatedPayload) => void): () => void;
   subscribe(callback: (event: RealtimeBusEvent) => void): () => void;
 }

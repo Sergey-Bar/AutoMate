@@ -822,6 +822,14 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return artifact ? clone(artifact) : null;
   }
 
+  async getArtifactDescriptor(artifactId: string): Promise<ArtifactDescriptor | null> {
+    const artifact = this.artifacts.get(artifactId);
+    if (!artifact) return null;
+    const descriptor = clone(artifact);
+    delete (descriptor as Partial<StoredArtifact>).bytes;
+    return descriptor;
+  }
+
   async listArtifacts(runId: string): Promise<ArtifactDescriptor[]> {
     return [...this.artifacts.values()]
       .filter((artifact) => artifact.runId === runId)

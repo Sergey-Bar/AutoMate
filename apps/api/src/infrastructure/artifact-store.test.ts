@@ -2,7 +2,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { LocalArtifactBytesStore, LocalArtifactStore } from './artifact-store.js';
+import {
+  FallbackArtifactBytesStore,
+  LocalArtifactBytesStore,
+  LocalArtifactStore,
+} from './artifact-store.js';
 
 describe('LocalArtifactStore', () => {
   it('writes, verifies, and reads a relative artifact', async () => {
@@ -35,6 +39,26 @@ describe('LocalArtifactStore', () => {
       await expect(store.putAt('../escape', bytes)).rejects.toThrow();
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads legacy bytes through an explicit fallback without changing writes', async () => {
+    const primaryRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-primary-'));
+    const fallbackRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-fallback-'));
+    try {
+      const primary = new LocalArtifactBytesStore(new LocalArtifactStore(primaryRoot));
+      const fallback = new LocalArtifactBytesStore(new LocalArtifactStore(fallbackRoot));
+      const legacy = new TextEncoder().encode('legacy');
+      await fallback.put('runs/run-1/report.json', legacy);
+      const store = new FallbackArtifactBytesStore(primary, fallback);
+      expect(await store.get('runs/run-1/report.json')).toEqual(legacy);
+      const current = new TextEncoder().encode('current');
+      await store.put('runs/run-1/new.json', current);
+      expect(await primary.get('runs/run-1/new.json')).toEqual(current);
+      expect(await fallback.get('runs/run-1/new.json')).toBeNull();
+    } finally {
+      await rm(primaryRoot, { recursive: true, force: true });
+      await rm(fallbackRoot, { recursive: true, force: true });
     }
   });
 

@@ -397,6 +397,38 @@ function safeName(value: string): string {
   return base.replace(/[^a-zA-Z0-9._-]/g, '_') || 'artifact';
 }
 
+/**
+ * `getArtifact` returns null both when the artifact row is gone and when its
+ * bytes cannot be read. Reporting the second case as 404 turns a storage
+ * failure into "this evidence never existed"; answer 503 instead so a missing
+ * row and unreadable evidence stay distinguishable. Stores without the
+ * optional descriptor lookup fall back to 404.
+ */
+async function missingArtifact(
+  c: Context,
+  store: ExecutionStore,
+  artifactId: string,
+  runId?: string,
+): Promise<Response> {
+  const descriptor = await store.getArtifactDescriptor?.(artifactId);
+  if (descriptor && (!runId || descriptor.runId === runId)) {
+    return error(
+      c,
+      503,
+      'ARTIFACT_BYTES_UNAVAILABLE',
+      'Artifact metadata exists but its bytes are unavailable',
+      {
+        artifactId: descriptor.id,
+        runId: descriptor.runId,
+        storageKey: descriptor.storageKey,
+        expectedSizeBytes: descriptor.sizeBytes,
+        checksum: descriptor.checksum,
+      },
+    );
+  }
+  return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+}
+
 function artifactKind(value: string): string {
   const normalized = value.toLowerCase();
   if (normalized === 'raw_report' || normalized === 'report') return 'report';
@@ -489,8 +521,7 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
 
   app.get('/api/v1/artifacts/:artifactId', async (c) => {
     const artifact = await options.store.getArtifact(c.req.param('artifactId'));
-    if (!artifact || !artifact.bytes)
-      return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+    if (!artifact) return missingArtifact(c, options.store, c.req.param('artifactId'));
     const headers: Record<string, string> = {
       'content-type': artifact.contentType,
       'content-length': String(artifact.sizeBytes),
@@ -666,8 +697,11 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
   );
 
   app.get('/api/v1/runs/:runId/artifacts/:artifactId', async (c) => {
-    const artifact = await options.store.getArtifact(c.req.param('artifactId'));
-    if (!artifact || artifact.runId !== c.req.param('runId') || !artifact.bytes)
+    const runId = c.req.param('runId');
+    const artifactId = c.req.param('artifactId');
+    const artifact = await options.store.getArtifact(artifactId);
+    if (!artifact) return missingArtifact(c, options.store, artifactId, runId);
+    if (artifact.runId !== runId)
       return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
     return new Response(Buffer.from(artifact.bytes), {
       headers: {

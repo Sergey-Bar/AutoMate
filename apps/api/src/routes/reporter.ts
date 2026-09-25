@@ -3,28 +3,44 @@
  *
  * Accepts reporter events in two formats:
  *
- * 1. Legacy compatibility format (@automate/reporter v1):
+ * 1. Legacy compatibility format (legacy-flat-v1, @automate/reporter v1):
  *    { type: 'run:start' | 'test:begin' | ..., runId: string, payload: unknown }
  *
- * 2. New versioned format:
+ * 2. Versioned format:
  *    { version: string, type: string, runId: string, timestamp: string, payload: unknown }
  *
  * Detection: if the body lacks both `version` and `timestamp`, it is treated as legacy.
+ *
+ * The versioned path accepts only the named contracts
+ * (REPORTER_EVENT_VERSION and RUN_CONTRACT_VERSION) and only known event
+ * types; anything else is rejected with an explicit 400 instead of being
+ * accepted and silently dropped by persistence.
  *
  * Auth: when REPORTER_SECRET is configured, requests must supply the secret via
  *   - Authorization: Bearer <token>
  *   - ?token=<value>  (compatible with the existing ws-reporter query-param behaviour)
  * If no secret is configured the endpoint is open (development / test mode).
+ *
+ * Upload truthfulness (POST /api/v1/reporter/upload):
+ *   - an explicitly declared status is honoured as-is (legacy compatibility);
+ *   - otherwise the status is derived fail-closed from the uploaded evidence
+ *     (see {@link deriveUploadStatus}) — an upload that carries no outcome is
+ *     persisted as `interrupted`, never as `passed`.
  */
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
-import type { RunRepository } from '../repositories/run-repository.js';
+import {
+  CANONICAL_REPORTER_EVENT_TYPES,
+  LEGACY_FLAT_V1_CONTRACT_ID,
+  REPORTER_EVENT_VERSION,
+  RUN_CONTRACT_VERSION,
+} from '@automate/shared-contracts';
+import type { RunRepository, RunStatus, TestStatus } from '../repositories/run-repository.js';
 import { persistReporterEvent } from '../services/reporter-persistence.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
-import type { TestStatus } from '../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
 // Legacy wire shape — emitted by @automate/reporter
@@ -55,11 +71,26 @@ export type LegacyReporterEvent = z.infer<typeof LegacyReporterEventSchema>;
 // New versioned wire shape
 // ---------------------------------------------------------------------------
 
+/** Reporter SDK v1 colon vocabulary declared in shared-contracts reporter-events. */
+const REPORTER_V1_EVENT_TYPES = [
+  'run:started',
+  'test:started',
+  'test:completed',
+  'run:completed',
+] as const;
+
+const VERSIONED_EVENT_VERSIONS = [REPORTER_EVENT_VERSION, RUN_CONTRACT_VERSION] as const;
+const VERSIONED_EVENT_TYPES = [
+  ...CANONICAL_REPORTER_EVENT_TYPES,
+  ...REPORTER_V1_EVENT_TYPES,
+  ...LEGACY_EVENT_TYPES,
+];
+
 const VersionedReporterEventSchema = z.object({
-  version: z.string().min(1),
-  type: z.string().min(1),
+  version: z.enum(VERSIONED_EVENT_VERSIONS),
+  type: z.enum(VERSIONED_EVENT_TYPES as [string, ...string[]]),
   runId: z.string().min(1),
-  timestamp: z.string().min(1),
+  timestamp: z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'Invalid timestamp'),
   payload: z.unknown(),
 });
 
@@ -100,8 +131,11 @@ const UploadSummarySchema = z.object({
 });
 
 const ReporterUploadSchema = z.object({
+  format: z.enum(['playwright', 'junit']).optional(),
   runId: z.string().min(1),
-  status: z.enum(['running', 'passed', 'failed', 'interrupted']).default('passed'),
+  // No default: an absent status is derived from the uploaded evidence so an
+  // evidence-free upload can never inherit a green `passed`.
+  status: z.enum(['running', 'passed', 'failed', 'interrupted']).optional(),
   startedAt: z.string().min(1).optional(),
   finishedAt: z.string().nullable().optional(),
   durationMs: z.number().nonnegative().nullable().optional(),
@@ -113,6 +147,23 @@ const ReporterUploadSchema = z.object({
 });
 
 type ReporterUploadPayload = z.infer<typeof ReporterUploadSchema>;
+type UploadedTest = z.infer<typeof UploadedTestSchema>;
+
+/**
+ * Non-green terminal status used when an upload carries no usable evidence.
+ *
+ * The run status vocabulary (RunStatus, mirrored by `runs.status` in
+ * @automate/db) has no `unknown` member, so `interrupted` is the honest
+ * landing spot: an upload that proves nothing must never be persisted as
+ * `passed`.
+ */
+const UNDETERMINED_RUN_STATUS: RunStatus = 'interrupted';
+
+/** Test statuses that mean "declared, but no outcome was ever observed". */
+const UNRESOLVED_TEST_STATUSES: ReadonlySet<TestStatus> = new Set<TestStatus>([
+  'running',
+  'queued',
+]);
 
 function sanitizePath(rawPath: string): string {
   const normalized = path.normalize(rawPath);
@@ -140,6 +191,32 @@ function countStatuses(tests: ReadonlyArray<z.infer<typeof UploadedTestSchema>>)
     if (test.status === 'skipped') skipped += 1;
   }
   return { total: tests.length, passed, failed, flaky, skipped };
+}
+
+/**
+ * Derive a run status for uploads that do not declare one.
+ *
+ * Fail-closed by construction — `passed` is only ever returned when the
+ * upload carries real evidence:
+ *
+ *   - no test rows at all                       → non-green (unknown)
+ *   - any failed/timedOut row (or summary.failed) → failed
+ *   - any row that never resolved (queued/running) → non-green (unknown)
+ *   - no row actually passed                     → non-green (unknown)
+ *   - otherwise                                  → passed
+ */
+function deriveUploadStatus(
+  tests: ReadonlyArray<UploadedTest>,
+  summary: ReporterUploadPayload['summary'],
+): RunStatus {
+  const derived = countStatuses(tests);
+  if (tests.length === 0) return UNDETERMINED_RUN_STATUS;
+  if ((summary?.failed ?? derived.failed) > 0) return 'failed';
+  if (tests.some((test) => UNRESOLVED_TEST_STATUSES.has(test.status))) {
+    return UNDETERMINED_RUN_STATUS;
+  }
+  if ((summary?.passed ?? derived.passed) === 0) return UNDETERMINED_RUN_STATUS;
+  return 'passed';
 }
 
 function normalizeUploadPayload(payload: ReporterUploadPayload): ReporterUploadPayload {
@@ -174,6 +251,7 @@ async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
     const commitSha = String(form.get('commitSha') ?? '').trim() || undefined;
     const triggeredBy = String(form.get('triggeredBy') ?? '').trim() || undefined;
     const status = String(form.get('status') ?? '').trim() || undefined;
+    const format = String(form.get('format') ?? '').trim() || undefined;
     const artifactType = String(form.get('artifactType') ?? '')
       .trim()
       .toLowerCase();
@@ -195,6 +273,13 @@ async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
     }
     let candidate: unknown;
 
+    const looksLikeXml = /^\s*<(?:\?xml|testsuites?|testsuite)\b/i.test(text);
+    if (format === 'junit' && !looksLikeXml) {
+      throw new Error('JUnit uploads must use application/xml');
+    }
+    if (format === 'playwright' && looksLikeXml) {
+      throw new Error('Playwright uploads must use JSON');
+    }
     if (artifactType === 'junit' || uploadFile.name.toLowerCase().endsWith('.xml')) {
       candidate = parseJunitUpload(runId, text);
     } else {
@@ -207,6 +292,7 @@ async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
       if (commitSha) objectCandidate['commitSha'] = commitSha;
       if (triggeredBy) objectCandidate['triggeredBy'] = triggeredBy;
       if (status) objectCandidate['status'] = status;
+      if (format) objectCandidate['format'] = format;
     }
 
     const parsed = ReporterUploadSchema.safeParse(candidate);
@@ -220,6 +306,9 @@ async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
   const parsed = ReporterUploadSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error(JSON.stringify(parsed.error.flatten().fieldErrors));
+  }
+  if (parsed.data.format === 'junit') {
+    throw new Error('JUnit uploads must use application/xml');
   }
   return normalizeUploadPayload(parsed.data);
 }
@@ -242,13 +331,24 @@ function parseJsonUpload(runIdFromField: string, text: string): unknown {
   return object;
 }
 
+/**
+ * Convert a Playwright JSON report into upload rows.
+ *
+ * Every `spec.tests[]` entry and every attempt in `tests[].results[]` becomes
+ * its own row, so retries and multi-project specs are never collapsed into a
+ * single "last result wins" verdict.  A test that declares no results keeps a
+ * single unresolved row instead of silently disappearing.
+ *
+ * The returned payload carries no run status: it is derived from the rows by
+ * {@link deriveUploadStatus} unless the request declares one explicitly.
+ */
 function convertPlaywrightJsonToUpload(
   runIdFromField: string,
   report: Record<string, unknown>,
 ): ReporterUploadPayload {
   const runId =
     runIdFromField || (typeof report['runId'] === 'string' ? report['runId'] : 'uploaded-run');
-  const tests: Array<z.infer<typeof UploadedTestSchema>> = [];
+  const tests: UploadedTest[] = [];
 
   const collectSuite = (suite: Record<string, unknown>, parentTitle = ''): void => {
     const suiteTitle = typeof suite['title'] === 'string' ? suite['title'] : '';
@@ -258,35 +358,42 @@ function convertPlaywrightJsonToUpload(
     for (const spec of specs) {
       if (typeof spec !== 'object' || spec === null) continue;
       const specObject = spec as Record<string, unknown>;
-      const title = typeof specObject['title'] === 'string' ? specObject['title'] : 'Unnamed spec';
-      const testsArray = Array.isArray(specObject['tests']) ? specObject['tests'] : [];
-      const primary = testsArray[0];
+      const specTitle =
+        typeof specObject['title'] === 'string' ? specObject['title'] : 'Unnamed spec';
+      const specTests = Array.isArray(specObject['tests']) ? specObject['tests'] : [];
+      const file = typeof suite['file'] === 'string' ? suite['file'] : '';
 
-      let status: TestStatus = 'queued';
-      let durationMs: number | null = null;
-      if (typeof primary === 'object' && primary !== null) {
-        const testObject = primary as Record<string, unknown>;
+      for (const [testIndex, entry] of specTests.entries()) {
+        if (typeof entry !== 'object' || entry === null) continue;
+        const testObject = entry as Record<string, unknown>;
+        const testTitle =
+          typeof testObject['title'] === 'string' && testObject['title'] !== ''
+            ? testObject['title']
+            : specTitle;
+        const fullTitle = fullTitlePrefix ? `${fullTitlePrefix} > ${testTitle}` : testTitle;
         const results = Array.isArray(testObject['results']) ? testObject['results'] : [];
-        const lastResult = results.length > 0 ? results[results.length - 1] : undefined;
-        if (typeof lastResult === 'object' && lastResult !== null) {
-          const resultObject = lastResult as Record<string, unknown>;
+        // No results at all → the report knows the test exists but not its
+        // outcome. Keep one unresolved row (never a verdict) so the run cannot
+        // be derived as green.
+        const attempts: unknown[] = results.length > 0 ? results : [testObject];
+
+        for (const [attemptIndex, attempt] of attempts.entries()) {
+          const attemptObject: Record<string, unknown> =
+            typeof attempt === 'object' && attempt !== null
+              ? (attempt as Record<string, unknown>)
+              : {};
           const rawStatus =
-            typeof resultObject['status'] === 'string' ? resultObject['status'] : 'queued';
-          status = mapPlaywrightStatus(rawStatus);
-          durationMs =
-            typeof resultObject['duration'] === 'number' ? resultObject['duration'] : null;
+            typeof attemptObject['status'] === 'string' ? attemptObject['status'] : 'queued';
+          tests.push({
+            id: `${file || 'unknown'}::${fullTitle}::${testIndex + 1}.${attemptIndex + 1}`,
+            title: fullTitle,
+            file,
+            status: mapPlaywrightStatus(rawStatus),
+            durationMs:
+              typeof attemptObject['duration'] === 'number' ? attemptObject['duration'] : null,
+          });
         }
       }
-
-      const file = typeof suite['file'] === 'string' ? suite['file'] : '';
-      const fullTitle = fullTitlePrefix ? `${fullTitlePrefix} > ${title}` : title;
-      tests.push({
-        id: `${file || 'unknown'}::${fullTitle}`,
-        title: fullTitle,
-        file,
-        status,
-        durationMs,
-      });
     }
 
     const nested = Array.isArray(suite['suites']) ? suite['suites'] : [];
@@ -304,14 +411,10 @@ function convertPlaywrightJsonToUpload(
     }
   }
 
-  const summary = countStatuses(tests);
-  const status: ReporterUploadPayload['status'] = summary.failed > 0 ? 'failed' : 'passed';
-
   return {
     runId,
-    status,
     tests,
-    summary,
+    summary: countStatuses(tests),
   };
 }
 
@@ -327,7 +430,7 @@ function mapPlaywrightStatus(status: string): TestStatus {
 function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPayload {
   const runId = runIdFromField || 'uploaded-junit-run';
   const testcaseRegex = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
-  const tests: Array<z.infer<typeof UploadedTestSchema>> = [];
+  const tests: UploadedTest[] = [];
   let index = 0;
 
   const parseAttribute = (attrs: string, key: string): string | null => {
@@ -346,7 +449,7 @@ function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPa
     const durationSeconds = Number(parseAttribute(attrs, 'time') ?? '0');
     const durationMs = Number.isFinite(durationSeconds) ? Math.round(durationSeconds * 1000) : null;
 
-    let status: z.infer<typeof UploadedTestSchema>['status'] = 'passed';
+    let status: UploadedTest['status'] = 'passed';
     if (/<skipped[\s>]/.test(body)) status = 'skipped';
     if (/<failure[\s>]/.test(body) || /<error[\s>]/.test(body)) status = 'failed';
 
@@ -360,14 +463,12 @@ function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPa
     });
   }
 
-  const summary = countStatuses(tests);
-  const status: ReporterUploadPayload['status'] = summary.failed > 0 ? 'failed' : 'passed';
-
+  // No status here: an empty <testsuites/> (zero testcases) must fall through
+  // to the fail-closed derivation instead of being reported as a pass.
   return {
     runId,
-    status,
     tests,
-    summary,
+    summary: countStatuses(tests),
   };
 }
 
@@ -375,17 +476,24 @@ async function persistUploadPayload(
   payload: ReporterUploadPayload,
   repository: RunRepository,
   bus?: RealtimeBus,
-): Promise<{ runId: string; status: ReporterUploadPayload['status']; ingestedTests: number }> {
+): Promise<{ runId: string; status: RunStatus; ingestedTests: number }> {
   const derived = countStatuses(payload.tests);
   const summary = payload.summary ?? {};
+  // An explicit status is honoured for non-green terminal states. A declared
+  // pass is downgraded when the uploaded rows do not contain real evidence.
+  const evidenceStatus = deriveUploadStatus(payload.tests, payload.summary);
+  const status =
+    payload.status === 'passed' && evidenceStatus !== 'passed'
+      ? evidenceStatus
+      : (payload.status ?? evidenceStatus);
   const nowIso = new Date().toISOString();
   const startedAt = payload.startedAt ?? nowIso;
 
   await repository.upsertRun({
     id: payload.runId,
     startedAt,
-    finishedAt: payload.finishedAt ?? (payload.status === 'running' ? null : nowIso),
-    status: payload.status,
+    finishedAt: payload.finishedAt ?? (status === 'running' ? null : nowIso),
+    status,
     total: summary.total ?? derived.total,
     passed: summary.passed ?? derived.passed,
     failed: summary.failed ?? derived.failed,
@@ -415,14 +523,14 @@ async function persistUploadPayload(
       type: 'run:updated',
       version: '1',
       runId: payload.runId,
-      status: payload.status,
+      status,
       timestamp: nowIso,
     });
   }
 
   return {
     runId: payload.runId,
-    status: payload.status,
+    status,
     ingestedTests: payload.tests.length,
   };
 }
@@ -430,7 +538,7 @@ async function persistUploadPayload(
 /** Promote a legacy event to the normalised shape. */
 export function adaptLegacyEvent(raw: LegacyReporterEvent): NormalizedReporterEvent {
   return {
-    version: '1',
+    version: REPORTER_EVENT_VERSION,
     type: raw.type,
     runId: raw.runId,
     timestamp: new Date().toISOString(),
@@ -587,6 +695,8 @@ export function createReporterRoutes(
           {
             error: 'Invalid versioned reporter event',
             details: result.error.flatten().fieldErrors,
+            supportedVersions: VERSIONED_EVENT_VERSIONS,
+            legacyContract: LEGACY_FLAT_V1_CONTRACT_ID,
           },
           400,
         );
@@ -609,7 +719,7 @@ export function createReporterRoutes(
       if (runUpdated && options.bus) {
         const run = await options.repository.getRun(normalized.runId);
         if (run !== null) {
-          options.bus.publish({
+          await           await options.bus.publish({
             type: 'run:updated',
             version: '1',
             runId: run.id,
@@ -660,6 +770,7 @@ export function createReporterRoutes(
         ok: true,
         runId: persisted.runId,
         type: 'run:upload',
+        status: persisted.status,
         ingestedTests: persisted.ingestedTests,
       },
       202,

@@ -1,4 +1,4 @@
-FROM node:22.19.0-alpine
+FROM node:24.21.0-alpine
 WORKDIR /automation
 COPY manifest.json /automation/manifest.json
 RUN mkdir -p /automation/input /automation/output && chown -R 65532:65532 /automation

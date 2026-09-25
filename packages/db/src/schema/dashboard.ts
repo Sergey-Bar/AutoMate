@@ -241,6 +241,22 @@ export const runs = pgTable(
   ],
 );
 
+export const canonicalRunResults = pgTable(
+  'canonical_run_results',
+  {
+    workspaceId: text('workspace_id').notNull(),
+    runId: text('run_id').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    result: jsonb('result').$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.runId] }),
+    index('canonical_run_results_workspace_idx').on(table.workspaceId, table.createdAt),
+  ],
+);
+
 // ─── suites ────────────────────────────────────────────────────────────────
 // Source: suites table — test suite hierarchy
 export const suites = pgTable('suites', {

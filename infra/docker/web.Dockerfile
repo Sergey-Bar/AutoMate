@@ -1,4 +1,4 @@
-FROM node:22.19.0-alpine AS build
+FROM node:24.21.0-alpine AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
 COPY . .

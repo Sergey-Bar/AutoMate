@@ -42,16 +42,13 @@ describe('RealtimeEventSchema', () => {
     }
   });
 
-  it('captures an explicit version field even if it differs from default', () => {
+  it('rejects an incompatible version', () => {
     const result = RealtimeEventSchema.safeParse({
       version: '3',
       type: 'some:future:event',
       timestamp: '2026-01-01T00:00:00.000Z',
     });
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.version).toBe('3');
-    }
+    expect(result.success).toBe(false);
   });
 
   it('rejects when type is missing', () => {

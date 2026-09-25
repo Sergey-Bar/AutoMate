@@ -265,13 +265,15 @@ describe('ApiClient', () => {
     vi.stubGlobal('EventSource', FakeEventSource);
     const onEvent = vi.fn();
     const onReconnect = vi.fn();
+    const onRefetch = vi.fn();
     const onConnectionChange = vi.fn();
     const unsubscribe = defaultApiClient.subscribeToRunEvents({
       onEvent,
       onReconnect,
+      onRefetch,
       onConnectionChange,
     });
-    const subscription: RunEventSubscription = { onEvent, onReconnect, onConnectionChange };
+    const subscription: RunEventSubscription = { onEvent, onReconnect, onRefetch, onConnectionChange };
     const source = FakeEventSource.instance;
     expect(source?.url).toBe('/api/v1/events');
     expect(source?.options?.withCredentials).toBe(true);
@@ -289,10 +291,13 @@ describe('ApiClient', () => {
     source?.dispatch('run.phase_changed', { invalid: true });
     const messageListener = source?.listeners.get('message')?.values().next().value;
     messageListener?.({ data: '{' } as MessageEvent<string>);
-    expect(onEvent).toHaveBeenCalledOnce();
-    unsubscribe();
-    expect(source?.closed).toBe(true);
-    expect(subscription.onEvent).toBe(onEvent);
+     expect(onEvent).toHaveBeenCalledOnce();
+     const refetchListener = source?.listeners.get('refetch')?.values().next().value;
+     refetchListener?.({} as MessageEvent<string>);
+     expect(onRefetch).toHaveBeenCalledOnce();
+     unsubscribe();
+     expect(source?.closed).toBe(true);
+     expect(subscription.onEvent).toBe(onEvent);
   });
 
   it('adapts legacy run updates through the canonical client', () => {
@@ -301,11 +306,16 @@ describe('ApiClient', () => {
     const unsubscribe = defaultApiClient.subscribeToRunEvents({ onEvent });
     const source = FakeEventSource.instance;
     source?.dispatch('message', { type: 'run:updated', runId: 'legacy-run', status: 'running' });
+    source?.dispatch('run:updated', { type: 'run:updated', runId: 'durable-run', status: 'running' });
     source?.dispatch('message', { type: 'run:updated', status: 'running' });
     source?.dispatch('message', { type: 'run:updated', runId: 'legacy-run', status: 'passed' });
-    expect(onEvent).toHaveBeenCalledTimes(2);
+    expect(onEvent).toHaveBeenCalledTimes(3);
     expect(onEvent.mock.calls[0]?.[0]).toMatchObject({
       runId: 'legacy-run',
+      type: 'run.phase_changed',
+    });
+    expect(onEvent.mock.calls[1]?.[0]).toMatchObject({
+      runId: 'durable-run',
       type: 'run.phase_changed',
     });
     unsubscribe();

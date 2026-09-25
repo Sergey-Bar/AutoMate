@@ -3,6 +3,8 @@ import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
+  DrizzleOutboxRepository,
+  type OutboxDatabase,
   artifacts,
   executionJobs,
   gateEvaluations,
@@ -59,6 +61,53 @@ export interface DrizzleExecutionStoreOptions extends ExecutionStoreOptions {
   db: AnyPgDb;
   workspaceId?: string;
   artifactBytes?: ArtifactBytesStore;
+  outboxRetentionHours?: number;
+}
+
+const OUTBOX_SENSITIVE_KEY =
+  /token|secret|password|credential|api[-_]?key|authorization|cookie|bearer|private/i;
+const OUTBOX_MAX_DEPTH = 5;
+const OUTBOX_MAX_ITEMS = 100;
+const OUTBOX_MAX_TEXT_LENGTH = 1024;
+const OUTBOX_DEFAULT_RETENTION_HOURS = 24;
+
+interface OutboxAppend {
+  workspaceId: string;
+  aggregateId: string;
+  eventType: string;
+  dedupeKey: string;
+  occurredAt: Date;
+  payload: Record<string, unknown>;
+}
+
+function sanitizeOutboxValue(value: unknown, depth: number): unknown {
+  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string')
+    return value.length > OUTBOX_MAX_TEXT_LENGTH
+      ? value.slice(0, OUTBOX_MAX_TEXT_LENGTH)
+      : value;
+  if (depth >= OUTBOX_MAX_DEPTH) return null;
+  if (Array.isArray(value))
+    return value.slice(0, OUTBOX_MAX_ITEMS).map((item) => sanitizeOutboxValue(item, depth + 1));
+  if (typeof value === 'object')
+    return sanitizeOutboxRecord(value as Record<string, unknown>, depth + 1);
+  return null;
+}
+
+function sanitizeOutboxRecord(
+  value: Record<string, unknown>,
+  depth: number,
+): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (OUTBOX_SENSITIVE_KEY.test(key)) continue;
+    sanitized[key] = sanitizeOutboxValue(item, depth);
+  }
+  return sanitized;
+}
+
+function sanitizeOutboxPayload(value: Record<string, unknown>): Record<string, unknown> {
+  return sanitizeOutboxRecord(value, 0);
 }
 
 function nowDate(options: ExecutionStoreOptions): Date {
@@ -407,6 +456,31 @@ export class DrizzleExecutionStore implements ExecutionStore {
     this.options = options;
   }
 
+  private async appendOutbox(tx: unknown, event: OutboxAppend): Promise<void> {
+    await this.appendOutboxBatch(tx, [event]);
+  }
+
+  private async appendOutboxBatch(tx: unknown, events: OutboxAppend[]): Promise<void> {
+    if (events.length === 0) return;
+    const repository = new DrizzleOutboxRepository(tx as OutboxDatabase);
+    await repository.appendMany(
+      events.map((event) => ({
+        workspaceId: event.workspaceId,
+        aggregateType: 'run',
+        aggregateId: event.aggregateId,
+        eventType: event.eventType,
+        eventVersion: 1,
+        payload: sanitizeOutboxPayload(event.payload),
+        dedupeKey: event.dedupeKey,
+        occurredAt: event.occurredAt,
+        expiresAt: new Date(
+          event.occurredAt.getTime() +
+            (this.options.outboxRetentionHours ?? OUTBOX_DEFAULT_RETENTION_HOURS) * 3_600_000,
+        ),
+      })),
+    );
+  }
+
   async createRun(
     input: CreateRunInput,
     idempotencyKey: string,
@@ -516,6 +590,23 @@ export class DrizzleExecutionStore implements ExecutionStore {
       await this.db.transaction(async (tx) => {
         await tx.insert(runs).values(runValues);
         await tx.insert(executionJobs).values(jobValues);
+        await this.appendOutbox(tx, {
+          workspaceId,
+          aggregateId: id,
+          eventType: 'execution.run.created',
+          dedupeKey: `execution:${workspaceId}:run.created:${id}`,
+          occurredAt: timestamp,
+          payload: {
+            runId: id,
+            jobId,
+            attempt,
+            phase: 'queued',
+            outcome: null,
+            status: 'running',
+            source: runValues.source,
+            idempotencyKey: runValues.idempotencyKey,
+          },
+        });
       });
     } catch (error) {
       const raced = await this.findByIdempotency(workspaceId, idempotencyKey);
@@ -622,6 +713,19 @@ export class DrizzleExecutionStore implements ExecutionStore {
             inArray(executionJobs.state, ['queued', 'leased', 'requeued']),
           ),
         );
+      await this.appendOutbox(tx, {
+        workspaceId: run.workspaceId,
+        aggregateId: runId,
+        eventType: 'execution.run.cancelled',
+        dedupeKey: `execution:${run.workspaceId}:run.cancelled:${runId}`,
+        occurredAt: new Date(timestamp),
+        payload: {
+          runId,
+          attempt: run.attempt,
+          phase: 'cancelled',
+          outcome: 'cancelled',
+        },
+      });
     });
     return this.getRun(runId, workspaceId);
   }
@@ -973,6 +1077,8 @@ export class DrizzleExecutionStore implements ExecutionStore {
         if (input.type === 'run.completed' || input.payload?.['terminal'] === true) terminal = true;
       }
       const results: EventApplyResult[] = [];
+      const workspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
+      const outboxBatch: OutboxAppend[] = [];
       for (const item of prepared) {
         if (item.duplicate) {
           results.push({
@@ -985,10 +1091,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
         }
         const input = item.input;
         const eventId = input.eventId;
+        const occurredAt = input.occurredAt ? new Date(input.occurredAt) : nowDate(this.options);
         await tx.insert(runEvents).values({
           eventId,
           runId: job.runId,
-          workspaceId: stringValue(runRow['workspaceId'], 'default-workspace'),
+          workspaceId,
           jobId,
           sequence: input.sequence,
           source: 'runner',
@@ -998,7 +1105,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           payload: input.payload ?? {},
           leaseId,
           fencingToken,
-          occurredAt: input.occurredAt ? new Date(input.occurredAt) : nowDate(this.options),
+          occurredAt,
           receivedAt: nowDate(this.options),
         });
         results.push({
@@ -1006,6 +1113,24 @@ export class DrizzleExecutionStore implements ExecutionStore {
           sequence: input.sequence,
           status: 'accepted',
           hash: item.hash,
+        });
+        outboxBatch.push({
+          workspaceId,
+          aggregateId: job.runId,
+          eventType: 'execution.event.appended',
+          dedupeKey: `execution:${workspaceId}:event.appended:${item.eventKey}`,
+          occurredAt,
+          payload: {
+            runId: job.runId,
+            jobId,
+            eventId,
+            sequence: input.sequence,
+            type: input.type,
+            occurredAt: occurredAt.toISOString(),
+            leaseId,
+            fencingToken,
+            payload: input.payload ?? {},
+          },
         });
         await tx
           .update(runs)
@@ -1097,6 +1222,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
             });
         }
       }
+      await this.appendOutboxBatch(tx, outboxBatch);
       return results;
     });
   }
@@ -1125,8 +1251,9 @@ export class DrizzleExecutionStore implements ExecutionStore {
         await tx.select().from(executionJobs).where(eq(executionJobs.id, jobId)).limit(1)
       )[0];
       if (!jobRow) return null;
-      const job = mapJob(rowValue(jobRow));
-      const storedHash = nullableString(rowValue(jobRow)['completionHash']);
+      const jobRecord = rowValue(jobRow);
+      const job = mapJob(jobRecord);
+      const storedHash = nullableString(jobRecord['completionHash']);
       const effectivePreviousHash = storedHash ?? previousHash;
       if (effectivePreviousHash && effectivePreviousHash !== completionHash) return null;
       if (job.leaseId !== completion.leaseId || job.fencingToken !== completion.fencingToken)
@@ -1225,6 +1352,24 @@ export class DrizzleExecutionStore implements ExecutionStore {
           durationMs: completion.summary?.durationMs ?? null,
         })
         .where(eq(runs.id, job.runId));
+      const jobWorkspaceId = stringValue(jobRecord['workspaceId'], 'default-workspace');
+      await this.appendOutbox(tx, {
+        workspaceId: jobWorkspaceId,
+        aggregateId: job.runId,
+        eventType: 'execution.job.completed',
+        dedupeKey: `execution:${jobWorkspaceId}:job.completed:${jobId}`,
+        occurredAt: timestamp,
+        payload: {
+          runId: job.runId,
+          jobId,
+          phase,
+          outcome,
+          status:
+            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
+          summary: completion.summary ?? null,
+          error: completion.error ?? null,
+        },
+      });
       return { runId: job.runId, duplicate: false };
     });
     if (!result) return null;
@@ -1303,16 +1448,19 @@ export class DrizzleExecutionStore implements ExecutionStore {
   }
 
   async getArtifact(artifactId: string): Promise<StoredArtifact | null> {
-    const row = (
-      await this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).limit(1)
-    )[0];
-    if (!row) return null;
-    const data = rowValue(row);
-    const descriptor = mapArtifact(data);
+    const descriptor = await this.getArtifactDescriptor(artifactId);
+    if (!descriptor) return null;
     const bytes = this.options.artifactBytes
       ? await this.options.artifactBytes.get(descriptor.storageKey)
       : this.memoryBytes.get(descriptor.storageKey);
     return bytes ? { ...descriptor, bytes: new Uint8Array(bytes) } : null;
+  }
+
+  async getArtifactDescriptor(artifactId: string): Promise<ArtifactDescriptor | null> {
+    const row = (
+      await this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).limit(1)
+    )[0];
+    return row ? mapArtifact(rowValue(row)) : null;
   }
 
   async listArtifacts(runId: string): Promise<ArtifactDescriptor[]> {

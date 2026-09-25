@@ -12,16 +12,33 @@ const context = {
 };
 
 describe('JUnit adapter', () => {
-  it('maps testcases and failure elements without treating classnames as paths', () => {
+  it('maps plain testcases as passed and preserves files without treating classnames as paths', () => {
     const result = junitXmlAdapter.parse(
       new TextEncoder().encode(
-        '<testsuite><testcase classname="suite.pkg" name="passes" time="0.1"/><testcase classname="suite.pkg" name="fails"><failure>boom</failure></testcase></testsuite>',
+        '<testsuite><testcase classname="suite.pkg" file="tests/self-closing.spec.ts" name="self-closing" time="0.1"/><testcase classname="suite.pkg" file="tests/plain.spec.ts" name="plain"></testcase><testcase classname="suite.pkg" name="fails"><failure>boom</failure></testcase></testsuite>',
       ),
       context,
     );
-    expect(result.attempts).toHaveLength(2);
-    expect(result.attempts[0].specPath).toBe('unknown.spec.ts');
-    expect(result.attempts[1].status).toBe('failed');
+    expect(result.attempts).toHaveLength(3);
+    expect(result.attempts.map((attempt) => attempt.status)).toEqual([
+      'passed',
+      'passed',
+      'failed',
+    ]);
+    expect(result.attempts.map((attempt) => attempt.specPath)).toEqual([
+      'tests/self-closing.spec.ts',
+      'tests/plain.spec.ts',
+      'unknown.spec.ts',
+    ]);
+  });
+
+  it('keeps an explicitly unrecognized testcase status non-green', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode('<testsuite><testcase name="unknown" status="mystery"/></testsuite>'),
+      context,
+    );
+    expect(result.status).toBe('unknown');
+    expect(result.attempts[0]?.status).toBe('unknown');
   });
 
   it('rejects reports without testcases', () => {

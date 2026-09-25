@@ -24,7 +24,7 @@ const run = (
     },
   ],
   artifacts: [],
-  rawEvidenceRefs: [],
+  rawEvidenceRefs: ['report:test-result'],
   summary: {
     total: 1,
     passed: status === 'passed' ? 1 : 0,
@@ -44,6 +44,16 @@ describe('quality gate policy evaluation', () => {
     expect(evaluateQualityGate({ run: run('failed', 'failed'), policy }).decision).toBe('blocked');
     expect(evaluateQualityGate({ run: run('partial'), policy }).status).toBe('warning');
     expect(evaluateQualityGate({ run: run('cancelled'), policy }).status).toBe('unknown');
+  });
+
+  it('does not turn a passed browser domain green without evidence', () => {
+    const result = evaluateQualityGate({
+      run: { ...run('passed'), rawEvidenceRefs: [] },
+      policy: defaultPolicy('workspace-1'),
+    });
+    expect(result.status).toBe('unknown');
+    expect(result.decision).toBe('not_ready');
+    expect(result.reasons).toContain('evidence:MISSING_REQUIRED_EVIDENCE');
   });
 
   it('evaluates thresholds, rules, infrastructure reasons, and gate metadata', () => {
