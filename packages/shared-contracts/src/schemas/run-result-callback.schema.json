@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "runId": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["completed", "failed", "timeout"]
+    },
+    "duration": { "type": "number" },
+    "total": { "type": "number" },
+    "passed": { "type": "number" },
+    "failed": { "type": "number" },
+    "skipped": { "type": "number" },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "testName": { "type": "string" },
+          "message": { "type": "string" },
+          "stack": { "type": "string" }
+        },
+        "required": ["testName", "message"]
+      }
+    },
+    "triggeredBy": { "type": "string" },
+    "triggeredAt": { "type": "string" },
+    "completedAt": { "type": "string" }
+  },
+  "required": [
+    "runId",
+    "status",
+    "duration",
+    "total",
+    "passed",
+    "failed",
+    "skipped",
+    "triggeredBy",
+    "triggeredAt",
+    "completedAt"
+  ]
+}

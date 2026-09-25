@@ -1,0 +1,494 @@
+# CI — Unified Platform (apps/api + apps/web + packages/*)
+name: CI — Unified Platform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/auth/**'
+      - 'packages/db/**'
+      - 'packages/realtime/**'
+      - 'packages/shared-contracts/**'
+      - 'packages/ui/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/unified-ci.yml'
+      - '.semgrep.yml'
+      - '.gitleaks.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'apps/web/**'
+      - 'packages/auth/**'
+      - 'packages/db/**'
+      - 'packages/realtime/**'
+      - 'packages/shared-contracts/**'
+      - 'packages/ui/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/unified-ci.yml'
+      - '.semgrep.yml'
+      - '.gitleaks.toml'
+
+concurrency:
+  group: unified-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─── Install ───────────────────────────────────────────────────────────────
+  install:
+    name: Install
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Cache node_modules so downstream jobs don't reinstall
+      - name: Cache node_modules
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+  # ─── Build ─────────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Build workspace packages
+        run: |
+          pnpm --filter @automate/auth run build
+          pnpm --filter @automate/db run build
+          pnpm --filter @automate/realtime run build
+          pnpm --filter @automate/shared-contracts run build
+
+      - name: Build API
+        run: pnpm --filter @automate/api run build
+
+      - name: Build Web
+        run: pnpm --filter @automate/unified-web run build
+
+  # ─── Typecheck ─────────────────────────────────────────────────────────────
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Build workspace packages for type resolution
+        run: |
+          pnpm --filter @automate/auth run build
+          pnpm --filter @automate/db run build
+          pnpm --filter @automate/realtime run build
+          pnpm --filter @automate/shared-contracts run build
+
+      - name: Typecheck API
+        run: pnpm --filter @automate/api run typecheck
+
+      - name: Typecheck Web
+        run: pnpm --filter @automate/unified-web run typecheck
+
+      - name: Typecheck shared-contracts
+        # shared-contracts has no 'typecheck' script; invoke tsc directly via exec
+        run: pnpm --filter @automate/shared-contracts exec tsc --noEmit
+
+      - name: Typecheck auth
+        run: pnpm --filter @automate/auth run typecheck
+
+      - name: Typecheck db
+        run: pnpm --filter @automate/db run typecheck
+
+      - name: Typecheck realtime
+        run: pnpm --filter @automate/realtime run typecheck
+
+      - name: Typecheck ui
+        run: pnpm --filter @automate/ui run typecheck
+
+  # ─── Lint ──────────────────────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: install
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Lint API
+        run: pnpm --filter @automate/api run lint
+
+      - name: Lint Web
+        run: pnpm --filter @automate/unified-web run lint
+
+      - name: Lint auth
+        run: pnpm --filter @automate/auth run lint
+
+      - name: Lint db
+        run: pnpm --filter @automate/db run lint
+
+      - name: Lint realtime
+        run: pnpm --filter @automate/realtime run lint
+
+      - name: Lint ui
+        run: pnpm --filter @automate/ui run lint
+
+      # shared-contracts: no 'lint' script — excluded until Task 7 adds ESLint
+
+  # ─── Test ──────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: install
+
+    env:
+      # Provide minimal env for tests that check env var presence
+      DATABASE_URL: postgres://test:test@localhost:5432/test
+      REPORTER_SECRET: ci-test-secret
+      COOKIE_SECRET: ci-cookie-secret-32chars-minimum!!
+      AUTOMATE_SERVICE_SECRET: ci-service-secret
+      CORS_ORIGIN: http://localhost:5173
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Test API
+        run: pnpm --filter @automate/api run test
+
+      - name: Test Web
+        run: pnpm --filter @automate/unified-web run test
+
+      - name: Test shared-contracts
+        run: pnpm --filter @automate/shared-contracts run test
+
+      - name: Test auth
+        run: pnpm --filter @automate/auth run test
+
+      - name: Test realtime
+        run: pnpm --filter @automate/realtime run test
+
+      - name: Test db
+        run: pnpm --filter @automate/db run test
+
+      - name: Test ui
+        run: pnpm --filter @automate/ui run test
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unified-coverage
+          path: |
+            apps/api/coverage/
+            apps/web/coverage/
+            packages/auth/coverage/
+            packages/db/coverage/
+            packages/realtime/coverage/
+            packages/shared-contracts/coverage/
+            packages/ui/coverage/
+          retention-days: 14
+
+  # ─── Security Scan ─────────────────────────────────────────────────────────
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: install
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks requires full history for secret scanning
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Dependency audit (unified platform)
+        # Release-blocking gate: fails on HIGH or CRITICAL vulnerabilities.
+        # Tracked findings documented in .sisyphus/evidence/production-readiness/task-9-dependency-audit.txt.
+        # Root audit currently exits 0 (only moderate findings). Automate + Dashboard audited in nightly.yml.
+        run: pnpm audit --audit-level=high
+
+      - name: Secret scan (gitleaks)
+        # Uses .gitleaks.toml — test fixtures and example placeholders are allowlisted.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Semgrep static security scan
+        # Uses .semgrep.yml local rules — no Semgrep Cloud token required.
+        # Scans TypeScript/JavaScript for SQL injection, secret logging, unsafe type casts.
+        # --error flag: exits non-zero on any finding, making this a blocking gate.
+        run: |
+          pip install semgrep --quiet
+          semgrep --config .semgrep.yml --error apps/ packages/
+
+  # ─── E2E Tests ─────────────────────────────────────────────────────────────
+  e2e:
+    # E2E vertical-slice tests — reporter → persistence → SSE → browser
+    name: E2E Tests
+    if: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build, test]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: e2e
+          POSTGRES_PASSWORD: e2e
+          POSTGRES_DB: e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://e2e:e2e@localhost:5432/e2e
+      REPORTER_SECRET: ci-reporter-secret
+      COOKIE_SECRET: ci-cookie-secret-32chars-minimum!!
+      AUTOMATE_SERVICE_SECRET: ci-service-secret
+      CORS_ORIGIN: http://localhost:5173
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore node_modules
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            node_modules
+            apps/api/node_modules
+            apps/web/node_modules
+            packages/auth/node_modules
+            packages/db/node_modules
+            packages/realtime/node_modules
+            packages/shared-contracts/node_modules
+            packages/ui/node_modules
+          key: unified-nm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+        working-directory: e2e/integration
+
+      - name: Run database migrations
+        run: pnpm --filter @automate/db db:migrate
+        env:
+          DATABASE_URL: postgres://e2e:e2e@localhost:5432/e2e
+
+      - name: Run automation score gate (vertical-slice)
+        run: pnpm test:automation:score -- --project vertical-slice --report-path ./.artifacts/automation-playwright-report.json --fail-under 75
+        env:
+          DATABASE_URL: postgres://e2e:e2e@localhost:5432/e2e
+
+      - name: Generate automation score JSON
+        if: always()
+        run: node ./scripts/automation-score.mjs --from-report ./.artifacts/automation-playwright-report.json --json > ./.artifacts/automation-score.json
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            e2e/integration/playwright-report/
+            .artifacts/automation-playwright-report.json
+            .artifacts/automation-score.json
+            .sisyphus/evidence/production-readiness/
+          retention-days: 14
+
+  # ─── Docker Smoke ──────────────────────────────────────────────────────────
+  docker-smoke:
+    name: Docker Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Make smoke script executable
+        run: chmod +x scripts/docker-smoke.sh
+
+      - name: Generate test env file
+        run: bash scripts/docker-smoke.sh --prepare-env-only
+
+      - name: Validate dry-run (no Docker required)
+        run: bash scripts/docker-smoke.sh --dry-run
+
+      - name: Run Docker smoke test
+        # Requires Docker daemon — runs in GitHub-hosted runner (Docker is pre-installed)
+        # Uses isolated project name "automate-smoke-test" to avoid port conflicts
+        run: bash scripts/docker-smoke.sh
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-smoke-evidence
+          path: .sisyphus/evidence/production-readiness/task-35-*.txt
+          retention-days: 7

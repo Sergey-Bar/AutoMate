@@ -1,0 +1,151 @@
+﻿# Automate — Unified deployment (Postgres + API + Web + optional Ollama)
+# Usage:
+#   docker compose up -d                     # Start all services
+#   docker compose --profile ai up -d        # Include Ollama AI service
+#   docker compose logs -f                   # Follow logs
+#   docker compose down                      # Stop (data preserved)
+#   docker compose down -v                   # Stop + wipe all data
+
+name: qace
+
+services:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PostgreSQL 16 — Primary database
+  # ─────────────────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: automate
+      POSTGRES_USER: automate
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - qace
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U automate -d automate"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # API — Unified Hono API on port 3000
+  # ─────────────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATABASE_URL: "${DATABASE_URL:?DATABASE_URL must be set}"
+      AUTOMATE_API_KEY: "${AUTOMATE_API_KEY:?AUTOMATE_API_KEY must be set}"
+      VAULT_SECRET: "${VAULT_SECRET:?VAULT_SECRET must be set}"
+      REPORTER_SECRET: "${REPORTER_SECRET}"
+      COOKIE_SECRET: "${COOKIE_SECRET}"
+      AUTOMATE_SERVICE_SECRET: "${AUTOMATE_SERVICE_SECRET}"
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost:5173}"
+      OLLAMA_HOST: "${OLLAMA_HOST:-http://ollama:11434}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - qace
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(r.ok)process.exit(0);else process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Web — React SPA served by nginx on port 80
+  # ─────────────────────────────────────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - qace
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    security_opt:
+      - no-new-privileges:true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Ollama — Local LLM inference engine (optional — enable with --profile ai)
+  # API on port 11434
+  # ─────────────────────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ai"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # GPU support (NVIDIA) — uncomment if nvidia-container-toolkit is installed:
+    # runtime: nvidia
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
+    #   - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    networks:
+      - qace
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────────────────────────────────────
+networks:
+  qace:
+    driver: bridge
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local

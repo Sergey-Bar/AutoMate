@@ -1,0 +1,28 @@
+{
+  "name": "@automate/migrate-cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "migrate": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@automate/db": "workspace:*",
+    "better-sqlite3": "^12.9.0",
+    "pg": "^8.13.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^22.15.18",
+    "@types/pg": "^8.11.13",
+    "typescript": "~5.9",
+    "vitest": "^4.0.0"
+  }
+}

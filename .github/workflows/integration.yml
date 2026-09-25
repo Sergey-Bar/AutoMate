@@ -1,0 +1,83 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main, 'feature/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Compose
+        run: docker compose version
+
+      - name: Start services
+        run: docker compose -f docker-compose.unified.yml up -d --build
+        env:
+          AUTOMATE_SERVICE_SECRET: test-secret
+          COOKIE_SECRET: test-cookie-secret
+          OLLAMA_HOST: http://ollama:11434
+          FEATURE_DASHBOARD_CONNECTOR: "true"
+          FEATURE_UNIFIED_HEALTH: "true"
+          FEATURE_AI_TRIAGE: "true"
+          FEATURE_UNIFIED_AUTH: "true"
+          FEATURE_EXTERNAL_TRIGGER: "true"
+          FEATURE_RESULT_CALLBACK: "true"
+
+      - name: Wait for services to be healthy
+        run: |
+          echo "Waiting for services..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost/ai/health > /dev/null 2>&1 && \
+               curl -sf http://localhost/dashboard/health > /dev/null 2>&1; then
+              echo "All services healthy!"
+              exit 0
+            fi
+            echo "Attempt $i/60..."
+            sleep 2
+          done
+          echo "Services did not become healthy"
+          docker compose -f docker-compose.unified.yml logs
+          exit 1
+        timeout-minutes: 3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright
+        run: |
+          cd e2e/integration
+          npm install
+          npx playwright install chromium --with-deps
+
+      - name: Run integration tests
+        run: |
+          cd e2e/integration
+          npx playwright test
+        env:
+          AUTOMATE_SERVICE_SECRET: test-secret
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-report
+          path: e2e/integration/playwright-report/
+          retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: docker compose -f docker-compose.unified.yml down -v

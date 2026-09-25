@@ -1,0 +1,24 @@
+services:
+  automate:
+    environment:
+      - AUTOMATE_SERVICE_SECRET=test-secret
+      - AUTOMATE_API_KEY=test-api-key
+      - FEATURE_DASHBOARD_CONNECTOR=true
+      - FEATURE_UNIFIED_HEALTH=true
+      - FEATURE_AI_TRIAGE=true
+      - FEATURE_UNIFIED_AUTH=true
+      - OLLAMA_HOST=http://ollama:11434
+  dashboard:
+    environment:
+      - AUTOMATE_SERVICE_SECRET=test-secret
+      - COOKIE_SECRET=test-cookie-secret
+      - FEATURE_EXTERNAL_TRIGGER=true
+      - FEATURE_RESULT_CALLBACK=true
+      - FEATURE_UNIFIED_AUTH=true
+      - AUTOMATE_CALLBACK_URL=http://automate:3000
+  nginx:
+    depends_on:
+      automate:
+        condition: service_healthy
+      dashboard:
+        condition: service_healthy

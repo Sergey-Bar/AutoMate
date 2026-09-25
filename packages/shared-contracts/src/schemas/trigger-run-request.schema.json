@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "specCode": { "type": "string" },
+    "specFileName": { "type": "string" },
+    "baseUrl": { "type": "string" },
+    "browser": {
+      "type": "string",
+      "enum": ["chromium", "firefox", "webkit"]
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["specCode", "specFileName"]
+}
