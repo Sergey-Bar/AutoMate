@@ -23,6 +23,15 @@ describe('createAuthMiddleware', () => {
       const res = await app.request('/api/v1/runs');
       expect(res.status).toBe(200);
     });
+
+    it('keeps canonical runner and job paths public', async () => {
+      const app = new Hono();
+      app.use('/*', createAuthMiddleware(undefined));
+      app.get('/api/v1/runners/register', (c) => c.json({ ok: true }));
+      app.get('/api/v1/jobs/1/events', (c) => c.json({ ok: true }));
+      expect((await app.request('/api/v1/runners/register')).status).toBe(200);
+      expect((await app.request('/api/v1/jobs/1/events')).status).toBe(200);
+    });
   });
 
   describe('when API key is configured', () => {
@@ -60,6 +69,33 @@ describe('createAuthMiddleware', () => {
         headers: { Authorization: `Bearer ${TEST_KEY}` },
       });
       expect(res.status).toBe(200);
+    });
+
+    it('accepts a validated session cookie before checking the API key', async () => {
+      const sessionApp = new Hono();
+      sessionApp.use(
+        '/*',
+        createAuthMiddleware(TEST_KEY, async () => ({ userId: 'user-1' })),
+      );
+      sessionApp.get('/api/v1/runs', (c) => c.json({ ok: true }));
+      const response = await sessionApp.request('/api/v1/runs', {
+        headers: { Cookie: 'automate_session=signed-session' },
+      });
+      expect(response.status).toBe(200);
+    });
+
+    it('returns configuration failure for production open mode', async () => {
+      const previous = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'production';
+      try {
+        const openApp = new Hono();
+        openApp.use('/*', createAuthMiddleware(undefined));
+        openApp.get('/api/v1/runs', (c) => c.json({}));
+        expect((await openApp.request('/api/v1/runs')).status).toBe(503);
+      } finally {
+        if (previous === undefined) delete process.env['NODE_ENV'];
+        else process.env['NODE_ENV'] = previous;
+      }
     });
 
     describe('public paths bypass auth', () => {

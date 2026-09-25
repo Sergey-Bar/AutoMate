@@ -17,8 +17,8 @@
  *   .sisyphus/evidence/production-readiness/task-29-sse-live-update.txt     (step 5 text summary)
  *
  * Prerequisites (handled by playwright.config.ts webServer):
- *   - API server running on http://localhost:3456
- *   - Vite dev server running on http://localhost:5173 (proxies /api → 3456)
+ *   - API server running on http://localhost:3000
+ *   - Vite dev server running on http://localhost:5173 (proxies /api → 3000)
  */
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import * as fs from 'node:fs';
@@ -48,7 +48,7 @@ function saveEvidenceT29(filename: string, content: string): void {
 // Constants
 // ---------------------------------------------------------------------------
 
-const API_BASE = 'http://localhost:3456';
+const API_BASE = 'http://127.0.0.1:3000';
 const WEB_BASE = 'http://localhost:5173';
 const API_AUTH_HEADERS = { Authorization: 'Bearer e2e-installation-key' };
 
@@ -79,10 +79,10 @@ async function waitForRunInApi(
 }
 
 async function authenticateBrowser(page: Page): Promise<void> {
-  const response = await page.request.post(`${API_BASE}/api/v1/auth/login`, {
-    data: { apiKey: 'e2e-installation-key' },
-  });
-  expect(response.ok()).toBe(true);
+  await page.goto(`${WEB_BASE}/login?return=%2Fdashboard`);
+  await page.getByRole('textbox', { name: 'API Key' }).fill('e2e-installation-key');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.waitForURL('**/dashboard');
 }
 
 // ---------------------------------------------------------------------------

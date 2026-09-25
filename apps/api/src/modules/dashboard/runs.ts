@@ -47,10 +47,7 @@ export function createDashboardRunsRoutes(options: DashboardRunsOptions): Hono {
     const { status } = body;
 
     if (typeof status !== 'string' || !VALID_STATUSES.includes(status as RunStatus)) {
-      return c.json(
-        { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
-        400,
-      );
+      return c.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, 400);
     }
 
     await options.repository.patchRun(id, { status: status as RunStatus });

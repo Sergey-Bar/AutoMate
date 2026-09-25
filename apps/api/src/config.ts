@@ -6,6 +6,7 @@ export type AppConfig = Omit<Partial<CanonicalConfig>, 'nodeEnv' | 'port'> & {
   databaseUrl?: string;
   cookieSecret?: string;
   reporterSecret?: string;
+  runnerRegistrationSecret?: string;
   apiKey?: string;
   vaultSecret?: string;
 };
@@ -15,5 +16,6 @@ export function getConfig(): AppConfig {
   return {
     ...canonical,
     apiKey: canonical.installationApiKey,
+    runnerRegistrationSecret: canonical.runnerRegistrationSecret,
   };
 }

@@ -2,7 +2,10 @@ import { Hono } from 'hono';
 import { z } from 'zod/v4';
 import { RunnerControlService } from '../services/runner-control.js';
 
-const EnrollmentSchema = z.object({ enrollmentToken: z.string().min(1), capabilities: z.array(z.string()).default([]) });
+const EnrollmentSchema = z.object({
+  enrollmentToken: z.string().min(1),
+  capabilities: z.array(z.string()).default([]),
+});
 const EventSchema = z.object({
   eventId: z.string().min(1),
   jobId: z.string().min(1),
@@ -38,8 +41,11 @@ export function createRunnerRoutes(service: RunnerControlService) {
       const identity = service.authenticate(bearer(context.req.header('Authorization')));
       const events = z.array(EventSchema).safeParse(await context.req.json().catch(() => null));
       if (!events.success) return context.json({ error: 'Invalid event batch' }, 400);
-      const results = events.data.map((event) => service.acceptEvent(identity, { ...event, jobId: context.req.param('jobId') }));
-      if (results.includes('conflict')) return context.json({ error: 'Stale or conflicting event' }, 409);
+      const results = events.data.map((event) =>
+        service.acceptEvent(identity, { ...event, jobId: context.req.param('jobId') }),
+      );
+      if (results.includes('conflict'))
+        return context.json({ error: 'Stale or conflicting event' }, 409);
       return context.json({ results });
     } catch {
       return context.json({ error: 'Unauthorized' }, 401);

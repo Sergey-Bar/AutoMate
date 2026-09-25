@@ -28,19 +28,13 @@ import type { RunUpdatedPayload } from '../realtime/realtime-bus.js';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildApp(
-  repo: InMemoryRunRepository,
-  bus: InMemoryRealtimeBus,
-): Hono {
+function buildApp(repo: InMemoryRunRepository, bus: InMemoryRealtimeBus): Hono {
   const app = new Hono();
   app.route('/', createReporterRoutes(undefined, { repository: repo, bus }));
   return app;
 }
 
-async function post(
-  app: Hono,
-  body: Record<string, unknown>,
-): Promise<Response> {
+async function post(app: Hono, body: Record<string, unknown>): Promise<Response> {
   return app.request('/api/v1/reporter/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -471,7 +465,7 @@ describe('Realtime broadcast — full run lifecycle', () => {
     const statuses = bus.published.map((e) => e.status);
     expect(statuses[0]).toBe('running'); // after run:start
     expect(statuses[1]).toBe('running'); // after test:end (run still running)
-    expect(statuses[2]).toBe('passed');  // after run:end
+    expect(statuses[2]).toBe('passed'); // after run:end
   });
 
   it('all lifecycle events carry the same runId', async () => {

@@ -29,11 +29,7 @@ import type { RunRepository, TestStatus } from '../repositories/run-repository.j
 function sanitizeAttachmentPath(rawPath: string): string {
   const normalized = path.normalize(rawPath);
   // Reject absolute paths and any remaining traversal sequences
-  if (
-    path.isAbsolute(normalized) ||
-    normalized.includes('..') ||
-    normalized.includes('\0')
-  ) {
+  if (path.isAbsolute(normalized) || normalized.includes('..') || normalized.includes('\0')) {
     // Return just the basename as a safe fallback
     return path.basename(normalized);
   }
@@ -142,14 +138,14 @@ export async function persistReporterEvent(
       const parsed = TestEndPayloadSchema.safeParse(event.payload);
       if (!parsed.success) return false;
       const p = parsed.data;
+      const previous = await repo.getTest(p.testId, runId);
       await repo.patchTest(p.testId, runId, {
         status: p.status as TestStatus,
         durationMs: p.durationMs ?? null,
       });
-      // Accumulate the appropriate run counter
-      const delta = statusToDelta(p.status);
-      if (delta) {
-        await repo.patchRun(runId, delta);
+      if (previous && previous.status !== p.status) {
+        const delta = transitionDelta(previous.status, p.status);
+        if (delta) await repo.patchRun(runId, delta);
       }
       return true;
     }
@@ -193,4 +189,25 @@ function statusToDelta(status: string): CounterDelta | null {
     default:
       return null;
   }
+}
+
+function transitionDelta(previous: string, next: string): CounterDelta | null {
+  const before = statusToDelta(previous);
+  const after = statusToDelta(next);
+  if (!before && !after) return null;
+  const delta: CounterDelta = {};
+  const fields: Array<'passedDelta' | 'failedDelta' | 'flakyDelta' | 'skippedDelta'> = [
+    'passedDelta',
+    'failedDelta',
+    'flakyDelta',
+    'skippedDelta',
+  ];
+  for (const field of fields) {
+    const oldValue = before?.[field];
+    const newValue = after?.[field];
+    if (typeof oldValue === 'number' || typeof newValue === 'number') {
+      (delta as Record<string, number>)[field] = (newValue ?? 0) - (oldValue ?? 0);
+    }
+  }
+  return delta;
 }

@@ -45,6 +45,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Boundary preflight
         run: pnpm unify:preflight
+      - name: Unified Compose config
+        run: docker compose -f docker-compose.unified.yml config
       - name: Formatting
         run: pnpm format:check
       - name: Lint
@@ -202,6 +204,33 @@ jobs:
       - name: Local integration checks
         run: pnpm test:integration
 
+  vertical-slice:
+    name: Universal QA vertical slice
+    needs: [quality, unit-and-coverage]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Validate execution Compose
+        run: docker compose -f docker-compose.unified.yml config
+      - name: Run vertical slice E2E
+        run: pnpm test:e2e:vertical
+
   runner:
     name: Runner protocol
     needs: quality
@@ -224,3 +253,5 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Runner tests
         run: pnpm test:runner
+      - name: Worker tests
+        run: pnpm --filter @automate/worker test

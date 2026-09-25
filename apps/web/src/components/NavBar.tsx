@@ -11,44 +11,41 @@ export function NavBar() {
   const { logout, isAuthenticated } = useAuth();
   const { theme, setTheme } = useTheme();
 
-  const links = [
-    { to: '/dashboard', label: 'Dashboard' },
-  ];
-
   const handleLogout = async () => {
     await logout();
     void navigate({ to: '/login' });
   };
 
   return (
-    <nav data-testid="nav-bar" style={{ display: 'flex', gap: '8px', padding: '16px', borderBottom: '1px solid #ccc', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        {links.map((link) => (
-          <Link key={link.to} to={link.to}>
-            <Button variant={currentPath.startsWith(link.to) ? 'default' : 'outline'}>
-              {link.label}
-            </Button>
-          </Link>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '8px' }}>
+    <nav
+      data-testid="nav-bar"
+      className="flex items-center justify-between gap-4 border-b border-border-default bg-surface-muted px-4 py-3"
+    >
+      <Link
+        to="/dashboard"
+        className="rounded-md text-sm font-semibold no-underline"
+        aria-current={currentPath === '/dashboard' ? 'page' : undefined}
+      >
+        Release Command Center
+      </Link>
+      <div className="flex items-center gap-2">
         <Button
           variant="ghost"
           data-testid="theme-toggle"
           aria-label="Toggle theme"
-          onClick={() => { const themes = ['light', 'dark', 'system'] as const; const cur = themes.indexOf(theme as typeof themes[number]); setTheme(themes[(cur + 1) % themes.length]); }}
+          onClick={() => {
+            const themes = ['light', 'dark', 'system'] as const;
+            const current = themes.indexOf(theme as (typeof themes)[number]);
+            setTheme(themes[(current + 1) % themes.length]);
+          }}
         >
-          {theme === 'dark' ? '🌙' : theme === 'light' ? '☀️' : '🖥️'}
+          Theme: {theme}
         </Button>
-        {isAuthenticated && (
-          <Button
-            variant="outline"
-            data-testid="logout-button"
-            onClick={() => { void handleLogout(); }}
-          >
+        {isAuthenticated ? (
+          <Button variant="outline" data-testid="logout-button" onClick={() => void handleLogout()}>
             Logout
           </Button>
-        )}
+        ) : null}
       </div>
     </nav>
   );

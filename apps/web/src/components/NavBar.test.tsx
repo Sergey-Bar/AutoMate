@@ -5,7 +5,12 @@ import '@testing-library/jest-dom';
 import { NavBar } from './NavBar';
 import { resetAuthState } from '../auth/useAuth.js';
 import { ThemeProvider } from '../theme/ThemeProvider';
-import { createMemoryHistory, RouterProvider, createRouter, createRootRoute } from '@tanstack/react-router';
+import {
+  createMemoryHistory,
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+} from '@tanstack/react-router';
 
 function makeRouter(initialPath = '/') {
   const rootRoute = createRootRoute({
@@ -88,7 +93,7 @@ describe('NavBar', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
     });
-    expect(screen.getByText('Dashboard')).toBeInTheDocument();
+    expect(screen.getByText('Release Command Center')).toBeInTheDocument();
   });
 
   it('clicking logout button triggers logout API call', async () => {
@@ -104,7 +109,7 @@ describe('NavBar', () => {
     await waitFor(() => {
       expect(mockFetch).toHaveBeenCalledWith(
         '/api/v1/auth/logout',
-        expect.objectContaining({ method: 'POST', credentials: 'include' })
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
       );
     });
 

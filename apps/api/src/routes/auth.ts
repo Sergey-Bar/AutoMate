@@ -1,7 +1,12 @@
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod/v4';
-import { hashCredential, InMemorySessionService, verifyCredential, type SessionRecord } from '@automate/auth';
+import {
+  hashCredential,
+  InMemorySessionService,
+  verifyCredential,
+  type SessionRecord,
+} from '@automate/auth';
 import type { AuthSessionBackend } from '../infrastructure/session-backend.js';
 
 const LoginSchema = z.object({ apiKey: z.string().min(1) });
@@ -36,7 +41,9 @@ function memoryBackend(secret: string, ttlMs: number, now?: () => Date): AuthSes
 }
 
 export function createAuthRoutes(options: AuthRouteOptions) {
-  const sessions = options.sessionBackend ?? memoryBackend(options.cookieSecret, options.sessionTtlMs, options.now);
+  const sessions =
+    options.sessionBackend ??
+    memoryBackend(options.cookieSecret, options.sessionTtlMs, options.now);
   const app = new Hono();
 
   app.post('/api/v1/auth/login', async (context) => {
@@ -72,7 +79,10 @@ export function createAuthRoutes(options: AuthRouteOptions) {
   return { app, sessions };
 }
 
-async function readSession(context: Context, sessions: AuthSessionBackend): Promise<SessionRecord | undefined> {
+async function readSession(
+  context: Context,
+  sessions: AuthSessionBackend,
+): Promise<SessionRecord | undefined> {
   const token = getCookie(context, SESSION_COOKIE);
   if (!token) return undefined;
   return sessions.validate(token);

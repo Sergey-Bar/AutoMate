@@ -11,16 +11,25 @@ export function RunExplorer({ runId }: { runId: string }) {
         if (!response.ok) throw new Error('Run not found');
         return (await response.json()) as { result: CanonicalRunResult };
       })
-      .then((payload) => { if (active) setResult(payload.result); })
-      .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : 'Unable to load run'); });
-    return () => { active = false; };
+      .then((payload) => {
+        if (active) setResult(payload.result);
+      })
+      .catch((reason: unknown) => {
+        if (active) setError(reason instanceof Error ? reason.message : 'Unable to load run');
+      });
+    return () => {
+      active = false;
+    };
   }, [runId]);
   if (error) return <div role="alert">{error}</div>;
   if (!result) return <div>Loading run…</div>;
   return (
     <section data-testid="run-explorer" aria-label="Run evidence explorer">
       <h2>Run {result.identity.runId}</h2>
-      <p>Status: {result.status} · Proof: {result.proof.state} · Completeness: {result.completeness.state}</p>
+      <p>
+        Status: {result.status} · Proof: {result.proof.state} · Completeness:{' '}
+        {result.completeness.state}
+      </p>
       <ol>
         {result.attempts.map((attempt) => (
           <li key={`${attempt.testId}-${attempt.index}`}>

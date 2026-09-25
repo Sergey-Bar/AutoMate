@@ -4,15 +4,21 @@ import { OrchestrationService } from '../services/orchestration-service.js';
 
 export function createOrchestrationRoutes(service: OrchestrationService) {
   const app = new Hono();
-  app.get('/api/v1/automations', (context) => context.json({ automations: service.listAutomations() }));
+  app.get('/api/v1/automations', (context) =>
+    context.json({ automations: service.listAutomations() }),
+  );
   app.post('/api/v1/automations', async (context) => {
-    const parsed = AutomationDefinitionSchema.omit({ id: true }).safeParse(await context.req.json().catch(() => null));
+    const parsed = AutomationDefinitionSchema.omit({ id: true }).safeParse(
+      await context.req.json().catch(() => null),
+    );
     if (!parsed.success) return context.json({ error: 'Invalid automation definition' }, 400);
     return context.json({ automation: service.createAutomation(parsed.data) }, 201);
   });
   app.get('/api/v1/schedules', (context) => context.json({ schedules: [] }));
   app.post('/api/v1/schedules', async (context) => {
-    const parsed = ScheduleSchema.omit({ id: true }).safeParse(await context.req.json().catch(() => null));
+    const parsed = ScheduleSchema.omit({ id: true }).safeParse(
+      await context.req.json().catch(() => null),
+    );
     if (!parsed.success) return context.json({ error: 'Invalid schedule' }, 400);
     return context.json({ schedule: service.createSchedule(parsed.data) }, 201);
   });

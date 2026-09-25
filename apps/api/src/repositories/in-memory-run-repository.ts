@@ -4,12 +4,7 @@
  * Kept inside apps/api for the T14 vertical slice.  NOT for production use.
  * A real Drizzle+Postgres implementation would satisfy the same interface.
  */
-import type {
-  RunPatch,
-  RunRecord,
-  RunRepository,
-  TestRecord,
-} from './run-repository.js';
+import type { RunPatch, RunRecord, RunRepository, TestRecord } from './run-repository.js';
 
 export class InMemoryRunRepository implements RunRepository {
   // Keyed by runId

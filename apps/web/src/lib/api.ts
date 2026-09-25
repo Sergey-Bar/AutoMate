@@ -1,25 +1,25 @@
 import { z } from 'zod/v4';
-import { RunUpdatedEventSchema } from '@automate/realtime';
 import {
-  CanonicalRealtimeEnvelopeSchema,
-  CanonicalRunResultSchema,
-  type CanonicalRealtimeEnvelope,
-  type CanonicalRunResult,
+  ArtifactDescriptorSchema,
+  CreateRunRequestSchema,
+  GateEvaluationSchema,
+  NormalizedRunSchema,
+  ReleaseReadinessSchema,
+  RunEventEnvelopeSchema,
+  RunEventTypeSchema,
+  type ArtifactDescriptor,
+  type CreateRunRequest,
+  type GateEvaluation,
+  type NormalizedRun,
+  type ReleaseReadiness,
+  type RunEventEnvelope,
 } from '@automate/shared-contracts';
 
-export { CanonicalRealtimeEnvelopeSchema, CanonicalRunResultSchema };
-export type { CanonicalRealtimeEnvelope, CanonicalRunResult };
-
-export const RunSchema = z.object({
-  id: z.string(),
-  projectName: z.string().optional(),
-  status: z.string(),
-  startedAt: z.string(),
-  durationMs: z.number().nullable().optional(),
-  total: z.number().optional(),
-  passed: z.number().optional(),
-  failed: z.number().optional(),
-});
+export const RunSchema = NormalizedRunSchema;
+export const RunEventSchema = RunEventEnvelopeSchema;
+export type Run = NormalizedRun;
+export type RunEvent = RunEventEnvelope;
+export type { ArtifactDescriptor, CreateRunRequest, GateEvaluation, ReleaseReadiness };
 
 export const AnalyticsSummarySchema = z.object({
   totalRuns: z.number(),
@@ -35,14 +35,34 @@ export const QuarantineEntrySchema = z.object({
   quarantinedAt: z.string(),
 });
 
-export type Run = z.infer<typeof RunSchema>;
-export type RunUpdatedEvent = z.infer<typeof RunUpdatedEventSchema>;
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;
 export type QuarantineEntry = z.infer<typeof QuarantineEntrySchema>;
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export interface RunEventSubscription {
+  onEvent: (event: RunEvent) => void;
+  onReconnect?: () => void;
+  onConnectionChange?: (connected: boolean) => void;
+}
 
 export interface ApiClient {
   getRuns(): Promise<Run[]>;
   getRun(id: string): Promise<Run>;
+  createRun(request: CreateRunRequest): Promise<Run>;
+  cancelRun(id: string): Promise<Run>;
+  retryRun(id: string, idempotencyKey?: string): Promise<Run>;
+  getRunArtifacts(id: string): Promise<ArtifactDescriptor[]>;
+  getRunGate(id: string): Promise<GateEvaluation | null>;
+  getReleaseReadiness(releaseId: string): Promise<ReleaseReadiness | null>;
   getAnalyticsSummary(): Promise<AnalyticsSummary>;
   getQuarantine(): Promise<QuarantineEntry[]>;
   addQuarantine(entry: {
@@ -50,62 +70,194 @@ export interface ApiClient {
     testFile: string;
     reason?: string;
   }): Promise<QuarantineEntry>;
-  onRunUpdated(callback: (event: RunUpdatedEvent) => void): () => void;
+  subscribeToRunEvents(subscription: RunEventSubscription): () => void;
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  const body = (await response.json().catch(() => null)) as {
+    error?: unknown;
+    message?: unknown;
+  } | null;
+  const nestedError =
+    typeof body?.error === 'object' && body.error !== null
+      ? (body.error as { message?: unknown }).message
+      : undefined;
+  const detail =
+    typeof body?.error === 'string'
+      ? body.error
+      : typeof nestedError === 'string'
+        ? nestedError
+        : typeof body?.message === 'string'
+          ? body.message
+          : response.statusText;
+  return new ApiError(detail || `Request failed with status ${response.status}`, response.status);
+}
+
+async function request(response: Response): Promise<Response> {
+  if (!response.ok) throw await responseError(response);
+  return response;
+}
+
+async function parse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
+  const raw: unknown = await response.json();
+  return schema.parse(raw);
+}
+
+async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+  return parse(await request(await fetch(path, { credentials: 'include' })), schema);
+}
+
+function optionalGetJson<T>(path: string, schema: z.ZodType<T>): Promise<T | null> {
+  return getJson(path, schema).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  });
+}
+
+function artifactPath(artifactId: string): string {
+  return `/api/v1/artifacts/${encodeURIComponent(artifactId)}`;
 }
 
 export const defaultApiClient: ApiClient = {
-  getRuns: async () => {
-    const res = await fetch('/api/v1/runs');
-    if (!res.ok) throw new Error('Failed to fetch runs');
-    return z.array(RunSchema).parse(await res.json());
+  getRuns: () => getJson('/api/v1/runs', z.array(NormalizedRunSchema)),
+  getRun: (id) => getJson(`/api/v1/runs/${encodeURIComponent(id)}`, NormalizedRunSchema),
+  createRun: async (requestBody) => {
+    const input = CreateRunRequestSchema.parse(requestBody);
+    return parse(
+      await request(
+        await fetch('/api/v1/runs', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'Idempotency-Key': input.idempotencyKey,
+          },
+          body: JSON.stringify(input),
+        }),
+      ),
+      NormalizedRunSchema,
+    );
   },
-  getRun: async (id) => {
-    const res = await fetch(`/api/v1/dashboard/runs/${encodeURIComponent(id)}`);
-    if (!res.ok) {
-      if (res.status === 404) throw new Error('Run not found');
-      throw new Error('Failed to fetch run');
-    }
-    return RunSchema.parse(await res.json());
+  cancelRun: async (id) =>
+    parse(
+      await request(
+        await fetch(`/api/v1/runs/${encodeURIComponent(id)}/cancel`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        }),
+      ),
+      NormalizedRunSchema,
+    ),
+  retryRun: async (id, idempotencyKey) => {
+    const key = idempotencyKey ?? crypto.randomUUID();
+    return parse(
+      await request(
+        await fetch(`/api/v1/runs/${encodeURIComponent(id)}/retry`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+            'Idempotency-Key': key,
+          },
+        }),
+      ),
+      NormalizedRunSchema,
+    );
   },
-  getAnalyticsSummary: async () => {
-    const res = await fetch('/api/v1/dashboard/analytics/summary');
-    if (!res.ok) throw new Error('Failed to fetch analytics');
-    return AnalyticsSummarySchema.parse(await res.json());
-  },
-  getQuarantine: async () => {
-    const res = await fetch('/api/v1/dashboard/quarantine');
-    if (!res.ok) throw new Error('Failed to fetch quarantine list');
-    return z.array(QuarantineEntrySchema).parse(await res.json());
-  },
-  addQuarantine: async (entry) => {
-    const res = await fetch('/api/v1/dashboard/quarantine', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entry),
-    });
-    if (!res.ok) throw new Error('Failed to add to quarantine');
-    return QuarantineEntrySchema.parse(await res.json());
-  },
-  onRunUpdated: (callback) => {
-    if (typeof EventSource === 'undefined') return () => {};
-    const source = new EventSource('/api/v1/events');
-    const handler = (event: MessageEvent) => {
+  getRunArtifacts: (id) =>
+    getJson(`/api/v1/runs/${encodeURIComponent(id)}/artifacts`, z.array(ArtifactDescriptorSchema)),
+  getRunGate: (id) =>
+    optionalGetJson(`/api/v1/runs/${encodeURIComponent(id)}/gate`, GateEvaluationSchema),
+  getReleaseReadiness: (releaseId) =>
+    optionalGetJson(
+      `/api/v1/releases/${encodeURIComponent(releaseId)}/readiness`,
+      ReleaseReadinessSchema,
+    ),
+  getAnalyticsSummary: () => getJson('/api/v1/dashboard/analytics/summary', AnalyticsSummarySchema),
+  getQuarantine: () => getJson('/api/v1/dashboard/quarantine', z.array(QuarantineEntrySchema)),
+  addQuarantine: async (entry) =>
+    parse(
+      await request(
+        await fetch('/api/v1/dashboard/quarantine', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry),
+        }),
+      ),
+      QuarantineEntrySchema,
+    ),
+  subscribeToRunEvents: ({ onEvent, onReconnect, onConnectionChange }) => {
+    if (typeof EventSource === 'undefined') return () => undefined;
+    const source = new EventSource('/api/v1/events', { withCredentials: true });
+    const lastSequence = new Map<string, number>();
+    let opened = false;
+
+    const handleMessage = (message: MessageEvent<string>) => {
       try {
-        const raw: unknown = JSON.parse(event.data);
-        const envelope = CanonicalRealtimeEnvelopeSchema.safeParse(raw);
-        const candidate = envelope.success ? envelope.data.data : raw;
-        const parsed = RunUpdatedEventSchema.safeParse(candidate);
-        if (parsed.success) callback(parsed.data);
+        const raw: unknown = JSON.parse(message.data);
+        const parsed = RunEventEnvelopeSchema.safeParse(raw);
+        let event: RunEvent;
+        if (parsed.success) {
+          event = parsed.data;
+        } else if (
+          raw &&
+          typeof raw === 'object' &&
+          (raw as { type?: unknown }).type === 'run:updated'
+        ) {
+          const legacy = raw as { runId?: unknown; status?: unknown; timestamp?: unknown };
+          if (typeof legacy.runId !== 'string') return;
+          const runId = legacy.runId;
+          const sequence = (lastSequence.get(runId) ?? 0) + 1;
+          lastSequence.set(runId, sequence);
+          event = {
+            version: '1',
+            eventId: `${runId}:${typeof legacy.timestamp === 'string' ? legacy.timestamp : sequence}`,
+            type: 'run.phase_changed',
+            sequence,
+            occurredAt:
+              typeof legacy.timestamp === 'string' ? legacy.timestamp : new Date().toISOString(),
+            runId,
+            payload: { phase: 'running', outcome: null },
+          };
+          onEvent(event);
+          return;
+        } else {
+          return;
+        }
+        const previous = lastSequence.get(event.runId) ?? 0;
+        if (event.sequence <= previous) return;
+        lastSequence.set(event.runId, event.sequence);
+        onEvent(event);
       } catch {
         return;
       }
     };
-    source.addEventListener('run:updated', handler);
-    source.addEventListener('message', handler);
+
+    source.onopen = () => {
+      onConnectionChange?.(true);
+      if (opened) onReconnect?.();
+      opened = true;
+    };
+    source.onerror = () => onConnectionChange?.(false);
+
+    for (const type of RunEventTypeSchema.options) {
+      source.addEventListener(type, handleMessage as EventListener);
+    }
+    source.addEventListener('message', handleMessage as EventListener);
+
     return () => {
-      source.removeEventListener('run:updated', handler);
-      source.removeEventListener('message', handler);
+      for (const type of RunEventTypeSchema.options) {
+        source.removeEventListener(type, handleMessage as EventListener);
+      }
+      source.removeEventListener('message', handleMessage as EventListener);
       source.close();
     };
   },
 };
+
+export function getArtifactUrl(artifactId: string): string {
+  return artifactPath(artifactId);
+}

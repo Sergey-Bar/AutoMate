@@ -19,7 +19,7 @@
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import type { RunRepository } from '../repositories/run-repository.js';
 import { persistReporterEvent } from '../services/reporter-persistence.js';
@@ -491,6 +491,7 @@ export interface ReporterRouteOptions {
    * running an older reporter that cannot send Authorization headers.
    */
   allowQueryToken?: boolean;
+  artifactStore?: { putAt(key: string, bytes: Uint8Array): Promise<void> };
 }
 
 // ---------------------------------------------------------------------------
@@ -638,11 +639,18 @@ export function createReporterRoutes(
       return c.json({ error: 'Reporter upload persistence is not configured' }, 503);
     }
 
+    const rawBody = c.req.raw.clone();
     let payload: ReporterUploadPayload;
     try {
       payload = await parseReporterUpload(c);
     } catch {
       return c.json({ error: 'Invalid reporter upload payload' }, 400);
+    }
+
+    if (options.artifactStore) {
+      const rawBytes = new Uint8Array(await rawBody.arrayBuffer());
+      const safeRunId = payload.runId.replaceAll('\\', '/').replace(/[^a-zA-Z0-9._-]/g, '_');
+      await options.artifactStore.putAt(`legacy/${safeRunId}/raw/${randomUUID()}`, rawBytes);
     }
 
     const persisted = await persistUploadPayload(payload, options.repository, options.bus);

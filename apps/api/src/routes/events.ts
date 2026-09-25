@@ -46,7 +46,7 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
     return streamSSE(c, async (stream) => {
       const unsubscribe = options.bus.subscribe((payload) => {
         void stream.writeSSE({
-          event: 'run:updated',
+          event: 'message',
           data: JSON.stringify(payload),
         });
       });

@@ -29,7 +29,6 @@ describe('Health routes', () => {
     const body = await res.json();
     expect(body).toHaveProperty('features');
   });
-
 });
 
 describe('Startup policy', () => {
@@ -58,7 +57,9 @@ describe('Startup policy', () => {
       apiKey: 'a-valid-api-key-here',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('REPORTER_SECRET must not be a placeholder');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'REPORTER_SECRET must not be a placeholder',
+    );
   });
 
   it('rejects placeholder "reporter-secret" as REPORTER_SECRET in production', async () => {
@@ -72,7 +73,9 @@ describe('Startup policy', () => {
       apiKey: 'a-valid-api-key-here',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('REPORTER_SECRET must not be a placeholder');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'REPORTER_SECRET must not be a placeholder',
+    );
   });
 
   it('rejects REPORTER_SECRET shorter than 16 chars in production', async () => {
@@ -86,7 +89,9 @@ describe('Startup policy', () => {
       apiKey: 'a-valid-api-key-here',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('REPORTER_SECRET must be at least 16 characters');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'REPORTER_SECRET must be at least 16 characters',
+    );
   });
 
   it('rejects missing COOKIE_SECRET in production', async () => {
@@ -128,7 +133,9 @@ describe('Startup policy', () => {
       apiKey: 'a-valid-api-key-here',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('COOKIE_SECRET must be at least 32 characters');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'COOKIE_SECRET must be at least 32 characters',
+    );
   });
 
   it('passes in development without secrets', async () => {
@@ -156,7 +163,9 @@ describe('Startup policy', () => {
       apiKey: undefined,
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('AUTOMATE_API_KEY is required in production');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'AUTOMATE_API_KEY is required in production',
+    );
   });
 
   it('rejects AUTOMATE_API_KEY shorter than 16 chars in production', async () => {
@@ -170,7 +179,9 @@ describe('Startup policy', () => {
       apiKey: 'short',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('AUTOMATE_API_KEY must be at least 16 characters');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'AUTOMATE_API_KEY must be at least 16 characters',
+    );
   });
 
   it('rejects placeholder "change-me" as AUTOMATE_API_KEY in production', async () => {
@@ -184,7 +195,9 @@ describe('Startup policy', () => {
       apiKey: 'change-me',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('AUTOMATE_API_KEY must not be a placeholder');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'AUTOMATE_API_KEY must not be a placeholder',
+    );
   });
 
   it('rejects placeholder "automate" as AUTOMATE_API_KEY in production', async () => {
@@ -198,7 +211,9 @@ describe('Startup policy', () => {
       apiKey: 'automate',
       vaultSecret: 'a-valid-vault-secret-32chars-min!!',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('AUTOMATE_API_KEY must not be a placeholder');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'AUTOMATE_API_KEY must not be a placeholder',
+    );
   });
 
   it('rejects missing VAULT_SECRET in production', async () => {
@@ -240,7 +255,9 @@ describe('Startup policy', () => {
       apiKey: 'a-valid-api-key-here',
       vaultSecret: 'short-vault-secret',
     };
-    expect(() => checkProductionPolicy(config)).toThrow('VAULT_SECRET must be at least 32 characters');
+    expect(() => checkProductionPolicy(config)).toThrow(
+      'VAULT_SECRET must be at least 32 characters',
+    );
   });
 
   it('rejects missing DATABASE_URL in production', async () => {
@@ -401,7 +418,6 @@ describe('Auth matrix', () => {
       const body = (await res.json()) as Record<string, string>;
       expect(body['error']).toBe('Unauthorized');
     });
-
   });
 
   describe('reporter routes use REPORTER_SECRET auth', () => {
@@ -412,7 +428,11 @@ describe('Auth matrix', () => {
       const res = await app.request('/api/v1/reporter/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'run:start', runId: 'auth-matrix-reporter-01', payload: { total: 1 } }),
+        body: JSON.stringify({
+          type: 'run:start',
+          runId: 'auth-matrix-reporter-01',
+          payload: { total: 1 },
+        }),
       });
       expect(res.status).toBe(202);
     });
@@ -423,7 +443,11 @@ describe('Auth matrix', () => {
       const res = await reporterApp.request('/api/v1/reporter/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'run:start', runId: 'auth-matrix-reporter-02', payload: { total: 1 } }),
+        body: JSON.stringify({
+          type: 'run:start',
+          runId: 'auth-matrix-reporter-02',
+          payload: { total: 1 },
+        }),
       });
       expect(res.status).toBe(401);
       const body = (await res.json()) as Record<string, string>;
@@ -439,7 +463,11 @@ describe('Auth matrix', () => {
           'Content-Type': 'application/json',
           Authorization: 'Bearer wrong-reporter-secret',
         },
-        body: JSON.stringify({ type: 'run:start', runId: 'auth-matrix-reporter-03', payload: { total: 1 } }),
+        body: JSON.stringify({
+          type: 'run:start',
+          runId: 'auth-matrix-reporter-03',
+          payload: { total: 1 },
+        }),
       });
       expect(res.status).toBe(403);
       const body = (await res.json()) as Record<string, string>;
@@ -455,7 +483,11 @@ describe('Auth matrix', () => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${TEST_REPORTER_SECRET}`,
         },
-        body: JSON.stringify({ type: 'run:start', runId: 'auth-matrix-reporter-04', payload: { total: 1 } }),
+        body: JSON.stringify({
+          type: 'run:start',
+          runId: 'auth-matrix-reporter-04',
+          payload: { total: 1 },
+        }),
       });
       expect(res.status).toBe(202);
     });
@@ -491,7 +523,7 @@ describe('Shared repository — reporter and runs routes see same state', () => 
       headers: { Authorization: `Bearer ${TEST_KEY}` },
     });
     expect(listRes.status).toBe(200);
-    const body = await listRes.json() as Array<{ id: string }>;
+    const body = (await listRes.json()) as Array<{ id: string }>;
     const ids = body.map((r) => r.id);
     expect(ids).toContain('shared-repo-run-001');
   });

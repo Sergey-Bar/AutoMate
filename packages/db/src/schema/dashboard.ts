@@ -20,54 +20,226 @@ import {
   primaryKey,
   uniqueIndex,
   index,
+  check,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+
+export const RUN_PHASES = [
+  'queued',
+  'assigned',
+  'preparing',
+  'running',
+  'collecting',
+  'normalizing',
+  'analyzing',
+  'gate_evaluation',
+  'complete',
+  'cancelled',
+  'timed_out',
+  'runner_lost',
+  'infra_failed',
+  'config_failed',
+  'blocked',
+  'partial',
+] as const;
+export type RunPhase = (typeof RUN_PHASES)[number];
+
+export const RUN_OUTCOMES = [
+  'passed',
+  'failed',
+  'unknown',
+  'partial',
+  'cancelled',
+  'timed_out',
+  'runner_lost',
+  'infra_failed',
+  'config_failed',
+  'blocked',
+] as const;
+export type RunOutcome = (typeof RUN_OUTCOMES)[number] | null;
+
+export type RunSelection =
+  | string[]
+  | {
+      testIds: string[];
+      paths: string[];
+      tags: string[];
+    };
+
+export const RUNNER_HEALTH_VALUES = [
+  'healthy',
+  'degraded',
+  'draining',
+  'offline',
+  'revoked',
+] as const;
+export type RunnerHealth = (typeof RUNNER_HEALTH_VALUES)[number];
+
+export const workspaces = pgTable('workspaces', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  configPath: text('config_path').notNull(),
+  testResultsDir: text('test_results_dir'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+});
+
+export const runners = pgTable(
+  'runners',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    version: text('version').notNull(),
+    protocolVersion: text('protocol_version').notNull().default('1'),
+    os: text('os').notNull(),
+    arch: text('arch').notNull(),
+    capabilities: jsonb('capabilities').$type<string[]>().notNull().default([]),
+    labels: jsonb('labels').$type<string[]>().notNull().default([]),
+    slots: integer('slots').notNull().default(1),
+    health: text('health', { enum: RUNNER_HEALTH_VALUES }).notNull().default('offline'),
+    tokenHash: text('token_hash').notNull(),
+    tokenExpiresAt: timestamp('token_expires_at', { withTimezone: true }).notNull(),
+    tokenRevokedAt: timestamp('token_revoked_at', { withTimezone: true }),
+    lastHeartbeatAt: timestamp('last_heartbeat_at', { withTimezone: true }),
+    metrics: jsonb('metrics').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('runners_workspace_name_unique').on(table.workspaceId, table.name),
+    uniqueIndex('runners_token_hash_unique').on(table.tokenHash),
+    index('runners_workspace_health_idx').on(table.workspaceId, table.health),
+    index('runners_heartbeat_idx').on(table.lastHeartbeatAt),
+    check('runners_slots_check', sql`${table.slots} > 0`),
+    check(
+      'runners_health_check',
+      sql`${table.health} in ('healthy', 'degraded', 'draining', 'offline', 'revoked')`,
+    ),
+  ],
+);
 
 // ─── runs ──────────────────────────────────────────────────────────────────
 // Source: runs table — core run record
-export const runs = pgTable('runs', {
-  // SQLite: text('id').primaryKey() // UUID
-  id: uuid('id').primaryKey().defaultRandom(),
-  // SQLite: text('started_at').notNull()
-  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
-  // SQLite: text('finished_at')
-  finishedAt: timestamp('finished_at', { withTimezone: true }),
-  // SQLite: text('status', { enum: [...] })
-  status: text('status', {
-    enum: ['running', 'passed', 'failed', 'interrupted'],
-  })
-    .notNull()
-    .default('running'),
-  // SQLite: integer('total').notNull().default(0)
-  total: integer('total').notNull().default(0),
-  passed: integer('passed').notNull().default(0),
-  failed: integer('failed').notNull().default(0),
-  flaky: integer('flaky').notNull().default(0),
-  skipped: integer('skipped').notNull().default(0),
-  // SQLite: integer('duration_ms')
-  durationMs: integer('duration_ms'),
-  branch: text('branch'),
-  commitSha: text('commit_sha'),
-  commitMessage: text('commit_message'),
-  triggeredBy: text('triggered_by').default('manual'),
-  // SQLite: text('config') // JSON
-  config: jsonb('config'),
-  rawArgs: text('raw_args'),
-  source: text('source', { enum: ['live', 'blob'] }).notNull().default('live'),
-  gateStatus: text('gate_status', { enum: ['passed', 'failed', 'skipped'] }),
-  workspaceId: text('workspace_id'),
-  prNumber: integer('pr_number'),
-  prBranch: text('pr_branch'),
-  baseBranch: text('base_branch'),
-  commitAuthor: text('commit_author'),
-}, (t) => [
-  index('runs_started_at_idx').on(t.startedAt),
-  index('runs_finished_at_idx').on(t.finishedAt),
-  index('runs_workspace_id_idx').on(t.workspaceId),
-  index('runs_branch_idx').on(t.branch),
-  index('runs_status_idx').on(t.status),
-  index('runs_pr_number_idx').on(t.prNumber),
-  index('runs_commit_sha_idx').on(t.commitSha),
-]);
+export const runs = pgTable(
+  'runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    externalId: text('external_id'),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+    status: text('status', {
+      enum: ['running', 'passed', 'failed', 'interrupted'],
+    })
+      .notNull()
+      .default('running'),
+    phase: text('phase', { enum: RUN_PHASES }).notNull().default('queued'),
+    outcome: text('outcome', { enum: RUN_OUTCOMES }),
+    attempt: integer('attempt').notNull().default(1),
+    priority: integer('priority').notNull().default(0),
+    total: integer('total').notNull().default(0),
+    passed: integer('passed').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    flaky: integer('flaky').notNull().default(0),
+    skipped: integer('skipped').notNull().default(0),
+    blocked: integer('blocked').notNull().default(0),
+    unknown: integer('unknown').notNull().default(0),
+    durationMs: integer('duration_ms'),
+    branch: text('branch'),
+    commit: text('commit'),
+    commitSha: text('commit_sha'),
+    commitMessage: text('commit_message'),
+    triggeredBy: text('triggered_by').default('manual'),
+    config: jsonb('config'),
+    configuration: jsonb('configuration').$type<Record<string, unknown>>().notNull().default({}),
+    rawArgs: text('raw_args'),
+    source: text('source').notNull().default('live'),
+    sourceMetadata: jsonb('source_metadata').$type<Record<string, unknown>>(),
+    framework: text('framework'),
+    adapterVersion: text('adapter_version'),
+    testType: text('test_type'),
+    projectId: uuid('project_id'),
+    environmentId: uuid('environment_id'),
+    releaseId: uuid('release_id'),
+    suite: text('suite'),
+    selection: jsonb('selection').$type<RunSelection>().notNull().default([]),
+    requiredCapabilities: jsonb('required_capabilities')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    labels: jsonb('labels').$type<string[]>().notNull().default([]),
+    timeoutMs: integer('timeout_ms'),
+    policyId: uuid('policy_id'),
+    idempotencyKey: text('idempotency_key'),
+    retryOfRunId: uuid('retry_of_run_id').references((): AnyPgColumn => runs.id, {
+      onDelete: 'set null',
+    }),
+    runnerId: uuid('runner_id').references(() => runners.id, { onDelete: 'set null' }),
+    currentJobId: uuid('current_job_id'),
+    eventSequence: integer('event_sequence').notNull().default(0),
+    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
+    cancelRequestedBy: text('cancel_requested_by'),
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    errorDetails: jsonb('error_details').$type<Record<string, unknown>>(),
+    rawEvidenceRefs: jsonb('raw_evidence_refs').$type<string[]>().notNull().default([]),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    gateStatus: text('gate_status', { enum: ['passed', 'failed', 'skipped'] }),
+    workspaceId: text('workspace_id'),
+    queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    prNumber: integer('pr_number'),
+    prBranch: text('pr_branch'),
+    baseBranch: text('base_branch'),
+    commitAuthor: text('commit_author'),
+  },
+  (t) => [
+    uniqueIndex('runs_workspace_external_source_unique').on(
+      t.workspaceId,
+      t.source,
+      t.externalId,
+    ),
+    uniqueIndex('runs_workspace_idempotency_unique').on(t.workspaceId, t.idempotencyKey),
+    index('runs_started_at_idx').on(t.startedAt),
+    index('runs_finished_at_idx').on(t.finishedAt),
+    index('runs_workspace_id_idx').on(t.workspaceId),
+    index('runs_branch_idx').on(t.branch),
+    index('runs_status_idx').on(t.status),
+    index('runs_phase_outcome_idx').on(t.workspaceId, t.phase, t.outcome),
+    index('runs_project_created_idx').on(t.projectId, t.startedAt),
+    index('runs_environment_created_idx').on(t.environmentId, t.startedAt),
+    index('runs_release_created_idx').on(t.releaseId, t.startedAt),
+    index('runs_runner_idx').on(t.runnerId),
+    index('runs_current_job_idx').on(t.currentJobId),
+    index('runs_retry_of_idx').on(t.retryOfRunId),
+    index('runs_pr_number_idx').on(t.prNumber),
+    index('runs_commit_idx').on(t.commit),
+    index('runs_commit_sha_idx').on(t.commitSha),
+    check(
+      'runs_phase_check',
+      sql`${t.phase} in ('queued', 'assigned', 'preparing', 'running', 'collecting', 'normalizing', 'analyzing', 'gate_evaluation', 'complete', 'cancelled', 'timed_out', 'runner_lost', 'infra_failed', 'config_failed', 'blocked', 'partial')`,
+    ),
+    check(
+      'runs_outcome_check',
+      sql`${t.outcome} is null or ${t.outcome} in ('passed', 'failed', 'unknown', 'partial', 'cancelled', 'timed_out', 'runner_lost', 'infra_failed', 'config_failed', 'blocked')`,
+    ),
+    check(
+      'runs_phase_outcome_check',
+      sql`(${t.phase} in ('complete', 'cancelled', 'timed_out', 'runner_lost', 'infra_failed', 'config_failed', 'blocked', 'partial')) = (${t.outcome} is not null)`,
+    ),
+    check('runs_attempt_check', sql`${t.attempt} > 0`),
+    check('runs_event_sequence_check', sql`${t.eventSequence} >= 0`),
+    check('runs_timeout_check', sql`${t.timeoutMs} is null or ${t.timeoutMs} > 0`),
+    check(
+      'runs_summary_check',
+      sql`${t.total} >= 0 and ${t.passed} >= 0 and ${t.failed} >= 0 and ${t.flaky} >= 0 and ${t.skipped} >= 0 and ${t.blocked} >= 0 and ${t.unknown} >= 0`,
+    ),
+  ],
+);
 
 // ─── suites ────────────────────────────────────────────────────────────────
 // Source: suites table — test suite hierarchy
@@ -100,7 +272,7 @@ export const tests = pgTable('tests', {
   column: integer('column'),
   stableId: text('stable_id'),
   status: text('status', {
-    enum: ['passed', 'failed', 'flaky', 'skipped', 'timedOut', 'running', 'queued'],
+    enum: ['passed', 'failed', 'flaky', 'skipped', 'timedOut', 'timed_out', 'running', 'queued', 'blocked', 'cancelled', 'unknown'],
   })
     .notNull()
     .default('queued'),
@@ -234,17 +406,6 @@ export const schedules = pgTable('schedules', {
   enabled: boolean('enabled').default(true),
   // SQLite: text('last_run_at')
   lastRunAt: timestamp('last_run_at', { withTimezone: true }),
-  // SQLite: text('created_at').notNull()
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-});
-
-// ─── workspaces ────────────────────────────────────────────────────────────
-// Source: workspaces table — multi-project workspace records
-export const workspaces = pgTable('workspaces', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  configPath: text('config_path').notNull(),
-  testResultsDir: text('test_results_dir'),
   // SQLite: text('created_at').notNull()
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
@@ -617,11 +778,13 @@ export const auditEvents = pgTable('audit_events', {
   // SQLite: text('details') // JSON blob
   details: jsonb('details'),
   tenantId: text('tenant_id'),
+  workspaceId: text('workspace_id'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 }, (t) => [
   index('audit_events_actor_idx').on(t.actorId),
   index('audit_events_action_idx').on(t.action),
   index('audit_events_timestamp_idx').on(t.timestamp),
+  index('audit_events_workspace_timestamp_idx').on(t.workspaceId, t.timestamp),
 ]);
 
 // ─── Inferred types ───────────────────────────────────────────────────────────
@@ -645,6 +808,8 @@ export type Schedule = typeof schedules.$inferSelect;
 export type InsertSchedule = typeof schedules.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type InsertWorkspace = typeof workspaces.$inferInsert;
+export type Runner = typeof runners.$inferSelect;
+export type InsertRunner = typeof runners.$inferInsert;
 export type QualityGateConfig = typeof qualityGateConfig.$inferSelect;
 export type InsertQualityGateConfig = typeof qualityGateConfig.$inferInsert;
 export type DefectCategory = typeof defectCategories.$inferSelect;

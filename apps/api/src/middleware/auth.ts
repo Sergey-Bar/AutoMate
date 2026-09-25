@@ -21,16 +21,24 @@ import { validateApiKey, verifyCredential } from '@automate/auth';
 const PUBLIC_PATHS = new Set([
   '/health',
   '/api/v1/health',
+  '/api/v1/ready',
+  '/ready',
   '/api/v1/features',
   '/api/v1/auth/login',
   '/api/v1/auth/session',
   '/api/v1/auth/logout',
   '/api/v1/reporter/events',
+  '/api/v1/reporter/upload',
+  '/api/v1/reporter/results',
 ]);
 
 function isPublicPath(path: string): boolean {
   if (PUBLIC_PATHS.has(path)) return true;
-  return path.startsWith('/api/v1/runner/v1/');
+  return (
+    path.startsWith('/api/v1/runner/v1/') ||
+    path.startsWith('/api/v1/runners/') ||
+    path.startsWith('/api/v1/jobs/')
+  );
 }
 
 /**

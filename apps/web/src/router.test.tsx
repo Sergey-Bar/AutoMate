@@ -1,68 +1,71 @@
-/// <reference types="vitest/globals" />
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
-import { RouterProvider, createMemoryHistory } from '@tanstack/react-router';
-import { router } from './router';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { configure } from '@testing-library/dom';
+import '@testing-library/jest-dom/vitest';
+import { MemoryRouter } from './router.js';
 import { resetAuthState } from './auth/useAuth.js';
+import { visibleRoutes } from './route-manifest.js';
 
-// Mock window.scrollTo
-window.scrollTo = vi.fn();
+configure({ asyncUtilTimeout: 5000 });
+window.scrollTo = () => undefined;
 
-describe('Unified Web Skeleton', () => {
-  beforeEach(() => {
-    resetAuthState();
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+function mockAuthenticatedApi(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
+      if (url.endsWith('/api/v1/runs')) return new Response('[]', { status: 200 });
+      return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+    }),
+  );
+}
+
+beforeAll(() => {
+  Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  resetAuthState();
+});
+
+describe('router', () => {
+  it('activates the dashboard route and renders the release command center', async () => {
+    mockAuthenticatedApi();
+    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Release Command Center' })).toBeInTheDocument();
   });
 
-  afterEach(() => {
-    resetAuthState();
+  it('redirects the root route to the command center instead of a placeholder home', async () => {
+    mockAuthenticatedApi();
+    render(<MemoryRouter initialEntries={['/']} />);
+    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
   });
 
-  it('renders the NavBar, Sidebar, and correct labels', async () => {
-    const memoryHistory = createMemoryHistory({
-      initialEntries: ['/'],
-    });
-
-    router.update({ history: memoryHistory });
-    render(<RouterProvider router={router} />);
-
-    await waitFor(() => {
-      // Verify NavBar links exist
-      expect(screen.getAllByText('Dashboard').length).toBeGreaterThan(0);
-    });
-
-    expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
-    expect(screen.getByTestId('sidebar')).toBeInTheDocument();
+  it('navigates from the canonical run list back to the command center', async () => {
+    mockAuthenticatedApi();
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
+    await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('link', { name: 'Command Center' }));
+    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
   });
 
-  const routes = [
-    { path: '/dashboard', testId: 'dashboard-page', text: 'Dashboard' },
-    { path: '/login', testId: 'login-page', text: 'Login' },
-  ];
+  it('exposes only registered visible navigation targets', async () => {
+    mockAuthenticatedApi();
+    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    await waitFor(() => expect(screen.getByTestId('sidebar')).toBeInTheDocument());
+    const hrefs = [...screen.getByTestId('sidebar').querySelectorAll('a')].map((link) =>
+      link.getAttribute('href'),
+    );
+    expect(hrefs).toEqual(visibleRoutes.map((route) => route.path));
+  });
 
-  for (const r of routes) {
-    it(`renders the ${r.path} route without crashing`, async () => {
-      const memoryHistory = createMemoryHistory({
-        initialEntries: [r.path],
-      });
-      router.update({ history: memoryHistory });
-
-      const { unmount } = render(<RouterProvider router={router} />);
-
-      await waitFor(() => {
-        expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
-        if (r.testId) {
-          expect(screen.getByTestId(r.testId)).toBeInTheDocument();
-        } else {
-          // Check that the text of the component appears at least once.
-          // We can use queryAllByText because NavBar also has these labels.
-          const elements = screen.queryAllByText(r.text);
-          expect(elements.length).toBeGreaterThan(0);
-        }
-      });
-
-      unmount();
-    });
-  }
+  it('leaves legacy reporting unreachable', async () => {
+    mockAuthenticatedApi();
+    render(<MemoryRouter initialEntries={['/reporting/run-1']} />);
+    await waitFor(() => expect(screen.getByText('Not Found')).toBeInTheDocument());
+  });
 });

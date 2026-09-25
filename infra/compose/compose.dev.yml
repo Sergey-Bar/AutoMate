@@ -26,15 +26,11 @@ services:
       - '127.0.0.1:59000:9000'
       - '127.0.0.1:59001:9001'
   migrate:
-    profiles: ['rehearsal']
     build:
       context: ../..
       dockerfile: infra/docker/migrate.Dockerfile
-    command: ['validate', '--plan', '/workspace/plan.json']
     environment:
       DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
-    volumes:
-      - ../..:/workspace:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,23 +40,32 @@ services:
       dockerfile: infra/docker/api.Dockerfile
     environment:
       NODE_ENV: development
+      HOST: 0.0.0.0
       PORT: '3000'
       DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
       COOKIE_SECRET: local-cookie-secret-change-me-32-chars
       VAULT_SECRET: local-vault-secret-change-me-32-chars
       AUTOMATE_API_KEY: local-installation-key
+      REPORTER_SECRET: local-reporter-secret-change-me-32-chars
+      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-change-me
+      ARTIFACT_ROOT: /var/lib/automate/artifacts
       PUBLIC_APP_URL: http://localhost:58080
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - '127.0.0.1:53000:3000'
+    volumes:
+      - artifact_data:/var/lib/automate/artifacts
   web:
     build:
       context: ../..
       dockerfile: infra/docker/web.Dockerfile
+    environment:
+      VITE_API_URL: http://127.0.0.1:53000
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     ports:
       - '127.0.0.1:53173:80'
   edge:
@@ -68,10 +73,13 @@ services:
       context: ../..
       dockerfile: infra/docker/edge.Dockerfile
     depends_on:
-      - api
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     ports:
       - '127.0.0.1:58080:80'
 
 volumes:
   postgres_data:
+  artifact_data:

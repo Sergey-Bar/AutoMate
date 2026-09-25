@@ -30,7 +30,7 @@ describe('useCommandActions', () => {
     const actions = Array.from({ length: 60 }).map((_, i) => ({
       id: `id-${i}`,
       label: `Label ${i}`,
-      onSelect: () => {}
+      onSelect: () => {},
     }));
 
     renderHook(() => useCommandActions(actions));

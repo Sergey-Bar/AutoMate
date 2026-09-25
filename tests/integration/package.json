@@ -5,7 +5,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "pretest": "pnpm --filter @automate/db build",
+    "pretest": "pnpm --config.engine-strict=false --filter @automate/db build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings=0 src/"

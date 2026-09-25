@@ -91,7 +91,9 @@ describe('QuarantinePage', () => {
     expect(screen.getByTestId('quarantine-form')).toBeInTheDocument();
 
     // Fill form
-    fireEvent.change(screen.getByTestId('input-test-title'), { target: { value: 'new flaky test' } });
+    fireEvent.change(screen.getByTestId('input-test-title'), {
+      target: { value: 'new flaky test' },
+    });
     fireEvent.change(screen.getByTestId('input-test-file'), { target: { value: 'new.test.ts' } });
 
     // Submit

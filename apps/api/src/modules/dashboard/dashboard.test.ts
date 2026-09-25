@@ -41,19 +41,11 @@
 import { describe, it, expect } from 'vitest';
 import { Hono } from 'hono';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
-import {
-  createDashboardRunsRoutes,
-} from './runs.js';
+import { createDashboardRunsRoutes } from './runs.js';
 import { createDashboardTestsRoutes } from './tests.js';
 import { createDashboardAnalyticsRoutes } from './analytics.js';
-import {
-  createDashboardQuarantineRoutes,
-  InMemoryQuarantineStore,
-} from './quarantine.js';
-import {
-  createDashboardQualityGatesRoutes,
-  InMemoryQualityGateStore,
-} from './quality-gates.js';
+import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
+import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
 import type { RunRecord, TestRecord } from '../../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
@@ -252,8 +244,12 @@ describe('GET /api/v1/dashboard/runs/:runId/tests', () => {
     const repo = new InMemoryRunRepository();
     const app = buildDashboardApp(repo);
     await repo.upsertRun(makeRun({ id: 'run-with-tests' }));
-    await repo.upsertTest(makeTest({ id: 't-1', runId: 'run-with-tests', title: 'login', status: 'passed' }));
-    await repo.upsertTest(makeTest({ id: 't-2', runId: 'run-with-tests', title: 'signup', status: 'failed' }));
+    await repo.upsertTest(
+      makeTest({ id: 't-1', runId: 'run-with-tests', title: 'login', status: 'passed' }),
+    );
+    await repo.upsertTest(
+      makeTest({ id: 't-2', runId: 'run-with-tests', title: 'signup', status: 'failed' }),
+    );
 
     const res = await app.request('/api/v1/dashboard/runs/run-with-tests/tests');
     expect(res.status).toBe(200);
@@ -344,8 +340,12 @@ describe('GET /api/v1/dashboard/suites', () => {
 
     await repo.upsertRun(makeRun({ id: 'suite-run-1', startedAt: '2026-01-01T00:00:00.000Z' }));
     await repo.upsertRun(makeRun({ id: 'suite-run-2', startedAt: '2026-01-02T00:00:00.000Z' }));
-    await repo.upsertTest(makeTest({ id: 's1', runId: 'suite-run-1', file: 'e2e/auth.spec.ts', status: 'passed' }));
-    await repo.upsertTest(makeTest({ id: 's2', runId: 'suite-run-2', file: 'e2e/auth.spec.ts', status: 'failed' }));
+    await repo.upsertTest(
+      makeTest({ id: 's1', runId: 'suite-run-1', file: 'e2e/auth.spec.ts', status: 'passed' }),
+    );
+    await repo.upsertTest(
+      makeTest({ id: 's2', runId: 'suite-run-2', file: 'e2e/auth.spec.ts', status: 'failed' }),
+    );
 
     const res = await app.request('/api/v1/dashboard/suites');
     expect(res.status).toBe(200);
@@ -419,8 +419,22 @@ describe('GET /api/v1/dashboard/analytics/summary', () => {
   it('computes average duration correctly', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildDashboardApp(repo);
-    await repo.upsertRun(makeRun({ id: 'r1', durationMs: 1000, status: 'passed', finishedAt: new Date().toISOString() }));
-    await repo.upsertRun(makeRun({ id: 'r2', durationMs: 3000, status: 'passed', finishedAt: new Date().toISOString() }));
+    await repo.upsertRun(
+      makeRun({
+        id: 'r1',
+        durationMs: 1000,
+        status: 'passed',
+        finishedAt: new Date().toISOString(),
+      }),
+    );
+    await repo.upsertRun(
+      makeRun({
+        id: 'r2',
+        durationMs: 3000,
+        status: 'passed',
+        finishedAt: new Date().toISOString(),
+      }),
+    );
 
     const res = await app.request('/api/v1/dashboard/analytics/summary');
     const body = (await jsonBody(res)) as Record<string, unknown>;
@@ -430,7 +444,14 @@ describe('GET /api/v1/dashboard/analytics/summary', () => {
   it('ignores runs with null duration from avg calculation', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildDashboardApp(repo);
-    await repo.upsertRun(makeRun({ id: 'r1', durationMs: 4000, status: 'passed', finishedAt: new Date().toISOString() }));
+    await repo.upsertRun(
+      makeRun({
+        id: 'r1',
+        durationMs: 4000,
+        status: 'passed',
+        finishedAt: new Date().toISOString(),
+      }),
+    );
     await repo.upsertRun(makeRun({ id: 'r2', durationMs: null, status: 'running' }));
 
     const res = await app.request('/api/v1/dashboard/analytics/summary');
@@ -702,7 +723,11 @@ describe('Quality gates routes', () => {
 describe('QuarantineStore restart-survival contract', () => {
   it('added entry is retrievable from same store instance (in-memory contract)', async () => {
     const store = new InMemoryQuarantineStore();
-    await store.add({ testTitle: 'flaky checkout', testFile: 'e2e/checkout.spec.ts', reason: 'Flaky CI' });
+    await store.add({
+      testTitle: 'flaky checkout',
+      testFile: 'e2e/checkout.spec.ts',
+      reason: 'Flaky CI',
+    });
     const list = await store.list();
     expect(list).toHaveLength(1);
     expect(list[0]?.testTitle).toBe('flaky checkout');
@@ -713,8 +738,8 @@ describe('QuarantineStore restart-survival contract', () => {
     const store = new InMemoryQuarantineStore();
     const entry = await store.add({ testTitle: 'test-a', testFile: 'e2e/a.spec.ts', reason: null });
     await store.remove(entry.id);
-    expect((await store.list())).toHaveLength(0);
+    expect(await store.list()).toHaveLength(0);
     await store.add({ testTitle: 'test-b', testFile: 'e2e/b.spec.ts', reason: null });
-    expect((await store.list())).toHaveLength(1);
+    expect(await store.list()).toHaveLength(1);
   });
 });

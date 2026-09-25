@@ -14,11 +14,11 @@ function RootComponent() {
   return (
     <ThemeProvider>
       <AuthGuard>
-        <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="flex min-h-screen flex-col bg-surface text-fg">
           <NavBar />
-          <div style={{ display: 'flex', flex: 1 }}>
+          <div className="flex min-h-0 flex-1">
             <Sidebar />
-            <main style={{ flex: 1, padding: '16px', overflow: 'auto' }}>
+            <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6">
               <Outlet />
             </main>
           </div>

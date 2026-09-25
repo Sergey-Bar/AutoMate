@@ -37,11 +37,7 @@ function ensureEvidenceDir(): void {
 
 function saveEvidence(filename: string, data: unknown): void {
   ensureEvidenceDir();
-  fs.writeFileSync(
-    path.join(EVIDENCE_DIR, filename),
-    JSON.stringify(data, null, 2),
-    'utf-8',
-  );
+  fs.writeFileSync(path.join(EVIDENCE_DIR, filename), JSON.stringify(data, null, 2), 'utf-8');
 }
 
 // ---------------------------------------------------------------------------
@@ -52,10 +48,7 @@ function saveEvidence(filename: string, data: unknown): void {
  * Build a full app wiring all three route factories through a shared
  * repository and bus — mirrors the production wiring in index.ts.
  */
-function buildFullApp(
-  repo: InMemoryRunRepository,
-  bus: InMemoryRealtimeBus,
-): Hono {
+function buildFullApp(repo: InMemoryRunRepository, bus: InMemoryRealtimeBus): Hono {
   const app = new Hono();
   app.route('/', createReporterRoutes(undefined, { repository: repo, bus }));
   app.route('/', createRunsRoutes({ repository: repo }));
@@ -63,10 +56,7 @@ function buildFullApp(
   return app;
 }
 
-async function postEvent(
-  app: Hono,
-  body: Record<string, unknown>,
-): Promise<Response> {
+async function postEvent(app: Hono, body: Record<string, unknown>): Promise<Response> {
   return app.request('/api/v1/reporter/events', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

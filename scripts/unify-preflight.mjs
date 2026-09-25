@@ -33,7 +33,7 @@ function walk(relativePath, onFile) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
         if (
-          !['.git', 'node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(
+          !['.git', '.kilo', 'node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(
             entry.name,
           )
         ) {
@@ -56,7 +56,6 @@ for (const relativePath of [
   'apps/api/Dockerfile',
   'apps/web/Dockerfile',
   'docker-compose.yml',
-  'docker-compose.unified.yml',
   'docker-compose.test.yml',
 ]) {
   add(
@@ -65,6 +64,24 @@ for (const relativePath of [
     existsSync(abs(relativePath)) ? 'present' : 'absent',
   );
 }
+add(
+  'canonical unified compose exists',
+  existsSync(abs('docker-compose.unified.yml')),
+  existsSync(abs('docker-compose.unified.yml')) ? 'present' : 'missing',
+);
+const unifiedCompose = read('docker-compose.unified.yml');
+for (const service of ['postgres:', 'migrate:', 'api:', 'worker:', 'runner:', 'web:']) {
+  add(
+    `unified compose defines ${service.replace(':', '')}`,
+    unifiedCompose.includes(service),
+    unifiedCompose.includes(service) ? 'present' : 'missing',
+  );
+}
+add(
+  'unified compose persists artifacts',
+  unifiedCompose.includes('artifact_data:'),
+  unifiedCompose.includes('artifact_data:') ? 'present' : 'missing',
+);
 
 const tracked = gitFiles();
 const generatedPattern =
@@ -114,7 +131,9 @@ function scanBoundaries(relativePath, depth = 0) {
       continue;
     }
     if (entry.isDirectory()) {
-      if (!['node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(entry.name)) {
+      if (
+        !['.kilo', 'node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(entry.name)
+      ) {
         scanBoundaries(relative, depth + 1);
       }
     } else if (depth > 0 && authorityNames.has(entry.name)) {
@@ -257,10 +276,10 @@ add(
 
 const passed = checks.filter((check) => check.ok).length;
 const failed = checks.length - passed;
-console.log('Unified repository boundary preflight');
-console.log(`Checks: ${passed} passed, ${failed} failed`);
+console.info('Unified repository boundary preflight');
+console.info(`Checks: ${passed} passed, ${failed} failed`);
 for (const check of checks) {
-  console.log(`[${check.ok ? 'PASS' : 'FAIL'}] ${check.name}`);
-  console.log(`       ${check.detail}`);
+  console.info(`[${check.ok ? 'PASS' : 'FAIL'}] ${check.name}`);
+  console.info(`       ${check.detail}`);
 }
 process.exit(failed === 0 ? 0 : 1);

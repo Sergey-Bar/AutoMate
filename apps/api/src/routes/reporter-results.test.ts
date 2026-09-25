@@ -57,6 +57,35 @@ describe('reporter results route', () => {
     expect(second.status).toBe(200);
   });
 
+  it('requires the reporter secret when configured', async () => {
+    const previous = process.env['REPORTER_SECRET'];
+    process.env['REPORTER_SECRET'] = 'reporter-secret';
+    try {
+      const app = new Hono().route(
+        '/',
+        createReporterResultsRoute(new ReporterIngestionService('workspace-1')),
+      );
+      const unauthorized = await app.request('/api/v1/reporter/results', {
+        method: 'POST',
+        body: '{}',
+        headers: { 'content-type': 'application/json' },
+      });
+      expect(unauthorized.status).toBe(401);
+      const authorized = await app.request('/api/v1/reporter/results', {
+        method: 'POST',
+        body: JSON.stringify(result),
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer reporter-secret',
+        },
+      });
+      expect(authorized.status).toBe(202);
+    } finally {
+      if (previous === undefined) delete process.env['REPORTER_SECRET'];
+      else process.env['REPORTER_SECRET'] = previous;
+    }
+  });
+
   it('quarantines invalid results', async () => {
     const app = new Hono().route(
       '/',

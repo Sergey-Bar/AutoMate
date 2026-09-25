@@ -1,5 +1,6 @@
+import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
-import { healthRoutes } from './routes/health.js';
+import { createHealthRoutes } from './routes/health.js';
 import { createReporterRoutes } from './routes/reporter.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { hashCredential } from '@automate/auth';
@@ -13,6 +14,10 @@ import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createRunsRoutes } from './routes/runs.js';
 import { createEventsRoutes } from './routes/events.js';
+import { createExecutionRoutes } from './routes/execution.js';
+import { createAgentRoutes } from './routes/agents.js';
+import { InMemoryExecutionStore } from './execution/in-memory-execution-store.js';
+import { DrizzleExecutionStore } from './execution/drizzle-execution-store.js';
 // Development/test repository — replaced by DrizzleRunRepository when DATABASE_URL is set.
 // Production deployments require DATABASE_URL per startup policy.
 // Post-MVP: Remove InMemoryRunRepository fallback entirely (issue #TBD).
@@ -38,6 +43,7 @@ import {
 // Auth middleware — guards all non-public routes with AUTOMATE_API_KEY
 import { createAuthMiddleware } from './middleware/auth.js';
 import { getConfig } from './config.js';
+import { LocalArtifactBytesStore, LocalArtifactStore } from './infrastructure/artifact-store.js';
 
 const runtimeConfig = getConfig();
 
@@ -71,6 +77,16 @@ const app = new Hono();
 // createRunRepository() selects DrizzleRunRepository when DATABASE_URL is set,
 // falling back to InMemoryRunRepository for development/test.
 const runRepository = createRunRepository();
+const artifactStore = new LocalArtifactStore(
+  runtimeConfig.artifactRoot ?? process.env['ARTIFACT_ROOT'] ?? '.artifacts',
+);
+const executionStore = runtimeConfig.databaseUrl
+  ? new DrizzleExecutionStore({
+      db: createDbClient(runtimeConfig.databaseUrl),
+      workspaceId: runtimeConfig.workspaceId,
+      artifactBytes: new LocalArtifactBytesStore(artifactStore),
+    })
+  : new InMemoryExecutionStore();
 const dashboardStores = createDashboardStores();
 
 // Shared realtime bus — collects run:updated events in process memory.
@@ -127,18 +143,40 @@ app.use(
   ),
 );
 
-app.route('/', healthRoutes);
+app.route(
+  '/',
+  createHealthRoutes({
+    databaseUrl: runtimeConfig.databaseUrl,
+    checkDatabase: databaseResources
+      ? async () => {
+          await databaseResources.db.execute(sql`SELECT 1`);
+        }
+      : undefined,
+  }),
+);
 app.route('/', authRoutes.app);
 app.route(
   '/',
   createReporterRoutes(runtimeConfig.reporterSecret, {
     repository: runRepository,
     bus: realtimeBus,
+    artifactStore,
     allowQueryToken: false,
   }),
 );
 app.route('/', createReporterResultsRoute(reporterIngestion));
 app.route('/', createReportingRoutes(reporterIngestion));
+app.route(
+  '/',
+  createExecutionRoutes({
+    store: executionStore,
+    legacyRepository: runRepository,
+    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+    runnerRegistrationSecret: runtimeConfig.runnerRegistrationSecret,
+    bus: realtimeBus,
+  }),
+);
+app.route('/', createAgentRoutes());
 app.route('/', createRunnerRoutes(runnerControl));
 app.route('/', createOrchestrationRoutes(orchestrationService));
 // T17: expose run list and SSE event stream
@@ -154,7 +192,7 @@ app.route(
   }),
 );
 
-export { app };
+export { app, executionStore };
 
 if (runtimeConfig.nodeEnv !== 'test') {
   const { serve } = await import('@hono/node-server');

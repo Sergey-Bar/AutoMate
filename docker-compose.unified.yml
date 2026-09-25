@@ -1,0 +1,149 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: automate
+      POSTGRES_USER: automate
+      POSTGRES_PASSWORD: local-postgres-password
+    ports:
+      - '127.0.0.1:55432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U automate -d automate']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/db-migrate.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
+      COOKIE_SECRET: local-cookie-secret-32-characters-long
+      VAULT_SECRET: local-vault-secret-32-characters-long
+      AUTOMATE_API_KEY: local-installation-api-key-32-characters
+      REPORTER_SECRET: local-reporter-secret-32-characters-long
+      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-32-chars
+      ARTIFACT_ROOT: /var/lib/automate/artifacts
+      PUBLIC_APP_URL: http://127.0.0.1:53173
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - '127.0.0.1:53000:3000'
+    volumes:
+      - artifact_data:/var/lib/automate/artifacts
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3001'
+      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
+      ARTIFACT_ROOT: /var/lib/automate/artifacts
+      WORKER_INSTANCE_ID: 00000000-0000-4000-8000-000000000001
+      WORKER_CAPABILITIES: playwright
+      WORKER_LABELS: reference
+      WORKER_SLOTS: '1'
+      WORKER_HEALTH_HOST: 0.0.0.0
+      WORKER_HEALTH_PORT: '3001'
+      WORKER_POLL_INTERVAL_MS: '1000'
+      WORKER_LEASE_DURATION_MS: '30000'
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - artifact_data:/var/lib/automate/artifacts
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3001/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  runner:
+    build:
+      context: .
+      dockerfile: infra/docker/runner.Dockerfile
+    environment:
+      NODE_ENV: production
+      AUTOMATE_API_URL: http://api:3000
+      RUNNER_INSTANCE_ID: ${RUNNER_INSTANCE_ID:-00000000-0000-4000-8000-000000000002}
+      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-32-chars
+      RUNNER_SLOTS: '1'
+      RUNNER_ALLOWED_TARGET_URLS: 'http://web,http://api'
+      ARTIFACT_ROOT: /var/lib/automate/artifacts
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - artifact_data:/var/lib/automate/artifacts
+    networks:
+      - default
+      - runner_egress
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    environment:
+      VITE_API_URL: http://127.0.0.1:53000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:53173:80'
+
+networks:
+  runner_egress:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  artifact_data:

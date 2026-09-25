@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const apiPort = 3456;
+const apiPort = 3000;
 const webPort = 5173;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
 const webUrl = `http://127.0.0.1:${webPort}`;
@@ -20,7 +20,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'pnpm --filter @automate/api run dev',
+      command: 'pnpm --config.engine-strict=false --filter @automate/api run dev',
       url: `${apiUrl}/api/v1/health`,
       env: {
         PORT: String(apiPort),
@@ -34,7 +34,8 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm --filter @automate/unified-web exec vite --host 127.0.0.1',
+      command:
+        'pnpm --config.engine-strict=false --filter @automate/unified-web exec vite --host 127.0.0.1',
       url: webUrl,
       reuseExistingServer: !process.env['CI'],
       timeout: 60_000,

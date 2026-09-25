@@ -20,14 +20,22 @@ export interface RunnerEventRecord {
 export class RunnerControlService {
   private readonly enrollment = new Map<string, string>();
   private readonly runners = new Map<string, RunnerIdentity>();
-  private readonly leases = new Map<string, { runnerId: string; fencingToken: number; nextSequence: number; terminal?: string }>();
+  private readonly leases = new Map<
+    string,
+    { runnerId: string; fencingToken: number; nextSequence: number; terminal?: string }
+  >();
   private readonly events = new Map<string, RunnerEventRecord[]>();
 
   enroll(token: string, capabilities: string[]): RunnerIdentity {
     const runnerId = this.enrollment.get(token);
     if (!runnerId) throw new Error('Invalid enrollment token');
     this.enrollment.delete(token);
-    const identity = { id: runnerId, credential: randomBytes(32).toString('base64url'), capabilities, status: 'active' as const };
+    const identity = {
+      id: runnerId,
+      credential: randomBytes(32).toString('base64url'),
+      capabilities,
+      status: 'active' as const,
+    };
     this.runners.set(identity.credential, identity);
     return identity;
   }
@@ -51,20 +59,28 @@ export class RunnerControlService {
     return { fencingToken };
   }
 
-  acceptEvent(runner: RunnerIdentity, event: RunnerEventRecord): 'accepted' | 'duplicate' | 'conflict' {
+  acceptEvent(
+    runner: RunnerIdentity,
+    event: RunnerEventRecord,
+  ): 'accepted' | 'duplicate' | 'conflict' {
     const lease = this.leases.get(event.jobId);
-    if (!lease || lease.runnerId !== runner.id || lease.fencingToken !== event.fencingToken) return 'conflict';
+    if (!lease || lease.runnerId !== runner.id || lease.fencingToken !== event.fencingToken)
+      return 'conflict';
     const list = this.events.get(event.jobId) ?? [];
     const previous = list.find((item) => item.sequence === event.sequence);
     if (previous) {
-      return createHash('sha256').update(JSON.stringify(previous)).digest('hex') === createHash('sha256').update(JSON.stringify(event)).digest('hex') ? 'duplicate' : 'conflict';
+      return createHash('sha256').update(JSON.stringify(previous)).digest('hex') ===
+        createHash('sha256').update(JSON.stringify(event)).digest('hex')
+        ? 'duplicate'
+        : 'conflict';
     }
     if (event.sequence !== lease.nextSequence) return 'conflict';
     if (lease.terminal) return 'conflict';
     list.push(event);
     this.events.set(event.jobId, list);
     lease.nextSequence += 1;
-    if (event.terminal) lease.terminal = String(event.payload['status'] ?? event.payload['state'] ?? 'completed');
+    if (event.terminal)
+      lease.terminal = String(event.payload['status'] ?? event.payload['state'] ?? 'completed');
     return 'accepted';
   }
 
