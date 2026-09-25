@@ -1,0 +1,44 @@
+{
+  "name": "@automate/ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "echo 'library package, no build needed'",
+    "lint": "eslint --max-warnings=0 src/",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build"
+  },
+  "dependencies": {
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.577.0",
+    "tailwind-merge": "^2.3.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0 <20.0.0",
+    "react-dom": ">=18.0.0 <20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.21.0",
+    "@storybook/addon-essentials": "^8.6.14",
+    "@storybook/react": "^8.6.18",
+    "@storybook/react-vite": "^8.6.18",
+    "@testing-library/jest-dom": "^6.4.6",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.21.0",
+    "jsdom": "^24.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "storybook": "^8.6.18",
+    "typescript": "catalog:",
+    "typescript-eslint": "^8.25.0",
+    "vitest": "^4.0.0"
+  }
+}

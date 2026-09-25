@@ -1,0 +1,73 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Dashboard Server",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@automate/api", "dev"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATA_DIR": "${workspaceFolder}/apps/server/data",
+        "AUTOMATE_DASHBOARD_API_KEY": "dev-key"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Dashboard Client Tests",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@automate/unified-web", "exec", "vitest", "--reporter=verbose"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Dashboard Server Tests",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@automate/api", "exec", "vitest", "--reporter=verbose"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATA_DIR": "/tmp/automate-test"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Automate Server",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@automate/api", "dev"],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "OLLAMA_BASE_URL": "http://localhost:11434"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Automate Tests (Current File)",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@automate/api",
+        "exec",
+        "vitest",
+        "run",
+        "${relativeFile}",
+        "--reporter=verbose"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}

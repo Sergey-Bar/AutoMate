@@ -1,0 +1,584 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-09-25",
+  "scopeConfirmation": {
+    "sourceProductionStatus": "local-sample-only",
+    "confirmedBy": "user",
+    "productionCutoverAuthorized": false,
+    "remoteStatus": "not-established",
+    "sensitiveAuthArtifactPolicy": "do-not-inspect-or-copy; security-review-required"
+  },
+  "specification": {
+    "path": "docs/migration/unified-repository-migration.md",
+    "sourcePath": ".kilo/plans/1790276458882-unified-repository-migration.md",
+    "sha256": "c8918b47ee049cd5ba75269b17204e6dc1e4965de138631c100e8e105abbeb59",
+    "sourceOfTruth": true
+  },
+  "target": {
+    "repository": "local unified Automate repository",
+    "remote": null,
+    "baseCommit": "01cc19c8167e0e8365928862de463fd50caaee5c",
+    "baseTree": "c08e5255f8f09b3eba8d73e4b9ba9e57aac449d1",
+    "migrationBranch": "migration/phase-0",
+    "worktree": "external temporary worktree",
+    "statusAtCreation": "clean",
+    "manifestHashes": [
+      {
+        "path": "package.json",
+        "sha256": "1d4683efbbbb5bc74a9573c64f09bfb5a40c3312a056383f128b56ee0d160b61"
+      },
+      {
+        "path": "pnpm-lock.yaml",
+        "sha256": "78c9c2a47b9961c9666e155a90fa5727eae0ed57484f16230a63470e7b1c1cb0"
+      },
+      {
+        "path": "pnpm-workspace.yaml",
+        "sha256": "b93313e25af86197b6adfcdfaa73779cd5149e03b4b31f911214a0cab976b4c2"
+      },
+      {
+        "path": "turbo.json",
+        "sha256": "ae41dd0797d1b991aa9c90a08266ed1e6f6acdeafcca19b7576f322e2dd0bb7c"
+      },
+      {
+        "path": "apps/api/package.json",
+        "sha256": "00985097e541d43aea25958893f4cae92ea9307633e0cb7cf9b2fb058c416e5f"
+      },
+      {
+        "path": "apps/web/package.json",
+        "sha256": "4939f417b45d0c883ede30f058c0d78f2e411c90974161f4ac244d157e42f744"
+      },
+      {
+        "path": "packages/auth/package.json",
+        "sha256": "63fa7eac8a078620a6abc7b04dce2c1eeb43fb85377df41bfbdd88603afc1591"
+      },
+      {
+        "path": "packages/db/package.json",
+        "sha256": "25bcc55354d65c6b5ec0354475355304bbd2b41fa63cd9edf4831a86275c11fe"
+      },
+      {
+        "path": "packages/realtime/package.json",
+        "sha256": "bac8e9ea6deaac5d48a9c9b8acc05dacdfd9e5de49942dcd5dbee954008ef516"
+      },
+      {
+        "path": "packages/shared-contracts/package.json",
+        "sha256": "a74e176d0af89024d5e7c988fde0255fea637fef6e848be28b0def425b264613"
+      },
+      {
+        "path": "packages/ui/package.json",
+        "sha256": "af442a62c4feaf2452ae9742e18a2e650113ddacbd27b299bf6e6c8175712531"
+      },
+      {
+        "path": "tools/migrate-cli/package.json",
+        "sha256": "ccbeaaa510c913f72d672ece82c8f851dee442a2fb7e257a27c89d01d1b50c2e"
+      },
+      {
+        "path": "e2e/integration/package.json",
+        "sha256": "cbcc6a6864e535c1052a9c793c399007eab7ee32ba517b1c5fce21863aa9e1ca"
+      },
+      {
+        "path": "services/webwright/pyproject.toml",
+        "sha256": "0169c5e4f99ff2198f0de07d36fbba57d90cf926dad1ed1a31b2bbf01204f76c"
+      },
+      {
+        "path": "services/webwright/uv.lock",
+        "sha256": "f4d2eb760846f0963209dce550e2a54a77d24aee34f0b3a96e7317743d12a060"
+      }
+    ]
+  },
+  "sources": [
+    {
+      "id": "automate",
+      "role": "frozen-extraction-source",
+      "repository": "https://github.com/Sergey-Bar/AutoMate.git",
+      "commit": "bce507ecc36e9f5cc33b3016741238b7fc834f0f",
+      "tree": "6c7b2a31ea9268929a17b839fb87ff5f2b2a6f8d",
+      "checkout": "detached read-only worktree",
+      "cleanCheckout": true,
+      "manifestHashes": [
+        {
+          "path": "package.json",
+          "sha256": "0ad1f4c3823e4802f214b53f7b416efdcb78e2f0d02352c22a3d7533ea1bb871"
+        },
+        {
+          "path": "apps/server/package.json",
+          "sha256": "3bf18287938813318c1eba0af5b4a08bcd9434012ba380e4cf6d00b46bbc0978"
+        },
+        {
+          "path": "apps/web/package.json",
+          "sha256": "9673b51798bc467ce771ee8d86f314816e2ca48a482d24704f959082c611dbe5"
+        },
+        {
+          "path": "apps/desktop/package.json",
+          "sha256": "d97926d88e5b48e17e7e90eabe81a7d6b5851f79e5184c71036423bf819f865c"
+        },
+        {
+          "path": "packages/shared/package.json",
+          "sha256": "5818c8c912e3586fff1838898070fb5d5965d1d1a11836df203e65e30ab9f3cd"
+        },
+        {
+          "path": "packages/connector-sdk/package.json",
+          "sha256": "ae29ecdbf918419d0bb8c4230bad0d9d3c47b3b0b52c593b06a16c8ad5849ef8"
+        },
+        {
+          "path": "packages/connectors/github/package.json",
+          "sha256": "ce376a52f9355d8fdf08e39227df3721ad02708dade2c535ba27519267299ebc"
+        },
+        {
+          "path": "packages/connectors/jira/package.json",
+          "sha256": "5d145af7cf88255de244f76e41fdba8884536d79f2449ef87e5cf0b73ae755f3"
+        },
+        {
+          "path": "packages/connectors/slack/package.json",
+          "sha256": "10fa112f2b6363655a1fc7198b7851c74ab4e103c4aab03523fd28596a688a60"
+        },
+        {
+          "path": "packages/connectors/sql-browser/package.json",
+          "sha256": "61dddec5c89fe65f4313e4022bb5c3856fa8750f956332f2786f832bfbdc1a69"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "sha256": "6ea0eb5d614be6a026153f611cebdcc2a57ea58bfa5e4f21565526869c81ae12"
+        },
+        {
+          "path": "apps/desktop/src-tauri/Cargo.lock",
+          "sha256": "b75c113d5009136690eedb542f5154d7ee96d7682ca4497d644176184f88b118"
+        },
+        {
+          "path": "pnpm-workspace.yaml",
+          "sha256": "ca9f9c2a4b0f7ed6583a162f31100521002cac69f882e9e530e902b40328210a"
+        },
+        {
+          "path": "turbo.json",
+          "sha256": "77e38af7cbaa20f8abff361f47cc7bd24b781e407bee316dfff2dcff14772ff9"
+        },
+        {
+          "path": "apps/desktop/src-tauri/Cargo.toml",
+          "sha256": "e2aac6868e3d5dd24b3ca7099bece2bc7da7c8d3803a91f296c8769a0861c6e4"
+        },
+        {
+          "path": ".nvmrc",
+          "sha256": "12d3a4efa6646b3ece4782f70033b9785bf0d167b553c43e22579b031cea5c4d"
+        }
+      ],
+      "persistence": {
+        "primaryEngine": "SQLite",
+        "vaultEngine": "separate SQLite",
+        "migrationFiles": [
+          "apps/server/drizzle/0000_minor_lady_deathstrike.sql",
+          "apps/server/drizzle/meta/_journal.json",
+          "apps/server/drizzle/meta/0000_snapshot.json",
+          "apps/server/src/db/migrate.ts"
+        ],
+        "declaredDataLocations": [
+          "DATA_DIR/automate.db",
+          "DATABASE_URL",
+          "apps/server/data/automate.db",
+          ".automate-vault.db",
+          "VAULT_DB_PATH"
+        ],
+        "trackedResidue": [
+          {
+            "path": "data/automate.db-wal",
+            "bytes": 16512,
+            "gitBlob": "a5e204b3a347b18a5d04b92be8078346ee7d1eea"
+          },
+          {
+            "path": "data/automate.db-shm",
+            "bytes": 32768,
+            "gitBlob": "468e205415de1b263fdbbc623247e043c2c24d4a"
+          },
+          {
+            "path": "apps/server/data/qace.db",
+            "bytes": 241664,
+            "gitBlob": "7f885d6dab9addb22956335e461e4f6da0099ad5"
+          },
+          {
+            "path": "apps/server/data/qace.db-wal",
+            "bytes": 1878752,
+            "gitBlob": "27dfee69cb8046b9b61090b1d7b7b182a84bfc80"
+          },
+          {
+            "path": "apps/server/data/qace.db-shm",
+            "bytes": 32768,
+            "gitBlob": "044fac572ea65b041718e6b8cc20d2488e2fc550"
+          },
+          {
+            "path": "apps/server/.automate-vault.db-wal",
+            "bytes": 0,
+            "gitBlob": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+          },
+          {
+            "path": "apps/server/.automate-vault.db-shm",
+            "bytes": 32768,
+            "gitBlob": "fe9ac2845eca6fe6da8a63cd096d9cf9e24ece10"
+          }
+        ],
+        "reproducible": false,
+        "status": "owner-confirmation-required"
+      },
+      "services": {
+        "defaultPort": 3000,
+        "reporterProtocol": "none; process-local JSON WebSocket events",
+        "entrypoints": ["apps/server/src/index.ts", "apps/web/src/main.tsx"],
+        "activeConsumerInventory": "unknown"
+      },
+      "unknowns": [
+        "Actual deployed commit",
+        "Canonical production database and vault paths",
+        "Active traffic, scheduled jobs, and external consumers",
+        "Whether tracked SQLite/WAL residue is data, test residue, or an archive artifact",
+        "License provenance for the source tree"
+      ]
+    },
+    {
+      "id": "dashboard",
+      "role": "primary-ux-reference",
+      "repository": "https://github.com/Sergey-Bar/Automate-Dashboard.git",
+      "commit": "b5a068538e433e09d816292852dba2a0a87acf22",
+      "tree": "53c5be4fc2b43a5fa35dfeca20a9c9ca020ab0c4",
+      "checkout": "detached read-only clone",
+      "cleanCheckout": true,
+      "manifestHashes": [
+        {
+          "path": "package.json",
+          "sha256": "093a289621907c86d9ed4a6f3f6c6fb7a76a65a5caddbffa5649695aa11028f6"
+        },
+        {
+          "path": "apps/server/package.json",
+          "sha256": "d0298d5b8657415a5fa2eab91c2451105e823dd571073610721b9dc2c07e5155"
+        },
+        {
+          "path": "apps/client/package.json",
+          "sha256": "bae3de0a4631aa806ae1465bca486c5fdcd656777e91480d37c1a4c5c9d03f5d"
+        },
+        {
+          "path": "packages/shared/package.json",
+          "sha256": "d6727ca488d6b98835cd456f8cc23933a6f41c48550b5fde493322c9e66c2598"
+        },
+        {
+          "path": "packages/reporter/package.json",
+          "sha256": "e2876b0a546ad4be69f060f187df2883d17c5cd30c1296d6612a39c9a329cedf"
+        },
+        {
+          "path": "packages/cli/package.json",
+          "sha256": "62af493e7e50e14558107098e1a37f6e00a074c6f71f668995c668b052b9b7b9"
+        },
+        {
+          "path": "docs-site/package.json",
+          "sha256": "2a253f3b9980a148a0aaa108b5a42b34a38d919aaa0f082c1b986772abbb2d34"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "sha256": "9d20ed2b81f4c567952710317aa559ba1dbe27d7483571b2d178896a99c16984"
+        },
+        {
+          "path": "pnpm-workspace.yaml",
+          "sha256": "abe1dc63a1ae3cbc4a47b2396768fbb794ee745b6ee5e1955351fb141e78d5bc"
+        }
+      ],
+      "persistence": {
+        "primaryEngine": "SQLite",
+        "migrationFiles": [],
+        "declaredDataLocations": [
+          "DATA_DIR/dashboard.db",
+          "data/dashboard.db",
+          "ARTIFACTS_DIR",
+          "data/blobs"
+        ],
+        "trackedSensitiveArtifacts": [
+          {
+            "path": "apps/server/.automate/auth.json",
+            "gitBlob": "a3122fc30615e7ccb1cc89735a7943e62346b24d",
+            "contentsInspected": false,
+            "status": "security-review-required"
+          }
+        ],
+        "reproducible": false,
+        "status": "owner-confirmation-required"
+      },
+      "services": {
+        "defaultPort": 4000,
+        "reporterPort": 4001,
+        "reporterProtocol": "unversioned JSON over WebSocket",
+        "entrypoints": ["apps/server/src/index.ts", "apps/client/src/main.tsx"],
+        "activeConsumerInventory": "unknown"
+      },
+      "comparison": {
+        "candidate": "AutoMate/dashboard",
+        "verdict": "materially-different",
+        "overlayAllowed": false,
+        "differences": [
+          "Pinned source uses SQLite while the candidate claims PostgreSQL",
+          "Package names, repository identity, and lockfiles differ",
+          "Reporter authentication and handshake differ",
+          "Auth, vault, feature flags, routes, tests, and deployment differ",
+          "Candidate contains untracked files not present in the pinned commit"
+        ]
+      },
+      "unknowns": [
+        "Canonical public repository owner and private-fork status",
+        "Production database path and authoritative schema bootstrap",
+        "Whether the tracked auth artifact is a sample or live credential",
+        "Active reporter versions, traffic, and scheduled jobs",
+        "Artifact and vault retention locations"
+      ]
+    },
+    {
+      "id": "qa-doctor",
+      "role": "read-only-evidence-reference",
+      "repository": "https://github.com/Sergey-Bar/Mjolnir.git",
+      "commit": "d981ba356313ae8cea0538ca85c665e88b84c530",
+      "tree": "c44660685f33a52ae408cd2b0ab3921190c56578",
+      "checkout": "clean local main checkout",
+      "cleanCheckout": true,
+      "manifestHashes": [
+        {
+          "path": "package.json",
+          "sha256": "6f0216f4a5efecf357ac895798048347f6158735370ca911818eb20a36400b2a"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "c6f7b959aa38a05e4a0fccc6dea091103182ca68c42fa9455509a1c8755e8cee"
+        },
+        {
+          "path": "packages/playwright-reporter/package.json",
+          "sha256": "a4557a10188d77d6cf4edeb2acefb03cc50f421e40851c8708dc77983402a8e5"
+        },
+        {
+          "path": "site/package.json",
+          "sha256": "48606bdca3628c87d329063385b81e1d4bcfa6912c2e8b81395f84cf8b30061e"
+        },
+        {
+          "path": "site/package-lock.json",
+          "sha256": "807d9eeb616b8ad322c7187ecabb054847518f26f4ead2eca544f691c1c79da5"
+        }
+      ],
+      "allowedUse": "cite, adapt, or reject concepts with tests; do not import the static-report architecture"
+    }
+  ],
+  "preservation": {
+    "statusSnapshot": "22 modified tracked paths, 0 staged paths, 15 untracked paths",
+    "binaryPatchSha256": "e42a2cbc4a83120b065185dc7547c6c5e8de7da3e79f4a0ddc060faf5cf0db62",
+    "untrackedArchiveSha256": "5eb8ead108d1d5fe5bdc2edc1874c49ce3087b119e52e86484826f64a5d8feb7",
+    "inventoryPath": "docs/migration/phase-0-decision-record.md",
+    "productionDataCopied": false
+  },
+  "dataSources": [
+    {
+      "id": "automate-primary-db",
+      "source": "automate",
+      "engine": "SQLite",
+      "logicalLocations": ["DATA_DIR/automate.db", "DATABASE_URL"],
+      "reproducible": false,
+      "status": "owner-confirmation-required",
+      "requiredEvidence": [
+        "native consistent backup",
+        "catalog",
+        "row counts",
+        "checksums",
+        "restore rehearsal"
+      ]
+    },
+    {
+      "id": "automate-vault",
+      "source": "automate",
+      "engine": "SQLite",
+      "logicalLocations": [".automate-vault.db", "VAULT_DB_PATH"],
+      "reproducible": false,
+      "status": "owner-confirmation-required",
+      "requiredEvidence": [
+        "encrypted backup",
+        "key reference",
+        "decrypt/re-encrypt verification without logging values"
+      ]
+    },
+    {
+      "id": "dashboard-primary-db",
+      "source": "dashboard",
+      "engine": "SQLite",
+      "logicalLocations": ["DATA_DIR/dashboard.db", "data/dashboard.db"],
+      "reproducible": false,
+      "status": "owner-confirmation-required",
+      "requiredEvidence": [
+        "native consistent backup",
+        "catalog",
+        "row counts",
+        "checksums",
+        "restore rehearsal"
+      ]
+    },
+    {
+      "id": "artifact-stores",
+      "source": "automate-and-dashboard",
+      "engine": "filesystem-or-object-storage",
+      "logicalLocations": ["ARTIFACTS_DIR", "data/blobs", "backups"],
+      "reproducible": false,
+      "status": "owner-confirmation-required",
+      "requiredEvidence": [
+        "object inventory",
+        "byte counts",
+        "checksums",
+        "retention and ownership metadata"
+      ]
+    }
+  ],
+  "credentialSources": [
+    {
+      "name": "AUTOMATE_API_KEY",
+      "valueIncluded": false,
+      "purpose": "installation bootstrap",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "COOKIE_SECRET",
+      "valueIncluded": false,
+      "purpose": "session cookie protection",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "SESSION_SECRET",
+      "valueIncluded": false,
+      "purpose": "temporary compatibility alias",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "REPORTER_SECRET",
+      "valueIncluded": false,
+      "purpose": "reporter authentication",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "VAULT_SECRET",
+      "valueIncluded": false,
+      "purpose": "vault encryption boundary",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "KILO_API_KEY",
+      "valueIncluded": false,
+      "purpose": "AI gateway authentication",
+      "status": "owner-confirmation-required"
+    },
+    {
+      "name": "RUNNER_ENROLLMENT_TOKEN",
+      "valueIncluded": false,
+      "purpose": "one-time runner enrollment",
+      "status": "owner-confirmation-required"
+    }
+  ],
+  "activeConsumers": {
+    "status": "not-applicable-local-sample-only",
+    "traffic": "no-production-traffic",
+    "scheduledJobs": "no-production-jobs",
+    "reporterVersions": "unknown-local-only",
+    "backgroundWorkers": "unknown-local-only",
+    "owner": "user-confirmed"
+  },
+  "verification": {
+    "targetBaseIdentity": true,
+    "automateIdentity": true,
+    "dashboardIdentity": true,
+    "qaDoctorIdentity": true,
+    "sourceCheckoutsClean": true,
+    "dashboardCandidateCompared": true,
+    "dashboardOverlayApproved": false,
+    "qaDoctorReadOnly": true,
+    "productionDataReproducible": false,
+    "productionDataScope": "not-applicable-local-sample-only",
+    "scopeApproved": true,
+    "ownerApprovals": false
+  },
+  "validation": {
+    "phase0": {
+      "frozenInstall": "passed",
+      "lint": "passed",
+      "typecheck": "blocked",
+      "typecheckReason": "The initial clean checkout omitted five ignored apps/web/src/routes/automate modules required by src/router.ts.",
+      "productTests": "not-run-phase0"
+    },
+    "phase1": {
+      "frozenInstall": "passed-with-local-engine-override",
+      "format": "passed",
+      "lint": "passed",
+      "typecheck": "passed",
+      "drizzleCheck": "passed",
+      "unitTests": "passed",
+      "build": "passed",
+      "security": "passed-high-threshold",
+      "apiE2e": "passed-3-tests",
+      "browserE2e": "passed-5-tests",
+      "localIntegration": "passed-pglite-identity-session",
+      "verifyComposite": "passed-node-22.19.0",
+      "hostNode24Composite": "blocked-engine-policy"
+    }
+  },
+  "implementation": {
+    "phase2": "canonical contracts, producer adapters, result API, contract fixtures",
+    "phase3": "typed config, identity schema, cookie sessions, session store, artifact store",
+    "phase4": "KPI/gate policies, reporting API, RunExplorer UI",
+    "phase5": "orchestration state machine, runner SDK, runner control routes, OCI manifests",
+    "phase6": "Kilo/Ollama dynamic gateway adapters",
+    "phase7": "connector SDK, bounded adapters, versioned vault envelope",
+    "phase8": "plan, checkpoint, catalog, artifact/vault transfer primitives",
+    "phase9": "loopback rehearsal guard and local compose assets",
+    "phase10": "obsolete Webwright, mock surfaces, legacy deployment files, and stale docs removed"
+  },
+  "gate": {
+    "status": "passed-for-local-implementation",
+    "publicationStatus": "blocked",
+    "cutoverStatus": "blocked",
+    "checks": [
+      { "id": "source-commits-materialized", "status": "passed" },
+      { "id": "source-checkouts-clean", "status": "passed" },
+      { "id": "dirty-inventory-complete", "status": "passed" },
+      { "id": "dashboard-provenance-verified", "status": "passed" },
+      { "id": "qa-doctor-traceability-recorded", "status": "passed" },
+      { "id": "capability-register-recorded", "status": "passed" },
+      {
+        "id": "production-data-reproducible",
+        "status": "passed",
+        "evidence": "Owner confirmed local/sample-only scope; no production data is in scope."
+      },
+      {
+        "id": "automate-deployment-sha-confirmed",
+        "status": "passed",
+        "evidence": "No production deployment is in scope; pinned source remains frozen locally."
+      },
+      {
+        "id": "active-consumers-inventoried",
+        "status": "passed",
+        "evidence": "Owner confirmed no production traffic or jobs; local-only consumers remain unknown."
+      },
+      {
+        "id": "rollback-retention-approved",
+        "status": "deferred",
+        "evidence": "Required before any production or decommission action."
+      },
+      {
+        "id": "owner-approvals",
+        "status": "local-scope-approved",
+        "evidence": "Owner approved local/sample-only implementation; formal production sign-off remains deferred."
+      },
+      {
+        "id": "dashboard-auth-artifact-security-review",
+        "status": "blocked-for-source-overlay",
+        "evidence": "Do not inspect, copy, or migrate the tracked artifact."
+      },
+      {
+        "id": "target-remote-established",
+        "status": "blocked-for-publication",
+        "evidence": "Required before publication; local implementation may proceed without it."
+      },
+      {
+        "id": "oci-images-built",
+        "status": "blocked",
+        "evidence": "Runner manifests are intentionally unbuilt; no Podman runtime is available on this host."
+      },
+      {
+        "id": "browser-e2e-authenticated",
+        "status": "passed-local",
+        "evidence": "Authenticated vertical slice passed all 5 API/browser/SSE cases."
+      }
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# Temp / junk
+Tempplaywright-mcp/
+%TEMP%/
+nul
+
+# Legacy nested source checkout (root-only)
+/AutoMate/
+
+# Auth and runtime credentials
+**/auth.json
+**/.automate/
+
+# Sisyphus agent state
+.sisyphus/
+
+# OpenCode agent state
+.omo/
+
+# Coverage and test output
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.artifacts/
+var/
+
+# Vitest cache
+.vite/

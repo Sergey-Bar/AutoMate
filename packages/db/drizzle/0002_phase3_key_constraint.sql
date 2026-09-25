@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "installation_keys_installation_name_idx" ON "installation_keys" USING btree ("installation_id","name");
