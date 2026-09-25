@@ -23,10 +23,7 @@ import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildApp(
-  secret: string | undefined,
-  repo: InMemoryRunRepository,
-): Hono {
+function buildApp(secret: string | undefined, repo: InMemoryRunRepository): Hono {
   const app = new Hono();
   app.route('/', createReporterRoutes(secret, { repository: repo }));
   return app;

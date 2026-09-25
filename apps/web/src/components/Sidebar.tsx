@@ -1,63 +1,54 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
 import { Button } from '@automate/ui';
+import { visibleRoutes } from '../route-manifest.js';
 
 export function Sidebar() {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
-
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('automate-sidebar-collapsed') === 'true';
-    }
-    return false;
-  });
+  const [isCollapsed, setIsCollapsed] = useState(() =>
+    typeof window === 'undefined'
+      ? false
+      : localStorage.getItem('automate-sidebar-collapsed') === 'true',
+  );
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('automate-sidebar-collapsed', String(isCollapsed));
-    }
+    localStorage.setItem('automate-sidebar-collapsed', String(isCollapsed));
   }, [isCollapsed]);
 
-  const toggleSidebar = () => setIsCollapsed(!isCollapsed);
-
-  let links: { to: string; label: string }[] = [
-    { to: '/dashboard', label: 'Dashboard' },
-    { to: '/dashboard/analytics', label: 'Analytics' },
-    { to: '/dashboard/quarantine', label: 'Quarantine' },
-  ];
-  if (currentPath.startsWith('/dashboard')) {
-    links = [
-      { to: '/dashboard', label: 'Overview' },
-      { to: '/dashboard/analytics', label: 'Analytics' },
-      { to: '/dashboard/quarantine', label: 'Quarantine' },
-    ];
-  }
+  const isActive = (path: string) =>
+    path === '/dashboard' ? currentPath === path : currentPath.startsWith(path);
 
   return (
     <aside
       data-testid="sidebar"
-      style={{
-        width: isCollapsed ? '60px' : '200px',
-        borderRight: '1px solid #ccc',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.2s',
-      }}
+      className={`flex shrink-0 flex-col border-r border-border-default bg-surface-muted transition-[width] ${isCollapsed ? 'w-16' : 'w-56'}`}
     >
-      <div style={{ padding: '16px', borderBottom: '1px solid #ccc' }}>
-        <Button variant="outline" onClick={toggleSidebar} data-testid="sidebar-toggle">
-          {isCollapsed ? '►' : 'Collapse'}
+      <div className="border-b border-border-default p-3">
+        <Button
+          variant="outline"
+          onClick={() => setIsCollapsed((value) => !value)}
+          data-testid="sidebar-toggle"
+          aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+          className="w-full"
+        >
+          {isCollapsed ? '›' : 'Collapse'}
         </Button>
       </div>
-      <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '16px' }}>
-        {links.map((link) => (
-          <Link key={link.to} to={link.to} style={{ textDecoration: 'none' }}>
+      <nav className="flex flex-col gap-1 p-2" aria-label="Primary navigation">
+        {visibleRoutes.map((route) => (
+          <Link
+            key={route.id}
+            to={route.path}
+            title={route.label}
+            aria-current={isActive(route.path) ? 'page' : undefined}
+            className="rounded-md no-underline"
+          >
             <Button
-              variant={currentPath.startsWith(link.to) ? 'default' : 'ghost'}
-              style={{ width: '100%', justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+              variant={isActive(route.path) ? 'secondary' : 'ghost'}
+              className="w-full justify-start"
             >
-              {isCollapsed ? link.label.charAt(0) : link.label}
+              {isCollapsed ? route.label.charAt(0) : route.label}
             </Button>
           </Link>
         ))}

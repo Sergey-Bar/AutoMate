@@ -7,6 +7,8 @@
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
   "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -15,12 +17,14 @@
   "dependencies": {
     "@automate/runner-sdk": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
+    "@playwright/test": "1.63.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",
     "@types/node": "^22.15.3",
     "eslint": "^9.21.0",
+    "tsx": "^4.21.0",
     "typescript": "catalog:",
     "typescript-eslint": "^8.25.0",
     "vitest": "^4.1.5"

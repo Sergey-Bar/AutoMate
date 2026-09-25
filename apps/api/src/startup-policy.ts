@@ -41,5 +41,17 @@ export function checkProductionPolicy(config: AppConfig): void {
     if (!config.databaseUrl) {
       throw new Error('DATABASE_URL is required in production');
     }
+    if (!config.runnerRegistrationSecret) {
+      throw new Error('RUNNER_REGISTRATION_SECRET is required in production');
+    }
+    if (
+      config.runnerRegistrationSecret === 'change-me' ||
+      config.runnerRegistrationSecret === 'runner-registration-secret'
+    ) {
+      throw new Error('RUNNER_REGISTRATION_SECRET must not be a placeholder');
+    }
+    if (config.runnerRegistrationSecret.length < 16) {
+      throw new Error('RUNNER_REGISTRATION_SECRET must be at least 16 characters');
+    }
   }
 }

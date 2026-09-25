@@ -8,7 +8,7 @@ class CommandStore {
 
   register(actions: CommandAction[]) {
     let changed = false;
-    actions.forEach(action => {
+    actions.forEach((action) => {
       const existing = this.actions.get(action.id);
       if (existing !== action) {
         this.actions.set(action.id, action);
@@ -20,7 +20,7 @@ class CommandStore {
     if (this.actions.size > 50) {
       const keys = Array.from(this.actions.keys()).slice(-50); // Keep last 50
       const newMap = new Map();
-      keys.forEach(k => newMap.set(k, this.actions.get(k)!));
+      keys.forEach((k) => newMap.set(k, this.actions.get(k)!));
       this.actions = newMap;
       changed = true;
     }
@@ -33,7 +33,7 @@ class CommandStore {
 
   deregister(actionIds: string[]) {
     let changed = false;
-    actionIds.forEach(id => {
+    actionIds.forEach((id) => {
       if (this.actions.has(id)) {
         this.actions.delete(id);
         changed = true;
@@ -62,7 +62,7 @@ class CommandStore {
   }
 
   private notify() {
-    this.listeners.forEach(l => l());
+    this.listeners.forEach((l) => l());
   }
 
   // For tests
@@ -79,14 +79,14 @@ export function useCommandStore() {
   return useSyncExternalStore(
     (l) => commandStore.subscribe(l),
     () => commandStore.getActions(),
-    () => commandStore.getActions()
+    () => commandStore.getActions(),
   );
 }
 
 export function useCommandActions(actions: CommandAction[]) {
   useEffect(() => {
     commandStore.register(actions);
-    const ids = actions.map(a => a.id);
+    const ids = actions.map((a) => a.id);
     return () => {
       commandStore.deregister(ids);
     };

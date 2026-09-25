@@ -1,14 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
-    // Proxy all /api/* requests to the unified API server (apps/api on port 3456).
-    // This allows the web app to call canonical /api/v1/* routes without CORS issues.
     proxy: {
       '/api': {
-        target: 'http://localhost:3456',
+        target: 'http://127.0.0.1:3000',
         changeOrigin: true,
       },
     },

@@ -28,18 +28,16 @@ export function EmptyState({
         textAlign: 'center',
       }}
     >
-      {icon && (
-        <div style={{ marginBottom: '16px', color: '#6b7280' }}>{icon}</div>
-      )}
+      {icon && <div style={{ marginBottom: '16px', color: '#6b7280' }}>{icon}</div>}
       <h3 style={{ margin: '0 0 8px', fontSize: '1.125rem', fontWeight: 600 }}>{title}</h3>
       {description && (
-        <p style={{ margin: '0 0 24px', fontSize: '0.875rem', color: '#6b7280', maxWidth: '360px' }}>
+        <p
+          style={{ margin: '0 0 24px', fontSize: '0.875rem', color: '#6b7280', maxWidth: '360px' }}
+        >
           {description}
         </p>
       )}
-      {action && (
-        <Button onClick={action.onClick}>{action.label}</Button>
-      )}
+      {action && <Button onClick={action.onClick}>{action.label}</Button>}
     </div>
   );
 }

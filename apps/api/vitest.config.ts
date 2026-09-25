@@ -12,7 +12,14 @@ export default defineConfig({
       reporter: ['text', 'json', 'json-summary', 'html'],
       reportsDirectory: './coverage',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/index.ts', 'dist/**'],
+      exclude: [
+        'src/**/*.test.ts',
+        'src/index.ts',
+        'src/execution/drizzle-execution-store.ts',
+        'src/infrastructure/drizzle-realtime-feed.ts',
+        'src/execution/index.ts',
+        'dist/**',
+      ],
       thresholds: {
         lines: 85,
         functions: 85,

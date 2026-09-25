@@ -48,6 +48,25 @@ describe('InMemoryRealtimeBus', () => {
     expect(receivedB).toEqual([beforeUnsubscribe, afterUnsubscribe]);
   });
 
+  it('publishes canonical events separately and routes them to subscribers', () => {
+    const bus = new InMemoryRealtimeBus();
+    const received: Array<unknown> = [];
+    const unsubscribe = bus.subscribe((event) => received.push(event));
+    const event = {
+      type: 'run.queued' as const,
+      version: '1' as const,
+      eventId: 'event-1',
+      sequence: 1,
+      occurredAt: '2026-05-06T00:00:00.000Z',
+      runId: 'run-1',
+      payload: { source: 'api' },
+    };
+    bus.publish(event);
+    expect(bus.canonicalPublished).toEqual([event]);
+    expect(received).toEqual([event]);
+    unsubscribe();
+  });
+
   it('allows an unsubscribe function to be called more than once without dropping events', () => {
     const bus = new InMemoryRealtimeBus();
     const received: RunUpdatedPayload[] = [];

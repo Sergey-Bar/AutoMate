@@ -19,7 +19,11 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
   const [reason, setReason] = useState('');
 
   if (isLoading) {
-    return <div data-testid="quarantine-loading" className="p-8">Loading quarantine list...</div>;
+    return (
+      <div data-testid="quarantine-loading" className="p-8">
+        Loading quarantine list...
+      </div>
+    );
   }
 
   if (error) {
@@ -60,7 +64,11 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
       </div>
 
       {isAdding && (
-        <form data-testid="quarantine-form" onSubmit={handleAdd} className="bg-bg-elevated border border-border-default rounded-lg p-6 space-y-4">
+        <form
+          data-testid="quarantine-form"
+          onSubmit={handleAdd}
+          className="bg-bg-elevated border border-border-default rounded-lg p-6 space-y-4"
+        >
           <h3 className="text-lg font-medium text-text-primary">Quarantine a Test</h3>
           <div>
             <label className="block text-sm font-medium text-text-secondary mb-1">Test Title</label>
@@ -85,7 +93,9 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">Reason (optional)</label>
+            <label className="block text-sm font-medium text-text-secondary mb-1">
+              Reason (optional)
+            </label>
             <input
               data-testid="input-reason"
               type="text"
@@ -113,7 +123,11 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
       ) : (
         <div data-testid="quarantine-list" className="space-y-4">
           {data.map((entry) => (
-            <div key={entry.id} data-testid={`quarantine-item-${entry.id}`} className="bg-bg-elevated border border-border-default rounded-lg p-4">
+            <div
+              key={entry.id}
+              data-testid={`quarantine-item-${entry.id}`}
+              className="bg-bg-elevated border border-border-default rounded-lg p-4"
+            >
               <div className="font-medium text-text-primary">{entry.testTitle}</div>
               <div className="text-sm text-text-secondary">{entry.testFile}</div>
               {entry.reason && (

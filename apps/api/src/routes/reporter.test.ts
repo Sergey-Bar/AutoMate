@@ -7,7 +7,10 @@ import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildApp(secret?: string, options?: Omit<ReporterRouteOptions, 'repository' | 'bus'>): Hono {
+function buildApp(
+  secret?: string,
+  options?: Omit<ReporterRouteOptions, 'repository' | 'bus'>,
+): Hono {
   const app = new Hono();
   app.route('/', createReporterRoutes(secret, options));
   return app;
@@ -96,7 +99,7 @@ describe('Reporter routes — legacy compatibility', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body['error']).toBe('string');
-    expect((body['error'] as string)).toContain('Invalid legacy reporter event');
+    expect(body['error'] as string).toContain('Invalid legacy reporter event');
   });
 
   it('returns 400 for unknown legacy event type', async () => {
@@ -152,7 +155,7 @@ describe('Reporter routes — versioned format', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body['error']).toBe('string');
-    expect((body['error'] as string)).toContain('Invalid versioned reporter event');
+    expect(body['error'] as string).toContain('Invalid versioned reporter event');
     expect(body['details']).toBeTypeOf('object');
     expect(Array.isArray(body['details'])).toBe(false);
   });
@@ -172,7 +175,7 @@ describe('Reporter routes — versioned format', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
     expect(typeof body['error']).toBe('string');
-    expect((body['error'] as string)).toContain('Invalid versioned reporter event');
+    expect(body['error'] as string).toContain('Invalid versioned reporter event');
     expect(body['details']).toBeTypeOf('object');
     expect(Array.isArray(body['details'])).toBe(false);
   });
@@ -225,7 +228,7 @@ describe('Reporter routes — versioned format', () => {
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Invalid versioned reporter event');
+    expect(body['error'] as string).toContain('Invalid versioned reporter event');
   });
 });
 
@@ -243,7 +246,7 @@ describe('Reporter routes — auth negative cases', () => {
     });
     expect(res.status).toBe(401);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Missing');
+    expect(body['error'] as string).toContain('Missing');
   });
 
   it('returns 403 when secret set but wrong token in Authorization header', async () => {
@@ -252,13 +255,13 @@ describe('Reporter routes — auth negative cases', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer wrong-token',
+        Authorization: 'Bearer wrong-token',
       },
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(403);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Invalid');
+    expect(body['error'] as string).toContain('Invalid');
   });
 
   it('returns 403 when secret set but wrong token in query param (allowQueryToken enabled)', async () => {
@@ -270,7 +273,7 @@ describe('Reporter routes — auth negative cases', () => {
     });
     expect(res.status).toBe(403);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Invalid');
+    expect(body['error'] as string).toContain('Invalid');
   });
 
   it('returns 403 when empty string token provided via query param', async () => {
@@ -316,7 +319,7 @@ describe('Reporter routes — auth positive cases', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer super-secret',
+        Authorization: 'Bearer super-secret',
       },
       body: JSON.stringify(LEGACY_EVENT),
     });
@@ -349,7 +352,7 @@ describe('Reporter routes — query token compatibility', () => {
     });
     expect(res.status).toBe(401);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Missing');
+    expect(body['error'] as string).toContain('Missing');
   });
 
   it('accepts ?token= when allowQueryToken is true — returns 202', async () => {
@@ -369,7 +372,7 @@ describe('Reporter routes — query token compatibility', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer correct-secret-value',
+        Authorization: 'Bearer correct-secret-value',
       },
       body: JSON.stringify(LEGACY_EVENT),
     });
@@ -381,7 +384,7 @@ describe('Reporter routes — query token compatibility', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer correct-secret-value',
+        Authorization: 'Bearer correct-secret-value',
       },
       body: JSON.stringify(LEGACY_EVENT),
     });
@@ -471,6 +474,31 @@ describe('Reporter routes — upload ingestion', () => {
     expect(tests.find((t) => t.id === 't-2')?.file).toBe('path.spec.ts');
   });
 
+  it('retains raw upload bytes in the configured artifact store', async () => {
+    const repo = new InMemoryRunRepository();
+    const writes: Array<{ key: string; bytes: Uint8Array }> = [];
+    const app = new Hono().route(
+      '/',
+      createReporterRoutes(undefined, {
+        repository: repo,
+        artifactStore: {
+          putAt: async (key, bytes) => {
+            writes.push({ key, bytes });
+          },
+        },
+      }),
+    );
+    const response = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ runId: 'raw-upload', status: 'passed', tests: [] }),
+    });
+    expect(response.status).toBe(202);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.key).toContain('legacy/raw-upload/raw/');
+    expect(new TextDecoder().decode(writes[0]?.bytes)).toContain('raw-upload');
+  });
+
   it('returns 503 when upload persistence repository is not configured', async () => {
     const app = buildApp();
     const res = await app.request('/api/v1/reporter/upload', {
@@ -480,7 +508,7 @@ describe('Reporter routes — upload ingestion', () => {
     });
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('not configured');
+    expect(body['error'] as string).toContain('not configured');
   });
 
   it('returns 400 for invalid upload payload', async () => {
@@ -489,11 +517,14 @@ describe('Reporter routes — upload ingestion', () => {
     const res = await app.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runId: '', tests: [{ title: 'missing id', file: 'a', status: 'passed' }] }),
+      body: JSON.stringify({
+        runId: '',
+        tests: [{ title: 'missing id', file: 'a', status: 'passed' }],
+      }),
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
-    expect((body['error'] as string)).toContain('Invalid reporter upload payload');
+    expect(body['error'] as string).toContain('Invalid reporter upload payload');
   });
 
   it('enforces reporter auth for upload endpoint when secret is configured', async () => {
@@ -511,7 +542,7 @@ describe('Reporter routes — upload ingestion', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer upload-secret',
+        Authorization: 'Bearer upload-secret',
       },
       body: JSON.stringify({ runId: 'upload-run-003', tests: [] }),
     });
@@ -545,7 +576,10 @@ describe('Reporter routes — upload ingestion', () => {
     const form = new FormData();
     form.set('runId', 'upload-playwright-001');
     form.set('artifactType', 'playwright-json');
-    form.set('file', new File([JSON.stringify(report)], 'playwright-report.json', { type: 'application/json' }));
+    form.set(
+      'file',
+      new File([JSON.stringify(report)], 'playwright-report.json', { type: 'application/json' }),
+    );
 
     const res = await app.request('/api/v1/reporter/upload', {
       method: 'POST',
@@ -639,7 +673,10 @@ describe('Reporter routes — upload ingestion', () => {
     const form = new FormData();
     form.set('runId', 'upload-playwright-branches-001');
     form.set('artifactType', 'playwright-json');
-    form.set('file', new File([JSON.stringify(report)], 'playwright-branches.json', { type: 'application/json' }));
+    form.set(
+      'file',
+      new File([JSON.stringify(report)], 'playwright-branches.json', { type: 'application/json' }),
+    );
 
     const res = await app.request('/api/v1/reporter/upload', {
       method: 'POST',

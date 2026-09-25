@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { OrchestrationService } from './orchestration-service.js';
 
-const definition = { workspaceId: 'workspace-1', name: 'Playwright', tool: 'playwright' as const, toolVersion: '1.63.0', imageDigest: 'a'.repeat(64), input: {}, timeoutMs: 1000, maxAttempts: 1, requiredCapabilities: ['playwright'] };
+const definition = {
+  workspaceId: 'workspace-1',
+  name: 'Playwright',
+  tool: 'playwright' as const,
+  toolVersion: '1.63.0',
+  imageDigest: 'a'.repeat(64),
+  input: {},
+  timeoutMs: 1000,
+  maxAttempts: 1,
+  requiredCapabilities: ['playwright'],
+};
 
 describe('OrchestrationService', () => {
   it('creates, enqueues, lists, and cancels jobs', () => {

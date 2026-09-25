@@ -11,14 +11,8 @@ import type { QualityGateStore } from './quality-gates.js';
 import { createDashboardRunsRoutes } from './runs.js';
 import { createDashboardTestsRoutes } from './tests.js';
 import { createDashboardAnalyticsRoutes } from './analytics.js';
-import {
-  createDashboardQuarantineRoutes,
-  InMemoryQuarantineStore,
-} from './quarantine.js';
-import {
-  createDashboardQualityGatesRoutes,
-  InMemoryQualityGateStore,
-} from './quality-gates.js';
+import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
+import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
 
 // ---------------------------------------------------------------------------
 // Module options

@@ -22,6 +22,20 @@
       "when": 1790330293327,
       "tag": "0002_phase3_key_constraint",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790337568748,
+      "tag": "0003_durable_execution",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790344536419,
+      "tag": "0004_orange_hellfire_club",
+      "breakpoints": true
     }
   ]
 }

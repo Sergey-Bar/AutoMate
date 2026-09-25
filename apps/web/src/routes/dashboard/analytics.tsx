@@ -15,7 +15,11 @@ export function AnalyticsPage({ api }: { api?: ApiClient }) {
   const { data, isLoading, error } = useAnalytics(api);
 
   if (isLoading) {
-    return <div data-testid="analytics-loading" className="p-8">Loading analytics...</div>;
+    return (
+      <div data-testid="analytics-loading" className="p-8">
+        Loading analytics...
+      </div>
+    );
   }
 
   if (error) {
@@ -44,11 +48,15 @@ export function AnalyticsPage({ api }: { api?: ApiClient }) {
       <div className="grid grid-cols-3 gap-4">
         <div className="p-4 bg-bg-elevated border border-border-default rounded-lg">
           <div className="text-sm text-text-secondary">Total Runs</div>
-          <div data-testid="stat-total-runs" className="text-2xl font-bold">{data.totalRuns}</div>
+          <div data-testid="stat-total-runs" className="text-2xl font-bold">
+            {data.totalRuns}
+          </div>
         </div>
         <div className="p-4 bg-bg-elevated border border-border-default rounded-lg">
           <div className="text-sm text-text-secondary">Pass Rate</div>
-          <div data-testid="stat-pass-rate" className="text-2xl font-bold">{data.passRate}%</div>
+          <div data-testid="stat-pass-rate" className="text-2xl font-bold">
+            {data.passRate}%
+          </div>
         </div>
         <div className="p-4 bg-bg-elevated border border-border-default rounded-lg">
           <div className="text-sm text-text-secondary">Avg Duration</div>

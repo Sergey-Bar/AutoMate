@@ -1,37 +1,9 @@
 import React from 'react';
-import { createRoute, Link } from '@tanstack/react-router';
-import { Route as rootRoute } from './__root';
+import { Navigate, createRoute } from '@tanstack/react-router';
+import { Route as rootRoute } from './__root.js';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
-  component: IndexComponent,
+  component: () => <Navigate to="/dashboard" />,
 });
-
-function IndexComponent() {
-  const sections = [
-    { title: 'Dashboard', description: 'Run monitoring, analytics, quarantine, and quality insights.', href: '/dashboard', cta: 'Open Dashboard' },
-    { title: 'Analytics', description: 'Evidence-backed KPI views and drill-through.', href: '/dashboard/analytics', cta: 'Open Analytics' },
-    { title: 'Quarantine', description: 'Failed evidence and quality-gate review.', href: '/dashboard/quarantine', cta: 'Open Quarantine' },
-  ] as const;
-  return (
-    <div data-testid="home-page" className="space-y-8 p-6">
-      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-        <h1 className="text-3xl font-bold">Automate Unified Platform</h1>
-        <p className="mt-3 max-w-3xl text-gray-600">Central workspace for test intelligence, QA orchestration, and product quality gates.</p>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link to="/dashboard" className="rounded-md bg-blue-600 px-4 py-2 text-white transition hover:bg-blue-700">Go To Dashboard</Link>
-        </div>
-      </section>
-      <section className="grid gap-4 md:grid-cols-2">
-        {sections.map((item) => (
-          <article key={item.href} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold">{item.title}</h2>
-            <p className="mt-2 text-sm text-gray-600">{item.description}</p>
-            <Link to={item.href} className="mt-4 inline-block rounded-md border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50">{item.cta}</Link>
-          </article>
-        ))}
-      </section>
-    </div>
-  );
-}

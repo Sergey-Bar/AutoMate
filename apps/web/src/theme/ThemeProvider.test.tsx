@@ -15,7 +15,7 @@ describe('ThemeProvider', () => {
   it('initializes with system theme if nothing in localStorage', () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
-      value: vi.fn().mockImplementation(query => ({
+      value: vi.fn().mockImplementation((query) => ({
         matches: false,
         media: query,
         onchange: null,
@@ -137,6 +137,8 @@ describe('ThemeProvider', () => {
 
   it('useTheme throws when called outside a ThemeProvider (covers context === undefined branch)', () => {
     // With createContext<...>(undefined), calling useTheme without a Provider throws
-    expect(() => renderHook(() => useTheme())).toThrow('useTheme must be used within a ThemeProvider');
+    expect(() => renderHook(() => useTheme())).toThrow(
+      'useTheme must be used within a ThemeProvider',
+    );
   });
 });

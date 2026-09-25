@@ -1,7 +1,5 @@
 import React from 'react';
 import { createRoute } from '@tanstack/react-router';
-import { Route as dashboardRoute } from '../dashboard.js';
-import { useRuns } from '../../hooks/useRuns.js';
 import {
   Badge,
   Card,
@@ -15,26 +13,39 @@ import {
   TableHeader,
   TableRow,
 } from '@automate/ui';
+import { Route as dashboardRoute } from '../dashboard.js';
+import { isRunActive, useRuns } from '../../hooks/useRuns.js';
 import type { ApiClient, Run } from '../../lib/api.js';
+import { runDetailPath } from '../../route-manifest.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
-  path: '/',
+  path: '/runs',
   component: () => <RunsListPage />,
 });
 
-function statusVariant(status: string): 'success' | 'danger' | 'warning' | 'default' | 'secondary' {
-  switch (status) {
-    case 'passed': return 'success';
-    case 'failed': return 'danger';
-    case 'flaky': return 'warning';
-    case 'running': return 'default';
-    default: return 'secondary';
+function outcomeVariant(
+  outcome: Run['outcome'],
+): 'success' | 'danger' | 'warning' | 'default' | 'secondary' {
+  switch (outcome) {
+    case 'passed':
+      return 'success';
+    case 'failed':
+      return 'danger';
+    case 'partial':
+    case 'unknown':
+      return 'warning';
+    default:
+      return 'secondary';
   }
 }
 
+function formatDate(value: string | null): string {
+  return value ? new Date(value).toLocaleString() : 'Not started';
+}
+
 export function RunsListPage({ api }: { api?: ApiClient }) {
-  const { runs, isLoading, error } = useRuns(api);
+  const { runs, isLoading, error, isLive } = useRuns(api);
 
   if (isLoading) {
     return (
@@ -50,68 +61,96 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
     return (
       <EmptyState
         data-testid="runs-list-error"
-        title="Error Loading Runs"
+        title="Runs unavailable"
         description={error.message}
       />
     );
   }
 
-  const total = runs.length;
-  const passed = runs.filter((r) => r.status === 'passed').length;
-  const failed = runs.filter((r) => r.status === 'failed').length;
-  const running = runs.filter((r) => r.status === 'running').length;
+  const passed = runs.filter((run) => run.outcome === 'passed').length;
+  const failed = runs.filter((run) => run.outcome === 'failed').length;
+  const active = runs.filter(isRunActive).length;
 
   return (
     <div data-testid="runs-list-page" className="space-y-6">
-      <div className="grid grid-cols-4 gap-4">
-        <StatCard data-testid="stat-total" title="Total Runs" value={total} />
-        <StatCard data-testid="stat-passed" title="Passed" value={passed} trend="up" />
-        <StatCard data-testid="stat-failed" title="Failed" value={failed} trend={failed > 0 ? 'down' : 'neutral'} />
-        <StatCard data-testid="stat-running" title="Running" value={running} />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Runs</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            Canonical execution records and current evidence state.
+          </p>
+        </div>
+        <span data-testid="runs-live-state" className="text-xs text-fg-muted">
+          {isLive ? 'Live stream connected' : 'Live stream disconnected'}
+        </span>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard data-testid="stat-total" title="Total Runs" value={runs.length} />
+        <StatCard data-testid="stat-passed" title="Passed" value={passed} />
+        <StatCard data-testid="stat-failed" title="Failed" value={failed} />
+        <StatCard data-testid="stat-running" title="Active" value={active} />
       </div>
 
       {runs.length === 0 ? (
         <EmptyState
           data-testid="runs-list-empty"
-          title="No Runs Yet"
-          description="Test runs will appear here once you connect Playwright."
+          title="No execution evidence"
+          description="Launch a registered browser project from the Command Center to create the first run."
+          action={
+            <a
+              href="/dashboard"
+              className="rounded-md bg-primary px-4 py-2 text-sm text-white no-underline"
+            >
+              Open Command Center
+            </a>
+          }
         />
       ) : (
         <Card className="overflow-hidden">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Run ID</TableHead>
+                <TableHead>Run</TableHead>
                 <TableHead>Project</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Started</TableHead>
+                <TableHead>Phase</TableHead>
+                <TableHead>Outcome</TableHead>
+                <TableHead>Created</TableHead>
                 <TableHead>Duration</TableHead>
                 <TableHead>Tests</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {runs.map((run: Run) => (
+              {runs.map((run) => (
                 <TableRow key={run.id} data-testid={`run-row-${run.id}`}>
                   <TableCell>
                     <a
-                      href={`/dashboard/${run.id}`}
-                      className="font-mono text-xs hover:underline text-blue-500"
+                      href={runDetailPath(run.id)}
+                      className="font-mono text-xs text-accent no-underline hover:underline"
                     >
                       {run.id.slice(0, 8)}
                     </a>
                   </TableCell>
-                  <TableCell>{run.projectName ?? '—'}</TableCell>
+                  <TableCell>{run.projectId ?? 'UNKNOWN'}</TableCell>
                   <TableCell>
-                    <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
-                  </TableCell>
-                  <TableCell>{new Date(run.startedAt).toLocaleString()}</TableCell>
-                  <TableCell>
-                    {run.durationMs != null ? `${run.durationMs}ms` : '—'}
+                    <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>
                   </TableCell>
                   <TableCell>
-                    {run.total != null
-                      ? `${run.passed ?? 0}/${run.total}`
-                      : '—'}
+                    <Badge
+                      data-testid={`run-outcome-${run.id}`}
+                      variant={outcomeVariant(run.outcome)}
+                    >
+                      {run.outcome ?? 'PENDING'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDate(run.createdAt)}</TableCell>
+                  <TableCell>
+                    {run.summary.durationMs != null ? `${run.summary.durationMs}ms` : 'UNKNOWN'}
+                  </TableCell>
+                  <TableCell>
+                    {run.summary.total > 0
+                      ? `${run.summary.passed}/${run.summary.total}`
+                      : 'No tests reported'}
                   </TableCell>
                 </TableRow>
               ))}

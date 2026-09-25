@@ -53,7 +53,9 @@ describe('Login route', () => {
       expect(screen.getByTestId('api-key-input')).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByTestId('api-key-input'), { target: { value: 'test-key-123' } });
+    fireEvent.change(await screen.findByTestId('api-key-input'), {
+      target: { value: 'test-key-123' },
+    });
     fireEvent.click(screen.getByTestId('login-submit'));
 
     await waitFor(() => {
@@ -74,13 +76,23 @@ describe('Login route', () => {
       expect(screen.getByTestId('api-key-input')).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByTestId('api-key-input'), { target: { value: 'bad-key' } });
+    fireEvent.change(await screen.findByTestId('api-key-input'), { target: { value: 'bad-key' } });
     fireEvent.click(screen.getByTestId('login-submit'));
 
     await waitFor(() => {
       expect(screen.getByTestId('login-error')).toBeInTheDocument();
       expect(screen.getByTestId('login-error')).toHaveTextContent('Invalid API key');
     });
+  });
+
+  it('uses a stable fallback for non-Error login failures', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue('network offline');
+    renderLogin();
+    fireEvent.change(await screen.findByTestId('api-key-input'), { target: { value: 'key' } });
+    fireEvent.click(screen.getByTestId('login-submit'));
+    await waitFor(() =>
+      expect(screen.getByTestId('login-error')).toHaveTextContent('Unable to sign in'),
+    );
   });
 
   it('uses a masked API key field', async () => {
@@ -94,5 +106,45 @@ describe('Login route', () => {
     expect(screen.getByTestId('api-key-input')).toHaveAttribute('type', 'password');
     const passwordInputs = document.querySelectorAll('input[type="password"]');
     expect(passwordInputs).toHaveLength(1);
+  });
+
+  it('returns to a valid encoded local path after login', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    const { router } = renderLogin('?return=%2Fdashboard%2Fruns');
+    fireEvent.change(await screen.findByTestId('api-key-input'), {
+      target: { value: 'valid-key' },
+    });
+    fireEvent.click(screen.getByTestId('login-submit'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/dashboard/runs'));
+  });
+
+  it('rejects absolute external return paths', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    const { router } = renderLogin('?return=https%3A%2F%2Fevil.example');
+    fireEvent.change(await screen.findByTestId('api-key-input'), {
+      target: { value: 'valid-key' },
+    });
+    fireEvent.click(screen.getByTestId('login-submit'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+  });
+
+  it('rejects protocol-relative return paths', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    const { router } = renderLogin('?return=%2F%2Fevil.example');
+    fireEvent.change(await screen.findByTestId('api-key-input'), {
+      target: { value: 'valid-key' },
+    });
+    fireEvent.click(screen.getByTestId('login-submit'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
+  });
+
+  it('falls back home for malformed return paths', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+    const { router } = renderLogin('?return=%');
+    fireEvent.change(await screen.findByTestId('api-key-input'), {
+      target: { value: 'valid-key' },
+    });
+    fireEvent.click(screen.getByTestId('login-submit'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/'));
   });
 });

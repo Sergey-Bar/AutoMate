@@ -3,12 +3,15 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { Sidebar } from './Sidebar';
-import { createMemoryHistory, RouterProvider, createRouter, createRootRoute } from '@tanstack/react-router';
+import {
+  createMemoryHistory,
+  RouterProvider,
+  createRouter,
+  createRootRoute,
+} from '@tanstack/react-router';
 
 const rootRoute = createRootRoute({
-  component: () => (
-    <Sidebar />
-  ),
+  component: () => <Sidebar />,
 });
 const router = createRouter({ routeTree: rootRoute });
 

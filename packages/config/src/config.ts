@@ -12,6 +12,12 @@ const EnvironmentSchema = z.object({
   WORKSPACE_ID: z.string().min(1).default('default-workspace'),
   AUTOMATE_API_KEY: z.string().min(16).optional(),
   REPORTER_SECRET: z.string().min(16).optional(),
+  RUNNER_REGISTRATION_SECRET: z.string().min(16).optional(),
+  ARTIFACT_ROOT: z.string().min(1).default('./var/artifacts'),
+  WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
+  WORKER_LEASE_MS: z.coerce.number().int().positive().default(30000),
+  WORKER_LEASE_DURATION_MS: z.coerce.number().int().positive().default(30000),
+  WORKER_MAX_ATTEMPTS: z.coerce.number().int().positive().max(10).default(2),
   KILO_GATEWAY_URL: z.string().url().optional(),
   KILO_API_KEY: z.string().min(16).optional(),
   OLLAMA_BASE_URL: z.string().url().optional(),
@@ -34,6 +40,12 @@ export type AppConfig = {
   workspaceId: string;
   installationApiKey?: string;
   reporterSecret?: string;
+  runnerRegistrationSecret?: string;
+  artifactRoot: string;
+  workerPollIntervalMs: number;
+  workerLeaseMs: number;
+  workerLeaseDurationMs: number;
+  workerMaxAttempts: number;
   kiloGatewayUrl?: string;
   kiloApiKey?: string;
   ollamaBaseUrl?: string;
@@ -73,6 +85,12 @@ export function parseConfig(
     workspaceId: parsed.WORKSPACE_ID,
     installationApiKey: parsed.AUTOMATE_API_KEY,
     reporterSecret: parsed.REPORTER_SECRET,
+    runnerRegistrationSecret: parsed.RUNNER_REGISTRATION_SECRET,
+    artifactRoot: parsed.ARTIFACT_ROOT,
+    workerPollIntervalMs: parsed.WORKER_POLL_INTERVAL_MS,
+    workerLeaseMs: parsed.WORKER_LEASE_MS,
+    workerLeaseDurationMs: parsed.WORKER_LEASE_DURATION_MS,
+    workerMaxAttempts: parsed.WORKER_MAX_ATTEMPTS,
     kiloGatewayUrl: parsed.KILO_GATEWAY_URL,
     kiloApiKey: parsed.KILO_API_KEY,
     ollamaBaseUrl: parsed.OLLAMA_BASE_URL,

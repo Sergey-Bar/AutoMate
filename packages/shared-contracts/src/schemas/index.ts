@@ -34,3 +34,5 @@ export type {
   RunResult as CanonicalRunResult,
 } from './canonical-reporting.js';
 export * from './orchestration.js';
+export * from './execution.js';
+export * from './legacy-reporter-adapter.js';

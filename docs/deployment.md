@@ -1,39 +1,32 @@
 # Local Deployment
 
-The authorized deployment target is local/sample-only. Production cutover, registry publication, credential rotation, and destructive data migration are intentionally unavailable.
-
-## Local stack
-
-`infra/compose/compose.dev.yml` defines loopback-only PostgreSQL, MinIO, migration, API, web, and edge services. Images must be built locally; the compose file uses `pull_policy: never` for external services.
+The canonical local deployment for the universal QA slice is `docker-compose.unified.yml`. It starts PostgreSQL, runs additive Drizzle migrations, then starts the API, worker, Playwright runner, and web services. Artifact bytes are stored in the `artifact_data` volume; only metadata and checksums are stored in PostgreSQL.
 
 ```bash
 pnpm install --frozen-lockfile
-REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml build
-REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml up -d
+docker compose -f docker-compose.unified.yml build
+docker compose -f docker-compose.unified.yml up -d
+docker compose -f docker-compose.unified.yml ps
 ```
+
+The service dependencies are ordered by health checks: PostgreSQL must be healthy, the migration job must complete, and the API, worker, runner, and web services must become ready before a vertical-slice test is run.
 
 The local endpoints are:
 
-- Edge: `http://127.0.0.1:58080`
-- Web direct: `http://127.0.0.1:53173`
-- API direct: `http://127.0.0.1:53000`
+- Web: `http://127.0.0.1:53173`
+- API: `http://127.0.0.1:53000`
 - PostgreSQL: `127.0.0.1:55432`
-- MinIO API: `http://127.0.0.1:59000`
-- MinIO console: `http://127.0.0.1:59001`
 
-## Configuration
+Use `.env.example` as the variable checklist. `AUTOMATE_API_KEY`, `REPORTER_SECRET`, and `RUNNER_REGISTRATION_SECRET` are separate credentials. `COOKIE_SECRET`, `VAULT_SECRET`, and `ARTIFACT_ROOT` must be supplied for a persistent deployment. Do not commit `.env` files or secret values.
 
-Use `packages/config` and a local environment file. Required persistent values are `DATABASE_URL`, `COOKIE_SECRET`, and `VAULT_SECRET`; `AUTOMATE_API_KEY` is a first-bootstrap input only. Never commit `.env` files or secret values.
-
-## Stop and clean
+Stop services without deleting evidence:
 
 ```bash
-docker compose -f infra/compose/compose.dev.yml down
-docker compose -f infra/compose/compose.dev.yml down -v
+docker compose -f docker-compose.unified.yml down
 ```
 
-The second command removes only the local compose volume. It does not remove pinned source snapshots or migration archives.
+Delete only the disposable local database and artifact volumes with `down -v` after confirming that the evidence is no longer needed.
 
-## Release boundary
+## Readiness and rollback
 
-There is no production Compose file in this branch. A future production topology requires a separately approved release plan, immutable image digests, external secret management, migration/rollback rehearsal, and an authorized remote.
+`/health` is liveness. `/api/v1/ready` is readiness and must fail when PostgreSQL or required runtime dependencies are unavailable. Rollback is non-destructive: stop the worker and runner, route the web app back to the prior dashboard, and leave additive tables and artifact evidence in place.

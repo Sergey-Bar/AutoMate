@@ -100,11 +100,7 @@ export class DrizzleRunRepository implements RunRepository {
   }
 
   async getRun(id: string): Promise<RunRecord | null> {
-    const rows = await this.db
-      .select()
-      .from(runs)
-      .where(eq(runs.id, id))
-      .limit(1);
+    const rows = await this.db.select().from(runs).where(eq(runs.id, id)).limit(1);
     if (rows.length === 0) return null;
     return this._mapRun(rows[0]);
   }
@@ -168,10 +164,7 @@ export class DrizzleRunRepository implements RunRepository {
   }
 
   async listTests(runId: string): Promise<TestRecord[]> {
-    const rows = await this.db
-      .select()
-      .from(tests)
-      .where(eq(tests.runId, runId));
+    const rows = await this.db.select().from(tests).where(eq(tests.runId, runId));
     return rows.map((t) => this._mapTest(t));
   }
 

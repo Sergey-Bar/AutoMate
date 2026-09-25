@@ -38,6 +38,15 @@ const result = {
 };
 
 describe('reporting routes', () => {
+  it('returns 404 for missing runs and empty aggregate metrics', async () => {
+    const service = new ReporterIngestionService('workspace-1');
+    const app = new Hono().route('/', createReportingRoutes(service));
+    expect((await app.request('/api/v1/reporting/runs/missing')).status).toBe(404);
+    expect((await app.request('/api/v1/reporting/kpis?runId=missing')).status).toBe(404);
+    const empty = await app.request('/api/v1/reporting/kpis');
+    expect(((await empty.json()) as { metrics: unknown[] }).metrics).toHaveLength(5);
+  });
+
   it('returns canonical run and KPI projections', async () => {
     const service = new ReporterIngestionService('workspace-1');
     service.ingest(result);

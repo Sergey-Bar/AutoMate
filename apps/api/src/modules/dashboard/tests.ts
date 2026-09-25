@@ -38,20 +38,23 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
   app.get('/api/v1/dashboard/suites', async (c) => {
     const runs = await options.repository.listRuns();
     const runById = new Map(runs.map((run) => [run.id, run]));
-    const suiteMap = new Map<string, {
-      id: string;
-      name: string;
-      runIds: Set<string>;
-      passed: number;
-      total: number;
-      lastRunAt: string | null;
-    }>();
+    const suiteMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        runIds: Set<string>;
+        passed: number;
+        total: number;
+        lastRunAt: string | null;
+      }
+    >();
 
     for (const run of runs) {
       const tests = await options.repository.listTests(run.id);
       for (const test of tests) {
         const suiteId = test.file || 'unknown';
-        const suiteName = test.file ? test.file.split('/').pop() ?? test.file : 'Unknown Suite';
+        const suiteName = test.file ? (test.file.split('/').pop() ?? test.file) : 'Unknown Suite';
         const existing = suiteMap.get(suiteId) ?? {
           id: suiteId,
           name: suiteName,

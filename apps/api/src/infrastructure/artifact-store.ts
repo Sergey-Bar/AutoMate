@@ -23,6 +23,20 @@ function resolveArtifactPath(root: string, key: string): string {
 export class LocalArtifactStore {
   constructor(private readonly root: string) {}
 
+  async putAt(key: string, bytes: Uint8Array): Promise<void> {
+    if (path.isAbsolute(key) || key.includes('..') || key.includes('\\'))
+      throw new Error('Artifact key must be relative');
+    const target = resolveArtifactPath(this.root, key);
+    await mkdir(path.dirname(target), { recursive: true });
+    const temporary = `${target}.tmp`;
+    await writeFile(temporary, bytes, { mode: 0o600 });
+    await rename(temporary, target);
+  }
+
+  async readAt(key: string): Promise<Uint8Array> {
+    return new Uint8Array(await readFile(resolveArtifactPath(this.root, key)));
+  }
+
   async put(input: {
     key: string;
     bytes: Uint8Array;
@@ -53,5 +67,21 @@ export class LocalArtifactStore {
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== artifact.digest) throw new Error('Artifact digest mismatch');
     return bytes;
+  }
+}
+
+export class LocalArtifactBytesStore {
+  constructor(private readonly store: LocalArtifactStore) {}
+
+  async put(storageKey: string, bytes: Uint8Array): Promise<void> {
+    await this.store.putAt(storageKey, bytes);
+  }
+
+  async get(storageKey: string): Promise<Uint8Array | null> {
+    try {
+      return await this.store.readAt(storageKey);
+    } catch {
+      return null;
+    }
   }
 }

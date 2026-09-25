@@ -78,15 +78,8 @@ export function createDashboardQualityGatesRoutes(options: DashboardQualityGates
     if (typeof name !== 'string' || !name) {
       return c.json({ error: 'name is required' }, 400);
     }
-    if (
-      typeof passRateThreshold !== 'number' ||
-      passRateThreshold < 0 ||
-      passRateThreshold > 100
-    ) {
-      return c.json(
-        { error: 'passRateThreshold must be a number between 0 and 100' },
-        400,
-      );
+    if (typeof passRateThreshold !== 'number' || passRateThreshold < 0 || passRateThreshold > 100) {
+      return c.json({ error: 'passRateThreshold must be a number between 0 and 100' }, 400);
     }
 
     const gate = await options.store.add({ name, passRateThreshold });
