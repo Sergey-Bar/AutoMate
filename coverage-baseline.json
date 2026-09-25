@@ -1,0 +1,20 @@
+{
+  "api": {
+    "statements": 93
+  },
+  "web": {
+    "statements": 91
+  },
+  "shared-contracts": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  },
+  "reporting": { "statements": 94 },
+  "reporter": { "statements": 90 },
+  "orchestration": { "statements": 100 },
+  "automation": { "statements": 93 },
+  "runner-sdk": { "statements": 87 },
+  "config": { "statements": 93 }
+}

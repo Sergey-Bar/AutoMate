@@ -1,0 +1,43 @@
+{
+  "contractVersion": "2",
+  "identity": {
+    "runId": "run-1",
+    "workspaceId": "workspace-1"
+  },
+  "status": "passed",
+  "startedAt": "2026-09-25T00:00:00.000Z",
+  "attempts": [
+    {
+      "index": 1,
+      "testId": "test-1",
+      "specPath": "tests/example.spec.ts",
+      "title": "example",
+      "status": "passed",
+      "rawStatus": "passed",
+      "startedAt": "2026-09-25T00:00:00.000Z",
+      "finishedAt": "2026-09-25T00:00:01.000Z",
+      "evidence": [],
+      "flakiness": "unknown"
+    }
+  ],
+  "evidence": [],
+  "provenance": {
+    "producer": "playwright",
+    "producerVersion": "1.63.0",
+    "adapterVersion": "1.0.0",
+    "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "sourceUri": "artifact://run-1/report.json"
+  },
+  "retention": { "class": "standard" },
+  "proof": {
+    "state": "verified",
+    "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "verifier": "contract-fixture"
+  },
+  "completeness": {
+    "state": "complete",
+    "missingShards": [],
+    "duplicateShards": []
+  },
+  "raw": {}
+}

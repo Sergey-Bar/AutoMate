@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777975338108,
+      "tag": "0000_fixed_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790315254291,
+      "tag": "0001_phase3_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790330293327,
+      "tag": "0002_phase3_key_constraint",
+      "breakpoints": true
+    }
+  ]
+}

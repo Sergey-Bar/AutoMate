@@ -1,0 +1,77 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    pull_policy: never
+    environment:
+      POSTGRES_DB: automate
+      POSTGRES_USER: automate
+      POSTGRES_PASSWORD: local-only
+    ports:
+      - '127.0.0.1:55432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U automate -d automate']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  minio:
+    image: minio/minio
+    pull_policy: never
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: local-only
+      MINIO_ROOT_PASSWORD: local-only-secret
+    ports:
+      - '127.0.0.1:59000:9000'
+      - '127.0.0.1:59001:9001'
+  migrate:
+    profiles: ['rehearsal']
+    build:
+      context: ../..
+      dockerfile: infra/docker/migrate.Dockerfile
+    command: ['validate', '--plan', '/workspace/plan.json']
+    environment:
+      DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
+    volumes:
+      - ../..:/workspace:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      NODE_ENV: development
+      PORT: '3000'
+      DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
+      COOKIE_SECRET: local-cookie-secret-change-me-32-chars
+      VAULT_SECRET: local-vault-secret-change-me-32-chars
+      AUTOMATE_API_KEY: local-installation-key
+      PUBLIC_APP_URL: http://localhost:58080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '127.0.0.1:53000:3000'
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - '127.0.0.1:53173:80'
+  edge:
+    build:
+      context: ../..
+      dockerfile: infra/docker/edge.Dockerfile
+    depends_on:
+      - api
+      - web
+    ports:
+      - '127.0.0.1:58080:80'
+
+volumes:
+  postgres_data:
