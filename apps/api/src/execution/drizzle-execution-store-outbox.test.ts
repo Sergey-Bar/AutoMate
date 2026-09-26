@@ -344,34 +344,24 @@ describe('DrizzleExecutionStore outbox', () => {
     const created = await store.createRun({ source: 'api' }, 'idem-3', WORKSPACE);
     const claim = await leaseJob(store, created.run.id);
 
-    const accepted = await store.appendEvents(
-      claim.jobId,
-      claim.leaseId,
-      claim.fencingToken,
-      [
-        {
-          eventId: 'evt-1',
-          sequence: 1,
-          type: 'test.started',
-          occurredAt: '2026-05-06T00:00:00.000Z',
-          payload: { testId: 'test-1', title: 'checkout', apiKey: 'super-secret' },
-        },
-      ],
-    );
-    const conflicted = await store.appendEvents(
-      claim.jobId,
-      claim.leaseId,
-      claim.fencingToken,
-      [
-        {
-          eventId: 'evt-gap',
-          sequence: 9,
-          type: 'test.completed',
-          occurredAt: '2026-05-06T00:00:00.000Z',
-          payload: { testId: 'test-1' },
-        },
-      ],
-    );
+    const accepted = await store.appendEvents(claim.jobId, claim.leaseId, claim.fencingToken, [
+      {
+        eventId: 'evt-1',
+        sequence: 1,
+        type: 'test.started',
+        occurredAt: '2026-05-06T00:00:00.000Z',
+        payload: { testId: 'test-1', title: 'checkout', apiKey: 'super-secret' },
+      },
+    ]);
+    const conflicted = await store.appendEvents(claim.jobId, claim.leaseId, claim.fencingToken, [
+      {
+        eventId: 'evt-gap',
+        sequence: 9,
+        type: 'test.completed',
+        occurredAt: '2026-05-06T00:00:00.000Z',
+        payload: { testId: 'test-1' },
+      },
+    ]);
     const stale = await store.appendEvents('00000000-0000-4000-8000-000000000000', 'nope', 0, [
       {
         eventId: 'evt-stale',
@@ -417,7 +407,9 @@ describe('DrizzleExecutionStore outbox', () => {
     };
 
     const first = await store.appendEvents(claim.jobId, claim.leaseId, claim.fencingToken, [event]);
-    const second = await store.appendEvents(claim.jobId, claim.leaseId, claim.fencingToken, [event]);
+    const second = await store.appendEvents(claim.jobId, claim.leaseId, claim.fencingToken, [
+      event,
+    ]);
 
     expect(first[0]?.status).toBe('accepted');
     expect(second[0]?.status).toBe('duplicate');

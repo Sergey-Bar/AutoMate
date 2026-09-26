@@ -83,9 +83,10 @@ describe('DrizzleReporterIngestionService', () => {
   it('rejects results from another workspace and invalid payloads', async () => {
     const { first } = await createHarness();
     const service = first;
-    expect((await service.ingest({ ...result, identity: { ...result.identity, workspaceId: 'other' } })).status).toBe(
-      'conflict',
-    );
+    expect(
+      (await service.ingest({ ...result, identity: { ...result.identity, workspaceId: 'other' } }))
+        .status,
+    ).toBe('conflict');
     expect((await service.ingest({ identity: result.identity })).status).toBe('conflict');
   });
 });

@@ -46,7 +46,10 @@ describe('DrizzleRealtimeFeed', () => {
     };
 
     const inserted = await feed.append(event);
-    const duplicate = await feed.append({ ...event, payload: { runId: 'run-1', status: 'passed' } });
+    const duplicate = await feed.append({
+      ...event,
+      payload: { runId: 'run-1', status: 'passed' },
+    });
 
     expect(inserted?.sequence).toBeTypeOf('number');
     expect(duplicate).toBeNull();
@@ -139,9 +142,14 @@ describe('DrizzleRealtimeFeed', () => {
       expiresAt: new Date('2020-01-01T00:00:00.000Z'),
     });
     const received: string[] = [];
-    const unsubscribe = feed.subscribe('workspace-a', 0, (event) => {
-      received.push(event.dedupeKey);
-    }, 5);
+    const unsubscribe = feed.subscribe(
+      'workspace-a',
+      0,
+      (event) => {
+        received.push(event.dedupeKey);
+      },
+      5,
+    );
     await feed.append({
       workspaceId: 'workspace-a',
       aggregateType: 'run',

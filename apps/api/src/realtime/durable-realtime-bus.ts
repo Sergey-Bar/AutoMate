@@ -1,34 +1,9 @@
 import type { AppendOutboxEvent, OutboxEvent } from '@automate/db';
 import type { RealtimeBus, RealtimeBusEvent, RunUpdatedPayload } from './realtime-bus.js';
+import { sanitizeOutboxNested } from '../infrastructure/outbox-sanitizer.js';
 
 export interface DurableRealtimeWriter {
   append(event: AppendOutboxEvent): Promise<OutboxEvent | null>;
-}
-
-const SENSITIVE_KEY =
-  /token|secret|password|credential|api[-_]?key|authorization|cookie|bearer|private/i;
-const MAX_DEPTH = 5;
-const MAX_ITEMS = 100;
-const MAX_TEXT_LENGTH = 1024;
-
-function sanitizeValue(value: unknown, depth: number): unknown {
-  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'string')
-    return value.length > MAX_TEXT_LENGTH ? value.slice(0, MAX_TEXT_LENGTH) : value;
-  if (depth >= MAX_DEPTH) return null;
-  if (Array.isArray(value))
-    return value.slice(0, MAX_ITEMS).map((item) => sanitizeValue(item, depth + 1));
-  if (typeof value === 'object') return sanitizeRecord(value as Record<string, unknown>, depth + 1);
-  return null;
-}
-
-function sanitizeRecord(value: Record<string, unknown>, depth: number): Record<string, unknown> {
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (SENSITIVE_KEY.test(key)) continue;
-    sanitized[key] = sanitizeValue(item, depth);
-  }
-  return sanitized;
 }
 
 function sanitizeEvent(event: RealtimeBusEvent): RealtimeBusEvent {
@@ -41,7 +16,9 @@ function sanitizeEvent(event: RealtimeBusEvent): RealtimeBusEvent {
       timestamp: event.timestamp,
     };
   }
-  return { ...event, payload: sanitizeRecord(event.payload, 0) };
+  // A realtime event payload is domain data, not an outbox envelope, so it is
+  // sanitized as nested: credential key names dropped, values scanned.
+  return { ...event, payload: sanitizeOutboxNested(event.payload) };
 }
 
 function dedupeKey(event: RealtimeBusEvent, workspaceId: string): string {

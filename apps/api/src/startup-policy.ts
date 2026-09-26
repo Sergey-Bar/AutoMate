@@ -1,12 +1,29 @@
 import type { AppConfig } from './config.js';
 
 /**
- * Development/test-only secret fallbacks. These are deliberately named so a
- * reviewer can see they are not production credentials, and startup policy
- * refuses them on a production path (see checkProductionPolicy).
+ * The cookie secret used when `AUTOMATE_ALLOW_DEV_SECRETS=1` is set outside a
+ * test environment.
+ *
+ * This literal is in git history and in every clone, so it is a *publicly known
+ * signing key* for any install that uses it. That is acceptable only for a
+ * developer's own machine, and only when the operator asked for it by name.
+ * It is never used in a test (tests may pass an explicit secret) and never in
+ * production.
  */
 export const DEVELOPMENT_COOKIE_SECRET = 'development-only-cookie-secret-32-chars';
 export const DEVELOPMENT_INSTALLATION_KEY = 'development-installation-key';
+
+/**
+ * The environment variable an operator must set to accept the committed
+ * development secrets outside a test run. Grep for it to find every place the
+ * development path is reachable.
+ */
+export const ALLOW_DEV_SECRETS_ENV = 'AUTOMATE_ALLOW_DEV_SECRETS';
+
+export function devSecretsAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env[ALLOW_DEV_SECRETS_ENV]?.trim().toLowerCase();
+  return value === '1' || value === 'true' || value === 'yes';
+}
 
 export function isProduction(config: AppConfig): boolean {
   return config.nodeEnv === 'production';
@@ -79,7 +96,9 @@ export function checkProductionPolicy(config: AppConfig): void {
       );
     }
     if (config.objectStore.endpoint.startsWith('http:') && !config.objectStore.allowInsecureHttp) {
-      throw new Error('OBJECT_STORE_ENDPOINT must use https in production unless OBJECT_STORE_ALLOW_INSECURE is enabled');
+      throw new Error(
+        'OBJECT_STORE_ENDPOINT must use https in production unless OBJECT_STORE_ALLOW_INSECURE is enabled',
+      );
     }
     if (!config.runnerRegistrationSecret) {
       throw new Error('RUNNER_REGISTRATION_SECRET is required in production');
@@ -102,18 +121,45 @@ export interface AuthSecrets {
 }
 
 /**
- * Resolves the secrets that sign cookies and installation credentials. In
- * production the configured values are the only acceptable source; the
- * development/test literals are unreachable because checkProductionPolicy
- * rejects both a missing and a placeholder secret first.
+ * Resolves the secrets that sign cookies and installation credentials.
+ *
+ * Previously this returned the committed development literal whenever
+ * `nodeEnv` was anything other than the exact string `production`, and
+ * `getConfig` passed `requireProductionSecrets: false` unconditionally. The
+ * result was that a deployment started without `NODE_ENV=production` signed
+ * its sessions with a key published in this repository — and the login page
+ * was still reachable.
+ *
+ * Now the literal is reachable only where it is harmless: a test run, or a
+ * developer's own machine with `AUTOMATE_ALLOW_DEV_SECRETS=1`. Everywhere else
+ * a missing secret is a startup failure, not a silent fallback.
  */
-export function resolveAuthSecrets(config: AppConfig): AuthSecrets {
-  const production = isProduction(config);
-  if (production && !config.cookieSecret) {
-    throw new Error('COOKIE_SECRET is required in production');
+export function resolveAuthSecrets(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): AuthSecrets {
+  if (isProduction(config)) {
+    if (!config.cookieSecret) {
+      throw new Error('COOKIE_SECRET is required in production');
+    }
+    if (!config.apiKey) {
+      throw new Error('AUTOMATE_API_KEY is required in production');
+    }
   }
-  if (production && !config.apiKey) {
-    throw new Error('AUTOMATE_API_KEY is required in production');
+  const allowLiterals = config.nodeEnv === 'test' || devSecretsAllowed(env);
+  if (!config.cookieSecret && !allowLiterals) {
+    throw new Error(
+      'COOKIE_SECRET is required. There is no fallback: the development ' +
+        `literal is a publicly known signing key. Set COOKIE_SECRET (at least ` +
+        `32 characters), or set ${ALLOW_DEV_SECRETS_ENV}=1 on a development ` +
+        'machine to accept it deliberately.',
+    );
+  }
+  if (!config.apiKey && !allowLiterals) {
+    throw new Error(
+      `AUTOMATE_API_KEY is required. Set it, or set ${ALLOW_DEV_SECRETS_ENV}=1 ` +
+        'on a development machine to accept the development installation key.',
+    );
   }
   return {
     cookieSecret: config.cookieSecret ?? DEVELOPMENT_COOKIE_SECRET,

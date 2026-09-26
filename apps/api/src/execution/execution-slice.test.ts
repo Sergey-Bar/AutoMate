@@ -277,7 +277,9 @@ describe('canonical execution store and routes', () => {
     expect(maturity.status).toBe(200);
     const body = (await maturity.json()) as { integrations: unknown[] };
     expect(body.integrations.length).toBeGreaterThan(5);
-    expect(() => body.integrations.map((item) => IntegrationMaturitySchema.parse(item))).not.toThrow();
+    expect(() =>
+      body.integrations.map((item) => IntegrationMaturitySchema.parse(item)),
+    ).not.toThrow();
     expect(listIntegrationMaturity().some((item) => item.id === 'playwright-test')).toBe(true);
   });
 

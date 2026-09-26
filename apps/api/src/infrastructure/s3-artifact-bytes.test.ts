@@ -62,12 +62,7 @@ function verifySignature(request: IncomingMessage, payloadHash: string): boolean
     hmac(hmac(hmac(`AWS4${SETTINGS.secretAccessKey}`, dateStamp), region), service),
     'aws4_request',
   );
-  const stringToSign = [
-    'AWS4-HMAC-SHA256',
-    amzDate,
-    scope,
-    hexSha256(canonicalRequest),
-  ].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, hexSha256(canonicalRequest)].join('\n');
   return createHmac('sha256', key).update(stringToSign, 'utf8').digest('hex') === presented;
 }
 
@@ -234,21 +229,24 @@ describe('normalizeObjectStoreSettings', () => {
     expect(() => normalizeObjectStoreSettings({ ...SETTINGS, secretAccessKey: '  ' })).toThrow(
       'OBJECT_STORE_SECRET_ACCESS_KEY is required',
     );
-    expect(() => normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'objects.example.com' })).toThrow(
-      'OBJECT_STORE_ENDPOINT must be an absolute URL',
-    );
-    expect(() => normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'ftp://objects.example.com' })).toThrow(
-      'OBJECT_STORE_ENDPOINT must use http or https',
-    );
     expect(() =>
-      normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'https://user:pass@objects.example.com' }),
+      normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'objects.example.com' }),
+    ).toThrow('OBJECT_STORE_ENDPOINT must be an absolute URL');
+    expect(() =>
+      normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'ftp://objects.example.com' }),
+    ).toThrow('OBJECT_STORE_ENDPOINT must use http or https');
+    expect(() =>
+      normalizeObjectStoreSettings({
+        ...SETTINGS,
+        endpoint: 'https://user:pass@objects.example.com',
+      }),
     ).toThrow('OBJECT_STORE_ENDPOINT must not embed credentials');
     expect(() =>
       normalizeObjectStoreSettings({ ...SETTINGS, endpoint: 'https://objects.example.com/?x=1' }),
     ).toThrow('OBJECT_STORE_ENDPOINT must not include a query string or fragment');
-    expect(() => normalizeObjectStoreSettings({ ...SETTINGS, bucket: 'Automate_Artifacts' })).toThrow(
-      'OBJECT_STORE_BUCKET must be a lowercase S3 bucket name',
-    );
+    expect(() =>
+      normalizeObjectStoreSettings({ ...SETTINGS, bucket: 'Automate_Artifacts' }),
+    ).toThrow('OBJECT_STORE_BUCKET must be a lowercase S3 bucket name');
     expect(() => normalizeObjectStoreSettings({ ...SETTINGS, bucket: 'ab' })).toThrow(
       'OBJECT_STORE_BUCKET must be a lowercase S3 bucket name',
     );
@@ -308,7 +306,9 @@ describe('S3ArtifactBytesStore request construction', () => {
     await store.put('runs/run 1/na+me (1).txt', payload);
     expect(calls).toHaveLength(1);
     const [{ url, init }] = calls;
-    expect(url).toBe('https://objects.example.com/automate-artifacts/runs/run%201/na%2Bme%20%281%29.txt');
+    expect(url).toBe(
+      'https://objects.example.com/automate-artifacts/runs/run%201/na%2Bme%20%281%29.txt',
+    );
     const headers = init.headers as Record<string, string>;
     expect(headers['x-amz-date']).toBe(FIXED_AMZ_DATE);
     expect(headers['x-amz-content-sha256']).toBe(hexSha256(payload));
@@ -326,16 +326,23 @@ describe('S3ArtifactBytesStore request construction', () => {
   it('moves the bucket into the host for virtual-hosted-style requests', async () => {
     const { store, calls } = stubbedStore();
     await store.put('runs/run-1/report.json', bytes('{}'));
-    expect(calls[0]?.url).toBe('https://automate-artifacts.objects.example.com/runs/run-1/report.json');
+    expect(calls[0]?.url).toBe(
+      'https://automate-artifacts.objects.example.com/runs/run-1/report.json',
+    );
     expect((calls[0]?.init.headers as Record<string, string>)['host']).toBe(
       'automate-artifacts.objects.example.com',
     );
   });
 
   it('honours an endpoint path prefix', async () => {
-    const { store, calls } = stubbedStore({ forcePathStyle: true, endpoint: 'https://gw.example.com/s3/' });
+    const { store, calls } = stubbedStore({
+      forcePathStyle: true,
+      endpoint: 'https://gw.example.com/s3/',
+    });
     await store.get('runs/run-1/report.json');
-    expect(calls[0]?.url).toBe('https://gw.example.com/s3/automate-artifacts/runs/run-1/report.json');
+    expect(calls[0]?.url).toBe(
+      'https://gw.example.com/s3/automate-artifacts/runs/run-1/report.json',
+    );
   });
 
   it('rejects an oversized artifact before touching the network', async () => {
@@ -358,14 +365,18 @@ describe('S3ArtifactBytesStore response handling', () => {
   function storeReturning(response: () => Response, overrides: Partial<ObjectStoreSettings> = {}) {
     return new S3ArtifactBytesStore(
       { ...SETTINGS, ...overrides },
-      { now: () => FIXED_DATE, fetch: (() => Promise.resolve(response())) as unknown as typeof fetch },
+      {
+        now: () => FIXED_DATE,
+        fetch: (() => Promise.resolve(response())) as unknown as typeof fetch,
+      },
     );
   }
 
   it('returns null for a missing object and throws for other failures', async () => {
     await expect(
-      storeReturning(() => new Response('<Error><Code>NoSuchKey</Code></Error>', { status: 404 }))
-        .get('runs/run-1/missing'),
+      storeReturning(
+        () => new Response('<Error><Code>NoSuchKey</Code></Error>', { status: 404 }),
+      ).get('runs/run-1/missing'),
     ).resolves.toBeNull();
     await expect(
       storeReturning(() => new Response('InternalError', { status: 500 })).get('runs/run-1/file'),
@@ -413,7 +424,9 @@ describe('S3ArtifactBytesStore response handling', () => {
     const store = new S3ArtifactBytesStore(SETTINGS, {
       now: () => FIXED_DATE,
       fetch: (() =>
-        Promise.resolve(new Response('SignatureDoesNotMatch', { status: 403 }))) as unknown as typeof fetch,
+        Promise.resolve(
+          new Response('SignatureDoesNotMatch', { status: 403 }),
+        )) as unknown as typeof fetch,
     });
     await expect(store.put('runs/run-1/file', bytes('x'))).rejects.toThrow(
       'Object store put for runs/run-1/file failed with 403: SignatureDoesNotMatch',

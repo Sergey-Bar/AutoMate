@@ -8,9 +8,19 @@ import {
   type SessionRecord,
 } from '@automate/auth';
 import type { AuthSessionBackend } from '../infrastructure/session-backend.js';
+import { createRateLimiter } from '../middleware/rate-limit.js';
 
 const LoginSchema = z.object({ apiKey: z.string().min(1) });
 const SESSION_COOKIE = 'automate_session';
+
+/**
+ * Login is unauthenticated by definition, so it is the one endpoint where an
+ * attacker gets unlimited attempts for free. The plan's D3 decision keeps this
+ * single-tenant, which is exactly why an in-process limiter is the right
+ * scope: the threat is credential stuffing against one API key.
+ */
+const DEFAULT_LOGIN_LIMIT = 5;
+const DEFAULT_LOGIN_WINDOW_MS = 60_000;
 
 export interface AuthRouteOptions {
   cookieSecret: string;
@@ -20,6 +30,9 @@ export interface AuthRouteOptions {
   secureCookies: boolean;
   now?: () => Date;
   sessionBackend?: AuthSessionBackend;
+  loginRateLimit?: { limit: number; windowMs: number };
+  /** Injected in tests; defaults to the request's forwarded/client address. */
+  clientKey?: (context: Context) => string;
 }
 
 function sessionResponse(record: SessionRecord) {
@@ -45,10 +58,38 @@ export function createAuthRoutes(options: AuthRouteOptions) {
     options.sessionBackend ??
     memoryBackend(options.cookieSecret, options.sessionTtlMs, options.now);
   const app = new Hono();
+  const loginLimiter = createRateLimiter({
+    limit: options.loginRateLimit?.limit ?? DEFAULT_LOGIN_LIMIT,
+    windowMs: options.loginRateLimit?.windowMs ?? DEFAULT_LOGIN_WINDOW_MS,
+  });
+  const clientKey =
+    options.clientKey ??
+    ((context: Context) =>
+      context.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+      context.req.header('x-real-ip')?.trim() ||
+      'unknown-client');
 
   app.post('/api/v1/auth/login', async (context) => {
     const parsed = LoginSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return context.json({ error: 'Invalid login request' }, 400);
+    // Per-IP budget, plus a per-key budget so one address cannot exhaust the
+    // limiter while guessing a single key.
+    const perIp = loginLimiter.consume(`ip:${clientKey(context)}`);
+    const perKey = loginLimiter.consume(
+      `key:${hashCredential(options.cookieSecret, parsed.data.apiKey).slice(0, 32)}`,
+    );
+    if (!perIp.allowed || !perKey.allowed) {
+      const retryAfter = Math.max(perIp.retryAfterSeconds, perKey.retryAfterSeconds);
+      context.header('retry-after', String(retryAfter));
+      return context.json(
+        {
+          error: 'Too many login attempts',
+          code: 'LOGIN_RATE_LIMITED',
+          retryAfterSeconds: retryAfter,
+        },
+        429,
+      );
+    }
     if (!verifyCredential(options.cookieSecret, parsed.data.apiKey, options.installationKeyHash)) {
       return context.json({ error: 'Invalid credentials' }, 401);
     }

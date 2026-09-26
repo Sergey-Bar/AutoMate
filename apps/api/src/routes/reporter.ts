@@ -427,9 +427,59 @@ function mapPlaywrightStatus(status: string): TestStatus {
   return 'queued';
 }
 
+/**
+ * A forward scan for `<testcase>` elements.
+ *
+ * The previous implementation used `/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g`,
+ * whose lazy `[\s\S]*?` restarts for every opener. Over a multi-megabyte body
+ * that is quadratic, so one authenticated upload could hang the event loop.
+ * `indexOf` advances monotonically, so the scan is linear in the input.
+ */
+function scanTestcases(xml: string): Array<{ attributes: string; body: string | null }> {
+  const OPEN = '<testcase';
+  const CLOSE = '</testcase>';
+  const found: Array<{ attributes: string; body: string | null }> = [];
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const open = xml.indexOf(OPEN, cursor);
+    if (open === -1) break;
+    const afterName = open + OPEN.length;
+    const boundary = xml[afterName];
+    if (boundary === undefined || !/[\s/>]/.test(boundary)) {
+      // `<testcasefoo>` — not a testcase element. Always advances.
+      cursor = afterName;
+      continue;
+    }
+    const tagEnd = xml.indexOf('>', afterName);
+    if (tagEnd === -1) break;
+    if (xml[tagEnd - 1] === '/') {
+      found.push({ attributes: xml.slice(afterName, tagEnd - 1), body: null });
+      cursor = tagEnd + 1;
+      continue;
+    }
+    const close = xml.indexOf(CLOSE, tagEnd);
+    if (close === -1) {
+      // Unterminated final element: keep what we have rather than dropping it.
+      found.push({ attributes: xml.slice(afterName, tagEnd), body: xml.slice(tagEnd + 1) });
+      break;
+    }
+    found.push({ attributes: xml.slice(afterName, tagEnd), body: xml.slice(tagEnd + 1, close) });
+    cursor = close + CLOSE.length;
+  }
+  return found;
+}
+
+/**
+ * JUnit XML is parsed with a hand-rolled scanner, so it carries its own size
+ * bound rather than relying on the caller's upload cap. Every entry point is
+ * bounded, not only the multipart path.
+ */
+const MAX_JUNIT_BYTES = 5 * 1024 * 1024;
+
 function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPayload {
   const runId = runIdFromField || 'uploaded-junit-run';
-  const testcaseRegex = /<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g;
+  const byteLength = new TextEncoder().encode(xml).byteLength;
+  if (byteLength > MAX_JUNIT_BYTES) throw new Error('JUnit upload exceeds 5 MiB limit');
   const tests: UploadedTest[] = [];
   let index = 0;
 
@@ -439,19 +489,23 @@ function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPa
     return match?.[1] ?? null;
   };
 
-  for (const match of xml.matchAll(testcaseRegex)) {
+  for (const element of scanTestcases(xml)) {
     index += 1;
-    const attrs = (match[1] ?? '').trim();
-    const body = (match[2] ?? '').trim();
+    const attrs = element.attributes.trim();
+    const body = element.body ?? '';
     const name = parseAttribute(attrs, 'name') ?? 'Unnamed testcase';
     const className = parseAttribute(attrs, 'classname');
     const file = parseAttribute(attrs, 'file') ?? className ?? '';
     const durationSeconds = Number(parseAttribute(attrs, 'time') ?? '0');
     const durationMs = Number.isFinite(durationSeconds) ? Math.round(durationSeconds * 1000) : null;
 
-    let status: UploadedTest['status'] = 'passed';
-    if (/<skipped[\s>]/.test(body)) status = 'skipped';
-    if (/<failure[\s>]/.test(body) || /<error[\s>]/.test(body)) status = 'failed';
+    // Fail closed: a `<testcase>` that declares no status and carries no
+    // failure child proves nothing, so it must not be recorded as a pass.
+    // `queued` is the "declared, no outcome observed" member of this
+    // vocabulary and forces the run to `interrupted` in deriveRunStatus.
+    let status: UploadedTest['status'] = 'queued';
+    if (/<skipped[\s/>]/.test(body)) status = 'skipped';
+    if (/<failure[\s/>]/.test(body) || /<error[\s/>]/.test(body)) status = 'failed';
 
     const title = className ? `${className} :: ${name}` : name;
     tests.push({
@@ -719,7 +773,7 @@ export function createReporterRoutes(
       if (runUpdated && options.bus) {
         const run = await options.repository.getRun(normalized.runId);
         if (run !== null) {
-          await           await options.bus.publish({
+          await await options.bus.publish({
             type: 'run:updated',
             version: '1',
             runId: run.id,

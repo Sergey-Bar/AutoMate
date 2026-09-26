@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -67,5 +67,50 @@ describe('LocalArtifactStore', () => {
     await expect(
       store.put({ key: '../secret', bytes: new Uint8Array(), contentType: 'text/plain' }),
     ).rejects.toThrow();
+  });
+
+  it('publishes a complete artifact under concurrent writes to the same key', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const store = new LocalArtifactStore(root);
+      const key = 'runs/run-1/contended.bin';
+      // A shared `${target}.tmp` let two writes to one key interleave, so the
+      // published artifact could be the loser's truncated body. This guards the
+      // invariant; it does not claim to reproduce the original race window.
+      const small = new Uint8Array(16).fill(1);
+      const large = new Uint8Array(4_096).fill(2);
+      await Promise.all([
+        store.putAt(key, small),
+        store.putAt(key, large),
+        store.putAt(key, small),
+        store.putAt(key, large),
+      ]);
+      const published = await store.readAt(key);
+      const isSmall =
+        published.byteLength === small.byteLength && published.every((byte) => byte === 1);
+      const isLarge =
+        published.byteLength === large.byteLength && published.every((byte) => byte === 2);
+      expect(isSmall || isLarge).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves no temporary file behind when the publish step fails', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const store = new LocalArtifactStore(root);
+      // Rename onto an existing non-empty directory fails deterministically,
+      // after the temporary has already been written.
+      await mkdir(path.join(root, 'runs/occupied'), { recursive: true });
+      await writeFile(path.join(root, 'runs/occupied/child'), 'occupied');
+
+      await expect(store.putAt('runs/occupied', new Uint8Array(4))).rejects.toThrow();
+
+      const remaining = await readdir(path.join(root, 'runs'));
+      expect(remaining).toEqual(['occupied']);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

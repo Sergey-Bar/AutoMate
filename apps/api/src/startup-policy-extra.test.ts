@@ -33,9 +33,9 @@ const valid = {
     region: 'eu-central-1',
     accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
     secretAccessKey: 'a-valid-object-store-secret',
-      forcePathStyle: false,
-      allowInsecureHttp: false,
-      maxBytes: 1024,
+    forcePathStyle: false,
+    allowInsecureHttp: false,
+    maxBytes: 1024,
     timeoutMs: 5000,
   },
 };

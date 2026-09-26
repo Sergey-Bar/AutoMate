@@ -212,8 +212,8 @@ describe('durable realtime composition', () => {
     try {
       const frame = new TextDecoder().decode(await read(reader));
       expect(frame).toContain('id: 1');
-    expect(frame).toContain('event: run.phase_changed');
-    expect(frame).toContain('"status":"passed"');
+      expect(frame).toContain('event: run.phase_changed');
+      expect(frame).toContain('"status":"passed"');
     } finally {
       await reader.cancel();
     }
