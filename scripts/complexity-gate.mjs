@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The `sonarjs/cognitive-complexity` ratchet.
@@ -14,7 +15,42 @@ import path from 'node:path';
  *
  * Run with `--write` to re-record the baseline after an intentional refactor.
  */
-const root = 'C:/VS-Code-Projects/Github/Automate';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/**
+ * The roots to measure, and a check that they are the ones we think they are.
+ *
+ * This script used to resolve `root` to a hardcoded absolute path — the machine of
+ * whoever wrote it. Every other script in this directory derives it from
+ * `import.meta.url`, so this one gate was the only thing measuring a fixed
+ * directory. On a CI runner that path does not exist: `readdirSync` on a missing
+ * directory yields nothing, ESLint analysed zero files, `offenders` was empty, and
+ * the gate reported a pass having measured nothing. Locally it reported whatever
+ * that directory happened to contain, which is how a file the repository has never
+ * heard of appeared in its output.
+ *
+ * A gate that measures the wrong tree is worse than no gate, because it is believed.
+ * So the tree is derived, and it is verified: a root without a workspace manifest is
+ * refused rather than measured.
+ */
+const MEASURED_ROOTS = ['apps', 'packages', 'tools', 'tests', 'scripts'];
+
+if (!existsSync(path.join(root, 'pnpm-workspace.yaml'))) {
+  console.error(
+    `Complexity ratchet refused to run: ${root} is not a repository root ` +
+      '(no pnpm-workspace.yaml). Run it from a checkout.',
+  );
+  process.exit(1);
+}
+const missingRoots = MEASURED_ROOTS.filter((name) => !existsSync(path.join(root, name)));
+if (missingRoots.length > 0) {
+  console.error(
+    `Complexity ratchet: these measured roots do not exist, so the scan would be ` +
+      `partial: ${missingRoots.join(', ')}.`,
+  );
+  process.exit(1);
+}
+
 const target = path.join(root, 'docs', 'quality', 'complexity-baseline.json');
 const eslintBin = path.join(root, 'node_modules', 'eslint', 'bin', 'eslint.js');
 const write = process.argv.includes('--write');
@@ -47,11 +83,7 @@ const run = spawnSync(
   process.execPath,
   [
     eslintBin,
-    'apps',
-    'packages',
-    'tools',
-    'tests',
-    'scripts',
+    ...MEASURED_ROOTS,
     '--rule',
     JSON.stringify({ 'sonarjs/cognitive-complexity': ['error', ceiling] }),
     '-f',
@@ -69,6 +101,21 @@ if (run.stdout === undefined || run.stdout.trim() === '') {
 }
 
 const results = JSON.parse(run.stdout);
+
+// Analysing nothing is not a clean bill of health.
+//
+// ESLint reports a JSON array of one entry per file it looked at, including files
+// with no findings. An empty array therefore means it looked at nothing — a wrong
+// working directory, a missing path, or a pattern that matched no file. Reporting
+// a pass in that state is how this gate came to be believed while measuring a
+// directory that did not exist on the machine running it.
+if (results.length === 0) {
+  console.error(
+    'Complexity ratchet: eslint analysed 0 files, so nothing was measured. ' +
+      'A pass here would be a pass over no code.',
+  );
+  process.exit(1);
+}
 /** @type {Array<{file: string, line: number, complexity: number | null}>} */
 const offenders = [];
 for (const result of results) {

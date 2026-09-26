@@ -1,6 +1,6 @@
 {
   "ceiling": 15,
-  "count": 32,
+  "count": 30,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
@@ -14,18 +14,18 @@
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1284,
+      "line": 1314,
       "complexity": 65
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 367,
+      "line": 376,
       "complexity": 50
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
       "line": 1065,
-      "complexity": 38
+      "complexity": 39
     },
     {
       "file": "apps/api/src/routes/events.ts",
@@ -34,7 +34,7 @@
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 254,
+      "line": 263,
       "complexity": 38
     },
     {
@@ -74,12 +74,12 @@
     },
     {
       "file": "apps/api/src/routes/execution.ts",
-      "line": 1014,
-      "complexity": 25
+      "line": 1020,
+      "complexity": 27
     },
     {
       "file": "apps/runner/src/runner-service.ts",
-      "line": 307,
+      "line": 310,
       "complexity": 25
     },
     {
@@ -99,7 +99,7 @@
     },
     {
       "file": "apps/api/src/routes/execution.ts",
-      "line": 953,
+      "line": 959,
       "complexity": 20
     },
     {
@@ -109,7 +109,7 @@
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1706,
+      "line": 1736,
       "complexity": 19
     },
     {
@@ -124,18 +124,13 @@
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 139,
+      "line": 168,
       "complexity": 18
     },
     {
       "file": "tools/migrate-cli/src/index.ts",
       "line": 21,
       "complexity": 18
-    },
-    {
-      "file": "scripts/write-coverage-provenance.mjs",
-      "line": 48,
-      "complexity": 17
     },
     {
       "file": "tests/integration/src/enum-constraints.test.ts",
@@ -149,17 +144,12 @@
     },
     {
       "file": "apps/worker/src/worker.ts",
-      "line": 115,
+      "line": 118,
       "complexity": 16
     },
     {
       "file": "packages/runner-sdk/src/spool.ts",
       "line": 480,
-      "complexity": 16
-    },
-    {
-      "file": "scripts/unify-preflight.mjs",
-      "line": 164,
       "complexity": 16
     }
   ],

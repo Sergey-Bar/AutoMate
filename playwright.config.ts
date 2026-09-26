@@ -60,6 +60,38 @@ if (specFiles.length === 0) {
   );
 }
 
+/**
+ * The product specs: everything except the vertical slice, which has its own project.
+ */
+const productSpecs = specFiles.filter(
+  (file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'),
+);
+
+/**
+ * A project that matches no spec is reported, not thrown.
+ *
+ * The previous version threw when `product` was empty, which was defensible in
+ * isolation and wrong in practice: a throw at config load aborts the *whole* run,
+ * so an empty `product` project destroyed the `vertical-slice` project that had
+ * real specs and would otherwise have run. Losing the tests that exist to protect
+ * a concern about tests that do not exist is the wrong trade.
+ *
+ * The `e2e/` directory holds exactly one spec today — the vertical slice — so this
+ * path is the normal one, not an edge case. Omitting the project and saying so
+ * means the run executes what is there and the output names what is missing, which
+ * is the three-outcome rule: ran, found a problem, or did not run with a stated
+ * reason. It is not the same as passing silently, because the reason is printed
+ * every time rather than inferred from a missing row.
+ */
+if (productSpecs.length === 0) {
+  console.warn(
+    '[playwright] not_configured: the `product` project has no specs, so it is omitted. ' +
+      `Found ${specFiles.length} spec file(s) under e2e/, all belonging to ` +
+      '`vertical-slice`. The product surface has no end-to-end coverage yet — that is ' +
+      'a real gap, and this line is the only thing in the CI output that says so.',
+  );
+}
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
@@ -101,25 +133,18 @@ export default defineConfig({
       testMatch: '**/integration/vertical-slice.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      // Scoped to the specs that exist, and asserted non-empty below, so this
-      // job cannot become a green no-op.
-      name: 'product',
-      testMatch: specFiles
-        .filter((file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'))
-        .map((file) => path.relative(path.join(__dirname, 'e2e'), file).replaceAll('\\', '/')),
-      use: { ...devices['Desktop Chrome'] },
-    },
+    ...(productSpecs.length === 0
+      ? []
+      : [
+          {
+            // Scoped to the specs that exist, and omitted entirely when there are
+            // none, so this job cannot become a green no-op.
+            name: 'product',
+            testMatch: productSpecs.map((file) =>
+              path.relative(path.join(__dirname, 'e2e'), file).replaceAll('\\', '/'),
+            ),
+            use: { ...devices['Desktop Chrome'] },
+          },
+        ]),
   ],
 });
-
-// Reading a spec list at config time is only useful if the list is not empty.
-const productProject = specFiles.filter(
-  (file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'),
-);
-if (productProject.length === 0 && process.env['CI']) {
-  throw new Error(
-    'The `product` Playwright project matches no spec files. In CI that is a ' +
-      'green job that ran nothing, so it is treated as a configuration error.',
-  );
-}

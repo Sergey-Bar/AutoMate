@@ -57,5 +57,9 @@ blob-report/
 .artifacts/
 var/
 
+# Scanner output. `pnpm security:semgrep` writes this next to the report it prints;
+# it is a generated finding list, not something to review in a diff.
+semgrep.sarif
+
 # Vitest cache
 .vite/

@@ -23,6 +23,20 @@ env:
   NODE_VERSION: 24.x
   PNPM_VERSION: 10.30.2
 
+  # The database every E2E job runs against.
+  #
+  # `playwright.config.ts` throws without a `DATABASE_URL` rather than falling back
+  # to the in-memory store, because a suite that passes without PostgreSQL ever
+  # being involved is not evidence about the durable product. That made each E2E job
+  # below unrunnable: three jobs invoked Playwright, none of them provided a database,
+  # and all three failed at config load. This is the value they need, and it points at
+  # the `postgres` service defined on each of those jobs.
+  #
+  # There is no object store here, and deliberately so: `docker-compose.unified.yml`
+  # gives the API `ARTIFACT_ROOT` on a volume rather than an S3 endpoint, so adding a
+  # MinIO service would be provisioning something the product does not use.
+  E2E_DATABASE_URL: postgresql://automate:automate@127.0.0.1:5432/automate
+
 jobs:
   quality:
     name: Quality gates
@@ -84,12 +98,37 @@ jobs:
         run: pnpm test
       - name: Workspace build
         run: pnpm build
+      # The ratchet, in the same job as the tests that produce what it reads.
+      #
+      # Run from a separate job it would be reading coverage summaries restored from
+      # a cache, and a green ratchet on a cached summary is a claim about whatever
+      # produced the cache entry rather than about this commit. In the same job the
+      # summaries are the ones this run wrote, and the stamp beside each one records
+      # the content hash of the inputs it measured.
+      - name: Coverage ratchet
+        run: pnpm coverage:ratchet
 
   api-e2e:
     name: API vertical slice
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automate
+          POSTGRES_USER: automate
+          POSTGRES_PASSWORD: automate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ env.E2E_DATABASE_URL }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -105,6 +144,12 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      # Migrate before Chromium. `playwright.config.ts` starts the API as a
+      # `webServer` and waits on its health endpoint, and a database with no schema
+      # makes that endpoint hang until the 60s timeout — so a missing migration step
+      # presents as an unrelated-looking server start failure.
+      - name: Apply database migrations
+        run: pnpm --filter @automate/db build && pnpm db:migrate
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: API E2E tests
@@ -153,6 +198,26 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      # `security:static` treats a missing scanner as a failure, on purpose: an unrun
+      # security scan is not a pass. That made this job unrunnable until the scanners
+      # were installed somewhere, and they were not installed anywhere — the job
+      # reported "not_configured — missing semgrep and gitleaks" and failed, every
+      # run, for a reason that had nothing to do with the code.
+      #
+      # The install is in-repo rather than a GitHub Action so the version and the
+      # gitleaks checksum live in a file a reviewer reads, and so
+      # `pnpm security:static` behaves the same on a laptop as it does here.
+      - name: Set up Python for semgrep
+        # actions/setup-python@v5. The other pins in this file carry no version
+        # comment, which makes a bare SHA unreviewable; this one records which tag
+        # it is rather than adding a new convention inconsistently.
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install security scanners
+        run: pnpm security:install
+      - name: Put user-installed tools on PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Security and license verification
         run: pnpm security:verify
 
@@ -161,6 +226,22 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automate
+          POSTGRES_USER: automate
+          POSTGRES_PASSWORD: automate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ env.E2E_DATABASE_URL }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -176,9 +257,15 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Apply database migrations
+        run: pnpm --filter @automate/db build && pnpm db:migrate
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Full current E2E
+        # Runs every project that has specs. The `product` project is omitted with a
+        # printed reason when no product spec exists, which is the case today: the
+        # product surface has no end-to-end coverage yet, and this job's output says
+        # so on every run rather than reporting a green pass over one spec.
         run: pnpm test:e2e
 
   integration:
@@ -209,6 +296,22 @@ jobs:
     needs: [quality, unit-and-coverage]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automate
+          POSTGRES_USER: automate
+          POSTGRES_PASSWORD: automate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ env.E2E_DATABASE_URL }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -224,6 +327,8 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Apply database migrations
+        run: pnpm --filter @automate/db build && pnpm db:migrate
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Validate execution Compose

@@ -158,6 +158,28 @@ const authorityNames = new Set([
   'tsconfig.base.json',
 ]);
 /**
+ * Is a file a second copy of a build authority that should exist only at the root?
+ *
+ * `eslint.config.js` is special-cased because a package that re-exports the root
+ * config is delegating to it, not competing with it. That is a judgement about
+ * intent, so it is a named function rather than a clause buried in the walk.
+ *
+ * @param {string} name the file's base name
+ * @param {string} fullPath
+ * @returns {boolean}
+ */
+function isDuplicateAuthority(name, fullPath) {
+  if (!authorityNames.has(name)) return false;
+  if (
+    name === 'eslint.config.js' &&
+    readFileSync(fullPath, 'utf8').includes('export { default }')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * @param {string} relativePath
  * @param {number} [depth]
  */
@@ -172,12 +194,8 @@ function scanBoundaries(relativePath, depth = 0) {
       continue;
     }
     if (entry.isDirectory()) {
-      if (!IGNORED_DIRECTORIES.has(entry.name)) {
-        scanBoundaries(relative, depth + 1);
-      }
-    } else if (depth > 0 && authorityNames.has(entry.name)) {
-      const text = readFileSync(fullPath, 'utf8');
-      if (entry.name === 'eslint.config.js' && text.includes('export { default }')) continue;
+      if (!IGNORED_DIRECTORIES.has(entry.name)) scanBoundaries(relative, depth + 1);
+    } else if (depth > 0 && isDuplicateAuthority(entry.name, fullPath)) {
       duplicateAuthorities.push(relative);
     }
   }

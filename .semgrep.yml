@@ -1,17 +1,27 @@
 # Semgrep rules for the Automate monorepo.
 #
-# Two of the five rules here were previously unparseable, so nothing was ever
-# reported:
+# Three of the six rules here were previously unparseable or unable to fire, so
+# nothing was ever reported:
 #
 #   - `no-vault-password-log` used `where $X contains 'password'`. `contains` is
 #     not a semgrep operator — the set operators are `<<` and `>>` — so the
 #     clause never matched anything.
 #   - `no-raw-sql-injection` declared `pattern` *and* `pattern-regex` at the rule
 #     level. A rule may have one or the other, never both.
+#   - `no-raw-sql-interpolation` then listed the `sql` tag in `pattern-either` and
+#     excluded the same shape in `pattern-not`, so the inclusion was decorative
+#     and the rule could not fire on the one case it appeared to cover.
+#   - `no-comment-only-catch` excluded `...anything...`, a deep wildcard that
+#     matches every catch block including the one it meant to catch, so the rule
+#     could not fire at all. It was also redundant: semgrep discards comments, so a
+#     comment-only catch is the same shape as an empty one, which `no-empty-catch`
+#     already reports.
 #
-# `scripts/static-analysis-config-check.mjs` asserts those structural invariants
-# so a future malformed rule fails the build instead of silently matching
-# nothing. Invoke the real scanner with `pnpm security:semgrep`.
+# `scripts/static-analysis-config-check.mjs` asserts those structural invariants —
+# including the last two, which are about a rule contradicting itself rather than
+# about a spelling semgrep rejects — so a future self-cancelling rule fails the
+# build instead of looking like coverage. Invoke the real scanner with
+# `pnpm security:semgrep`.
 
 rules:
   - id: no-secret-in-log
@@ -39,8 +49,9 @@ rules:
     languages: [typescript, javascript]
     severity: ERROR
     message: >-
-      SQL built by interpolating a variable. Use a parameterized query: Drizzle's
-      sql tag with bound parameters, or a prepared statement with placeholders.
+      SQL built by interpolating a variable into a raw query string. Use a
+      parameterized query: Drizzle's `sql` tag with bound parameters, or a
+      prepared statement with placeholders.
     metadata:
       category: security
       confidence: MEDIUM
@@ -52,10 +63,21 @@ rules:
           - pattern: $DB.raw(`...${...}...`)
           - pattern: $DB.prepare(`...${...}...`)
           - pattern: $DB.unsafe(`...${...}...`)
-          - pattern: sql`...${...}...`
-      # A bound parameter inside the sql tag is the safe form, so that shape is
-      # excluded rather than flagged.
-      - pattern-not: sql`...${...}...`
+      # The `sql` tag is deliberately absent, and the reason matters.
+      #
+      # This rule previously listed `sql`...${...}...`` in `pattern-either` and then
+      # excluded the same shape with `pattern-not`. That made the inclusion
+      # decorative and the exclusion load-bearing: the rule could never fire on a
+      # `sql` tag even though it appeared to cover one. It is worse than redundant,
+      # because a reader counting the covered cases would count 45 — the number of
+      # `sql` tag interpolations in this tree — and conclude the rule guards them.
+      #
+      # It does not, and it should not. `sql` is a parameterised template tag: every
+      # `${...}` in it is emitted as a bind parameter, never as literal SQL. All 45
+      # uses here are the safe form. The genuinely dangerous shapes are the
+      # member-function calls above, which build a string before it reaches the
+      # driver. Those match nothing today, which is a true negative; they are kept
+      # so that the first person to write one is caught.
 
   - id: no-string-concat-sql
     languages: [typescript, javascript]
@@ -78,27 +100,14 @@ rules:
     severity: WARNING
     message: >-
       Empty catch block. Handle the error, log it, or rethrow. A swallowed
-      exception is indistinguishable from success.
+      exception is indistinguishable from success. A catch whose only content is a
+      comment lands here too, because semgrep discards comments — the two are the
+      same shape to this scanner.
     metadata:
       category: correctness
       confidence: HIGH
     pattern: |
       try { ... } catch ($ERR) { }
-
-  - id: no-comment-only-catch
-    languages: [typescript, javascript]
-    severity: WARNING
-    message: >-
-      A catch block that only contains a comment silently swallows the error.
-      Log it, handle it, or rethrow with context.
-    metadata:
-      category: correctness
-      confidence: MEDIUM
-    patterns:
-      - pattern: |
-          try { ... } catch ($ERR) { ... }
-      - pattern-not: |
-          try { ... } catch ($ERR) { ...anything... }
 
   - id: zod-parse-without-guard
     languages: [typescript, javascript]

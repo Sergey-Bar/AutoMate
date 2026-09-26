@@ -46,26 +46,10 @@ const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
  * @returns {Array<{ path: string, hash: string }>}
  */
 export function collectCoverageInputs(root) {
-  /** @type {Array<{ path: string, hash: string }>} */
-  const files = [];
-  const stack = [path.join(root, 'src')];
-  while (stack.length > 0) {
-    const current = /** @type {string} */ (stack.pop());
-    if (!existsSync(current)) continue;
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      if (FRESHNESS_IGNORED_DIRECTORIES.has(entry.name)) continue;
-      const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
-        continue;
-      }
-      if (!SOURCE_EXTENSIONS.has(path.extname(entry.name))) continue;
-      files.push({
-        path: path.relative(root, full).replaceAll('\\', '/'),
-        hash: hashContent(readFileSync(full)),
-***REMOVED***
-    }
-  }
+  const files = [...sourceFilesUnder(path.join(root, 'src'))].map((full) => ({
+    path: relativeTo(root, full),
+    hash: hashContent(readFileSync(full)),
+  }));
   // The Vitest config decides what is measured, so a change to it invalidates the
   // summary as surely as a change to a measured file.
   for (const name of ['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js']) {
@@ -74,6 +58,45 @@ export function collectCoverageInputs(root) {
     files.push({ path: name, hash: hashContent(readFileSync(configPath)) });
   }
   return files;
+}
+
+/**
+ * Every file beneath `dir` that a coverage run could instrument.
+ *
+ * A generator rather than a loop inside the collector, because the walk and the
+ * hashing are different jobs and folding them together is what pushed this module
+ * over the complexity ceiling. A symlink to a directory is not a directory as far
+ * as `readdirSync` with `withFileTypes` is concerned, so this cannot loop on one.
+ *
+ * @param {string} dir
+ * @returns {Generator<string>}
+ */
+function* sourceFilesUnder(dir) {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (FRESHNESS_IGNORED_DIRECTORIES.has(entry.name)) continue;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      yield* sourceFilesUnder(full);
+      continue;
+    }
+    if (SOURCE_EXTENSIONS.has(path.extname(entry.name))) yield full;
+  }
+}
+
+/**
+ * A path relative to the package root, always with `/` separators.
+ *
+ * Windows would otherwise record `src\index.ts` in the stamp and `src/index.ts`
+ * after a checkout on Linux, so the same tree would hash differently on two
+ * machines and every ratchet run would report a spurious change.
+ *
+ * @param {string} root
+ * @param {string} full
+ * @returns {string}
+ */
+function relativeTo(root, full) {
+  return path.relative(root, full).replaceAll('\\', '/');
 }
 
 /**

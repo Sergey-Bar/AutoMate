@@ -4,6 +4,9 @@
  * `.semgrep.yml` and `.gitleaks.toml` were both committed and both inert:
  *
  *  - two semgrep rules were unparseable, so nothing matched;
+ *  - a third was self-cancelling — it reported a shape and then excluded the same
+ *    shape — and a fourth excluded `...anything...`, a deep wildcard that excludes
+ *    every match. Both looked like coverage;
  *  - `.gitleaks.toml` allowlisted `[A-Za-z0-9+/]{40,}` in every `*.test.ts`,
  *    which is a blanket exemption for the exact values the scanner exists to
  *    find.
@@ -14,11 +17,17 @@
  * scanner it belongs to. `security:verify` runs the real scanners when present
  * and always runs this.
  *
+ * The semgrep invariants live in `scripts/lib/semgrep-ruleset.mjs` with their own
+ * tests, because a check that cannot be exercised against a ruleset known to be
+ * broken is a check nobody knows works — and every defect above was invisible
+ * precisely for that reason.
+ *
  * Plain JavaScript with no dependencies — every script here is `.mjs`.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { semgrepRules, semgrepRulesetFindings } from './lib/semgrep-ruleset.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** @type {string[]} */
@@ -32,68 +41,9 @@ function fail(file, message) {
 const semgrepFile = '.semgrep.yml';
 const semgrepSource = readFileSync(path.join(root, semgrepFile), 'utf8');
 
-/**
- * Split the rule list on top-level `- id:` markers.
- *
- * A real YAML parser would be better, but this repository has no YAML
- * dependency and the invariants below concern a rule's keys, which always sit at
- * a known indentation.
- */
-/** @param {string} source @returns {Array<{id: string, body: string}>} */
-function semgrepRules(source) {
-  const blocks = [];
-  const lines = source.split(/\r?\n/);
-  let current = null;
-  for (const line of lines) {
-    if (/^ {2}- id:/.test(line)) {
-      if (current) blocks.push(current);
-      current = { id: line.replace(/^ {2}- id:\s*/, '').trim(), lines: [line] };
-      continue;
-    }
-    if (current) current.lines.push(line);
-  }
-  if (current) blocks.push(current);
-  return blocks.map((block) => ({ id: block.id, body: block.lines.join('\n') }));
-}
-
+const rulesetFindings = semgrepRulesetFindings(semgrepSource);
+for (const finding of rulesetFindings) fail(semgrepFile, finding);
 const rules = semgrepRules(semgrepSource);
-if (rules.length === 0) fail(semgrepFile, 'no rules found; an empty ruleset matches nothing');
-
-const seenIds = new Set();
-for (const rule of rules) {
-  if (rule.id === '') fail(semgrepFile, 'a rule has an empty id');
-  if (seenIds.has(rule.id)) fail(semgrepFile, `duplicate rule id "${rule.id}"`);
-  seenIds.add(rule.id);
-
-  if (!/\n\s+message:/.test(rule.body)) fail(semgrepFile, `rule "${rule.id}" has no message`);
-  if (!/\n\s+severity:\s*(ERROR|WARNING|INFO)/.test(rule.body))
-    fail(semgrepFile, `rule "${rule.id}" has no severity of ERROR, WARNING or INFO`);
-  if (!/\n\s+languages:/.test(rule.body))
-    fail(semgrepFile, `rule "${rule.id}" declares no languages`);
-
-  // The defect that made two rules inert: a rule may declare `pattern` or
-  // `pattern-regex`, never both, because semgrep rejects the combination.
-  const topLevelPattern = /^\s+pattern:\s/m.test(rule.body);
-  const topLevelPatternRegex = /^\s+pattern-regex:\s/m.test(rule.body);
-  if (topLevelPattern && topLevelPatternRegex)
-    fail(
-      semgrepFile,
-      `rule "${rule.id}" declares both pattern and pattern-regex at the rule level; ` +
-        'semgrep rejects that combination, so the rule never matches anything',
-    );
-  if (!/patterns:|pattern:|pattern-either:|pattern-regex:|pattern-inside:/.test(rule.body))
-    fail(semgrepFile, `rule "${rule.id}" has no pattern operator`);
-
-  // `where $X contains 'y'` was the other inert spelling. `contains` is not a
-  // semgrep operator; the set operators are `<<` and `>>`.
-  if (/\bwhere\b[\s\S]*?\bcontains\b/.test(rule.body))
-    fail(
-      semgrepFile,
-      `rule "${rule.id}" uses a \`where … contains …\` clause, which semgrep does ` +
-        'not support, so the clause never matches',
-    );
-}
-
 const gitleaksFile = '.gitleaks.toml';
 const gitleaksSource = readFileSync(path.join(root, gitleaksFile), 'utf8');
 
