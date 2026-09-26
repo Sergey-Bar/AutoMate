@@ -108,6 +108,14 @@ export class LocalArtifactStore {
 
 export interface ArtifactBytesStore {
   put(storageKey: string, bytes: Uint8Array): Promise<void>;
+  /**
+   * The bytes, or `null` when the key is genuinely absent.
+   *
+   * `null` means "not there" and nothing else. A caller turns `null` into a 404,
+   * so returning it for a permissions error, a full disk or a corrupt file
+   * reported a storage fault as a missing artifact — the one response that tells
+   * the caller to stop asking and tells nobody to go and look.
+   */
   get(storageKey: string): Promise<Uint8Array | null>;
 }
 
@@ -121,8 +129,12 @@ export class LocalArtifactBytesStore implements ArtifactBytesStore {
   async get(storageKey: string): Promise<Uint8Array | null> {
     try {
       return await this.store.readAt(storageKey);
-    } catch {
-      return null;
+    } catch (failure) {
+      // Only "the file is not there" is a miss. Everything else is a fault, and it
+      // propagates so the boundary can log it and answer 503.
+      const code = (failure as NodeJS.ErrnoException | null)?.code;
+      if (code === 'ENOENT') return null;
+      throw failure;
     }
   }
 }
