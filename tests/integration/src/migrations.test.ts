@@ -35,7 +35,10 @@ describe('migration graph', () => {
     shared = await createMigratedDatabase();
   });
   afterAll(async () => {
-    await shared.close();
+    // Defensive: when `beforeAll` throws, `shared` is undefined, and a teardown
+    // that then throws on `shared.close()` buries the real failure under a
+    // second, unrelated one.
+    if (shared) await shared.close();
   });
 
   it('runs against a schema build that is not stale', () => {
