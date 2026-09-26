@@ -59,6 +59,24 @@ export class DurableRealtimeBus implements RealtimeBus {
     private readonly retryDelayMs = 25,
   ) {}
 
+  /**
+   * Appends an event to the durable outbox and notifies in-process subscribers.
+   *
+   * **Never rejects.** Publishing is a *reporting* concern, and it is called
+   * from the middle of request handling and store transactions. Rethrowing after
+   * the retry budget is spent let a failing outbox fail the write it was
+   * reporting on — a monitoring path taking down the service it observes, which
+   * is the same reasoning that keeps a bad Sentry sample rate from refusing to
+   * start the API.
+   *
+   * After the retry budget is spent the failure is logged and swallowed. The
+   * event is not delivered live, and the log is the only record: a durable
+   * append that failed is a real gap, but it is not the caller's error to carry.
+   *
+   * Subscribers are notified in isolation, so one that throws cannot skip the
+   * ones after it — the previous loop aborted on the first throw and every later
+   * subscriber silently missed the event.
+   */
   async publish(event: RealtimeBusEvent): Promise<void> {
     const sanitized = sanitizeEvent(event);
     let lastError: unknown;
@@ -68,7 +86,16 @@ export class DurableRealtimeBus implements RealtimeBus {
           toAppend(sanitized, this.workspaceId, this.retentionHours),
         );
         if (!row) return;
-        for (const subscriber of this.subscribers) subscriber(sanitized);
+        for (const subscriber of this.subscribers) {
+          try {
+            await subscriber(sanitized);
+          } catch (error) {
+            console.error('realtime subscriber failed', {
+              type: sanitized.type,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
         return;
       } catch (error) {
         lastError = error;
@@ -78,7 +105,6 @@ export class DurableRealtimeBus implements RealtimeBus {
       }
     }
     console.error('durable realtime publish failed', lastError);
-    throw lastError instanceof Error ? lastError : new Error('Durable realtime publish failed');
   }
 
   subscribe(callback: (event: RunUpdatedPayload) => void): () => void;

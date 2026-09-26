@@ -87,6 +87,26 @@ export class DrizzleRealtimeFeed {
     pump.cursor = Math.min(...[...pump.subscriptions].map((subscription) => subscription.cursor));
   }
 
+  /**
+   * Delivers a page to every subscription, one at a time and in isolation.
+   *
+   * Three properties, all of which the previous version got wrong:
+   *
+   *  - **A subscription's cursor advances only after its listener resolves.** It
+   *    used to advance *before* the call, so a listener that threw — an SSE write
+   *    to a client that had already gone away — advanced the cursor past an
+   *    event that was therefore never delivered and never delivered again. The
+   *    loss was silent and permanent.
+   *  - **One failing subscriber does not stall the others.** The loop was
+   *    `for (subscription) await subscription.listener(...)`, so a throw on the
+   *    first subscriber aborted the page for every remaining subscriber of the
+   *    same workspace. Each is now called in its own `try`, and the shared
+   *    cursor is derived from the subscriptions rather than advanced
+   *    independently, so a lagging subscriber cannot be skipped.
+   *  - **A failure is logged.** The `catch { return; }` around the whole pump
+   *    discarded the error, so an outbox that had started failing looked
+   *    exactly like an outbox with nothing to say.
+   */
   private async pump(workspaceId: string, pump: FeedPump): Promise<void> {
     if (pump.running || pump.subscriptions.size === 0) return;
     pump.running = true;
@@ -99,15 +119,27 @@ export class DrizzleRealtimeFeed {
       });
       for (const event of page) {
         for (const subscription of pump.subscriptions) {
-          if (event.sequence > subscription.cursor) {
-            subscription.cursor = event.sequence;
+          if (event.sequence <= subscription.cursor) continue;
+          try {
             await subscription.listener(event);
+            // Only now is the event this subscriber's.
+            subscription.cursor = event.sequence;
+          } catch (error) {
+            // Deliberately not advancing: the next pump retries the event, which
+            // is the point of `evidence before claims` applied to a live stream.
+            console.error('outbox subscription failed; event will be retried', {
+              workspaceId,
+              sequence: event.sequence,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
-        pump.cursor = Math.max(pump.cursor, event.sequence);
       }
-    } catch {
-      return;
+    } catch (error) {
+      console.error('outbox pump failed', {
+        workspaceId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       pump.running = false;
     }
