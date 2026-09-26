@@ -71,6 +71,13 @@
       "when": 1790400000004,
       "tag": "0009_enum_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790400000005,
+      "tag": "0010_drop_duplicate_audit",
+      "breakpoints": true
     }
   ]
 }

@@ -115,6 +115,27 @@ describe('migration graph', () => {
     );
   });
 
+  it('leaves exactly one audit table, and it is the attributable one', async () => {
+    // `system_audit_events` was a strict subset of `audit_events` with no writer,
+    // and its indexes were named `audit_events_resource_idx` and
+    // `audit_events_retain_idx` — so a reader of the schema or a query plan would
+    // attribute them to the wrong table, and `retain_until` does not exist on
+    // `audit_events` at all. Migration 0010 dropped it. This asserts the drop
+    // actually took effect against a real database, not just that the Drizzle
+    // export is gone.
+    const remaining = await shared.query<{ table_name: string }>(
+      `SELECT table_name FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name LIKE '%audit_events'`,
+    );
+    expect(remaining.rows.map((row) => row.table_name).sort()).toEqual(['audit_events']);
+
+    const strayIndexes = await shared.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes
+        WHERE schemaname = 'public' AND indexname IN ('audit_events_resource_idx', 'audit_events_retain_idx')`,
+    );
+    expect(strayIndexes.rows).toEqual([]);
+  });
+
   it('reports which migrations it applied, and refuses a journal that names a missing file', () => {
     // `readMigrations` is the single reader for the journal. It throws on a file
     // the journal names but the directory lacks, and on a file with no journal
@@ -130,6 +151,7 @@ describe('migration graph', () => {
       '0007_one_status_spelling',
       '0008_one_event_version',
       '0009_enum_constraints',
+      '0010_drop_duplicate_audit',
     ]);
   });
 

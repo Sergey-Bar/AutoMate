@@ -153,22 +153,13 @@ export const legacyIdMap = pgTable(
   ],
 );
 
-export const systemAuditEvents = pgTable(
-  'system_audit_events',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    actorType: text('actor_type').notNull(),
-    actorId: text('actor_id').notNull(),
-    action: text('action').notNull(),
-    resourceType: text('resource_type').notNull(),
-    resourceId: text('resource_id'),
-    requestId: text('request_id'),
-    details: jsonb('details').$type<Record<string, unknown>>().notNull().default({}),
-    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
-    retainUntil: timestamp('retain_until', { withTimezone: true }),
-  },
-  (table) => [
-    index('audit_events_resource_idx').on(table.resourceType, table.resourceId),
-    index('audit_events_retain_idx').on(table.retainUntil),
-  ],
-);
+// `system_audit_events` was removed in migration 0010.
+//
+// It was a strict *subset* of `audit_events` — same eight columns, none of the
+// four that make an audit row attributable (`ip`, `userAgent`, `tenantId`,
+// `workspaceId`) — and it had no writer anywhere in application code. Worse, its
+// indexes were named `audit_events_resource_idx` and `audit_events_retain_idx`,
+// so a reader of the schema or of a query plan would attribute them to the other
+// table, and `retain_until` does not exist on `audit_events` at all.
+//
+// `auditEvents` in `dashboard.ts` is the audit table, and the only one.
