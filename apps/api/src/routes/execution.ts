@@ -311,6 +311,43 @@ function requestId(c: Context): string {
   return c.req.header('x-request-id') ?? randomUUID();
 }
 
+/** The most runs one page will ever return. */
+const MAX_RUNS_PER_PAGE = 100;
+const DEFAULT_RUNS_PER_PAGE = 25;
+
+/**
+ * Parses `?limit` and `?cursor` for a list endpoint.
+ *
+ * A missing or nonsensical value falls back to the default rather than erroring:
+ * a dashboard should never fail to render because someone hand-edited a query
+ * string. The cap is what matters — without one, `GET /api/v1/runs` returned
+ * every run in the install's history with its tests and artifacts, so the first
+ * page load grew with the size of the workspace rather than the size of the page.
+ */
+function parsePageQuery(
+  rawLimit: string | undefined,
+  rawCursor: string | undefined,
+): { limit: number; cursor?: string } {
+  const parsed = rawLimit === undefined ? Number.NaN : Number.parseInt(rawLimit, 10);
+  const limit = Number.isFinite(parsed)
+    ? Math.min(Math.max(parsed, 1), MAX_RUNS_PER_PAGE)
+    : DEFAULT_RUNS_PER_PAGE;
+  return rawCursor === undefined || rawCursor.trim() === ''
+    ? { limit }
+    : { limit, cursor: rawCursor.trim() };
+}
+
+/**
+ * The cursor for a run: its creation time and id.
+ *
+ * Both halves matter. The time alone is not unique — a batch of runs can share
+ * a timestamp to the millisecond — and paging on a non-unique key silently skips
+ * or repeats rows, which is worse than not paging at all.
+ */
+function pageCursor(run: ExecutionRun): string {
+  return Buffer.from(`${run.createdAt}|${run.id}`, 'utf8').toString('base64url');
+}
+
 function error(
   c: Context,
   status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503,
@@ -571,15 +608,26 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
 
   app.get('/api/v1/runs', async (c) => {
     const releaseId = c.req.query('releaseId');
-    const runs = await options.store.listRuns(ws, releaseId);
-    if (!options.legacyRepository) return c.json(runs.map(toCanonicalRun));
+    // A hard cap, because this is the dashboard's first request and the listing
+    // was unbounded: every run in the install's history, each with its tests and
+    // artifacts, each validated through the canonical schema. A busy workspace
+    // turned one page load into the whole table.
+    const { limit, cursor } = parsePageQuery(c.req.query('limit'), c.req.query('cursor'));
+    const page = await options.store.listRuns(ws, releaseId, { limit, after: cursor });
+    if (page.runs.length > 0) {
+      // The shape stays a bare array, so the client is unaffected; the cursor for
+      // the next page rides in a header.
+      const last = page.runs[page.runs.length - 1] as ExecutionRun;
+      if (page.hasMore) c.header('X-Next-Cursor', pageCursor(last));
+    }
+    if (!options.legacyRepository) return c.json(page.runs.map(toCanonicalRun));
     const legacy = await options.legacyRepository.listRuns();
-    const ids = new Set(runs.map((run) => run.id));
+    const ids = new Set(page.runs.map((run) => run.id));
     return c.json([
       ...legacy
         .filter((run) => !ids.has(run.id))
         .map((record) => toCanonicalRun(legacyRun(record))),
-      ...runs.map(toCanonicalRun),
+      ...page.runs.map(toCanonicalRun),
     ]);
   });
 

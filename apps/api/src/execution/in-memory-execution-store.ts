@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
 import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
+import { pageRuns } from './run-paging.js';
 import {
   isTerminalPhase,
   type ArtifactDescriptor,
@@ -20,6 +21,7 @@ import {
   type EventApplyResult,
   type GateEvaluation,
   type JobClaim,
+  type RunPage,
   type JobCompletionInput,
   type JobCompletionResult,
   type LeaseReapResult,
@@ -321,12 +323,24 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return { run: clone(run), job: clone(job), duplicate: false };
   }
 
-  async listRuns(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]> {
-    return [...this.runs.values()]
+  async listRuns(
+    workspaceId?: string,
+    releaseId?: string,
+    options?: { limit?: number; after?: string },
+  ): Promise<RunPage> {
+    const ordered = [...this.runs.values()]
       .filter((run) => workspaceId === undefined || run.workspaceId === workspaceId)
       .filter((run) => releaseId === undefined || run.releaseId === releaseId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      // Ordered by id as well as time, because a batch of runs can share a
+      // creation time and paging on a non-unique key skips or repeats rows.
+      .sort((left, right) => {
+        const byTime = left.createdAt.localeCompare(right.createdAt);
+        return byTime === 0 ? left.id.localeCompare(right.id) : byTime;
+      })
       .map((run) => clone(run));
+    // The same window the Drizzle store applies, so a page means the same thing
+    // on both sides — which is what the store-parity suite holds them to.
+    return pageRuns(ordered, options);
   }
 
   async getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
@@ -994,10 +1008,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
     releaseId: string,
     workspaceId = 'default-workspace',
   ): Promise<ReleaseReadiness> {
-    const runs = (await this.listRuns(workspaceId, releaseId)).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
-    const latest = runs[0];
+    // The whole release's runs, not one page: readiness is an aggregate over
+    // every run, so the cap does not apply here.
+    const { runs } = await this.listRuns(workspaceId, releaseId, {
+      limit: Number.MAX_SAFE_INTEGER,
+    });
+    const ordered = [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+    const latest = ordered[0];
     let gate = latest ? await this.getGate(latest.id) : null;
     if (latest && !gate) {
       const policies = await this.listPolicies(workspaceId);
@@ -1044,7 +1061,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
   }
 
   async list(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]> {
-    return this.listRuns(workspaceId, releaseId);
+    return (await this.listRuns(workspaceId, releaseId)).runs;
   }
 
   async get(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {

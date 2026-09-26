@@ -300,7 +300,7 @@ describe('canonical execution store and routes', () => {
     expect((await store.createRun(input, 'direct-key', 'workspace-direct')).duplicate).toBe(true);
     expect((await store.getRun(created.run.id, 'workspace-direct'))?.id).toBe(created.run.id);
     expect((await store.list('workspace-direct')).length).toBe(1);
-    expect((await store.listRuns('workspace-direct', 'release-direct')).length).toBe(0);
+    expect((await store.listRuns('workspace-direct', 'release-direct')).runs).toEqual([]);
     const job = await store.getJob(created.job.id);
     expect(job?.state).toBe('queued');
     expect((await store.listJobs('workspace-direct')).length).toBe(1);

@@ -157,10 +157,14 @@ async function countQueriesFor(operation: (target: DrizzleExecutionStore) => Pro
 describe('the run listing does not issue a query per run', () => {
   it('scales with a constant number of queries, not with the page size', async () => {
     await seedRuns(2);
-    const small = await countQueriesFor((target) => target.listRuns('ws-1'));
+    const small = await countQueriesFor((target) =>
+      target.listRuns('ws-1', undefined, { limit: 2 }),
+    );
 
     await seedRuns(18);
-    const large = await countQueriesFor((target) => target.listRuns('ws-1'));
+    const large = await countQueriesFor((target) =>
+      target.listRuns('ws-1', undefined, { limit: 1_000 }),
+    );
 
     // Before the fix this was 1 + 3n: four for two runs, fifty-five for twenty.
     expect(large).toBe(small);
@@ -169,7 +173,9 @@ describe('the run listing does not issue a query per run', () => {
   });
 
   it('returns the same runs as a single-run read would', async () => {
-    const listed = await store.listRuns('ws-1');
+    const { runs: listed } = await store.listRuns('ws-1', undefined, {
+      limit: 1_000,
+    });
     expect(listed.length).toBeGreaterThan(0);
     for (const run of listed.slice(0, 5)) {
       const single = await store.getRun(run.id, 'ws-1');
@@ -182,6 +188,7 @@ describe('the run listing does not issue a query per run', () => {
 
   it('handles an empty page without a child query', async () => {
     const empty = await store.listRuns('ws-nonexistent');
-    expect(empty).toEqual([]);
+    expect(empty.runs).toEqual([]);
+    expect(empty.hasMore).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
@@ -23,6 +23,7 @@ import {
   COMPLETION_HASH_CAPACITY,
 } from './bounded-map.js';
 import { deriveRunState, isRequestablePhase } from './phase-outcome.js';
+import { decodeRunCursor, normalizeRunLimit } from './run-paging.js';
 import type {
   ArtifactDescriptor,
   CreateRunInput,
@@ -46,6 +47,7 @@ import type {
   QualityPolicy,
   ReleaseReadiness,
   RegisteredRunner,
+  RunPage,
   RunnerHealth,
   RunnerHeartbeat,
   RunnerManifest,
@@ -210,8 +212,21 @@ function summaryFromRow(row: DbRow): ExecutionSummary {
   };
 }
 
+/**
+ * The one spelling `tests.status` is written in.
+ *
+ * A runner may report either `timedOut` or `timed_out` — both appear in the
+ * reporter adapters and in `ExecutionTestStatus` — and the column used to accept
+ * both. It must not: `testStatus()` on the way back out does not recognise the
+ * camelCase spelling and mapped it to `unknown`, so a timed-out test was recorded
+ * as unobserved. Normalising here, on the way in, is what makes the two spellings
+ * one state. Migration 0007 normalises any row already written the other way.
+ */
 function dbTestStatus(
-  status: ExecutionTestResult['status'],
+  // Read as a raw string, because `ExecutionTestResult['status']` is the
+  // *normalised* vocabulary and no longer contains the legacy camelCase
+  // spelling that a runner may still report.
+  status: string,
 ):
   | 'queued'
   | 'running'
@@ -219,12 +234,11 @@ function dbTestStatus(
   | 'failed'
   | 'flaky'
   | 'skipped'
-  | 'timedOut'
   | 'timed_out'
   | 'blocked'
   | 'cancelled'
   | 'unknown' {
-  if (status === 'timed_out') return 'timed_out';
+  if (status === 'timedOut' || status === 'timed_out') return 'timed_out';
   if (
     status === 'queued' ||
     status === 'running' ||
@@ -241,23 +255,18 @@ function dbTestStatus(
 }
 
 function mapTest(row: DbRow): ExecutionTestResult {
-  const status = stringValue(row['status'], 'unknown');
+  // Read as a raw string: the row may hold either spelling, and the type of
+  // `row['status']` is the *column* type, which no longer includes the legacy
+  // camelCase value — so the comparison needs the raw text.
+  const status = stringValue(row['status'] as unknown, 'unknown');
   return {
     id: stringValue(row['id']),
     title: stringValue(row['title'], 'Untitled test'),
     file: nullableString(row['file']),
-    status: (status === 'queued' ||
-    status === 'running' ||
-    status === 'passed' ||
-    status === 'failed' ||
-    status === 'flaky' ||
-    status === 'skipped' ||
-    status === 'blocked' ||
-    status === 'unknown' ||
-    status === 'cancelled' ||
-    status === 'timed_out'
-      ? status
-      : 'unknown') as ExecutionTestResult['status'],
+    // A row written before migration 0007 with the camelCase spelling still
+    // reads as a timeout, not as an unobserved test. Normalising on the way out
+    // means the fix is correct even for a database the migration has not reached.
+    status: (status === 'timedOut' ? 'timed_out' : status) as ExecutionTestResult['status'],
     durationMs:
       row['durationMs'] === null || row['durationMs'] === undefined
         ? null
@@ -648,17 +657,51 @@ export class DrizzleExecutionStore implements ExecutionStore {
     };
   }
 
-  async listRuns(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]> {
+  async listRuns(
+    workspaceId?: string,
+    releaseId?: string,
+    options?: { limit?: number; after?: string },
+  ): Promise<RunPage> {
     const filters = [
       workspaceId === undefined ? undefined : eq(runs.workspaceId, workspaceId),
       releaseId === undefined ? undefined : eq(runs.releaseId, releaseId),
     ].filter((value): value is ReturnType<typeof eq> => value !== undefined);
+    const limit = normalizeRunLimit(options?.limit);
+    // The cursor is pushed into SQL rather than applied in memory: the whole
+    // point is not to read the history to page through it. `limit + 1` rows
+    // decide `hasMore` without a second count query.
+    const cursor = decodeRunCursor(options?.after);
+    if (options?.after !== undefined && options.after.trim() !== '' && cursor === undefined) {
+      // A cursor was supplied but is not one we issued. Ignoring it would
+      // silently return the first page, which a caller following cursors would
+      // loop on forever. An empty page with `hasMore: false` tells the caller to
+      // restart deliberately.
+      return { runs: [], hasMore: false };
+    }
+    const afterFilter =
+      cursor === undefined
+        ? undefined
+        : // Strictly after the cursor: a later timestamp, or the same timestamp
+          // with a *greater* id. `id != cursor.id` would re-include a row that
+          // shares the timestamp and sorts before the cursor, so the page would
+          // repeat it — the same failure the in-memory window guards against.
+          or(
+            gt(runs.createdAt, new Date(cursor.createdAt)),
+            and(eq(runs.createdAt, new Date(cursor.createdAt)), gt(runs.id, cursor.id)),
+          );
     const rows = await this.db
       .select()
       .from(runs)
-      .where(filters.length ? and(...filters) : undefined)
-      .orderBy(asc(runs.createdAt));
-    return this.mapRuns(rows.map((row) => rowValue(row)));
+      .where(and(...(filters as never[]), ...(afterFilter === undefined ? [] : [afterFilter])))
+      .orderBy(asc(runs.createdAt), asc(runs.id))
+      .limit(limit + 1);
+    const page = rows.slice(0, limit);
+    return {
+      // Batched on purpose: three queries for the whole page rather than three
+      // per run, which is what made this listing an N+1.
+      runs: await this.mapRuns(page.map((row) => rowValue(row))),
+      hasMore: rows.length > limit,
+    };
   }
 
   async getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
@@ -1945,7 +1988,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
   }
 
   async list(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]> {
-    return this.listRuns(workspaceId, releaseId);
+    return (await this.listRuns(workspaceId, releaseId)).runs;
   }
 
   async get(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
