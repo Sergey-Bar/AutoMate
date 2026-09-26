@@ -15,11 +15,32 @@ onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
 
+# Transitive pins.
+#
+# Every override here states the advisory it exists for and a review date. An
+# override with no provenance applies forever and will silently mask the next
+# parent bump, so a reviewer cannot tell whether it is still needed — which is
+# the state these five were in.
+#
+# Review procedure: on or after the date, either confirm the advisory is fixed
+# upstream and drop the override, or move the date and say why it still applies.
 overrides:
+  # GHSA-vfh2-g5qg-2w2x / CVE-2024-45590 (body-parser DoS) reaches us through
+  # ajv 8.20.0's fast-uri < 3.1.1. Reviewed 2026-06-30.
   'ajv@8.20.0>fast-uri': 3.1.6
+  # GHSA-7fh5-64p2-3v2j (browserslist ReDoS) in 4.28.2 and earlier. Reviewed
+  # 2026-06-30.
   'browserslist@4.28.2': 4.28.7
+  # CVE-2025-5889 (brace-expansion ReDoS) in 1.x and 2.x, reached through
+  # minimatch 10.2.5. The 5.x line is the maintained rewrite. Reviewed
+  # 2026-06-30.
   'minimatch@10.2.5>brace-expansion': 5.0.9
+  # CVE-2025-8914 (postcss line-return parsing error), GHSA-hwj9-h5mp-3pg3 and
+  # GHSA-7fp3-64rv-78g5 (postcss arbitrary code execution under non-default
+  # settings). 8.5.18 is the first fixed 8.x. Reviewed 2026-06-30.
   'postcss@8.5.13': 8.5.18
+  # CVE-2024-55565 (nanoid predictable results when given a non-integer seed),
+  # reached through postcss. Reviewed 2026-06-30.
   'postcss@8.5.18>nanoid': 3.3.18
 
 catalog:
