@@ -550,7 +550,12 @@ function publishCanonical(
 ): void {
   const sequence = (sequences.get(event.runId) ?? 0) + 1;
   sequences.set(event.runId, sequence);
-  bus?.publish({ version: '1', sequence, ...event });
+  // Publishing to the realtime bus is fire-and-forget: the durable bus contract is
+  // non-rejecting (it logs and resolves), so there is nothing here to await. Marked
+  // `void` rather than left bare so the intent is visible and a future bus that
+  // *can* reject has to make a decision here instead of becoming an unhandled
+  // rejection.
+  void bus?.publish({ version: '1', sequence, ...event });
 }
 
 /**

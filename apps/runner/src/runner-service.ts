@@ -301,7 +301,10 @@ export class RunnerService {
     };
     this.active.set(claim.jobId, state);
     state.promise = this.executeClaim(claim, state).catch(this.onError);
-    state.promise.finally(() => this.active.delete(claim.jobId));
+    // `state.promise` already carries a catch, so neither it nor this derived
+    // promise can reject; `void` says so rather than leaving a dropped promise
+    // that only looks safe because of the line above.
+    void state.promise.finally(() => this.active.delete(claim.jobId));
   }
 
   private async executeClaim(claim: JobClaim, state: ActiveJob): Promise<void> {

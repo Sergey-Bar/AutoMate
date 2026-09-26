@@ -110,6 +110,44 @@ export default tseslint.config(
     },
   },
   {
+    // Type-aware rules.
+    //
+    // These need a `projectService` and therefore a real type-checked program per
+    // file, which is why they are a separate block rather than part of
+    // `recommended`. They are included because each catches a defect class that
+    // no other rule here sees:
+    //
+    //  - `no-floating-promises` — a promise created and dropped. A dropped
+    //    promise that rejects is an unhandled rejection: the request appears to
+    //    succeed while its work silently failed. This tree is full of deliberate
+    //    `void someAsync()`, so the rule is on but `void` is the sanctioned
+    //    escape hatch, which is what makes it readable.
+    //  - `no-misused-promises` — a promise passed where a value is expected.
+    //
+    // `require-await` was tried here and removed: it reported 130 violations,
+    // nearly all of them interface-satisfying methods that return a value
+    // synchronously and are declared `async` because the interface says so.
+    // Dropping `async` would change the declared return type, so the rule was not
+    // reporting a defect — it was reporting the design. A gate that reports the
+    // design is a gate that gets switched off.
+    //
+    // `await-thenable` and `no-unnecessary-type-assertion` are deliberately
+    // excluded: they fire heavily on this codebase's existing
+    // `as unknown as T` boundary casts, which the migration work addresses
+    // rather than a lint rule.
+    files: ['apps/*/src/**/*.{ts,tsx}', 'packages/*/src/**/*.{ts,tsx}', 'tools/*/src/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
+  {
     files: ['**/*.{test,spec}.{js,mjs,ts,tsx}'],
     rules: {
       'no-console': 'off',

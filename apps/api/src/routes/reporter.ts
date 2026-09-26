@@ -599,7 +599,10 @@ async function persistUploadPayload(
   }
 
   if (bus) {
-    bus.publish({
+    // Fire-and-forget: the durable bus contract is non-rejecting, so there is
+    // nothing to await. Marked so the intent is visible here rather than left
+    // implicit.
+    void bus.publish({
       type: 'run:updated',
       version: '1',
       runId: payload.runId,

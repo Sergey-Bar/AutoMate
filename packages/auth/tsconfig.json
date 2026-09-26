@@ -15,6 +15,10 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  // Tests are included here, matching every other package. They were excluded,
+  // which meant `pnpm typecheck` never looked at them and the type-aware ESLint
+  // rules could not find the files at all. `tsconfig.build.json` is the one that
+  // excludes them, so they never ship.
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

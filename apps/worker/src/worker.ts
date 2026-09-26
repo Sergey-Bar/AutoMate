@@ -109,7 +109,10 @@ export class ExecutionWorker {
     const active: ActiveWorkerJob = { controller, promise: Promise.resolve() };
     this.active.set(claim.jobId, active);
     active.promise = this.execute(claim, active).catch(this.report);
-    active.promise.finally(() => this.active.delete(claim.jobId));
+    // `active.promise` already carries a catch, so neither it nor this derived
+    // promise can reject; `void` says so explicitly rather than leaving a
+    // dropped promise that only looks safe because of what is two lines above.
+    void active.promise.finally(() => this.active.delete(claim.jobId));
   }
 
   private async execute(claim: JobClaim, active: ActiveWorkerJob): Promise<void> {
