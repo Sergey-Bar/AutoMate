@@ -48,7 +48,9 @@
     "duplication": "jscpd --config .jscpd.json",
     "complexity": "node ./scripts/complexity-gate.mjs",
     "complexity:baseline": "node ./scripts/complexity-gate.mjs --write",
-    "quality:baseline": "node ./scripts/quality-baseline.mjs"
+    "quality:baseline": "node ./scripts/quality-baseline.mjs",
+    "test:coverage": "turbo run test -- --coverage && node ./scripts/write-coverage-provenance-all.mjs",
+    "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

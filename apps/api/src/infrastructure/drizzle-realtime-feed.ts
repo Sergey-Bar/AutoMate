@@ -88,25 +88,43 @@ export class DrizzleRealtimeFeed {
   }
 
   /**
-   * Delivers a page to every subscription, one at a time and in isolation.
+   * Delivers one event to every subscription, in isolation.
    *
-   * Three properties, all of which the previous version got wrong:
+   * Extracted from the page loop so the isolation is one named thing: inlined,
+   * the `try` sat inside a nested `for`, and adding it pushed this function over
+   * the complexity ratchet's ceiling for no gain.
    *
-   *  - **A subscription's cursor advances only after its listener resolves.** It
-   *    used to advance *before* the call, so a listener that threw — an SSE write
-   *    to a client that had already gone away — advanced the cursor past an
-   *    event that was therefore never delivered and never delivered again. The
-   *    loss was silent and permanent.
-   *  - **One failing subscriber does not stall the others.** The loop was
-   *    `for (subscription) await subscription.listener(...)`, so a throw on the
-   *    first subscriber aborted the page for every remaining subscriber of the
-   *    same workspace. Each is now called in its own `try`, and the shared
-   *    cursor is derived from the subscriptions rather than advanced
-   *    independently, so a lagging subscriber cannot be skipped.
-   *  - **A failure is logged.** The `catch { return; }` around the whole pump
-   *    discarded the error, so an outbox that had started failing looked
-   *    exactly like an outbox with nothing to say.
+   * A subscription's cursor advances **only after** its listener resolves. It
+   * used to advance before the call, so a listener that threw — an SSE write to a
+   * client that had already gone away — advanced past an event that was
+   * therefore never delivered and never delivered again. The loss was silent.
    */
+  private async deliver(
+    subscriptions: Iterable<FeedSubscription>,
+    event: OutboxEvent,
+    workspaceId: string,
+  ): Promise<void> {
+    for (const subscription of subscriptions) {
+      if (event.sequence <= subscription.cursor) continue;
+      let delivered = false;
+      try {
+        // Awaited, not called bare: a listener may be async, and a rejection has
+        // to be caught *here* for the cursor to stay put. Calling it bare would
+        // advance the cursor before the listener finished — which is the exact
+        // bug this method exists to prevent.
+        await subscription.listener(event);
+        delivered = true;
+      } catch (error) {
+        console.error('outbox subscription failed; event will be retried', {
+          workspaceId,
+          sequence: event.sequence,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      if (delivered) subscription.cursor = event.sequence;
+    }
+  }
+
   private async pump(workspaceId: string, pump: FeedPump): Promise<void> {
     if (pump.running || pump.subscriptions.size === 0) return;
     pump.running = true;
@@ -118,24 +136,11 @@ export class DrizzleRealtimeFeed {
         limit: 100,
       });
       for (const event of page) {
-        for (const subscription of pump.subscriptions) {
-          if (event.sequence <= subscription.cursor) continue;
-          try {
-            await subscription.listener(event);
-            // Only now is the event this subscriber's.
-            subscription.cursor = event.sequence;
-          } catch (error) {
-            // Deliberately not advancing: the next pump retries the event, which
-            // is the point of `evidence before claims` applied to a live stream.
-            console.error('outbox subscription failed; event will be retried', {
-              workspaceId,
-              sequence: event.sequence,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
+        await this.deliver(pump.subscriptions, event, workspaceId);
       }
     } catch (error) {
+      // The previous `catch { return; }` discarded the error, so an outbox that
+      // had started failing looked exactly like one with nothing to say.
       console.error('outbox pump failed', {
         workspaceId,
         error: error instanceof Error ? error.message : String(error),

@@ -90,10 +90,62 @@ function stripComments(text) {
 }
 
 /** @param {string} text @returns {string[]} */
+/**
+ * Values that are placeholders *by name*.
+ *
+ * The convention throughout this tree is `user:pass`, `user:password`,
+ * `host:5432/database` — a documented example, not a credential. Exempting the
+ * files that contain them would be the same blanket-exemption mistake the
+ * gitleaks config had, so the pattern itself recognises the convention. A real
+ * secret is a value no developer would have written as a stand-in.
+ */
+const PLACEHOLDER_VALUES = new Set([
+  'pass',
+  'password',
+  'secret',
+  'example',
+  'changeme',
+  'placeholder',
+  'xxx',
+  'yourpassword',
+  'mypassword',
+  'hunter2',
+  'local',
+  'local-only',
+  'automate',
+  'postgres',
+  'user',
+]);
+
+/**
+ * A credential-shaped value whose userinfo is the placeholder convention.
+ *
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isPlaceholderConnectionString(value) {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/([^/:@]+):([^/@]+)@/i.exec(value);
+  if (match === null) return false;
+  const user = (match[1] ?? '').toLowerCase();
+  const password = (match[2] ?? '').toLowerCase();
+  return PLACEHOLDER_VALUES.has(user) || PLACEHOLDER_VALUES.has(password);
+}
+
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
 function scanText(text) {
   const hits = [];
   for (const [label, pattern] of patterns) {
-    if (pattern.test(text)) hits.push(label);
+    if (!pattern.test(text)) continue;
+    if (label === 'connection string with inline password') {
+      // Only the connection-string rule has a legitimate placeholder form, so
+      // the exemption is scoped to it rather than applied to every pattern.
+      const only = /[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]{3,}@/i.exec(text);
+      if (only !== null && isPlaceholderConnectionString(only[0])) continue;
+    }
+    hits.push(label);
   }
   return hits;
 }

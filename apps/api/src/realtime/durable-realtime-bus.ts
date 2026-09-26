@@ -60,6 +60,31 @@ export class DurableRealtimeBus implements RealtimeBus {
   ) {}
 
   /**
+   * Notifies every in-process subscriber, one at a time and in isolation.
+   *
+   * The previous loop was `for (const s of this.subscribers) s(sanitized)`, so a
+   * subscriber that threw aborted the notification for every subscriber after
+   * it — they silently missed the event with nothing logged. Extracted rather
+   * than inlined so the isolation is one named thing instead of a `try` nested
+   * inside a retry loop, which is what pushed this function's complexity over the
+   * ratchet's ceiling.
+   */
+  private async notifySubscribers(event: RealtimeBusEvent): Promise<void> {
+    for (const subscriber of this.subscribers) {
+      try {
+        // Awaited, so a rejection is caught here rather than escaping as an
+        // unhandled rejection.
+        await subscriber(event);
+      } catch (error) {
+        console.error('realtime subscriber failed', {
+          type: event.type,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  /**
    * Appends an event to the durable outbox and notifies in-process subscribers.
    *
    * **Never rejects.** Publishing is a *reporting* concern, and it is called
@@ -69,13 +94,9 @@ export class DurableRealtimeBus implements RealtimeBus {
    * is the same reasoning that keeps a bad Sentry sample rate from refusing to
    * start the API.
    *
-   * After the retry budget is spent the failure is logged and swallowed. The
-   * event is not delivered live, and the log is the only record: a durable
-   * append that failed is a real gap, but it is not the caller's error to carry.
-   *
-   * Subscribers are notified in isolation, so one that throws cannot skip the
-   * ones after it — the previous loop aborted on the first throw and every later
-   * subscriber silently missed the event.
+   * After the budget is spent the failure is logged and swallowed. The event is
+   * not delivered live, and the log is the only record: a durable append that
+   * failed is a real gap, but it is not the caller's error to carry.
    */
   async publish(event: RealtimeBusEvent): Promise<void> {
     const sanitized = sanitizeEvent(event);
@@ -86,16 +107,7 @@ export class DurableRealtimeBus implements RealtimeBus {
           toAppend(sanitized, this.workspaceId, this.retentionHours),
         );
         if (!row) return;
-        for (const subscriber of this.subscribers) {
-          try {
-            await subscriber(sanitized);
-          } catch (error) {
-            console.error('realtime subscriber failed', {
-              type: sanitized.type,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
+        await this.notifySubscribers(sanitized);
         return;
       } catch (error) {
         lastError = error;
