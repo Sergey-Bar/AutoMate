@@ -77,8 +77,14 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
         >
           <h3 className="text-lg font-medium text-text-primary">Quarantine a Test</h3>
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">Test Title</label>
+            <label
+              htmlFor="quarantine-test-title"
+              className="block text-sm font-medium text-text-secondary mb-1"
+            >
+              Test Title
+            </label>
             <input
+              id="quarantine-test-title"
               data-testid="input-test-title"
               type="text"
               required
@@ -88,8 +94,14 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">Test File</label>
+            <label
+              htmlFor="quarantine-test-file"
+              className="block text-sm font-medium text-text-secondary mb-1"
+            >
+              Test File
+            </label>
             <input
+              id="quarantine-test-file"
               data-testid="input-test-file"
               type="text"
               required
@@ -99,10 +111,14 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-text-secondary mb-1">
+            <label
+              htmlFor="quarantine-reason"
+              className="block text-sm font-medium text-text-secondary mb-1"
+            >
               Reason (optional)
             </label>
             <input
+              id="quarantine-reason"
               data-testid="input-reason"
               type="text"
               className="w-full p-2 rounded border border-border-default bg-bg-primary text-text-primary"

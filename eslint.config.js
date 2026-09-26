@@ -1,6 +1,8 @@
 import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import sonarjs from 'eslint-plugin-sonarjs';
+import security from 'eslint-plugin-security';
+import jsxA11y from 'eslint-plugin-jsx-a11y';
 import {
   FOCUSED_TEST_PROPERTY_SET,
   SKIPPED_TEST_IDENTIFIER_SET,
@@ -145,6 +147,47 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
+    },
+  },
+  {
+    // Two rule families that catch defect classes nothing else here sees.
+    //
+    // `security/detect-non-literal-fs-filename` was tried and **turned off**,
+    // deliberately. It reports every `fs` call whose path is a variable, and in a
+    // codebase that composes paths as `path.join(root, relativePath)` that is
+    // every filesystem call: 154 findings, none of them a traversal. The rule
+    // has no notion of a confined base directory, which is precisely the
+    // property that makes these calls safe here. A gate that reports 154
+    // unfixable findings is a gate that gets switched off, and taking the two
+    // specific rules with it.
+    //
+    // The rules that *are* on are the ones with no false-positive shape worth
+    // arguing about: a path traversal, a child process from a string, an
+    // expression handed to `eval`, and a regex that backtracks. That last one
+    // matters more than usual here — this repository already had a ReDoS in a
+    // hand-rolled JUnit parser, which is why the rule is on even though the
+    // pattern is inherently hard to read as a regex.
+    //
+    // `jsx-a11y` is a real correctness tool for this product: a QA dashboard a
+    // keyboard or screen-reader user cannot drive is not usable by them, and
+    // nothing else here notices. The recommended set only — the strict set flags
+    // ARIA patterns this codebase does not use yet.
+    files: ['**/*.{js,mjs,ts,tsx}'],
+    plugins: { security, 'jsx-a11y': jsxA11y },
+    rules: {
+      // Off: 154 findings, none a traversal. See above.
+      'security/detect-non-literal-fs-filename': 'off',
+      'security/detect-object-injection': 'off',
+      'security/detect-non-literal-regexp': 'off',
+      'security/detect-child-process': 'error',
+      'security/detect-eval-with-expression': 'error',
+      'security/detect-unsafe-regex': 'error',
+    },
+  },
+  {
+    files: ['apps/web/src/**/*.tsx'],
+    rules: {
+      ...jsxA11y.configs.recommended.rules,
     },
   },
   {
