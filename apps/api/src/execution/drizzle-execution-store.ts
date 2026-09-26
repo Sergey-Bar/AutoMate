@@ -1091,12 +1091,43 @@ export class DrizzleExecutionStore implements ExecutionStore {
           status: 'conflict' as const,
           reason: 'run_not_found',
         }));
+      // Scoped to the batch's own event keys.
+      //
+      // This used to read every event for the run, so the cost of appending grew
+      // with the run's history rather than with the batch — a long run got slower
+      // to append to on every call.
+      //
+      // Scoped by `event_key` and nothing else. `event_key` is
+      // `${runId}:${eventId}`, so the list is already run-scoped and dropping
+      // `workspace_id` costs no selectivity — but it is what makes the read
+      // bounded. With `(workspace_id, event_id)` in the predicate as well, the
+      // planner still preferred the workspace-wide index and applied the key as a
+      // filter, which reads every event in the workspace. `run_events_event_key_idx`
+      // leads on exactly this column, so the bound is a property of the statement
+      // rather than of the planner's mood.
+      const eventWorkspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
+      const batchKeys = inputs.map((input) => `${job.runId}:${input.eventId}`);
       const existing = (
-        await tx.select().from(runEvents).where(eq(runEvents.runId, job.runId))
+        await tx
+          .select()
+          .from(runEvents)
+          .where(inArray(runEvents.eventKey, batchKeys.length > 0 ? batchKeys : ['']))
       ).map((row) => rowValue(row));
       const byId = new Map(existing.map((event) => [stringValue(event['eventKey']), event]));
       let sequence = numberValue(runRow['eventSequence']) + 1;
-      let terminal = existing.some((event) => event['type'] === 'run.completed');
+      // Its own question now, answered by `run_events_terminal_idx` — a partial
+      // index holding only the rows it can match. Reading the answer out of the
+      // dedupe map above would have been free but wrong: that map is scoped to
+      // this batch, so a run.completed appended by an earlier batch would be
+      // invisible and the run would accept a second terminal event.
+      const alreadyTerminal = (
+        await tx
+          .select({ eventId: runEvents.eventId })
+          .from(runEvents)
+          .where(and(eq(runEvents.runId, job.runId), eq(runEvents.type, 'run.completed')))
+          .limit(1)
+      ).length;
+      let terminal = alreadyTerminal > 0;
       const prepared: Array<{
         input: ExecutionEventInput;
         hash: string;
@@ -1147,7 +1178,6 @@ export class DrizzleExecutionStore implements ExecutionStore {
         if (input.type === 'run.completed' || input.payload?.['terminal'] === true) terminal = true;
       }
       const results: EventApplyResult[] = [];
-      const eventWorkspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
       const outboxBatch: OutboxAppend[] = [];
       for (const item of prepared) {
         if (item.duplicate) {
