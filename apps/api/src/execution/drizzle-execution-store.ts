@@ -88,6 +88,24 @@ function nowDate(options: ExecutionStoreOptions): Date {
 }
 
 /**
+ * Groups rows by a derived key, preserving input order within each group.
+ *
+ * The child rows come back from Postgres in whatever order the planner chose, so
+ * ordering is not preserved by the database; preserving it here keeps the mapped
+ * runs identical to what the per-row path produced.
+ */
+function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const row of rows) {
+    const group = key(row);
+    const existing = groups.get(group);
+    if (existing === undefined) groups.set(group, [row]);
+    else existing.push(row);
+  }
+  return groups;
+}
+
+/**
  * Narrows a job predicate to a workspace. An omitted `workspaceId` stays
  * unscoped on purpose — only internal sweepers may call that way.
  */
@@ -640,7 +658,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       .from(runs)
       .where(filters.length ? and(...filters) : undefined)
       .orderBy(asc(runs.createdAt));
-    return Promise.all(rows.map((row) => this.mapRun(rowValue(row))));
+    return this.mapRuns(rows.map((row) => rowValue(row)));
   }
 
   async getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
@@ -1721,18 +1739,130 @@ export class DrizzleExecutionStore implements ExecutionStore {
   }
 
   private async mapRun(row: DbRow): Promise<ExecutionRun> {
-    const runId = stringValue(row['id']);
-    const testRows = await this.db.select().from(tests).where(eq(tests.runId, runId));
-    const artifactRows = await this.db.select().from(artifacts).where(eq(artifacts.runId, runId));
-    const runnerRow = row['runnerId']
-      ? (
-          await this.db
+    const [mapped] = await this.mapRuns([row]);
+    return mapped as ExecutionRun;
+  }
+
+  /**
+   * Maps many run rows with a fixed number of queries.
+   *
+   * `mapRun` fetches this run's tests, artifacts and runner, so calling it per
+   * row made the listing N+1: twenty runs on a dashboard meant sixty-one round
+   * trips. Here the child rows for every run are fetched in three queries and
+   * grouped in memory, so the count is constant whatever the page size.
+   *
+   * Kept as a separate method rather than folded into `mapRun` because the
+   * single-run path is the common one for a completion and a dashboard, and
+   * * three `WHERE run_id = $1` queries beat three `IN (...)` queries for one id.
+   */
+  private async mapRuns(rowsToMap: DbRow[]): Promise<ExecutionRun[]> {
+    if (rowsToMap.length === 0) return [];
+    if (rowsToMap.length === 1)
+      return [
+        await this.mapRunWithChildren(
+          rowsToMap[0] as DbRow,
+          await this.childrenFor([rowsToMap[0] as DbRow]),
+        ),
+      ];
+
+    const runIds = rowsToMap.map((row) => stringValue(row['id']));
+    const runnerIds = [
+      ...new Set(
+        rowsToMap
+          .map((row) => row['runnerId'])
+          .filter((value): value is string => typeof value === 'string' && value !== '')
+          .map((value) => stringValue(value)),
+      ),
+    ];
+
+    const [testRows, artifactRows, runnerRows] = await Promise.all([
+      this.db.select().from(tests).where(inArray(tests.runId, runIds)),
+      this.db.select().from(artifacts).where(inArray(artifacts.runId, runIds)),
+      runnerIds.length === 0
+        ? Promise.resolve([])
+        : this.db.select().from(runners).where(inArray(runners.id, runnerIds)),
+    ]);
+
+    const testsByRun = groupBy(
+      testRows.map((row) => rowValue(row)),
+      (row) => stringValue(row['runId'], ''),
+    );
+    const artifactsByRun = groupBy(
+      artifactRows.map((row) => rowValue(row)),
+      (row) => stringValue(row['runId'], ''),
+    );
+    const runnerById = new Map(
+      runnerRows.map((row) => {
+        const mapped = rowValue(row);
+        return [stringValue(mapped['id']), mapRunner(mapped)] as const;
+      }),
+    );
+
+    return rowsToMap.map((row) => {
+      const runId = stringValue(row['id']);
+      return this.buildRun(
+        row,
+        (testsByRun.get(runId) ?? []).map((test) => mapTest(test)),
+        (artifactsByRun.get(runId) ?? []).map((artifact) => mapArtifact(artifact)),
+        row['runnerId'] ? (runnerById.get(stringValue(row['runnerId'])) ?? null) : null,
+      );
+    });
+  }
+
+  /** The per-row queries, for a single run. */
+  private async mapRunWithChildren(
+    row: DbRow,
+    children: {
+      tests: DbRow[];
+      artifacts: DbRow[];
+      runner: unknown;
+    },
+  ): Promise<ExecutionRun> {
+    return this.buildRun(
+      row,
+      children.tests.map((test) => mapTest(test)),
+      children.artifacts.map((artifact) => mapArtifact(artifact)),
+      (children.runner ?? null) as ReturnType<typeof mapRunner> | null,
+    );
+  }
+
+  /** Child rows for a single run, fetched as three queries. */
+  private async childrenFor(rowsToLoad: DbRow[]): Promise<{
+    tests: DbRow[];
+    artifacts: DbRow[];
+    runner: unknown;
+  }> {
+    const [testRows, artifactRows, runnerRow] = await Promise.all([
+      this.db
+        .select()
+        .from(tests)
+        .where(eq(tests.runId, stringValue(rowsToLoad[0]?.['id']))),
+      this.db
+        .select()
+        .from(artifacts)
+        .where(eq(artifacts.runId, stringValue(rowsToLoad[0]?.['id']))),
+      rowsToLoad[0]?.['runnerId']
+        ? this.db
             .select()
             .from(runners)
-            .where(eq(runners.id, stringValue(row['runnerId'])))
+            .where(eq(runners.id, stringValue(rowsToLoad[0]?.['runnerId'])))
             .limit(1)
-        )[0]
-      : undefined;
+        : Promise.resolve([]),
+    ]);
+    return {
+      tests: testRows.map((row) => rowValue(row)),
+      artifacts: artifactRows.map((row) => rowValue(row)),
+      runner: runnerRow[0] === undefined ? null : rowValue(runnerRow[0]),
+    };
+  }
+
+  private buildRun(
+    row: DbRow,
+    testRows: ReturnType<typeof mapTest>[],
+    artifactRows: ReturnType<typeof mapArtifact>[],
+    runner: ReturnType<typeof mapRunner> | null,
+  ): ExecutionRun {
+    const runId = stringValue(row['id']);
     const summary = summaryFromRow(row);
     return {
       id: runId,
@@ -1777,21 +1907,18 @@ export class DrizzleExecutionStore implements ExecutionStore {
       updatedAt: dateIso(row['updatedAt']),
       startedAt: nullableDateIso(row['startedAt']),
       completedAt: nullableDateIso(row['completedAt']),
-      runner: runnerRow
-        ? (() => {
-            const runner = mapRunner(rowValue(runnerRow));
-            return {
-              id: runner.id,
-              name: runner.name,
-              version: runner.version,
-              os: runner.os,
-              arch: runner.arch,
-              health: runner.health,
-              lastHeartbeatAt: runner.lastHeartbeatAt,
-            };
-          })()
+      runner: runner
+        ? {
+            id: runner.id,
+            name: runner.name,
+            version: runner.version,
+            os: runner.os,
+            arch: runner.arch,
+            health: runner.health,
+            lastHeartbeatAt: runner.lastHeartbeatAt,
+          }
         : null,
-      tests: testRows.map((test) => mapTest(rowValue(test))),
+      tests: testRows,
       summary,
       error:
         row['errorCode'] || row['errorMessage']
@@ -1803,7 +1930,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       rawEvidenceRefs: Array.isArray(row['rawEvidenceRefs'])
         ? row['rawEvidenceRefs'].filter((value): value is string => typeof value === 'string')
         : [],
-      artifacts: artifactRows.map((artifact) => mapArtifact(rowValue(artifact))),
+      artifacts: artifactRows,
       policyEvaluation: null,
       status: stringValue(row['status'], 'running'),
     };

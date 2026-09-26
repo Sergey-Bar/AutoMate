@@ -208,7 +208,15 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
   const hasWarning = reasons.some((reason) => reason.endsWith(':WARNING'));
   let status: GateEvaluation['status'];
   let decision: GateEvaluation['decision'] | 'not_ready';
-  if (hasInfra || hasProduct) {
+  // A run that claims a pass while executing nothing is the case every
+  // threshold above silently skipped, because each one sits behind
+  // `if (summary.total > 0)`. `NO_TESTS` is a product failure, not an unknown:
+  // a green claim with nothing behind it is exactly what this product promises
+  // never to publish.
+  if (run.outcome === 'passed' && summary.total === 0 && (run.tests?.length ?? 0) === 0) {
+    reasons.push('evidence:NO_TESTS');
+  }
+  if (hasInfra || hasProduct || reasons.includes('evidence:NO_TESTS')) {
     status = 'failed';
     decision = 'blocked';
   } else if (hasUnknown) {
@@ -241,14 +249,21 @@ export function createGateEvaluation(input: GateEvaluationInput): GateEvaluation
   const result = evaluateQualityGate(input);
   const evaluatedAt =
     input.evaluatedAt ?? input.run.completedAt ?? input.run.updatedAt ?? '1970-01-01T00:00:00.000Z';
+  const policyHash = input.policy.hash || policyDigest(input.policy);
   return {
+    // The hash belongs in the id. The upsert conflict target in
+    // `DrizzleExecutionStore.saveGate` is `[runId, releaseId, policyId,
+    // policyVersion, policyHash]`, so an id without it is a *different* primary
+    // key for the same row — the first policy update therefore raised a unique
+    // violation instead of updating the existing evaluation.
     id:
-      input.id ?? `${input.run.id}:${input.policy.id ?? 'default-policy'}:${input.policy.version}`,
+      input.id ??
+      `${input.run.id}:${input.policy.id ?? 'default-policy'}:${input.policy.version}:${policyHash}`,
     runId: input.run.id,
     releaseId: input.run.releaseId,
     policyId: input.policy.id ?? 'default-policy',
     policyVersion: input.policy.version,
-    policyHash: input.policy.hash || policyDigest(input.policy),
+    policyHash,
     status: result.status,
     decision: result.decision === 'not_ready' ? 'unknown' : result.decision,
     reasons: result.reasons,
