@@ -14,6 +14,7 @@ import {
   runs,
   tests,
 } from '@automate/db';
+import { EVENT_VERSION } from '@automate/shared-contracts';
 import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import {
@@ -485,7 +486,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         aggregateType: 'run',
         aggregateId: event.aggregateId,
         eventType: event.eventType,
-        eventVersion: 1,
+        eventVersion: EVENT_VERSION,
         payload: sanitizeOutboxEnvelope(event.payload),
         dedupeKey: event.dedupeKey,
         occurredAt: event.occurredAt,

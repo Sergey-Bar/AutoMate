@@ -1,6 +1,10 @@
 import { Hono } from 'hono';
 import { streamSSE } from 'hono/streaming';
-import { toDurableSseFrame, type DurableOutboxEventType } from '@automate/shared-contracts';
+import {
+  EVENT_VERSION,
+  toDurableSseFrame,
+  type DurableOutboxEventType,
+} from '@automate/shared-contracts';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
 
 export interface DurableRealtimeEvent {
@@ -108,7 +112,7 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
                 const frame = toDurableSseFrame({
                   sequence: event.sequence,
                   eventId: event.eventId ?? `sequence-${event.sequence}`,
-                  eventVersion: event.eventVersion ?? 1,
+                  eventVersion: event.eventVersion ?? EVENT_VERSION,
                   eventType: event.eventType,
                   occurredAt: event.occurredAt ?? new Date(),
                   payload: event.payload,
@@ -164,7 +168,7 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
             const frame = toDurableSseFrame({
               sequence: event.sequence,
               eventId: event.eventId ?? `sequence-${event.sequence}`,
-              eventVersion: event.eventVersion ?? 1,
+              eventVersion: event.eventVersion ?? EVENT_VERSION,
               eventType: event.eventType,
               occurredAt: event.occurredAt ?? new Date(),
               payload: event.payload,

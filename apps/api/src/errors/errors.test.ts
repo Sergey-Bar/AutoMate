@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { DomainError, ErrorCode, statusForCode } from './domain-error.js';
 import { classifyDatabaseError, hasSqlState, sqlStateRules } from './db-errors.js';
-import { createErrorBoundary } from './boundary.js';
+import { createErrorBoundary, type ReportedErrorContext } from './boundary.js';
 
 /** A `pg`/`DrizzlePostgresError`, structurally. */
 function driverError(sqlState: string, extra: Record<string, unknown> = {}): Error {
@@ -11,14 +11,16 @@ function driverError(sqlState: string, extra: Record<string, unknown> = {}): Err
 
 function app() {
   const logged: Array<{ message: string; context: Record<string, unknown> }> = [];
+  const reported: Array<{ error: unknown; context: ReportedErrorContext }> = [];
   const boundary = createErrorBoundary({
     log: (message, context) => logged.push({ message, context }),
+    reportError: (error, context) => reported.push({ error, context }),
     requestId: () => 'req-test',
   });
   const instance = new Hono();
   instance.onError(boundary.onError);
   instance.notFound(boundary.notFound);
-  return { instance, logged };
+  return { instance, logged, reported };
 }
 
 describe('error code to status mapping', () => {
@@ -240,5 +242,134 @@ describe('error boundary', () => {
     expect(response.status).toBe(404);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe(ErrorCode.NOT_FOUND);
+  });
+});
+
+describe('error reporting', () => {
+  it('reports an unrecognised error as INTERNAL with the request coordinates', async () => {
+    const { instance, reported } = app();
+    const thrown = new Error('postgres://user:pw@host/db blew up');
+    instance.get('/oops', () => {
+      throw thrown;
+    });
+    await instance.request('/oops');
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.error).toBe(thrown);
+    expect(reported[0]?.context).toEqual({
+      requestId: 'req-test',
+      path: '/oops',
+      method: 'GET',
+      code: ErrorCode.INTERNAL,
+    });
+  });
+
+  it('reports a 5xx DomainError', async () => {
+    const { instance, reported } = app();
+    instance.get('/vault', () => {
+      throw new DomainError(
+        ErrorCode.DEPENDENCY_UNAVAILABLE,
+        'vault at s3://bucket/key unreachable',
+      );
+    });
+    await instance.request('/vault');
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.context.code).toBe(ErrorCode.DEPENDENCY_UNAVAILABLE);
+  });
+
+  it('reports a dependency failure classified from a SQLSTATE', async () => {
+    const { instance, reported } = app();
+    instance.get('/dead', () => {
+      throw driverError('08006');
+    });
+    await instance.request('/dead');
+
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.context.code).not.toBe(ErrorCode.INTERNAL);
+  });
+
+  it('does not report a 4xx, which is a normal answer', async () => {
+    const { instance, reported } = app();
+    instance.get('/conflict', () => {
+      throw new DomainError(ErrorCode.LEASE_NOT_OWNED, 'the job lease belongs to another runner');
+    });
+    const response = await instance.request('/conflict');
+
+    expect(response.status).toBe(409);
+    expect(reported).toEqual([]);
+  });
+
+  it('does not report a classified 4xx database failure', async () => {
+    const { instance, reported } = app();
+    instance.get('/check', () => {
+      throw driverError('23514', { constraint: 'artifacts_evidence_check' });
+    });
+    const response = await instance.request('/check');
+
+    expect(response.status).toBe(422);
+    expect(reported).toEqual([]);
+  });
+
+  it('does not report a 404', async () => {
+    const { instance, reported } = app();
+    await instance.request('/nope');
+    expect(reported).toEqual([]);
+  });
+
+  it('gives a reporter only the coordinates, never the cause detail', async () => {
+    const { instance, reported } = app();
+    instance.get('/oops', () => {
+      throw new Error('postgres://user:pw@host/db blew up at line 42');
+    });
+    await instance.request('/oops');
+
+    // The reporter is a third party. The log already owns the cause, and the
+    // response deliberately withholds it, so the context must be coordinates.
+    expect(Object.keys(reported[0]?.context ?? {}).sort()).toEqual([
+      'code',
+      'method',
+      'path',
+      'requestId',
+    ]);
+    expect(JSON.stringify(reported[0]?.context)).not.toContain('postgres://');
+    expect(JSON.stringify(reported[0]?.context)).not.toContain('line 42');
+  });
+
+  it('still answers when no reporter is configured', async () => {
+    const boundary = createErrorBoundary({
+      log: () => {},
+      requestId: () => 'req-test',
+    });
+    const instance = new Hono();
+    instance.onError(boundary.onError);
+    instance.get('/oops', () => {
+      throw new Error('boom');
+    });
+
+    const response = await instance.request('/oops');
+    expect(response.status).toBe(500);
+  });
+
+  it('falls back to console.error when no log sink is configured', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const boundary = createErrorBoundary({ requestId: () => 'req-test' });
+    const instance = new Hono();
+    instance.onError(boundary.onError);
+    instance.get('/oops', () => {
+      throw new Error('boom');
+    });
+
+    const response = await instance.request('/oops');
+    expect(response.status).toBe(500);
+    expect(consoleError).toHaveBeenCalledWith(
+      'unhandled error',
+      expect.objectContaining({
+        requestId: 'req-test',
+        path: '/oops',
+      }),
+    );
+
+    consoleError.mockRestore();
   });
 });

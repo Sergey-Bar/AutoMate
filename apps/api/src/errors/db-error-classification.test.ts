@@ -81,11 +81,11 @@ beforeAll(async () => {
     createRun(input: Record<string, unknown>): Promise<{ id: string }>;
   };
 
+  const logged: Array<{ message: string; context: Record<string, unknown> }> = [];
   const boundary = createErrorBoundary({
-    log: (message, context) => {
-      // Surfaced so a failure names the cause rather than just a status.
-      if (context['error'] !== undefined) console.error('[boundary]', message, context);
-    },
+    // Collected, not printed: these tests provoke rejections on purpose, and a
+    // boundary that logs correctly should not spray the suite's output.
+    log: (message, context) => logged.push({ message, context }),
     requestId: () => 'req-error-classification',
   });
   app = new Hono();

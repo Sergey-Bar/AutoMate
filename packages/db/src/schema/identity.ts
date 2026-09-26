@@ -109,7 +109,13 @@ export const outboxEvents = pgTable(
     aggregateType: text('aggregate_type').notNull(),
     aggregateId: text('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
-    eventVersion: integer('event_version').notNull().default(2),
+    // `EVENT_VERSION` from `@automate/shared-contracts`, which defaults to 2
+    // here while the contract, the SSE frame and every writer use 1 — so a
+    // writer that omitted this field produced a row a consumer could never match
+    // against the frame. Migration 0008 aligns the column. The value is repeated
+    // rather than imported because `packages/db` is a leaf and must not depend
+    // on the contracts; `tests/integration` asserts the two agree.
+    eventVersion: integer('event_version').notNull().default(1),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     dedupeKey: text('dedupe_key').notNull(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),

@@ -30,4 +30,7 @@ RUN mkdir -p /var/lib/automate/artifacts \
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 CMD node -e "fetch('http://127.0.0.1:3000/api/v1/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-CMD ["node", "apps/api/dist/index.js"]
+# `--import` preloads the Sentry SDK ahead of the module graph. Node re-runs
+# `--require` preloads on its module loader thread, so the SDK would never reach
+# the application; `--import` is the only form v11 supports.
+CMD ["node", "--import", "./apps/api/dist/instrument.js", "apps/api/dist/index.js"]

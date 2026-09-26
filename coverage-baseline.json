@@ -6,37 +6,40 @@
     "lines": 96
   },
   "apps/runner": {
-    "status": "not_configured"
+    "statements": 68,
+    "branches": 55,
+    "functions": 65,
+    "lines": 70
   },
   "apps/web": {
     "statements": 95,
-    "branches": 85,
+    "branches": 86,
     "functions": 95,
     "lines": 97
   },
   "apps/worker": {
-    "statements": 57,
+    "statements": 56,
     "branches": 43,
     "functions": 62,
-    "lines": 59
+    "lines": 58
   },
   "packages/auth": {
     "statements": 95,
     "branches": 90,
-    "functions": 92,
+    "functions": 93,
     "lines": 100
   },
   "packages/automation": {
-    "statements": 93,
+    "statements": 90,
     "branches": 80,
     "functions": 83,
-    "lines": 95
+    "lines": 92
   },
   "packages/config": {
-    "statements": 93,
+    "statements": 87,
     "branches": 95,
     "functions": 100,
-    "lines": 100
+    "lines": 91
   },
   "packages/connectors/github": {
     "statements": 10,
@@ -63,63 +66,66 @@
     "lines": 12
   },
   "packages/db": {
-    "statements": 31,
+    "statements": 33,
     "branches": 0,
     "functions": 0,
-    "lines": 32
+    "lines": 33
   },
   "packages/orchestration": {
-    "statements": 100,
+    "statements": 90,
     "branches": 100,
     "functions": 100,
-    "lines": 100
+    "lines": 90
   },
   "packages/realtime": {
-    "statements": 92,
+    "statements": 86,
     "branches": 85,
     "functions": 88,
-    "lines": 94
+    "lines": 86
   },
   "packages/reporter": {
-    "statements": 91,
+    "statements": 88,
     "branches": 80,
     "functions": 96,
-    "lines": 95
+    "lines": 91
   },
   "packages/reporting": {
-    "statements": 98,
+    "statements": 95,
     "branches": 98,
     "functions": 95,
-    "lines": 97
+    "lines": 93
   },
   "packages/runner-sdk": {
-    "statements": 93,
+    "statements": 92,
     "branches": 89,
     "functions": 100,
-    "lines": 94
+    "lines": 93
   },
   "packages/shared-contracts": {
-    "statements": 100,
-    "branches": 99,
-    "functions": 100,
-    "lines": 100
+    "statements": 99,
+    "branches": 97,
+    "functions": 97,
+    "lines": 99
   },
   "packages/ui": {
-    "statements": 62,
+    "statements": 59,
     "branches": 74,
     "functions": 62,
-    "lines": 62
+    "lines": 59
   },
   "tests/contract": {
     "status": "not_configured"
   },
   "tests/integration": {
-    "status": "not_configured"
+    "statements": 88,
+    "branches": 68,
+    "functions": 96,
+    "lines": 87
   },
   "tools/migrate-cli": {
-    "statements": 78,
-    "branches": 62,
-    "functions": 91,
-    "lines": 79
+    "statements": 59,
+    "branches": 41,
+    "functions": 85,
+    "lines": 59
   }
 }

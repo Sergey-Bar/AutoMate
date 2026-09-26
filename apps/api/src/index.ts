@@ -16,7 +16,6 @@ import { DrizzleReporterIngestionService } from './services/drizzle-reporter-ing
 import { DrizzleAuthSessionBackend } from './infrastructure/session-backend.js';
 import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
-import { createRunsRoutes } from './routes/runs.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
 import { createAgentRoutes } from './routes/agents.js';
@@ -46,6 +45,7 @@ import {
 // Auth middleware — guards all non-public routes with AUTOMATE_API_KEY
 import { createAuthMiddleware } from './middleware/auth.js';
 import { getConfig } from './config.js';
+import { createSentryErrorReporter } from './observability/sentry.js';
 import {
   assertInMemoryAllowed,
   checkProductionPolicy,
@@ -112,6 +112,9 @@ const app = new Hono();
  */
 const errorBoundary = createErrorBoundary({
   requestId: (c) => c.req.header('x-request-id')?.trim() || randomUUID(),
+  // The boundary is the only place that knows whether a throw was a defect or a
+  // refusal, so it is also the only place that decides what gets reported.
+  reportError: createSentryErrorReporter(),
 });
 app.onError(errorBoundary.onError);
 app.notFound(errorBoundary.notFound);
@@ -307,8 +310,6 @@ app.route(
   }),
 );
 app.route('/', createAgentRoutes());
-// T17: expose run list and SSE event stream
-app.route('/', createRunsRoutes({ repository: runRepository }));
 app.route(
   '/',
   createEventsRoutes({

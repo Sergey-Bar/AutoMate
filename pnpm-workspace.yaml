@@ -14,6 +14,10 @@ engineStrict: true
 onlyBuiltDependencies:
   - better-sqlite3
   - esbuild
+  # Fetches the platform binary the Sentry Vite plugin shells out to for
+  # source map upload. Without it the build still succeeds and the upload
+  # silently never happens, so an unminified stack trace in production.
+  - '@sentry/cli'
 
 # Transitive pins.
 #
@@ -46,6 +50,9 @@ overrides:
 catalog:
   '@eslint/js': ^9.21.0
   '@playwright/test': ^1.63.0
+  '@sentry/node': ^11.0.0
+  '@sentry/react': ^11.0.0
+  '@sentry/vite-plugin': ^5.4.0
   '@testing-library/dom': ^10.1.0
   '@testing-library/react': ^16.3.2
   '@types/node': ^22.15.3
