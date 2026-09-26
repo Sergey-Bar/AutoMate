@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { useAuth, resetAuthState } from './useAuth.js';
 
 function AuthProbe() {

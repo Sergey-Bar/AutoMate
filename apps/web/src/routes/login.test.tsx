@@ -2,7 +2,6 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { resetAuthState } from '../auth/useAuth.js';
-import '@testing-library/jest-dom';
 import {
   createMemoryHistory,
   createRootRoute,

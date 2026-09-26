@@ -1,7 +1,6 @@
 /// <reference types="vitest/globals" />
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
 import { EmptyState } from './EmptyState';
 import { ErrorState } from './ErrorState';
 import { LoadingState } from './LoadingState';

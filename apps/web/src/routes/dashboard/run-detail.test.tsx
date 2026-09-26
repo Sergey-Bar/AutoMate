@@ -1,7 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { RunDetailPage } from './run-detail.js';
 import { makeApi, makePhaseEvent, makeRun, TEST_TIMESTAMP } from '../../test-utils.js';
 import type { ApiClient, Run } from '../../lib/api.js';

@@ -15,7 +15,7 @@
     "test:contract": "turbo run test --filter=@automate/contract-tests",
     "test:runner": "turbo run test --filter=@automate/runner --filter=@automate/runner-sdk --filter=@automate/worker",
     "test:performance": "node ./scripts/performance-gate.mjs",
-    "test:integration": "node --test scripts/lib/local-rehearsal-guard.test.mjs && pnpm --filter @automate/integration-tests test && pnpm test:contract",
+    "test:integration": "node --test scripts/lib/*.test.mjs && pnpm --filter @automate/integration-tests test && pnpm test:contract",
     "oci:build": "node ./scripts/oci-build.mjs",
     "oci:verify": "node ./scripts/oci-verify.mjs",
     "typecheck": "pnpm typecheck:scripts && turbo run typecheck",

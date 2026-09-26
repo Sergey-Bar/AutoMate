@@ -1,4 +1,5 @@
 import {
+  attemptsOf,
   ConnectorHttpError,
   executeWithRetry,
   type ConnectorAdapter,
@@ -28,11 +29,11 @@ export const slackAdapter: ConnectorAdapter = {
         { retries: 2, signal: request.signal },
       );
       return { status: 'ok', data: value.value, attempts: value.attempts };
-    } catch {
+    } catch (error) {
       return {
         status: 'error',
         error: { code: 'slack_request_failed', retryable: true, message: 'Slack operation failed' },
-        attempts: 1,
+        attempts: attemptsOf(error),
       };
     }
   },

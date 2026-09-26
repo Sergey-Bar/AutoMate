@@ -1,7 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import '@testing-library/jest-dom';
 import { QuarantinePage } from './quarantine.js';
 import type { ApiClient, QuarantineEntry } from '../../lib/api.js';
 

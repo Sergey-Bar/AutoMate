@@ -5,7 +5,7 @@
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
-    "test": "vitest run --coverage",
+    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings=0 src/"
   },
