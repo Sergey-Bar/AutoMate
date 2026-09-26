@@ -1,40 +1,40 @@
 {
   "ceiling": 15,
-  "count": 30,
+  "count": 32,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 723,
-      "complexity": 75
+      "line": 712,
+      "complexity": 73
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 1071,
+      "line": 1061,
       "complexity": 71
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1221,
+      "line": 1284,
       "complexity": 65
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 353,
+      "line": 367,
       "complexity": 50
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1002,
+      "line": 1065,
       "complexity": 38
     },
     {
       "file": "apps/api/src/routes/events.ts",
-      "line": 69,
+      "line": 73,
       "complexity": 38
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 240,
+      "line": 254,
       "complexity": 38
     },
     {
@@ -53,14 +53,14 @@
       "complexity": 36
     },
     {
-      "file": "apps/runner/src/execution.ts",
-      "line": 238,
+      "file": "apps/api/src/execution/quality-gate.ts",
+      "line": 112,
       "complexity": 35
     },
     {
-      "file": "apps/api/src/execution/quality-gate.ts",
-      "line": 112,
-      "complexity": 33
+      "file": "apps/runner/src/execution.ts",
+      "line": 245,
+      "complexity": 35
     },
     {
       "file": "apps/web/src/routes/dashboard/run-detail.tsx",
@@ -74,7 +74,7 @@
     },
     {
       "file": "apps/api/src/routes/execution.ts",
-      "line": 956,
+      "line": 1014,
       "complexity": 25
     },
     {
@@ -88,18 +88,18 @@
       "complexity": 23
     },
     {
+      "file": "apps/api/src/errors/boundary.ts",
+      "line": 60,
+      "complexity": 22
+    },
+    {
       "file": "apps/worker/src/scheduler.ts",
       "line": 25,
       "complexity": 21
     },
     {
-      "file": "apps/api/src/errors/boundary.ts",
-      "line": 36,
-      "complexity": 20
-    },
-    {
       "file": "apps/api/src/routes/execution.ts",
-      "line": 895,
+      "line": 953,
       "complexity": 20
     },
     {
@@ -109,12 +109,12 @@
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1638,
+      "line": 1706,
       "complexity": 19
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 579,
+      "line": 568,
       "complexity": 19
     },
     {
@@ -131,6 +131,16 @@
       "file": "tools/migrate-cli/src/index.ts",
       "line": 21,
       "complexity": 18
+    },
+    {
+      "file": "scripts/write-coverage-provenance.mjs",
+      "line": 48,
+      "complexity": 17
+    },
+    {
+      "file": "tests/integration/src/enum-constraints.test.ts",
+      "line": 33,
+      "complexity": 17
     },
     {
       "file": "apps/worker/src/in-memory-store.ts",
@@ -154,5 +164,5 @@
     }
   ],
   "measuredAt": "2026-09-26",
-  "worst": 75
+  "worst": 73
 }

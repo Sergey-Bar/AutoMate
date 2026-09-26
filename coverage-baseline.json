@@ -118,8 +118,10 @@
     "reason": "A test-only package: it asserts the published contract surface and has no own runtime source, so a coverage run instruments none of its files. Nothing to ratchet."
   },
   "tests/integration": {
-    "status": "not_configured",
-    "reason": "A test-only package: its only non-test file is migrations.ts, a helper the integration tests themselves import, so a coverage run instruments none of its own files. Nothing to ratchet."
+    "statements": 88,
+    "branches": 68,
+    "functions": 96,
+    "lines": 87
   },
   "tools/migrate-cli": {
     "statements": 59,
