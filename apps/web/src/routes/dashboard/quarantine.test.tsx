@@ -89,6 +89,22 @@ describe('QuarantinePage', () => {
     fireEvent.click(screen.getByTestId('add-quarantine-btn'));
     expect(screen.getByTestId('quarantine-form')).toBeInTheDocument();
 
+    // Every field is reachable by its visible label, so a screen reader announces
+    // what the control is and clicking the label focuses it. The labels carried
+    // no `htmlFor` and no wrapping control, which `jsx-a11y/label-has-associated-
+    // control` now enforces.
+    for (const [label, testId] of [
+      ['Test Title', 'input-test-title'],
+      ['Test File', 'input-test-file'],
+      ['Reason (optional)', 'input-reason'],
+    ] as const) {
+      const control = screen.getByTestId(testId);
+      const associated = document.querySelector(`label[for="${control.id}"]`);
+      expect(associated, `${label} has no label pointing at ${testId}`).not.toBeNull();
+      expect(associated?.textContent?.trim()).toBe(label);
+      expect(control.id).not.toBe('');
+    }
+
     // Fill form
     fireEvent.change(screen.getByTestId('input-test-title'), {
       target: { value: 'new flaky test' },

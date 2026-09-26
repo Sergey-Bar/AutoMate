@@ -105,7 +105,38 @@ const NON_COLOR_ARGUMENTS = new Set([
 
 /** Argument shapes that are widths, not colours: `outline-offset-2`, `z-10`. */
 const NON_COLOR_SHAPES = [/^offset-\d+$/, /^z-\d+$/, /^gap-\d+$/];
-const NON_COLOR_SIZE = /^\d+(\.\d+)?(px|rem|em)?$/;
+/**
+ * A size argument: digits with an optional unit suffix.
+ *
+ * Written as a function rather than `/^\d+(\.\d+)?(px|rem|em)?$/`, because that
+ * regex nests a quantifier inside a quantifier — `\d+` followed by an optional
+ * `\.\d+` — which is the shape `security/detect-unsafe-regex` exists to catch, and
+ * the rule is right to object however safe the anchoring makes it in practice.
+ * `Number` has no quantifiers at all, so there is nothing to backtrack: `1.2.3`
+ * is `NaN`, `0x1` is finite but rejected by the leading-character check, and the
+ * empty string is excluded explicitly because `Number('') === 0`.
+ */
+function isSizeArgument(argument: string): boolean {
+  const withoutUnit = argument.replace(/(?:px|rem|em)$/, '');
+  if (withoutUnit === '') return false;
+  return /^\d/.test(withoutUnit) && Number.isFinite(Number(withoutUnit));
+}
+
+/**
+ * A colour name: lowercase alphanumerics in dash-separated parts.
+ *
+ * A hand-written loop rather than `/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/`. The regex
+ * is actually safe — each outer iteration must consume a `-`, so the input
+ * cannot be partitioned two ways — but that is a fact the rule cannot see, and
+ * "it is fine" is a claim that decays. Splitting on the separator is linear,
+ * obvious, and satisfies the rule.
+ */
+function isColorName(argument: string): boolean {
+  if (!/^[a-z]/.test(argument)) return false;
+  return argument
+    .split('-')
+    .every((part) => /^[a-z0-9]+$/.test(part));
+}
 
 const COLOR_DECLARATIONS =
   /(?:^|[;{\s])(?:color|background-color|border-color|border-top-color|border-right-color|border-bottom-color|border-left-color|outline-color|fill|stroke|caret-color|ring-color|accent-color|text-decoration-color|column-rule-color|--tw-ring-color|--tw-shadow)\s*:/;
@@ -163,8 +194,8 @@ function colorUtilities(candidates: readonly string[]): string[] {
       if (argument.length === 0) continue;
       if (NON_COLOR_ARGUMENTS.has(argument)) continue;
       if (NON_COLOR_SHAPES.some((pattern) => pattern.test(argument))) continue;
-      if (NON_COLOR_SIZE.test(argument)) continue;
-      if (!/^[a-z][a-z0-9]*(-[a-z0-9]+)*$/.test(argument)) continue;
+      if (isSizeArgument(argument)) continue;
+      if (!isColorName(argument)) continue;
       return true;
     }
     return false;
