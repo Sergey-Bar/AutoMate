@@ -19,6 +19,12 @@ export const CONTAINER_RUNTIMES = ['docker', 'podman'];
  *
  * Returned as a name so callers pass argv explicitly and never build a shell
  * string from it.
+ *
+ * The return type is declared because both callers spawn it: without it TypeScript
+ * infers `string | undefined` from the bare `return` and every `spawnSync(runtime,
+ * …)` call fails to typecheck.
+ *
+ * @returns {string | null}
  */
 export function detectContainerRuntime() {
   for (const runtime of CONTAINER_RUNTIMES) {

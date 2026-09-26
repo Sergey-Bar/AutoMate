@@ -22,27 +22,50 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectContainerRuntime, noRuntimeMessage } from './container-runtime.mjs';
+import { digestMatches } from './lib/oci-manifest.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const names = ['playwright', 'k6', 'zap'];
 /** @type {string[]} */
 const failures = [];
 
-/** The registry digest the runtime reports for a local image, if it has one. */
-/** @param {string} runtime @param {string} imageRef @returns {string | null} */
+/**
+ * The identities the runtime reports for a local image.
+ *
+ * @param {string} runtime
+ * @param {string} imageRef
+ * @returns {{ imageId: string, repoDigest: string | null } | null}
+ */
 function inspectImage(runtime, imageRef) {
-  const result = spawnSync(
-    runtime,
-    ['image', 'inspect', imageRef, '--format', '{{json .RepoDigests}}'],
-    { encoding: 'utf8', shell: process.platform === 'win32' },
-  );
-  if (result.error || result.status !== 0) return null;
-  try {
-    const digests = JSON.parse(result.stdout.trim() || 'null');
-    return Array.isArray(digests) && typeof digests[0] === 'string' ? digests[0] : null;
-  } catch {
-    return null;
+  /** @param {string} format */
+  const query = (format) => {
+    const result = spawnSync(runtime, ['image', 'inspect', imageRef, '--format', format], {
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+    });
+    if (result.error || result.status !== 0) return null;
+    const value = (result.stdout ?? '').trim();
+    return value === '' ? null : value;
+  };
+
+  // Both are read because they answer different questions. The image ID is the only
+  // identity a locally built image has — `RepoDigests` are assigned by a registry on
+  // push, so a local build has none. Once the images are pushed and pinned
+  // (BK-8), the repo digest is the one worth recording, and a recorded digest
+  // matching either is accepted so the same comparison works in both states.
+  const imageId = query('{{.Id}}');
+  if (imageId === null) return null;
+  const rawDigests = query('{{json .RepoDigests}}');
+  let repoDigest = null;
+  if (rawDigests !== null) {
+    try {
+      const digests = JSON.parse(rawDigests);
+      repoDigest = Array.isArray(digests) && typeof digests[0] === 'string' ? digests[0] : null;
+    } catch {
+      repoDigest = null;
+    }
   }
+  return { imageId, repoDigest };
 }
 
 const runtime = detectContainerRuntime();
@@ -91,10 +114,10 @@ for (const name of names) {
     const actual = inspectImage(runtime, manifest.imageRef);
     if (actual === null) {
       failures.push(`${name}: image ${manifest.imageRef} is not present locally`);
-    } else if (actual !== recorded) {
+    } else if (!digestMatches(recorded, actual)) {
       failures.push(
         `${name}: recorded digest ${recorded} does not match the image ` +
-          `${manifest.imageRef} (${actual})`,
+          `${manifest.imageRef} (${actual.imageId})`,
       );
     }
   } else {
