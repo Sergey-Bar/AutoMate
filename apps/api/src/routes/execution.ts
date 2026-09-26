@@ -660,10 +660,27 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     return c.json(await options.store.getReadiness(c.req.param('releaseId'), ws));
   });
 
+  /**
+   * The quality gate for a run — a **read**.
+   *
+   * This handler used to `saveGate` and publish `gate.evaluated` on every call,
+   * which makes a GET that is not safe: a browser prefetch, a link preview, or a
+   * crawler's retry created gate rows and outbox events. It was also redundant,
+   * because `completeJob` already persists the evaluation when the run finishes,
+   * so the write here was a second one racing the first.
+   *
+   * It now returns the stored evaluation. A run whose completion has not landed
+   * yet gets the evaluation it *would* receive, computed and returned but not
+   * persisted and not published, with `recorded: false` so a caller can tell a
+   * provisional verdict from a recorded one. Recording is the completion path's
+   * job, where the evidence it is a verdict about is already durable.
+   */
   app.get('/api/v1/runs/:runId/gate', async (c) => {
     const runId = c.req.param('runId');
     const run = await options.store.getRun(runId, ws);
     if (!run) return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+    const recorded = await options.store.getRunGate(ws, runId);
+    if (recorded) return c.json({ ...recorded, recorded: true });
     const policy = run.policyId
       ? await options.store.getPolicy(run.policyId, ws)
       : await ensurePolicy(options.store, ws);
@@ -674,19 +691,7 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
       domainStatuses: domainStatusesFromRun(run),
       evaluatedAt: run.completedAt ?? undefined,
     });
-    await options.store.saveGate(evaluation);
-    publishCanonical(
-      options.bus,
-      {
-        type: 'gate.evaluated',
-        eventId: randomUUID(),
-        occurredAt: evaluation.evaluatedAt,
-        runId: evaluation.runId,
-        payload: { evaluation },
-      },
-      eventSequences,
-    );
-    return c.json(evaluation);
+    return c.json({ ...evaluation, recorded: false });
   });
 
   app.get('/api/v1/runs/:runId/events', async (c) => {

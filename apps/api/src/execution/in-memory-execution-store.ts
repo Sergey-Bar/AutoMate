@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
+import { countTests, resolveSummary } from './summary.js';
 import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
 import { pageRuns } from './run-paging.js';
 import {
@@ -76,32 +77,6 @@ function emptySummary(): ExecutionSummary {
     unknown: 0,
     durationMs: null,
   };
-}
-
-function countTests(tests: ExecutionTestResult[]): ExecutionSummary {
-  const summary = emptySummary();
-  for (const test of tests) {
-    summary.total += 1;
-    if (test.status === 'passed') summary.passed += 1;
-    if (test.status === 'failed' || test.status === 'timed_out') summary.failed += 1;
-    if (test.status === 'flaky') summary.flaky += 1;
-    if (test.status === 'skipped') summary.skipped += 1;
-    if (test.status === 'blocked') summary.blocked += 1;
-    if (
-      test.status === 'unknown' ||
-      test.status === 'queued' ||
-      test.status === 'running' ||
-      test.status === 'blocked' ||
-      test.status === 'cancelled'
-    )
-      summary.unknown += 1;
-  }
-  const durations = tests
-    .map((test) => test.durationMs)
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-  summary.durationMs =
-    durations.length > 0 ? durations.reduce((sum, value) => sum + value, 0) : null;
-  return summary;
 }
 
 /**
@@ -798,9 +773,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
                     : 'unknown');
     const derived = deriveRunState(phase, claimed);
     if (completion.tests) run.tests = clone(completion.tests);
-    if (completion.summary)
-      run.summary = { ...run.summary, ...clone(completion.summary) } as ExecutionSummary;
-    else run.summary = countTests(run.tests);
+    run.summary = resolveSummary(clone(completion.summary), run.tests);
     run.phase = derived.phase;
     run.outcome = derived.outcome;
     run.status = statusForTerminal(derived, hasEvidence(run));

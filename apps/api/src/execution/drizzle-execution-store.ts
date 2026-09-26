@@ -24,6 +24,7 @@ import {
   COMPLETION_HASH_CAPACITY,
 } from './bounded-map.js';
 import { deriveRunState, isRequestablePhase } from './phase-outcome.js';
+import { resolveSummary } from './summary.js';
 import { decodeRunCursor, normalizeRunLimit } from './run-paging.js';
 import type {
   ArtifactDescriptor,
@@ -1389,6 +1390,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
         summaryFlaky === 0
           ? 'interrupted'
           : derived.status;
+      // A runner's own summary is accepted only if it accounts for its own total;
+      // one that does not add up is an unverifiable claim about evidence, so the
+      // run's own tests are counted instead. `resolveSummary` is shared with the
+      // in-memory store so the two cannot derive the same run differently.
+      const summary = resolveSummary(completion.summary, completion.tests ?? []);
       await tx
         .update(runs)
         .set({
@@ -1400,14 +1406,14 @@ export class DrizzleExecutionStore implements ExecutionStore {
           updatedAt: timestamp,
           errorCode: completion.error?.code ?? null,
           errorMessage: completion.error?.message ?? null,
-          total: completion.summary?.total ?? job.attempt,
-          passed: completion.summary?.passed ?? 0,
-          failed: completion.summary?.failed ?? 0,
-          flaky: completion.summary?.flaky ?? 0,
-          skipped: completion.summary?.skipped ?? 0,
-          blocked: completion.summary?.blocked ?? 0,
-          unknown: completion.summary?.unknown ?? 0,
-          durationMs: completion.summary?.durationMs ?? null,
+          total: summary.total,
+          passed: summary.passed,
+          failed: summary.failed,
+          flaky: summary.flaky,
+          skipped: summary.skipped,
+          blocked: summary.blocked,
+          unknown: summary.unknown,
+          durationMs: summary.durationMs,
         })
         .where(eq(runs.id, job.runId));
       const jobWorkspaceId = stringValue(jobRecord['workspaceId'], 'default-workspace');
