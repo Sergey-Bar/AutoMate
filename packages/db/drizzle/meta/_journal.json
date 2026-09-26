@@ -43,6 +43,13 @@
       "when": 1790400000000,
       "tag": "0005_canonical_run_results",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790400000001,
+      "tag": "0006_fail_closed_controls",
+      "breakpoints": true
     }
   ]
 }

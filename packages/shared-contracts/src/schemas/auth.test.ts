@@ -13,7 +13,15 @@ import {
 
 describe('PermissionSchema', () => {
   it('accepts all valid permission values', () => {
-    const perms = ['runs:read', 'runs:write', 'tests:read', 'tests:write', 'settings:read', 'settings:write', 'admin'];
+    const perms = [
+      'runs:read',
+      'runs:write',
+      'tests:read',
+      'tests:write',
+      'settings:read',
+      'settings:write',
+      'admin',
+    ];
     for (const p of perms) {
       expect(PermissionSchema.safeParse(p).success).toBe(true);
     }

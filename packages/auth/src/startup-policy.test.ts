@@ -6,7 +6,7 @@ describe('checkProductionPolicy', () => {
       checkProductionPolicy({
         nodeEnv: 'production',
         reporterSecret: 'reporter-secret',
-      })
+      }),
     ).toThrow('COOKIE_SECRET');
   });
 
@@ -15,7 +15,7 @@ describe('checkProductionPolicy', () => {
       checkProductionPolicy({
         nodeEnv: 'production',
         cookieSecret: 'cookie-secret',
-      })
+      }),
     ).toThrow('REPORTER_SECRET');
   });
 
@@ -25,7 +25,7 @@ describe('checkProductionPolicy', () => {
         nodeEnv: 'production',
         cookieSecret: 'cookie-secret',
         reporterSecret: 'reporter-secret',
-      })
+      }),
     ).not.toThrow();
   });
 
@@ -33,13 +33,11 @@ describe('checkProductionPolicy', () => {
     expect(() =>
       checkProductionPolicy({
         nodeEnv: 'development',
-      })
+      }),
     ).not.toThrow();
   });
 
   it('does not throw when nodeEnv is undefined', () => {
-    expect(() =>
-      checkProductionPolicy({})
-    ).not.toThrow();
+    expect(() => checkProductionPolicy({})).not.toThrow();
   });
 });

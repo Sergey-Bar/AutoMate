@@ -8,7 +8,6 @@ export const DURABLE_OUTBOX_EVENT_TYPES = [
   'execution.event.appended',
   'execution.job.completed',
   'run:updated',
-  'run.updated',
 ] as const;
 
 export const DURABLE_SSE_EVENT_TYPES = [...RunEventTypeSchema.options, 'refetch'] as const;
@@ -28,7 +27,14 @@ export const DurableSseRecordSchema = z.object({
   eventVersion: z.number().int().positive().default(1),
   eventType: DurableOutboxEventTypeSchema,
   occurredAt: z.coerce.date(),
-  payload: z.record(z.string(), z.unknown()),
+  // Required, not defaulted. A frame with no run id used to be published with
+  // `runId: ''`, which a consumer cannot distinguish from a real run whose id
+  // is the empty string, and which makes every run-scoped reducer misbehave.
+  payload: z
+    .record(z.string(), z.unknown())
+    .refine((payload) => typeof payload['runId'] === 'string' && payload['runId'] !== '', {
+      message: 'payload.runId must be a non-empty string',
+    }),
 });
 
 export type DurableSseRecord = z.infer<typeof DurableSseRecordSchema>;
@@ -38,7 +44,6 @@ const INTERNAL_EVENT_NAMES: Partial<Record<DurableOutboxEventType, DurableSseEve
   'execution.run.cancelled': 'run.phase_changed',
   'execution.job.completed': 'run.completed',
   'run:updated': 'run.phase_changed',
-  'run.updated': 'run.phase_changed',
 };
 
 export function toDurableSseEventName(
@@ -56,6 +61,23 @@ export function toDurableSseEventName(
   return DURABLE_SSE_COMPATIBILITY_EVENT;
 }
 
+/**
+ * The event type a frame should report.
+ *
+ * An unrecognised type is reported as itself, never rewritten to
+ * `run.phase_changed`. Rewriting it made an unknown event indistinguishable
+ * from a real phase change — the same evidence-integrity failure as recording a
+ * status-less JUnit testcase as a pass.
+ */
+function reportedType(event: DurableSseEventType, record: DurableSseRecord): string {
+  if (event !== DURABLE_SSE_COMPATIBILITY_EVENT) return event;
+  if (record.eventType === 'execution.event.appended') {
+    const nested = record.payload['type'];
+    if (typeof nested === 'string' && nested !== '') return nested;
+  }
+  return record.eventType;
+}
+
 export interface DurableSseFrame {
   event: DurableSseEventType;
   data: Record<string, unknown>;
@@ -65,16 +87,13 @@ export function toDurableSseFrame(record: DurableSseRecord): DurableSseFrame {
   const event = toDurableSseEventName(record.eventType, record.payload);
   const nested = record.eventType === 'execution.event.appended' ? record.payload : undefined;
   const runId = typeof record.payload['runId'] === 'string' ? record.payload['runId'] : '';
-  const type = event === DURABLE_SSE_COMPATIBILITY_EVENT ? 'run.phase_changed' : event;
   const nestedPayload = nested?.['payload'];
   const eventPayload =
     nestedPayload && typeof nestedPayload === 'object' && !Array.isArray(nestedPayload)
       ? (nestedPayload as Record<string, unknown>)
       : record.payload;
-  const eventId =
-    typeof nested?.['eventId'] === 'string' ? nested['eventId'] : record.eventId;
-  const sequence =
-    typeof nested?.['sequence'] === 'number' ? nested['sequence'] : record.sequence;
+  const eventId = typeof nested?.['eventId'] === 'string' ? nested['eventId'] : record.eventId;
+  const sequence = typeof nested?.['sequence'] === 'number' ? nested['sequence'] : record.sequence;
   const occurredAt =
     typeof nested?.['occurredAt'] === 'string'
       ? nested['occurredAt']
@@ -83,7 +102,7 @@ export function toDurableSseFrame(record: DurableSseRecord): DurableSseFrame {
     event,
     data: {
       version: 1,
-      type,
+      type: reportedType(event, record),
       eventId,
       sequence,
       occurredAt,

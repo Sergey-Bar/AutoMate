@@ -2,16 +2,46 @@ import { createHash } from 'node:crypto';
 import type { CanonicalRunResult as RunResult } from '@automate/shared-contracts';
 
 /**
- * Statuses that describe the harness around a test, not the product under test.
- * They are never a pass or a product failure, so they must stay out of every
- * product outcome denominator and be reported as explicit exclusions.
+ * How every canonical run status is classified.
+ *
+ * This is exhaustive over the status enum by construction: the `satisfies`
+ * guard below is a compile error if a status is added without deciding what it
+ * means. The previous hand-maintained list was silent about `cancelled` and
+ * `timedOut`, so those two statuses quietly landed in the pass-rate
+ * denominator and nobody was told.
+ *
+ * Three classes, not two:
+ *  - `product` — the product under test produced a determinate outcome and
+ *    belongs in the pass-rate denominator. `timedOut` is here on purpose: a
+ *    timeout is a real result about the product, and counting it as anything
+ *    other than a non-pass would overstate quality.
+ *  - `nonProduct` — the harness, not the product, decided. These prove nothing
+ *    about the product, so they must stay out of every product denominator and
+ *    be reported as explicit exclusions. `cancelled` belongs here: cancelling
+ *    a run yields no outcome at all.
+ *  - `indeterminate` — no outcome was produced (`unknown`).
  */
-export const NON_PRODUCT_STATUSES = [
-  'blocked',
-  'configFailed',
-  'infraFailed',
-  'runnerFailed',
-] as const;
+const STATUS_CLASSIFICATION = {
+  passed: 'product',
+  failed: 'product',
+  flaky: 'product',
+  skipped: 'product',
+  timedOut: 'product',
+  cancelled: 'nonProduct',
+  blocked: 'nonProduct',
+  configFailed: 'nonProduct',
+  infraFailed: 'nonProduct',
+  runnerFailed: 'nonProduct',
+  unknown: 'indeterminate',
+} as const satisfies Record<RunResult['status'], 'product' | 'nonProduct' | 'indeterminate'>;
+
+export type StatusClass = (typeof STATUS_CLASSIFICATION)[keyof typeof STATUS_CLASSIFICATION];
+
+/** Statuses that describe the harness around a test, not the product under test. */
+export const NON_PRODUCT_STATUSES = Object.entries(STATUS_CLASSIFICATION)
+  .filter(([, classification]) => classification === 'nonProduct')
+  .map(([status]) => status)
+  .filter((status): status is RunResult['status'] => status !== undefined);
 
 export type NonProductStatus = (typeof NON_PRODUCT_STATUSES)[number];
 
@@ -23,8 +53,16 @@ export function isNonProductStatus(status: RunResult['status']): boolean {
 
 /** A determinate product outcome: neither unknown nor a non-product status. */
 export function isProductOutcome(status: RunResult['status']): boolean {
-  return status !== 'unknown' && !isNonProductStatus(status);
+  return STATUS_CLASSIFICATION[status] === 'product';
 }
+
+/** The classification of a status, for reporting explicit exclusions. */
+export function classifyStatus(status: RunResult['status']): StatusClass {
+  return STATUS_CLASSIFICATION[status];
+}
+
+/** Every status value, so callers can prove they have covered the enum. */
+export const ALL_RUN_STATUSES = Object.keys(STATUS_CLASSIFICATION) as RunResult['status'][];
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -53,24 +91,55 @@ export interface CompletenessOptions {
 
 export type CompletenessState = 'complete' | 'partial' | 'rejected';
 
+/**
+ * Decides whether a report covers the shards it claims to.
+ *
+ * Fail-closed on three counts, all of which previously produced `complete`:
+ *  - a non-integer or negative expected count is a caller bug, not a verdict,
+ *    so it throws rather than reporting on an impossible range;
+ *  - an expected count of zero is not a complete report, it is no report at
+ *    all, so it is `partial` — a "0 shards received, 0 expected" run used to
+ *    certify itself as complete evidence;
+ *  - a received index outside the expected range is reported, not dropped,
+ *    because an unexpected shard means the report does not match its own
+ *    declaration.
+ *
+ * `missingShards` and `duplicateShards` are sorted so the verdict is a pure
+ * function of the inputs rather than of the iteration order.
+ */
 export function evaluateCompleteness(
   expectedShardCount: number,
   receivedShardIndexes: number[],
   options: CompletenessOptions = {},
 ) {
+  if (!Number.isInteger(expectedShardCount) || expectedShardCount < 0) {
+    throw new RangeError(
+      `expectedShardCount must be a non-negative integer, got ${expectedShardCount}`,
+    );
+  }
+  if (receivedShardIndexes.some((index) => !Number.isInteger(index) || index < 0)) {
+    throw new RangeError('received shard indexes must be non-negative integers');
+  }
   const expected = Array.from({ length: expectedShardCount }, (_, index) => index);
   const counts = new Map<number, number>();
   for (const index of receivedShardIndexes) counts.set(index, (counts.get(index) ?? 0) + 1);
   const missingShards = expected.filter((index) => !counts.has(index));
   const duplicateShards = [...counts.entries()]
     .filter(([, count]) => count > 1)
-    .map(([index]) => index);
+    .map(([index]) => index)
+    .sort((left, right) => left - right);
+  const unexpectedShards = [...counts.keys()]
+    .filter((index) => index >= expectedShardCount)
+    .sort((left, right) => left - right);
   const state: CompletenessState = options.rejected
     ? 'rejected'
-    : missingShards.length > 0 || duplicateShards.length > 0
+    : expectedShardCount === 0 ||
+        missingShards.length > 0 ||
+        duplicateShards.length > 0 ||
+        unexpectedShards.length > 0
       ? 'partial'
       : 'complete';
-  return { state, missingShards, duplicateShards } as const;
+  return { state, missingShards, duplicateShards, unexpectedShards } as const;
 }
 
 export function classifyRetention(

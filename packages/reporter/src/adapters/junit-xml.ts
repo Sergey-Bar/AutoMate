@@ -8,16 +8,45 @@ interface TestCase {
   file?: string;
   time?: number;
   status: string;
+  flakiness: 'unknown' | 'observed';
   declaredStatus?: string;
   message?: string;
 }
 
+/**
+ * JUnit test-case elements that carry outcome evidence.
+ *
+ * `flakyFailure` and `rerunFailure` are the JUnit way of saying "this test
+ * failed on an earlier attempt and passed on a later one", so their presence is
+ * the only honest source for `flakiness: 'observed'`.
+ */
+const OUTCOME_CHILDREN = new Set([
+  'failure',
+  'error',
+  'skipped',
+  'flakyfailure',
+  'rerunfailure',
+  'rerunerror',
+]);
+
+/**
+ * Maps JUnit evidence to a canonical status.
+ *
+ * A `<testcase>` with no `status` attribute and no outcome child declares
+ * nothing, so it resolves to `unknown` — not `passed`. The previous
+ * `return 'passed'` turned an attribute-less testcase into a product pass, and
+ * the run-level aggregation below then reported the whole run green.
+ */
 function statusFrom(
   declaredStatus: string | undefined,
   children: Set<string>,
 ): CanonicalRunResult['status'] {
-  if (children.has('failure') || children.has('error')) return 'failed';
+  if (children.has('failure') || children.has('error') || children.has('rerunerror'))
+    return 'failed';
   if (children.has('skipped')) return 'skipped';
+  // Retry evidence outranks a declared status: a `<testcase status="passed">`
+  // that also carries a `rerunFailure` is a flaky pass, not a clean one.
+  if (children.has('flakyfailure') || children.has('rerunfailure')) return 'flaky';
   if (declaredStatus !== undefined) {
     if (declaredStatus === 'passed') return 'passed';
     if (declaredStatus === 'failed') return 'failed';
@@ -26,7 +55,7 @@ function statusFrom(
     if (declaredStatus === 'timedOut') return 'timedOut';
     return 'unknown';
   }
-  return 'passed';
+  return 'unknown';
 }
 
 export const junitXmlAdapter: ProducerAdapter = {
@@ -46,12 +75,13 @@ export const junitXmlAdapter: ProducerAdapter = {
           file: attributes.file,
           time: attributes.time ? Number(attributes.time) * 1000 : undefined,
           status: 'unknown',
+          flakiness: 'unknown',
           declaredStatus: attributes.status,
         };
         currentText = '';
         currentChildren.clear();
-      } else if (tag.name === 'failure' || tag.name === 'error' || tag.name === 'skipped') {
-        currentChildren.add(tag.name);
+      } else if (OUTCOME_CHILDREN.has(tag.name.toLowerCase())) {
+        currentChildren.add(tag.name.toLowerCase());
       }
     });
     parser.on('text', (text) => {
@@ -63,6 +93,15 @@ export const junitXmlAdapter: ProducerAdapter = {
     parser.on('closetag', (tag) => {
       if (tag.name === 'testcase' && current) {
         current.status = statusFrom(current.declaredStatus, currentChildren);
+        // `flakyFailure` / `rerunFailure` are the only JUnit evidence that a
+        // test needed more than one attempt, so flakiness stays `unknown`
+        // without them.
+        current.flakiness =
+          current.status === 'flaky' ||
+          currentChildren.has('flakyfailure') ||
+          currentChildren.has('rerunfailure')
+            ? 'observed'
+            : 'unknown';
         current.message = currentText.trim() || undefined;
         testCases.push(current);
         current = undefined;
@@ -85,7 +124,7 @@ export const junitXmlAdapter: ProducerAdapter = {
       durationMs: Number.isFinite(testCase.time) ? testCase.time : undefined,
       error: testCase.message ? { message: testCase.message } : undefined,
       evidence: [],
-      flakiness: 'unknown' as const,
+      flakiness: testCase.flakiness,
     }));
     const hasFailure = attempts.some(
       (attempt) => attempt.status === 'failed' || attempt.status === 'timedOut',

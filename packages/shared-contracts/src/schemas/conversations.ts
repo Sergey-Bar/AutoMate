@@ -23,12 +23,7 @@ export type Conversation = z.infer<typeof ConversationSchema>;
 // ConversationMessage
 // ---------------------------------------------------------------------------
 
-export const ConversationMessageRoleSchema = z.enum([
-  'user',
-  'assistant',
-  'system',
-  'tool',
-]);
+export const ConversationMessageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export type ConversationMessageRole = z.infer<typeof ConversationMessageRoleSchema>;
 
 export const ConversationMessageSchema = z.object({

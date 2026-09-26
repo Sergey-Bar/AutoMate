@@ -7,7 +7,13 @@ export interface KpiReadModel {
   metric: string;
   value: number | null;
   numerator: number;
+  /**
+   * The denominator this metric's `value` was actually divided by: product
+   * attempts only. It used to be reported as *all* attempts, so a reader
+   * recomputing `numerator / denominator` got a different number than `value`.
+   */
   denominator: number;
+  /** Attempts excluded from `denominator`, and why. */
   unknown: number;
   nonProduct: number;
   exclusions: Array<{ reason: string; count: number }>;
@@ -71,8 +77,11 @@ export function calculateKpis(results: CanonicalRunResult[], now = new Date()): 
     .filter((duration): duration is number => typeof duration === 'number');
   const population = productAttempts.length;
   const proofCeiling = resolveProofCeiling(results);
+  // The partition must account for every attempt: product + unknown +
+  // nonProduct === attempts.length. Without a matching denominator a reader
+  // cannot tell a real pass rate from a flattering one.
   const common: Omit<KpiReadModel, 'metric' | 'value' | 'numerator'> = {
-    denominator: attempts.length,
+    denominator: population,
     unknown,
     nonProduct,
     exclusions: [
@@ -85,6 +94,11 @@ export function calculateKpis(results: CanonicalRunResult[], now = new Date()): 
       : 'low',
     freshness: now.toISOString(),
   };
+  // These three rates deliberately do not sum to 1: a product attempt can be
+  // `skipped` or `timedOut` and appear in none of them, and a flaky attempt is
+  // counted as both a pass and a flake. Consumers reconcile through
+  // `denominator` and `exclusions`, not by assuming the rates partition
+  // the population.
   return [
     {
       metric: 'first-pass-rate',

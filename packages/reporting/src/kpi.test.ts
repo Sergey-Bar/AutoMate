@@ -55,10 +55,57 @@ describe('KPI and quality gate policies', () => {
       { ...result('unknown'), attempts: [{ ...result('unknown').attempts[0], status: 'unknown' }] },
     ]);
     expect(kpis.find((kpi) => kpi.metric === 'first-pass-rate')).toMatchObject({
-      denominator: 2,
+      // 1 product attempt, with the unknown one reported separately. The
+      // denominator used to be 2 — the total — while the value was 1/1.
+      denominator: 1,
       unknown: 1,
       numerator: 1,
+      value: 1,
     });
+  });
+
+  it('reports a denominator that reproduces the value, for every rate', () => {
+    const base = result('passed').attempts[0];
+    const attempts = [
+      { ...base, status: 'passed' as const, flakiness: 'observed' as const, durationMs: 10 },
+      {
+        ...base,
+        index: 2,
+        status: 'failed' as const,
+        flakiness: 'unknown' as const,
+        durationMs: 30,
+      },
+      { ...base, index: 3, status: 'skipped' as const, flakiness: 'unknown' as const },
+      { ...base, index: 4, status: 'blocked' as const, flakiness: 'unknown' as const },
+      { ...base, index: 5, status: 'unknown' as const, flakiness: 'unknown' as const },
+    ];
+    const kpis = calculateKpis([{ ...result('failed'), attempts }]);
+    for (const metric of ['first-pass-rate', 'execution-failure-rate', 'flake-rate']) {
+      const kpi = kpis.find((candidate) => candidate.metric === metric);
+      expect(kpi, metric).toBeDefined();
+      expect(kpi?.value, `${metric} value`).not.toBeNull();
+      expect(kpi?.denominator, `${metric} denominator`).toBe(3);
+      expect(kpi!.value, `${metric} numerator/denominator`).toBeCloseTo(
+        kpi!.numerator / kpi!.denominator,
+      );
+    }
+    expect(kpis.find((kpi) => kpi.metric === 'first-pass-rate')).toMatchObject({ numerator: 1 });
+    expect(kpis.find((kpi) => kpi.metric === 'execution-failure-rate')).toMatchObject({
+      numerator: 1,
+    });
+    expect(kpis.find((kpi) => kpi.metric === 'flake-rate')).toMatchObject({ numerator: 1 });
+  });
+
+  it('accounts for every attempt in exactly one bucket', () => {
+    const attempts = [
+      { ...result('passed').attempts[0], status: 'passed' as const, durationMs: 10 },
+      { ...result('cancelled').attempts[0], index: 2, status: 'cancelled' as const },
+      { ...result('blocked').attempts[0], index: 3, status: 'blocked' as const },
+      { ...result('unknown').attempts[0], index: 4, status: 'unknown' as const },
+    ];
+    const kpi = calculateKpis([{ ...result('failed'), attempts }])[0];
+    expect(kpi).toBeDefined();
+    expect(kpi!.denominator + kpi!.unknown + kpi!.nonProduct).toBe(attempts.length);
   });
 
   it('calculates duration quantiles and marks unverified proof', () => {
@@ -91,7 +138,9 @@ describe('KPI and quality gate policies', () => {
 
     expect(firstPass).toMatchObject({
       numerator: 1,
-      denominator: 7,
+      // The denominator the value was divided by: 2 product attempts, not all 7.
+      // Reporting 7 here made `numerator / denominator` disagree with `value`.
+      denominator: 2,
       unknown: 1,
       nonProduct: 4,
       value: 0.5,
@@ -100,7 +149,7 @@ describe('KPI and quality gate policies', () => {
         { reason: 'non-product-status', count: 4 },
       ],
     });
-    expect(failure).toMatchObject({ numerator: 1, value: 0.5 });
+    expect(failure).toMatchObject({ numerator: 1, denominator: 2, value: 0.5 });
     // Non-product durations are excluded from latency, not silently averaged in.
     expect(kpis.find((kpi) => kpi.metric === 'duration-p50')).toMatchObject({
       value: 10,
@@ -168,6 +217,22 @@ describe('KPI and quality gate policies', () => {
     ).toBe('inconclusive');
   });
 
+  it('does not let an unproven claim weaken a hard policy failure', () => {
+    // Both reasons are present. Reporting `inconclusive` here would let a run
+    // that failed the policy hide behind an unverified proof.
+    const evidenceLess = result('failed');
+    evidenceLess.evidence = [];
+    evidenceLess.proof = { state: 'unverified', digest: 'd'.repeat(64), verifier: 'test' };
+    const evaluation = evaluateQualityGate([evidenceLess], {
+      requiredProof: 'verified',
+      requiredCompleteness: 'complete',
+      allowedStatuses: ['passed'],
+    });
+    expect(evaluation.status).toBe('failed');
+    expect(evaluation.reasons).toContain('terminal-status-not-allowed');
+    expect(evaluation.reasons).toContain('proof-ceiling-not-met');
+  });
+
   it('rejects passed results without evidence deterministically', () => {
     const policy = {
       requiredProof: 'verified' as const,
@@ -181,13 +246,27 @@ describe('KPI and quality gate policies', () => {
       status: 'passed',
       reasons: [],
     });
+    // A green claim with no evidence is a failure, not an unknown: this product
+    // promises evidence before claims.
     expect(evaluateQualityGate([evidenceLess], policy)).toEqual({
-      status: 'inconclusive',
+      status: 'failed',
       reasons: ['missing-evidence'],
     });
     expect(evaluateQualityGate([evidenceLess], policy)).toEqual({
-      status: 'inconclusive',
+      status: 'failed',
       reasons: ['missing-evidence'],
     });
+  });
+
+  it('reports an unverified proof ceiling as a failure, not an unknown', () => {
+    const unproven = result('passed');
+    unproven.proof = { state: 'unverified', digest: 'd'.repeat(64), verifier: 'test' };
+    expect(
+      evaluateQualityGate([unproven], {
+        requiredProof: 'verified',
+        requiredCompleteness: 'complete',
+        allowedStatuses: ['passed'],
+      }),
+    ).toEqual({ status: 'failed', reasons: ['proof-ceiling-not-met'] });
   });
 });

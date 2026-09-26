@@ -79,7 +79,10 @@ describe('canonical reporting contracts', () => {
       byteSize: 1,
       digest,
     };
-    const uriTraversal = { ...baseResult, evidence: [{ ...evidence, uri: 'artifact://run/../secret' }] };
+    const uriTraversal = {
+      ...baseResult,
+      evidence: [{ ...evidence, uri: 'artifact://run/../secret' }],
+    };
     expect(RunResultSchema.safeParse(uriTraversal).success).toBe(false);
 
     const backslashUriTraversal = {

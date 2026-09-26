@@ -14,13 +14,7 @@ import { z } from 'zod/v4';
 // AgentDomain
 // ---------------------------------------------------------------------------
 
-export const AgentDomainSchema = z.enum([
-  'browser',
-  'api',
-  'load',
-  'security',
-  'mobile',
-]);
+export const AgentDomainSchema = z.enum(['browser', 'api', 'load', 'security', 'mobile']);
 export type AgentDomain = z.infer<typeof AgentDomainSchema>;
 
 // ---------------------------------------------------------------------------

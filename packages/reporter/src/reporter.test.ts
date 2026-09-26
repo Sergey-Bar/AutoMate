@@ -45,7 +45,56 @@ describe('producer adapters', () => {
       context,
     );
     expect(result.attempts).toHaveLength(2);
+    // The retry history is evidence and is preserved verbatim.
     expect(result.attempts.map((attempt) => attempt.status)).toEqual(['failed', 'passed']);
+    // A test that failed once and then passed is flaky. The run is not green
+    // and it is not a hard failure either.
+    expect(result.attempts.every((attempt) => attempt.flakiness === 'observed')).toBe(true);
+    expect(result.status).toBe('flaky');
+  });
+
+  it('reports a single-attempt pass as clean, not flaky', () => {
+    const result = playwrightJsonAdapter.parse(
+      new TextEncoder().encode(
+        JSON.stringify({
+          suites: [
+            {
+              title: 'suite',
+              file: 'tests/example.spec.ts',
+              tests: [{ title: 'works', results: [{ status: 'passed', duration: 5 }] }],
+            },
+          ],
+        }),
+      ),
+      context,
+    );
+    expect(result.status).toBe('passed');
+    expect(result.attempts[0]?.flakiness).toBe('unknown');
+  });
+
+  it('reports a test that failed on its final attempt as a hard failure', () => {
+    const result = playwrightJsonAdapter.parse(
+      new TextEncoder().encode(
+        JSON.stringify({
+          suites: [
+            {
+              title: 'suite',
+              file: 'tests/example.spec.ts',
+              tests: [
+                {
+                  title: 'stays broken',
+                  results: [
+                    { status: 'failed', duration: 5 },
+                    { status: 'failed', duration: 6 },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+      context,
+    );
     expect(result.status).toBe('failed');
   });
 
