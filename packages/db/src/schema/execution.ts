@@ -328,8 +328,11 @@ export const artifacts = pgTable(
     check('artifacts_attempt_check', sql`${table.attempt} is null or ${table.attempt} > 0`),
     check('artifacts_size_check', sql`${table.sizeBytes} is null or ${table.sizeBytes} >= 0`),
     check(
+      // No `legacy_attachment_id` exemption: that was an escape hatch on a
+      // mutable column, so any artifact could opt out of carrying evidence.
+      // Migration 0006 backfilled the legacy rows and dropped the exemption.
       'artifacts_evidence_check',
-      sql`${table.legacyAttachmentId} is not null or (${table.checksumAlgorithm} = 'sha256' and ${table.checksum} is not null and ${table.checksum} ~ '^[0-9a-f]{64}$' and ${table.sizeBytes} is not null)`,
+      sql`${table.checksumAlgorithm} = 'sha256' and ${table.checksum} is not null and ${table.checksum} ~ '^[0-9a-f]{64}$' and ${table.sizeBytes} is not null`,
     ),
   ],
 );

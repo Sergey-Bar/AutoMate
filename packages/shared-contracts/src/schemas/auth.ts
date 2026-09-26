@@ -10,16 +10,47 @@ import { z } from 'zod/v4';
 // Permission
 // ---------------------------------------------------------------------------
 
-export const PermissionSchema = z.enum([
+/**
+ * The one permission vocabulary.
+ *
+ * `packages/auth/src/permissions.ts` used to declare a *second* table with only
+ * two values in common, so `PermissionSchema.parse(['vault:read'])` threw —
+ * inside `JwtClaimsSchema`, `UnifiedSessionSchema`, `ApiKeySchema` and
+ * `ServiceKeySchema`, four schemas that are on the real API boundary. A token
+ * minted with a perfectly valid permission was rejected by the contract that
+ * describes it.
+ *
+ * This is the authority because it is the one the boundary schemas validate
+ * against. `packages/auth` derives its named constants from this list with
+ * `satisfies`, so adding a permission here and forgetting the other side is a
+ * compile error rather than a runtime 500.
+ */
+export const PERMISSIONS = [
   'runs:read',
   'runs:write',
   'tests:read',
   'tests:write',
   'settings:read',
   'settings:write',
+  'vault:read',
+  'vault:write',
+  'ai:use',
+  'connectors:manage',
+  // Both spellings of administrative authority, because both are issued:
+  // `admin` by the unified session contract, `admin:all` by the auth package's
+  // constant. `checkPermission` used to look only for `admin:all`, so a session
+  // carrying the contract's own `admin` was granted nothing.
   'admin',
-]);
-export type Permission = z.infer<typeof PermissionSchema>;
+  'admin:all',
+] as const;
+
+export const PermissionSchema = z.enum(PERMISSIONS);
+export type Permission = (typeof PERMISSIONS)[number];
+
+/** True for either spelling of administrative authority. */
+export function isAdminPermission(value: string): boolean {
+  return value === 'admin' || value === 'admin:all';
+}
 
 // ---------------------------------------------------------------------------
 // JwtClaims

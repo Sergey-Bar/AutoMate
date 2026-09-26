@@ -96,7 +96,11 @@ describe('legacyReporterAdapter', () => {
       { runId: 'canonical-run-1', sequence: 2 },
     );
     expect(explicitAttempt.eventId).toBe('legacy-begin-1');
-    expect(explicitAttempt.payload).toMatchObject({ testId: 'test-2', attempt: 1, title: 'test-2' });
+    expect(explicitAttempt.payload).toMatchObject({
+      testId: 'test-2',
+      attempt: 1,
+      title: 'test-2',
+    });
   });
 
   it('maps test:end statuses, errors, durations, and artifacts', () => {
@@ -127,13 +131,30 @@ describe('legacyReporterAdapter', () => {
         file: 'tests/checkout.spec.ts',
       },
     });
-    for (const status of ['passed', 'success', 'ok', 'failed', 'failure', 'error', 'unknown', 'future']) {
-      expect(adapt({ type: 'test:end', runId: 'external-run-4', payload: { testId: 'test-3', status } }).payload).toMatchObject({
-        status: ['passed', 'success', 'ok'].includes(status) ? 'passed' : ['failed', 'failure', 'error'].includes(status) ? 'failed' : 'unknown',
+    for (const status of [
+      'passed',
+      'success',
+      'ok',
+      'failed',
+      'failure',
+      'error',
+      'unknown',
+      'future',
+    ]) {
+      expect(
+        adapt({ type: 'test:end', runId: 'external-run-4', payload: { testId: 'test-3', status } })
+          .payload,
+      ).toMatchObject({
+        status: ['passed', 'success', 'ok'].includes(status)
+          ? 'passed'
+          : ['failed', 'failure', 'error'].includes(status)
+            ? 'failed'
+            : 'unknown',
       });
     }
     expect(
-      adapt({ type: 'test:end', runId: 'external-run-4', payload: { testId: 'test-4', status: 7 } }).payload,
+      adapt({ type: 'test:end', runId: 'external-run-4', payload: { testId: 'test-4', status: 7 } })
+        .payload,
     ).toMatchObject({ status: 'unknown' });
   });
 
@@ -234,7 +255,11 @@ describe('legacyReporterAdapter', () => {
         context,
       ),
     ).toThrow();
-    expect(LegacyReporterAdapterContextSchema.safeParse({ ...context, sequence: 0 }).success).toBe(false);
-    expect(LegacyReporterAdapterContextSchema.safeParse({ ...context, occurredAt: 'invalid' }).success).toBe(false);
+    expect(LegacyReporterAdapterContextSchema.safeParse({ ...context, sequence: 0 }).success).toBe(
+      false,
+    );
+    expect(
+      LegacyReporterAdapterContextSchema.safeParse({ ...context, occurredAt: 'invalid' }).success,
+    ).toBe(false);
   });
 });

@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import type { CanonicalRunResult as RunResult } from '@automate/shared-contracts';
 import {
+  ALL_RUN_STATUSES,
   canonicalJson,
   classifyRetention,
+  classifyStatus,
   evaluateCompleteness,
   fingerprint,
   isNonProductStatus,
   isProductOutcome,
   NON_PRODUCT_STATUSES,
+  type StatusClass,
 } from './policy.js';
 import { projectRunSummary } from './projections.js';
+
+type CanonicalStatus = RunResult['status'];
 
 const timestamp = '2026-09-25T00:00:00.000Z';
 const digest = 'b'.repeat(64);
@@ -50,8 +55,11 @@ const result: RunResult = {
 
 describe('reporting policies', () => {
   it('separates non-product statuses from determinate product outcomes', () => {
-    expect([...NON_PRODUCT_STATUSES]).toEqual([
+    // A cancelled run produced no outcome at all, so it proves nothing about
+    // the product and must not sit in the pass-rate denominator.
+    expect([...NON_PRODUCT_STATUSES].sort()).toEqual([
       'blocked',
+      'cancelled',
       'configFailed',
       'infraFailed',
       'runnerFailed',
@@ -60,18 +68,32 @@ describe('reporting policies', () => {
       expect(isNonProductStatus(status)).toBe(true);
       expect(isProductOutcome(status)).toBe(false);
     }
-    for (const status of [
-      'passed',
-      'failed',
-      'flaky',
-      'skipped',
-      'timedOut',
-      'cancelled',
-    ] as const) {
+    // A timeout is a real result about the product: a non-pass, not an exclusion.
+    for (const status of ['passed', 'failed', 'flaky', 'skipped', 'timedOut'] as const) {
       expect(isNonProductStatus(status)).toBe(false);
       expect(isProductOutcome(status)).toBe(true);
     }
     expect(isProductOutcome('unknown')).toBe(false);
+  });
+
+  it('classifies every canonical status, with no status left unclassified', () => {
+    const expected: Record<CanonicalStatus, StatusClass> = {
+      passed: 'product',
+      failed: 'product',
+      flaky: 'product',
+      skipped: 'product',
+      timedOut: 'product',
+      cancelled: 'nonProduct',
+      blocked: 'nonProduct',
+      configFailed: 'nonProduct',
+      infraFailed: 'nonProduct',
+      runnerFailed: 'nonProduct',
+      unknown: 'indeterminate',
+    };
+    expect(ALL_RUN_STATUSES.sort()).toEqual(Object.keys(expected).sort());
+    for (const status of ALL_RUN_STATUSES) {
+      expect(classifyStatus(status), `status ${status} is unclassified`).toBe(expected[status]);
+    }
   });
 
   it('canonicalizes object keys before fingerprinting', () => {
@@ -84,6 +106,7 @@ describe('reporting policies', () => {
       state: 'partial',
       missingShards: [2],
       duplicateShards: [1],
+      unexpectedShards: [],
     });
   });
 
@@ -92,7 +115,37 @@ describe('reporting policies', () => {
       state: 'complete',
       missingShards: [],
       duplicateShards: [],
+      unexpectedShards: [],
     });
+  });
+
+  it('does not certify a zero-shard run as complete', () => {
+    // "0 of 0 shards received" is not evidence; it used to be reported complete.
+    expect(evaluateCompleteness(0, []).state).toBe('partial');
+    expect(evaluateCompleteness(0, [0]).state).toBe('partial');
+  });
+
+  it('reports a shard outside the expected range instead of dropping it', () => {
+    expect(evaluateCompleteness(2, [0, 1, 7])).toEqual({
+      state: 'partial',
+      missingShards: [],
+      duplicateShards: [],
+      unexpectedShards: [7],
+    });
+  });
+
+  it('sorts shard facts so the verdict does not depend on input order', () => {
+    const forwards = evaluateCompleteness(5, [0, 0, 2, 2]);
+    const backwards = evaluateCompleteness(5, [2, 2, 0, 0]);
+    expect(forwards).toEqual(backwards);
+    expect(forwards.duplicateShards).toEqual([0, 2]);
+  });
+
+  it('refuses impossible shard arithmetic rather than reporting on it', () => {
+    expect(() => evaluateCompleteness(-1, [])).toThrow(RangeError);
+    expect(() => evaluateCompleteness(1.5, [0])).toThrow(RangeError);
+    expect(() => evaluateCompleteness(2, [-1])).toThrow(RangeError);
+    expect(() => evaluateCompleteness(2, [0.5])).toThrow(RangeError);
   });
 
   it('reports rejected only when explicitly marked, keeping shard facts', () => {
@@ -100,11 +153,13 @@ describe('reporting policies', () => {
       state: 'rejected',
       missingShards: [],
       duplicateShards: [],
+      unexpectedShards: [],
     });
     expect(evaluateCompleteness(3, [0, 1, 1], { rejected: true })).toEqual({
       state: 'rejected',
       missingShards: [2],
       duplicateShards: [1],
+      unexpectedShards: [],
     });
     expect(evaluateCompleteness(2, [0, 1], { rejected: false }).state).toBe('complete');
   });

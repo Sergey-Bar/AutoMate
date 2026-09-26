@@ -4,7 +4,11 @@ export function hashCredential(secret: string, credential: string): string {
   return createHmac('sha256', secret).update(credential, 'utf8').digest('hex');
 }
 
-export function verifyCredential(secret: string, credential: string, expectedHash: string): boolean {
+export function verifyCredential(
+  secret: string,
+  credential: string,
+  expectedHash: string,
+): boolean {
   const actual = Buffer.from(hashCredential(secret, credential), 'hex');
   const expected = Buffer.from(expectedHash, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);

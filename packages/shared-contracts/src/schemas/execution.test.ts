@@ -232,7 +232,9 @@ describe('canonical execution dimensions', () => {
     });
     expect(parsed.phase).not.toBe('complete');
     expect(parsed.outcome).not.toBe('failed');
-    expect(NormalizedRunSchema.safeParse({ ...normalizedRun, createdAt: 'invalid' }).success).toBe(false);
+    expect(NormalizedRunSchema.safeParse({ ...normalizedRun, createdAt: 'invalid' }).success).toBe(
+      false,
+    );
     expect(
       ArtifactDescriptorSchema.safeParse({ ...artifact, checksum: 'not-a-digest' }).success,
     ).toBe(false);
@@ -240,12 +242,12 @@ describe('canonical execution dimensions', () => {
 
   it('validates typed, sequenced, versioned run event envelopes', () => {
     expect(RunEventEnvelopeSchema.parse(runStartedEvent).sequence).toBe(1);
-    expect(
-      RunEventEnvelopeSchema.safeParse({ ...runStartedEvent, version: '2' }).success,
-    ).toBe(false);
-    expect(
-      RunEventEnvelopeSchema.safeParse({ ...runStartedEvent, sequence: 0 }).success,
-    ).toBe(false);
+    expect(RunEventEnvelopeSchema.safeParse({ ...runStartedEvent, version: '2' }).success).toBe(
+      false,
+    );
+    expect(RunEventEnvelopeSchema.safeParse({ ...runStartedEvent, sequence: 0 }).success).toBe(
+      false,
+    );
     expect(
       RunEventEnvelopeSchema.safeParse({ ...runStartedEvent, type: 'run.exploded' }).success,
     ).toBe(false);

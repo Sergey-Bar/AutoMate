@@ -74,7 +74,9 @@ export const runnerIdentities = pgTable('runner_identities', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
   credentialHash: text('credential_hash'),
-  status: text('status', { enum: ['pending', 'active', 'revoked'] }).notNull().default('pending'),
+  status: text('status', { enum: ['pending', 'active', 'revoked'] })
+    .notNull()
+    .default('pending'),
   scopes: text('scopes').array().notNull().default([]),
   capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
   enrollmentExpiresAt: timestamp('enrollment_expires_at', { withTimezone: true }),
@@ -132,8 +134,16 @@ export const legacyIdMap = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('legacy_id_map_source_idx').on(table.sourceSystem, table.entityType, table.legacyId),
-    uniqueIndex('legacy_id_map_internal_idx').on(table.sourceSystem, table.entityType, table.internalId),
+    uniqueIndex('legacy_id_map_source_idx').on(
+      table.sourceSystem,
+      table.entityType,
+      table.legacyId,
+    ),
+    uniqueIndex('legacy_id_map_internal_idx').on(
+      table.sourceSystem,
+      table.entityType,
+      table.internalId,
+    ),
   ],
 );
 

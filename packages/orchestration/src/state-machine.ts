@@ -12,8 +12,19 @@ const transitions: Record<JobState, readonly JobState[]> = {
   expired: [],
 };
 
+/**
+ * Whether `from → to` is a legal transition.
+ *
+ * Total: an unrecognised `from` is not a legal origin, so this returns `false`
+ * rather than reading `transitions[from].includes(...)` on `undefined`. That
+ * turned a malformed state into a `TypeError` in the middle of a cancellation,
+ * which is the worst place for a crash — the caller's intent ("cancel this job")
+ * was perfectly reasonable.
+ */
 export function canTransition(from: JobState, to: JobState): boolean {
-  return transitions[from].includes(to);
+  const allowed = transitions[from];
+  if (allowed === undefined) return false;
+  return allowed.includes(to);
 }
 
 export function transition(from: JobState, to: JobState): JobState {
@@ -21,6 +32,7 @@ export function transition(from: JobState, to: JobState): JobState {
   return to;
 }
 
+/** True when no further transition out of `state` is possible. */
 export function isTerminal(state: JobState): boolean {
-  return transitions[state].length === 0;
+  return (transitions[state] ?? []).length === 0;
 }

@@ -14,7 +14,18 @@ import {
 
 describe('AIProviderNameSchema', () => {
   it('accepts all defined providers', () => {
-    const providers = ['ollama', 'openai', 'anthropic', 'google', 'azure-openai', 'groq', 'mistral', 'openrouter', 'cohere', 'bedrock'];
+    const providers = [
+      'ollama',
+      'openai',
+      'anthropic',
+      'google',
+      'azure-openai',
+      'groq',
+      'mistral',
+      'openrouter',
+      'cohere',
+      'bedrock',
+    ];
     for (const p of providers) {
       expect(AIProviderNameSchema.safeParse(p).success).toBe(true);
     }
