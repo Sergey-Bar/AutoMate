@@ -120,13 +120,11 @@ describe('ApiClient', () => {
   });
 
   it('returns null for unavailable optional gate and readiness evidence', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Missing' } }), {
-          status: 404,
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'NOT_FOUND', message: 'Missing' } }), {
+        status: 404,
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     await expect(defaultApiClient.getRunGate('missing')).resolves.toBeNull();
     await expect(defaultApiClient.getReleaseReadiness('missing')).resolves.toBeNull();
@@ -273,7 +271,12 @@ describe('ApiClient', () => {
       onRefetch,
       onConnectionChange,
     });
-    const subscription: RunEventSubscription = { onEvent, onReconnect, onRefetch, onConnectionChange };
+    const subscription: RunEventSubscription = {
+      onEvent,
+      onReconnect,
+      onRefetch,
+      onConnectionChange,
+    };
     const source = FakeEventSource.instance;
     expect(source?.url).toBe('/api/v1/events');
     expect(source?.options?.withCredentials).toBe(true);
@@ -291,13 +294,13 @@ describe('ApiClient', () => {
     source?.dispatch('run.phase_changed', { invalid: true });
     const messageListener = source?.listeners.get('message')?.values().next().value;
     messageListener?.({ data: '{' } as MessageEvent<string>);
-     expect(onEvent).toHaveBeenCalledOnce();
-     const refetchListener = source?.listeners.get('refetch')?.values().next().value;
-     refetchListener?.({} as MessageEvent<string>);
-     expect(onRefetch).toHaveBeenCalledOnce();
-     unsubscribe();
-     expect(source?.closed).toBe(true);
-     expect(subscription.onEvent).toBe(onEvent);
+    expect(onEvent).toHaveBeenCalledOnce();
+    const refetchListener = source?.listeners.get('refetch')?.values().next().value;
+    refetchListener?.({} as MessageEvent<string>);
+    expect(onRefetch).toHaveBeenCalledOnce();
+    unsubscribe();
+    expect(source?.closed).toBe(true);
+    expect(subscription.onEvent).toBe(onEvent);
   });
 
   it('adapts legacy run updates through the canonical client', () => {
@@ -306,7 +309,11 @@ describe('ApiClient', () => {
     const unsubscribe = defaultApiClient.subscribeToRunEvents({ onEvent });
     const source = FakeEventSource.instance;
     source?.dispatch('message', { type: 'run:updated', runId: 'legacy-run', status: 'running' });
-    source?.dispatch('run:updated', { type: 'run:updated', runId: 'durable-run', status: 'running' });
+    source?.dispatch('run:updated', {
+      type: 'run:updated',
+      runId: 'durable-run',
+      status: 'running',
+    });
     source?.dispatch('message', { type: 'run:updated', status: 'running' });
     source?.dispatch('message', { type: 'run:updated', runId: 'legacy-run', status: 'passed' });
     expect(onEvent).toHaveBeenCalledTimes(3);
@@ -328,13 +335,11 @@ describe('ApiClient', () => {
   });
 
   it('keeps legacy dashboard summary helpers available', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ totalRuns: 1, passRate: 100, avgDurationMs: 10 }), {
-          status: 200,
-        }),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ totalRuns: 1, passRate: 100, avgDurationMs: 10 }), {
+        status: 200,
+      }),
+    );
     vi.stubGlobal('fetch', fetchMock);
     await expect(defaultApiClient.getAnalyticsSummary()).resolves.toEqual({
       totalRuns: 1,

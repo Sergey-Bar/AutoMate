@@ -10,7 +10,7 @@ test('renders breadcrumbs', () => {
         { label: 'Settings', href: '/settings' },
         { label: 'Profile' },
       ]}
-    />
+    />,
   );
 
   const homeLink = screen.getByText('Home');

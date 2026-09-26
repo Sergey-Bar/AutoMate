@@ -31,7 +31,14 @@ describe('Select', () => {
   });
 
   it('renders error message and applies error class', () => {
-    render(<Select id="error-id" error="Error message" options={mockOptions} data-testid="test-select" />);
+    render(
+      <Select
+        id="error-id"
+        error="Error message"
+        options={mockOptions}
+        data-testid="test-select"
+      />,
+    );
     const select = screen.getByTestId('test-select');
     const errorMessage = screen.getByText('Error message');
 
@@ -42,7 +49,9 @@ describe('Select', () => {
   });
 
   it('renders placeholder option', () => {
-    render(<Select placeholder="Select an option" options={mockOptions} data-testid="test-select" />);
+    render(
+      <Select placeholder="Select an option" options={mockOptions} data-testid="test-select" />,
+    );
     const placeholder = screen.getByText('Select an option');
     expect(placeholder).toBeInTheDocument();
     expect(placeholder).toHaveAttribute('value', '');

@@ -23,7 +23,12 @@ function DrawerDemo({ position }: { position?: 'left' | 'right' | 'top' | 'botto
             <DrawerTitle>Drawer Title</DrawerTitle>
           </DrawerHeader>
           <p style={{ marginTop: '1rem' }}>Drawer content goes here.</p>
-          <Button variant="outline" size="sm" style={{ marginTop: '1rem' }} onClick={() => setOpen(false)}>
+          <Button
+            variant="outline"
+            size="sm"
+            style={{ marginTop: '1rem' }}
+            onClick={() => setOpen(false)}
+          >
             Close
           </Button>
         </DrawerContent>

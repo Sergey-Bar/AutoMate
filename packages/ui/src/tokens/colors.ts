@@ -1,6 +1,24 @@
-export const colors = {
-  // 11-step ramps (dark-first, meaning 50 is darkest? or 950 is darkest? Usually 50 is lightest in Tailwind, let's stick to standard so we don't confuse users)
-  // Wait, if it's dark-first, maybe 50 is darkest. But Tailwind convention is 50=light, 900=dark. Let's stick to tailwind convention for the ramp, but semantic tokens map to dark colors.
+/**
+ * The single TypeScript source for the design tokens.
+ *
+ * This file owns the *ramps* and the *semantic token names*. The shipped CSS
+ * (`theme.css`, imported by `apps/web/src/index.css`) owns the light/dark
+ * values for those names. `theme.test.ts` fails if the two drift, and
+ * `apps/web/src/theme-resolution.test.ts` fails if Tailwind does not actually
+ * emit CSS for a utility a component uses — which is the check that would have
+ * caught the unstyled destructive button.
+ *
+ * The previous arrangement had two independent token systems, one of which
+ * (`tokens/colors.ts`, imported only by its own test) referenced
+ * `var(--color-*)` values that nothing defined, so `bg-error`,
+ * `text-text-muted`, `bg-brand-50`, `bg-bg-base`, `text-success-500` and
+ * `text-error-500` resolved to nothing and rendered unstyled.
+ */
+
+export type ColorRamp = Readonly<Record<string, string>>;
+
+/** 11-step ramps, Tailwind convention: 50 is lightest, 950 is darkest. */
+export const ramps = {
   neutral: {
     50: '#fafafa',
     100: '#f5f5f5',
@@ -66,16 +84,50 @@ export const colors = {
     900: '#7f1d1d',
     950: '#450a0a',
   },
+} as const satisfies Record<string, ColorRamp>;
 
-  // Semantic tokens (using var references with fallbacks to the hex)
-  surface: 'var(--color-surface, #0a0a0a)', // neutral.950
-  'surface-muted': 'var(--color-surface-muted, #171717)', // neutral.900
-  border: 'var(--color-border, #262626)', // neutral.800
-  fg: 'var(--color-fg, #fafafa)', // neutral.50
-  'fg-muted': 'var(--color-fg-muted, #a3a3a3)', // neutral.400
-  accent: 'var(--color-accent, #3b82f6)', // blue.500
-  success: 'var(--color-success, #22c55e)', // green.500
-  warning: 'var(--color-warning, #f59e0b)', // amber.500
-  danger: 'var(--color-danger, #ef4444)', // red.500
-  info: 'var(--color-info, #3b82f6)', // blue.500
-};
+/**
+ * The semantic token names that must exist in the shipped theme.
+ *
+ * The value is the `--automate-*` variable the CSS maps the name onto, so a
+ * name here with no mapping in `theme.css` is a drift the test catches.
+ */
+export const semanticColorTokens = {
+  surface: '--automate-surface',
+  'surface-muted': '--automate-surface-muted',
+  fg: '--automate-fg',
+  'fg-muted': '--automate-fg-muted',
+  border: '--automate-border',
+  accent: '--automate-accent',
+  primary: '--automate-accent',
+  success: '--automate-success',
+  warning: '--automate-warning',
+  danger: '--automate-danger',
+  info: '--automate-info',
+  /**
+   * `error` is the name the components use (`bg-error` is the destructive
+   * "Cancel run" button). It is an alias of `danger`, kept because renaming
+   * every call site would be churn without changing the rendered colour.
+   */
+  error: '--automate-danger',
+  'text-primary': '--automate-fg',
+  'text-secondary': '--automate-fg-muted',
+  'text-muted': '--automate-fg-muted',
+  'bg-primary': '--automate-surface',
+  'bg-base': '--automate-surface',
+  'bg-elevated': '--automate-surface-muted',
+  'bg-secondary': '--automate-surface-muted',
+  'bg-muted': '--automate-surface-muted',
+  'border-default': '--automate-border',
+  'border-focus': '--automate-accent',
+  'brand-500': '--automate-accent',
+  'brand-50': '--automate-surface-muted',
+  'brand-700': '--automate-accent',
+  'success-500': '--automate-success',
+  'error-500': '--automate-danger',
+} as const satisfies Record<string, string>;
+
+/** Colour names Tailwind resolves without a theme entry. */
+export const builtInColorNames = ['black', 'white', 'transparent', 'current', 'inherit'] as const;
+
+export const colors = ramps;

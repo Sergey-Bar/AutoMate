@@ -63,7 +63,11 @@ export class RunnerApiClient {
     request: RunnerRegistrationRequest,
     registrationSecret = this.options.registrationSecret,
   ): Promise<RunnerRegistration> {
-    const parsedRequest = RunnerRegistrationRequestSchema.parse(request);
+    // Re-registering an existing id is a rotation, which the API only permits
+    // against the token we already hold. First registration has no token yet.
+    const withProof: RunnerRegistrationRequest =
+      this.token.length > 0 ? { ...request, rotationToken: this.token } : request;
+    const parsedRequest = RunnerRegistrationRequestSchema.parse(withProof);
     if (!registrationSecret) throw new Error('Runner registration secret is required');
     const response = await this.request(
       '/api/v1/runners/register',

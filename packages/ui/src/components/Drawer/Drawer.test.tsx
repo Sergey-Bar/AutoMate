@@ -7,7 +7,7 @@ describe('Drawer', () => {
     render(
       <Drawer open={false}>
         <DrawerContent data-testid="drawer">Content</DrawerContent>
-      </Drawer>
+      </Drawer>,
     );
     expect(screen.queryByTestId('drawer')).not.toBeInTheDocument();
   });
@@ -21,7 +21,7 @@ describe('Drawer', () => {
           <DrawerTitle>Title</DrawerTitle>
         </DrawerHeader>
         Content
-      </DrawerContent>
+      </DrawerContent>,
     );
     expect(screen.getByTestId('drawer-content')).toBeInTheDocument();
     expect(screen.getByText('Title')).toBeInTheDocument();

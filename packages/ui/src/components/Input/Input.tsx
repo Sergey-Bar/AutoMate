@@ -20,12 +20,13 @@ const inputVariants = cva(
       variant: 'default',
       size: 'md',
     },
-  }
+  },
 );
 
 export type InputVariants = VariantProps<typeof inputVariants>;
 
-export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>, InputVariants {
+export interface InputProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'>, InputVariants {
   label?: string;
   error?: string;
   helperText?: string;
@@ -33,7 +34,21 @@ export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, variant, size, label, error, helperText, id, 'data-testid': testId, disabled, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      size,
+      label,
+      error,
+      helperText,
+      id,
+      'data-testid': testId,
+      disabled,
+      ...props
+    },
+    ref,
+  ) => {
     // Force variant to error if error prop is present
     const inputVariant = error ? 'error' : variant;
 
@@ -66,7 +81,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Input.displayName = 'Input';

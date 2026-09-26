@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { createRoute, useNavigate, useSearch } from '@tanstack/react-router';
+import { Button, Input } from '@automate/ui';
 import { Route as rootRoute } from './__root.js';
 import { useAuth } from '../auth/useAuth.js';
 
@@ -44,22 +45,17 @@ function LoginComponent() {
   };
 
   return (
-    <div
-      data-testid="login-page"
-      style={{ maxWidth: '400px', margin: '80px auto', padding: '32px' }}
-    >
-      <h1 style={{ marginBottom: '24px', fontSize: '1.5rem', fontWeight: 'bold' }}>
-        Sign in to Automate
-      </h1>
+    <div data-testid="login-page" className="mx-auto max-w-sm px-8 pt-20">
+      <h1 className="mb-6 text-2xl font-bold text-text-primary">Sign in to Automate</h1>
       <form
         onSubmit={(event) => {
           void handleSubmit(event);
         }}
       >
-        <label htmlFor="api-key" style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>
+        <label htmlFor="api-key" className="mb-2 block text-sm font-medium text-text-primary">
           API Key
         </label>
-        <input
+        <Input
           id="api-key"
           data-testid="api-key-input"
           type="password"
@@ -70,42 +66,28 @@ function LoginComponent() {
           required
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'api-key-error' : undefined}
-          style={{
-            width: '100%',
-            padding: '8px 12px',
-            border: '1px solid #ccc',
-            borderRadius: 4,
-            fontSize: '1rem',
-          }}
+          className="w-full"
         />
         {error && (
           <p
             id="api-key-error"
             role="alert"
             data-testid="login-error"
-            style={{ color: 'red', marginBottom: 16 }}
+            className="mt-2 text-sm text-error"
           >
             {error}
           </p>
         )}
-        <button
+        <Button
           type="submit"
           data-testid="login-submit"
           disabled={loading}
           aria-busy={loading}
-          style={{
-            width: '100%',
-            padding: 10,
-            background: '#3b82f6',
-            color: 'white',
-            border: 'none',
-            borderRadius: 4,
-            fontSize: '1rem',
-            cursor: loading ? 'not-allowed' : 'pointer',
-          }}
+          variant="primary"
+          className="mt-4 w-full"
         >
           {loading ? 'Signing in…' : 'Sign in'}
-        </button>
+        </Button>
       </form>
     </div>
   );

@@ -1,57 +1,12 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+/*
+ * The design theme is defined once, in the UI package, and imported here. The
+ * `@source` directive makes Tailwind scan the component sources so a utility
+ * used inside `packages/ui` is generated even though the class string lives
+ * outside this app.
+ */
+@import '../../../packages/ui/src/tokens/theme.css';
 @source "../../../packages/ui/src";
-
-@theme inline {
-  --color-surface: var(--automate-surface);
-  --color-surface-muted: var(--automate-surface-muted);
-  --color-fg: var(--automate-fg);
-  --color-fg-muted: var(--automate-fg-muted);
-  --color-border: var(--automate-border);
-  --color-accent: var(--automate-accent);
-  --color-success: var(--automate-success);
-  --color-warning: var(--automate-warning);
-  --color-danger: var(--automate-danger);
-  --color-info: var(--automate-info);
-  --color-primary: var(--automate-accent);
-  --color-brand-500: var(--automate-accent);
-  --color-text-primary: var(--automate-fg);
-  --color-text-secondary: var(--automate-fg-muted);
-  --color-bg-primary: var(--automate-surface);
-  --color-bg-elevated: var(--automate-surface-muted);
-  --color-bg-secondary: var(--automate-surface-muted);
-  --color-bg-muted: var(--automate-surface-muted);
-  --color-border-default: var(--automate-border);
-  --color-border-focus: var(--automate-accent);
-}
-
-:root,
-[data-theme="dark"] {
-  --automate-surface: #0a0a0a;
-  --automate-surface-muted: #171717;
-  --automate-fg: #fafafa;
-  --automate-fg-muted: #a3a3a3;
-  --automate-border: #262626;
-  --automate-accent: #3b82f6;
-  --automate-success: #22c55e;
-  --automate-warning: #f59e0b;
-  --automate-danger: #ef4444;
-  --automate-info: #3b82f6;
-  color-scheme: dark;
-}
-
-[data-theme="light"] {
-  --automate-surface: #ffffff;
-  --automate-surface-muted: #f4f4f5;
-  --automate-fg: #09090b;
-  --automate-fg-muted: #71717a;
-  --automate-border: #e4e4e7;
-  --automate-accent: #2563eb;
-  --automate-success: #16a34a;
-  --automate-warning: #d97706;
-  --automate-danger: #dc2626;
-  --automate-info: #2563eb;
-  color-scheme: light;
-}
 
 @layer base {
   * {

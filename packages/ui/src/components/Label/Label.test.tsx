@@ -7,11 +7,19 @@ describe('Label', () => {
     expect(screen.getByTestId('label')).toBeInTheDocument();
   });
   it('applies custom classes', () => {
-    render(<Label data-testid="label" className="custom">Label</Label>);
+    render(
+      <Label data-testid="label" className="custom">
+        Label
+      </Label>,
+    );
     expect(screen.getByTestId('label')).toHaveClass('custom');
   });
   it('forwards props', () => {
-    render(<Label data-testid="label" htmlFor="input-id">Label</Label>);
+    render(
+      <Label data-testid="label" htmlFor="input-id">
+        Label
+      </Label>,
+    );
     expect(screen.getByTestId('label')).toHaveAttribute('for', 'input-id');
   });
 });

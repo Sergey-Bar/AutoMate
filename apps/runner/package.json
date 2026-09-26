@@ -17,16 +17,16 @@
   "dependencies": {
     "@automate/runner-sdk": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
-    "@playwright/test": "1.63.0",
-    "zod": "^4.4.3"
+    "@playwright/test": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
-    "@eslint/js": "^9.21.0",
-    "@types/node": "^22.15.3",
-    "eslint": "^9.21.0",
+    "@eslint/js": "catalog:",
+    "@types/node": "catalog:",
+    "eslint": "catalog:",
     "tsx": "^4.21.0",
     "typescript": "catalog:",
-    "typescript-eslint": "^8.25.0",
-    "vitest": "^4.1.5"
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   }
 }

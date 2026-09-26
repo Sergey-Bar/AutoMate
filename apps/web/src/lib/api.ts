@@ -256,10 +256,10 @@ export const defaultApiClient: ApiClient = {
       for (const type of RunEventTypeSchema.options) {
         source.removeEventListener(type, handleMessage as EventListener);
       }
-       source.removeEventListener('run:updated', handleMessage as EventListener);
-       source.removeEventListener('message', handleMessage as EventListener);
-       source.removeEventListener('refetch', handleRefetch);
-       source.close();
+      source.removeEventListener('run:updated', handleMessage as EventListener);
+      source.removeEventListener('message', handleMessage as EventListener);
+      source.removeEventListener('refetch', handleRefetch);
+      source.close();
     };
   },
 };

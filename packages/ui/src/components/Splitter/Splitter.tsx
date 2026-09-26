@@ -14,7 +14,8 @@ const splitterVariants = cva('bg-border shrink-0', {
   },
 });
 
-export interface SplitterProps extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof splitterVariants> {}
+export interface SplitterProps
+  extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof splitterVariants> {}
 
 export const Splitter = forwardRef<HTMLDivElement, SplitterProps>(
   ({ className, orientation = 'horizontal', ...props }, ref) => {
@@ -27,6 +28,6 @@ export const Splitter = forwardRef<HTMLDivElement, SplitterProps>(
         {...props}
       />
     );
-  }
+  },
 );
 Splitter.displayName = 'Splitter';

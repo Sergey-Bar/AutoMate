@@ -6,7 +6,7 @@ describe('Tooltip', () => {
     render(
       <Tooltip content="Tooltip content">
         <button>Hover me</button>
-      </Tooltip>
+      </Tooltip>,
     );
     expect(screen.getByText('Hover me')).toBeInTheDocument();
   });
@@ -15,7 +15,7 @@ describe('Tooltip', () => {
     render(
       <Tooltip content="Tooltip content">
         <button>Hover me</button>
-      </Tooltip>
+      </Tooltip>,
     );
 
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
@@ -32,7 +32,7 @@ describe('Tooltip', () => {
     render(
       <Tooltip content="Tooltip content">
         <button>Focus me</button>
-      </Tooltip>
+      </Tooltip>,
     );
 
     fireEvent.focus(screen.getByText('Focus me'));

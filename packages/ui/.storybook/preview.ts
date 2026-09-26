@@ -6,9 +6,9 @@ const withTheme: Decorator = (Story) => {
     'div',
     {
       'data-theme': 'dark',
-      style: { padding: '1rem', background: 'var(--color-bg, #0f1117)', minHeight: '100vh' }
+      style: { padding: '1rem', background: 'var(--color-bg, #0f1117)', minHeight: '100vh' },
     },
-    React.createElement(Story, null)
+    React.createElement(Story, null),
   );
 };
 

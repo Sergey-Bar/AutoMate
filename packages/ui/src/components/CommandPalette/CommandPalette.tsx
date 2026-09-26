@@ -66,13 +66,18 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
     }, [isOpen]);
 
     const filteredActions = query
-      ? actions.filter(a => a.label.toLowerCase().includes(query.toLowerCase()))
-      : actions.filter(a => recentIds.includes(a.id)).concat(actions.filter(a => !recentIds.includes(a.id))); // Recent first when empty query
+      ? actions.filter((a) => a.label.toLowerCase().includes(query.toLowerCase()))
+      : actions
+          .filter((a) => recentIds.includes(a.id))
+          .concat(actions.filter((a) => !recentIds.includes(a.id))); // Recent first when empty query
 
     const handleSelect = (action: CommandAction) => {
       action.onSelect();
 
-      const newRecent = [action.id, ...recentIds.filter(id => id !== action.id)].slice(0, MAX_RECENT);
+      const newRecent = [action.id, ...recentIds.filter((id) => id !== action.id)].slice(
+        0,
+        MAX_RECENT,
+      );
       setRecentIds(newRecent);
       try {
         localStorage.setItem(RECENT_KEY, JSON.stringify(newRecent));
@@ -86,10 +91,10 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
     const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelectedIndex(i => Math.min(i + 1, filteredActions.length - 1));
+        setSelectedIndex((i) => Math.min(i + 1, filteredActions.length - 1));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelectedIndex(i => Math.max(i - 1, 0));
+        setSelectedIndex((i) => Math.max(i - 1, 0));
       } else if (e.key === 'Enter') {
         e.preventDefault();
         const action = filteredActions[selectedIndex];
@@ -107,7 +112,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
           ref={ref}
           className={cn(
             'w-full max-w-xl overflow-hidden rounded-xl border border-border-default bg-bg-elevated shadow-2xl animate-in zoom-in-95 duration-200',
-            className
+            className,
           )}
           {...props}
         >
@@ -128,9 +133,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
           </div>
           <div className="max-h-[300px] overflow-y-auto p-2">
             {filteredActions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-text-secondary">
-                No results found.
-              </div>
+              <div className="py-6 text-center text-sm text-text-secondary">No results found.</div>
             ) : (
               <div className="flex flex-col gap-1">
                 {filteredActions.map((action, index) => {
@@ -142,7 +145,9 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
                       onMouseEnter={() => setSelectedIndex(index)}
                       className={cn(
                         'flex w-full items-center rounded-md px-3 py-2 text-sm text-left transition-colors',
-                        isSelected ? 'bg-brand-50 text-brand-700 font-medium' : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary'
+                        isSelected
+                          ? 'bg-brand-50 text-brand-700 font-medium'
+                          : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary',
                       )}
                     >
                       {action.label}
@@ -155,7 +160,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
         </div>
       </div>
     );
-  }
+  },
 );
 
 CommandPalette.displayName = 'CommandPalette';

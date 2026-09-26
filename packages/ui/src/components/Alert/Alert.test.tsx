@@ -11,7 +11,7 @@ describe('Alert', () => {
       <Alert>
         <AlertTitle>Title</AlertTitle>
         <AlertDescription>Description</AlertDescription>
-      </Alert>
+      </Alert>,
     );
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('Description')).toBeInTheDocument();

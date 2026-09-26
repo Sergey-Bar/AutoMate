@@ -28,17 +28,12 @@ const gridVariants = cva('grid', {
   },
 });
 
-export interface GridProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof gridVariants> {}
+export interface GridProps
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof gridVariants> {}
 
 export const Grid = forwardRef<HTMLDivElement, GridProps>(
   ({ className, cols, gap, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={cn(gridVariants({ cols, gap, className }))}
-        {...props}
-      />
-    );
-  }
+    return <div ref={ref} className={cn(gridVariants({ cols, gap, className }))} {...props} />;
+  },
 );
 Grid.displayName = 'Grid';

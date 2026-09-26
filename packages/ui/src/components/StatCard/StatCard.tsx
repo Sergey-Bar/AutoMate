@@ -15,7 +15,7 @@ export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
         ref={ref}
         className={cn(
           'flex flex-col gap-1 rounded-xl border border-border-default bg-bg-elevated p-6 shadow-sm',
-          className
+          className,
         )}
         {...props}
       >
@@ -28,7 +28,7 @@ export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
                 'flex items-center text-sm font-medium',
                 trend === 'up' && 'text-success-500',
                 trend === 'down' && 'text-error-500',
-                trend === 'neutral' && 'text-text-secondary'
+                trend === 'neutral' && 'text-text-secondary',
               )}
             >
               {trend === 'up' && '↑'}
@@ -37,12 +37,10 @@ export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
             </div>
           )}
         </div>
-        {description && (
-          <div className="text-xs text-text-secondary">{description}</div>
-        )}
+        {description && <div className="text-xs text-text-secondary">{description}</div>}
       </div>
     );
-  }
+  },
 );
 
 StatCard.displayName = 'StatCard';

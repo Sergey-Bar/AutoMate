@@ -36,7 +36,8 @@ const stackVariants = cva('flex', {
   },
 });
 
-export interface StackProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof stackVariants> {}
+export interface StackProps
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof stackVariants> {}
 
 export const Stack = forwardRef<HTMLDivElement, StackProps>(
   ({ className, direction, align, justify, gap, ...props }, ref) => {
@@ -47,6 +48,6 @@ export const Stack = forwardRef<HTMLDivElement, StackProps>(
         {...props}
       />
     );
-  }
+  },
 );
 Stack.displayName = 'Stack';

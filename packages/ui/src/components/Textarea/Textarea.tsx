@@ -23,7 +23,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             error
               ? 'border-danger text-danger focus-visible:outline-danger'
               : 'border-border text-fg focus-visible:outline-accent',
-            className
+            className,
           )}
           ref={ref}
           aria-invalid={!!error}
@@ -42,6 +42,6 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         )}
       </div>
     );
-  }
+  },
 );
 Textarea.displayName = 'Textarea';

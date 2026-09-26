@@ -19,24 +19,11 @@ export function EmptyState({
   return (
     <div
       data-testid={testId}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '48px 24px',
-        textAlign: 'center',
-      }}
+      className="flex flex-col items-center justify-center px-6 py-12 text-center"
     >
-      {icon && <div style={{ marginBottom: '16px', color: '#6b7280' }}>{icon}</div>}
-      <h3 style={{ margin: '0 0 8px', fontSize: '1.125rem', fontWeight: 600 }}>{title}</h3>
-      {description && (
-        <p
-          style={{ margin: '0 0 24px', fontSize: '0.875rem', color: '#6b7280', maxWidth: '360px' }}
-        >
-          {description}
-        </p>
-      )}
+      {icon && <div className="mb-4 text-text-muted">{icon}</div>}
+      <h3 className="mb-2 text-lg font-semibold text-text-primary">{title}</h3>
+      {description && <p className="mb-6 max-w-sm text-sm text-text-muted">{description}</p>}
       {action && <Button onClick={action.onClick}>{action.label}</Button>}
     </div>
   );

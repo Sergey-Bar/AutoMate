@@ -8,7 +8,7 @@ describe('Popover', () => {
       <Popover>
         <PopoverTrigger data-testid="trigger">Open</PopoverTrigger>
         <PopoverContent data-testid="content">Content</PopoverContent>
-      </Popover>
+      </Popover>,
     );
     expect(screen.getByTestId('trigger')).toBeInTheDocument();
     expect(screen.queryByTestId('content')).not.toBeInTheDocument();
@@ -19,7 +19,7 @@ describe('Popover', () => {
       <Popover>
         <PopoverTrigger data-testid="trigger">Open</PopoverTrigger>
         <PopoverContent data-testid="content">Content</PopoverContent>
-      </Popover>
+      </Popover>,
     );
 
     fireEvent.click(screen.getByTestId('trigger'));
