@@ -109,16 +109,25 @@ const PLACEHOLDER_VALUES = new Set([
   'xxx',
   'yourpassword',
   'mypassword',
-  'hunter2',
   'local',
   'local-only',
   'automate',
   'postgres',
   'user',
 ]);
+// `hunter2` is deliberately **not** here. It is a famous placeholder, and it is
+// also a password that appears in real breach corpora — and a secret scanner
+// exists for the second reading. The self-test asserts it still matches, which is
+// how this list is kept honest: adding a name here is a claim that the value is
+// never a credential, and the test says whether that claim still holds.
 
 /**
- * A credential-shaped value whose userinfo is the placeholder convention.
+ * A credential-shaped value whose password is the placeholder convention.
+ *
+ * The **password** is judged, not the userinfo. `user` is a generic username in
+ * every example and in a great many real fixtures, so treating it as a signal
+ * would excuse `user:hunter2` — a real password behind a generic name. The
+ * password is the secret, so the password decides.
  *
  * @param {string} value
  * @returns {boolean}
@@ -126,9 +135,7 @@ const PLACEHOLDER_VALUES = new Set([
 function isPlaceholderConnectionString(value) {
   const match = /^[a-z][a-z0-9+.-]*:\/\/([^/:@]+):([^/@]+)@/i.exec(value);
   if (match === null) return false;
-  const user = (match[1] ?? '').toLowerCase();
-  const password = (match[2] ?? '').toLowerCase();
-  return PLACEHOLDER_VALUES.has(user) || PLACEHOLDER_VALUES.has(password);
+  return PLACEHOLDER_VALUES.has((match[2] ?? '').toLowerCase());
 }
 
 /**
@@ -228,8 +235,14 @@ function selfTest() {
     ['digest only', 'checksum=' + 'a'.repeat(64), false],
     ['placeholder', 'COOKIE_SECRET=replace-with-at-least-32-characters', false],
     ['env reference', 'const key = process.env.AUTOMATE_API_KEY;', false],
-    // A documented example in a comment is not a credential. Comments are
-    // stripped before scanning, so this is not reported.
+    // The placeholder convention, recognised by name rather than by exempting the
+    // files that use it: `user:pass@` is this tree's documented example form and
+    // appears in doc comments and loopback test fixtures.
+    [
+      'documented connection string',
+      'DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/automate',
+      false,
+    ],
     ['documented example', '// e.g. postgresql://user:pass@host:5432/db' + '\n', false],
     ['block comment example', `/** ${aws} */\n`, false],
   ];
