@@ -180,15 +180,19 @@ describe('DurableRealtimeBus', () => {
     expect(await readPage(feed)).toHaveLength(1);
   });
 
-  it('rejects after retrying when the outbox write keeps failing', async () => {
+  it('logs and resolves when the outbox write keeps failing, rather than rejecting', async () => {
+    // `publish` is a reporting concern called from the middle of request
+    // handling and store transactions. Rethrowing after the retry budget let a
+    // failing outbox fail the write it was reporting on — a monitoring path
+    // taking down the service it observes.
     const failure = new Error('outbox unavailable');
     const feed: DurableRealtimeWriter = { append: async () => Promise.reject(failure) };
-    const bus = new DurableRealtimeBus(feed, 'workspace-a');
+    const bus = new DurableRealtimeBus(feed, 'workspace-a', 24, 2, 1);
     const received: RealtimeBusEvent[] = [];
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     bus.subscribe((event) => received.push(event));
 
-    await expect(bus.publish(runUpdated())).rejects.toBe(failure);
+    await expect(bus.publish(runUpdated())).resolves.toBeUndefined();
 
     expect(received).toEqual([]);
     expect(logged).toHaveBeenCalledWith('durable realtime publish failed', failure);
