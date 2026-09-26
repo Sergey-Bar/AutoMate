@@ -9,6 +9,7 @@ import type { CanonicalRealtimeEvent, RealtimeBus } from '../realtime/realtime-b
 import { createGateEvaluation, defaultPolicy } from '../execution/quality-gate.js';
 import { listIntegrationMaturity } from '../execution/maturity.js';
 import { DEFAULT_MAX_ARTIFACT_BYTES } from '../infrastructure/s3-artifact-bytes.js';
+import { isDomainError } from '../errors/domain-error.js';
 import { createRunnerToken, hashRunnerToken } from '../execution/in-memory-execution-store.js';
 import { toCanonicalRun } from '../execution/canonical.js';
 import type {
@@ -1081,8 +1082,15 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
         eventSequences,
       );
       return c.json(descriptor, 201);
-    } catch {
-      return error(c, 400, 'ARTIFACT_STORAGE_FAILED', 'Artifact could not be stored');
+    } catch (failure) {
+      // 400 said "your request was wrong". Nothing about the request is wrong
+      // when the object store is unreachable, full, or refusing — a caller that
+      // believed a 400 would not retry, and an operator reading the access log
+      // would go looking for a bad request that never existed. `addArtifact` also
+      // inserts a row, so this can be a constraint violation rather than a
+      // storage fault; the boundary classifies whichever it is and records it.
+      if (isDomainError(failure)) throw failure;
+      return error(c, 503, 'ARTIFACT_STORAGE_FAILED', 'Artifact storage is unavailable');
     }
   });
 
