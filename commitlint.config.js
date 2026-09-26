@@ -42,6 +42,11 @@ export default {
         'plan',
         'security',
         'release',
+        // Cross-cutting: appears in both apps and both build pipelines. Listed
+        // here because the tree now has the subsystem, not to accommodate one
+        // commit — a scope that names nothing real is how the vocabulary stops
+        // meaning anything.
+        'observability',
       ],
     ],
   },
