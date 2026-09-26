@@ -19,6 +19,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { FRESHNESS_IGNORED_DIRECTORIES, staleCoverageFinding } from './lib/coverage-freshness.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = path.join(root, 'coverage-baseline.json');

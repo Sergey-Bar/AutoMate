@@ -32,25 +32,6 @@
     "@automate/ui#build": {
       "dependsOn": ["^build"],
       "outputs": []
-    },
-    "@automate/auth#test": { "outputs": [] },
-    "@automate/db#test": { "outputs": [] },
-    "@automate/migrate-cli#test": { "outputs": [] },
-    "@automate/realtime#test": { "outputs": [] },
-    "@automate/shared-contracts#test": { "outputs": [] },
-    "@automate/reporting#test": { "outputs": [] },
-    "@automate/reporter#test": { "outputs": [] },
-    "@automate/contract-tests#test": { "outputs": [] },
-    "@automate/integration-tests#test": { "outputs": [] },
-    "@automate/ui#test": { "outputs": [] },
-    "@automate/automation#test": { "outputs": [] },
-    "@automate/config#test": { "outputs": [] },
-    "@automate/connectors-sdk#test": { "outputs": [] },
-    "@automate/connectors-github#test": { "outputs": [] },
-    "@automate/connectors-jira#test": { "outputs": [] },
-    "@automate/connectors-slack#test": { "outputs": [] },
-    "@automate/runner-sdk#test": { "outputs": [] },
-    "@automate/orchestration#test": { "outputs": [] },
-    "@automate/runner#test": { "outputs": [] }
+    }
   }
 }

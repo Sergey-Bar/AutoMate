@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "pretest": "pnpm --filter @automate/db build",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings=0 src/"
   },

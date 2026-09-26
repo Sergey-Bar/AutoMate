@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint --max-warnings=0 src/",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "@automate/shared-contracts": "workspace:*",
