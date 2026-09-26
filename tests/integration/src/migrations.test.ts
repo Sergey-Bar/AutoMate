@@ -152,6 +152,7 @@ describe('migration graph', () => {
       '0008_one_event_version',
       '0009_enum_constraints',
       '0010_drop_duplicate_audit',
+      '0011_bound_event_append_queries',
     ]);
   });
 

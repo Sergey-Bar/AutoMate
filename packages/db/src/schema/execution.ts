@@ -284,6 +284,25 @@ export const runEvents = pgTable(
     uniqueIndex('run_events_run_hash_unique').on(table.runId, table.hash),
     index('run_events_run_received_idx').on(table.runId, table.receivedAt),
     index('run_events_workspace_received_idx').on(table.workspaceId, table.receivedAt),
+    // Partial: only the terminal rows. `appendEvents` asks "has this run already
+    // completed?" on every batch, and without this the question scans the run's
+    // whole event history — so the cost of appending grew with how long the run
+    // had been going rather than with the size of the batch.
+    index('run_events_terminal_idx')
+      .on(table.runId)
+      .where(sql`${table.type} = 'run.completed'`),
+    // Leading on `event_key` alone, so the dedupe lookup has exactly one index
+    // that can serve it.
+    //
+    // The predicate is `event_key IN (…)`, and `event_key` is
+    // `${runId}:${eventId}` — so the list is already run-scoped and dropping
+    // `workspace_id` from the predicate costs no selectivity. It matters because
+    // naming columns in a `WHERE` clause does **not** bound a read: with
+    // `(workspace_id, event_id)` in the predicate the planner still preferred
+    // `run_events_workspace_received_idx` and applied `event_id` as a filter,
+    // which reads every event in the workspace. This index leaves it no cheaper
+    // alternative.
+    index('run_events_event_key_idx').on(table.eventKey),
     check('run_events_sequence_check', sql`${table.sequence} > 0`),
     check('run_events_hash_check', sql`${table.hash} ~ '^[0-9a-f]{64}$'`),
     check('run_events_fencing_token_check', sql`${table.fencingToken} >= 0`),
