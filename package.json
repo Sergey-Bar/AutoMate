@@ -47,14 +47,15 @@
     "security:config-check": "node ./scripts/static-analysis-config-check.mjs",
     "security:secrets:self-test": "node ./scripts/secret-scan.mjs --self-test",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "duplication": "jscpd --config .jscpd.json",
+    "duplication": "node ./scripts/duplication-gate.mjs",
     "complexity": "node ./scripts/complexity-gate.mjs",
     "complexity:baseline": "node ./scripts/complexity-gate.mjs --write",
     "quality:baseline": "node ./scripts/quality-baseline.mjs",
     "test:coverage": "turbo run test -- --coverage && node ./scripts/write-coverage-provenance-all.mjs",
     "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs",
     "docs:capability-register": "node ./scripts/capability-register.mjs",
-    "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline"
+    "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline",
+    "duplication:baseline": "node ./scripts/duplication-gate.mjs --record"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",

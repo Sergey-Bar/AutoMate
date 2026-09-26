@@ -1,0 +1,12 @@
+{
+  "measuredAt": "2026-09-26",
+  "threshold": 3,
+  "clones": 30,
+  "duplicatedLines": 494,
+  "duplicatedTokens": 2665,
+  "lines": 35328,
+  "percentage": 1.3983242753623188,
+  "percentageTokens": 1.330856392355441,
+  "sources": 275,
+  "tokens": 200247
+}

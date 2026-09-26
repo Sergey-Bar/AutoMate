@@ -11,7 +11,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs"
+    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",
+    "lint": "eslint --max-warnings=0 src/"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",

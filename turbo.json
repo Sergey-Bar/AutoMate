@@ -8,7 +8,16 @@
     "tsconfig*.json",
     "eslint.config.js",
     ".prettierrc",
-    ".prettierignore"
+    ".prettierignore",
+    "vitest.config.ts",
+    "vitest.shared.ts",
+    "playwright.config.ts",
+    "commitlint.config.js",
+    "coverage-baseline.json",
+    "docs/quality/complexity-baseline.json",
+    ".semgrep.yml",
+    ".gitleaks.toml",
+    ".jscpd.json"
   ],
   "tasks": {
     "build": {

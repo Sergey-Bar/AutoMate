@@ -7,7 +7,8 @@
   "scripts": {
     "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint --max-warnings=0 src/"
+    "lint": "eslint --max-warnings=0 src/",
+    "build": "echo 'test-only package, no build needed'"
   },
   "dependencies": {
     "@automate/realtime": "workspace:*",
