@@ -38,7 +38,7 @@
     "security:scan": "pnpm audit --audit-level=high",
     "security:secrets": "node ./scripts/secret-scan.mjs",
     "license:check": "node ./scripts/license-check.mjs",
-    "security:verify": "pnpm audit --audit-level=high && pnpm security:secrets:self-test && pnpm security:secrets && pnpm security:config-check && pnpm security:static && node ./scripts/license-check.mjs && pnpm duplication && pnpm complexity",
+    "security:verify": "pnpm audit --audit-level=high && pnpm security:secrets:self-test && pnpm security:secrets && pnpm security:config-check && pnpm security:static && node ./scripts/license-check.mjs && pnpm duplication && pnpm complexity && pnpm docs:capability-register",
     "verify": "pnpm unify:preflight && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract && pnpm test:integration && pnpm test:runner && pnpm coverage:ratchet && pnpm build && pnpm db:check && pnpm security:verify",
     "verify:release": "pnpm verify && pnpm oci:verify",
     "security:static": "node ./scripts/static-analysis.mjs",
@@ -50,7 +50,9 @@
     "complexity:baseline": "node ./scripts/complexity-gate.mjs --write",
     "quality:baseline": "node ./scripts/quality-baseline.mjs",
     "test:coverage": "turbo run test -- --coverage && node ./scripts/write-coverage-provenance-all.mjs",
-    "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs"
+    "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs",
+    "docs:capability-register": "node ./scripts/capability-register.mjs",
+    "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.5.3",
