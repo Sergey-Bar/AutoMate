@@ -765,10 +765,45 @@ describe('Reporter routes — upload ingestion', () => {
 
     const tests = await repo.listTests('upload-playwright-branches-001');
     expect(tests).toHaveLength(4);
-    expect(tests.some((t) => t.status === 'timedOut')).toBe(true);
+    // Playwright reports `timedOut`; it is stored in the one spelling the
+    // database accepts, so the two can no longer be counted separately.
+    expect(tests.some((t) => t.status === 'timed_out')).toBe(true);
     expect(tests.some((t) => t.status === 'failed')).toBe(true);
     expect(tests.some((t) => t.status === 'skipped')).toBe(true);
     expect(tests.some((t) => t.status === 'queued')).toBe(true);
+  });
+
+  it('stores a Playwright timeout under one spelling, whatever the reporter sends', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+    for (const [index, status] of ['timedOut', 'timed_out'].entries()) {
+      const form = new FormData();
+      form.set('runId', `upload-spelling-${index}`);
+      form.set('artifactType', 'playwright-json');
+      form.set(
+        'file',
+        new File(
+          [
+            JSON.stringify({
+              suites: [
+                {
+                  title: 'suite',
+                  file: 'tests/a.spec.ts',
+                  specs: [{ title: 'hangs', tests: [{ results: [{ status, duration: 1 }] }] }],
+                  suites: [],
+                },
+              ],
+            }),
+          ],
+          'report.json',
+          { type: 'application/json' },
+        ),
+      );
+      const res = await app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
+      expect(res.status).toBe(202);
+      const tests = await repo.listTests(`upload-spelling-${index}`);
+      expect(tests[0]?.status, `input spelling ${status}`).toBe('timed_out');
+    }
   });
 
   it('parses junit skipped and error outcomes, and fails closed on an undeclared one', async () => {

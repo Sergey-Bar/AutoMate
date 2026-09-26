@@ -114,7 +114,20 @@ const UploadedTestSchema = z
     testId: z.string().min(1).optional(),
     title: z.string().min(1),
     file: z.string().default(''),
-    status: z.enum(['running', 'passed', 'failed', 'flaky', 'skipped', 'timedOut', 'queued']),
+    // Both spellings are accepted on the way in — Playwright emits `timedOut`
+    // and other reporters send `timed_out`, and rejecting one of them would fail
+    // a real upload. `normalizeTestStatus` collapses them to the single stored
+    // spelling, so the database never holds two names for one state.
+    status: z.enum([
+      'running',
+      'passed',
+      'failed',
+      'flaky',
+      'skipped',
+      'timedOut',
+      'timed_out',
+      'queued',
+    ]),
     durationMs: z.number().nonnegative().nullable().optional(),
   })
   .refine((value) => Boolean(value.id ?? value.testId), {
@@ -186,7 +199,8 @@ function countStatuses(tests: ReadonlyArray<z.infer<typeof UploadedTestSchema>>)
   let skipped = 0;
   for (const test of tests) {
     if (test.status === 'passed') passed += 1;
-    if (test.status === 'failed' || test.status === 'timedOut') failed += 1;
+    if (test.status === 'failed' || test.status === 'timedOut' || test.status === 'timed_out')
+      failed += 1;
     if (test.status === 'flaky') flaky += 1;
     if (test.status === 'skipped') skipped += 1;
   }
@@ -212,7 +226,7 @@ function deriveUploadStatus(
   const derived = countStatuses(tests);
   if (tests.length === 0) return UNDETERMINED_RUN_STATUS;
   if ((summary?.failed ?? derived.failed) > 0) return 'failed';
-  if (tests.some((test) => UNRESOLVED_TEST_STATUSES.has(test.status))) {
+  if (tests.some((test) => UNRESOLVED_TEST_STATUSES.has(normalizeTestStatus(test.status)))) {
     return UNDETERMINED_RUN_STATUS;
   }
   if ((summary?.passed ?? derived.passed) === 0) return UNDETERMINED_RUN_STATUS;
@@ -225,7 +239,7 @@ function normalizeUploadPayload(payload: ReporterUploadPayload): ReporterUploadP
     testId: test.testId,
     title: test.title,
     file: sanitizePath(test.file),
-    status: test.status,
+    status: normalizeTestStatus(test.status),
     durationMs: test.durationMs,
   }));
 
@@ -421,10 +435,22 @@ function convertPlaywrightJsonToUpload(
 function mapPlaywrightStatus(status: string): TestStatus {
   if (status === 'passed') return 'passed';
   if (status === 'failed') return 'failed';
-  if (status === 'timedOut') return 'timedOut';
+  if (status === 'timedOut' || status === 'timed_out') return 'timed_out';
   if (status === 'skipped') return 'skipped';
   if (status === 'interrupted') return 'failed';
   return 'queued';
+}
+
+/**
+ * The one spelling a test status is stored and compared in.
+ *
+ * The upload schema admits both `timedOut` (what Playwright emits) and
+ * `timed_out` (what other reporters send), because rejecting either would fail a
+ * real upload. Everything downstream sees one value, so a timeout cannot be
+ * counted as an unobserved test in one place and a failure in another.
+ */
+function normalizeTestStatus(status: string): TestStatus {
+  return status === 'timedOut' ? 'timed_out' : (status as TestStatus);
 }
 
 /**
@@ -567,7 +593,7 @@ async function persistUploadPayload(
       runId: payload.runId,
       title: test.title,
       file: sanitizePath(test.file),
-      status: test.status,
+      status: normalizeTestStatus(test.status),
       durationMs: test.durationMs ?? null,
     });
   }

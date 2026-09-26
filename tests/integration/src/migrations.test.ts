@@ -10,6 +10,7 @@ import {
   constraintNames,
   createMigratedDatabase,
   readMigrations,
+  readMigrationStateValues,
   tableNames,
 } from './migrations.js';
 
@@ -125,7 +126,23 @@ describe('migration graph', () => {
       '0004_orange_hellfire_club',
       '0005_canonical_run_results',
       '0006_fail_closed_controls',
+      '0007_one_status_spelling',
     ]);
+  });
+
+  it('permits one spelling per test status, so an aggregation cannot split a state', async () => {
+    // `tests.status` accepted both `timedOut` and `timed_out`, and nothing
+    // reads the camelCase one — it mapped back to `unknown`, so a timed-out test
+    // read as unobserved and a GROUP BY produced two rows for one state.
+    const live = 'timed_out';
+    const dead = 'timedOut';
+    const names = new Set<string>(await readMigrationStateValues(shared, 'tests', 'status'));
+    expect(names.has(live)).toBe(true);
+    expect(names.has(dead)).toBe(false);
+    // And no state appears under two spellings once the list is folded: two
+    // values that differ only in case or separators are one state spelled twice.
+    const folded = [...names].map((state) => state.replace(/[_-]/g, '').toLowerCase());
+    expect(folded.filter((state, index) => folded.indexOf(state) !== index)).toEqual([]);
   });
 
   it('creates canonical_run_results, including every column the schema declares', async () => {

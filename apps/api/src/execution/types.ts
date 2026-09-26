@@ -42,6 +42,30 @@ export type ExecutionTestStatus =
   | 'timed_out';
 
 export type JobState = 'queued' | 'leased' | 'completed' | 'failed' | 'cancelled' | 'requeued';
+
+/**
+ * One page of runs.
+ *
+ * Paged rather than the whole history: the listing is the dashboard's first
+ * request, and an unbounded list materialised every run in the install with its
+ * tests and artifacts — a query whose cost grew with the workspace rather than
+ * with the page.
+ */
+export interface RunPage {
+  runs: ExecutionRun[];
+  /** True when at least one run remains after this page. */
+  hasMore: boolean;
+}
+
+export interface RunPageOptions {
+  limit?: number;
+  /**
+   * An opaque cursor: the `createdAt|id` of the last run on the previous page.
+   * Both halves matter, because a creation time alone is not unique and paging
+   * on a non-unique key silently skips or repeats rows.
+   */
+  after?: string;
+}
 export type RunnerHealth = 'healthy' | 'degraded' | 'draining' | 'offline' | 'revoked';
 export type GateStatus = 'passed' | 'failed' | 'warning' | 'unknown' | 'not_evaluated';
 export type ReleaseDecision = 'ready' | 'ready_with_warnings' | 'blocked' | 'unknown';
@@ -386,7 +410,18 @@ export interface ExecutionStore {
     idempotencyKey: string,
     workspaceId?: string,
   ): Promise<CreateRunResult>;
-  listRuns(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]>;
+  /**
+   * A page of runs.
+   *
+   * Paged rather than returning the whole history: the listing is the dashboard's
+   * first request, and an unbounded list materialised every run with its tests
+   * and artifacts. `hasMore` is reported so a caller can stop.
+   */
+  listRuns(
+    workspaceId?: string,
+    releaseId?: string,
+    options?: { limit?: number; after?: string },
+  ): Promise<RunPage>;
   list(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]>;
   getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null>;
   get(runId: string, workspaceId?: string): Promise<ExecutionRun | null>;

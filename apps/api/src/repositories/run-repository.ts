@@ -28,13 +28,22 @@ export interface RunRecord {
   triggeredBy: string;
 }
 
+/**
+ * The status of a stored test.
+ *
+ * `timed_out`, not `timedOut`: the column holds the snake_case spelling, and
+ * migration 0007 removed the camelCase duplicate. A test record cast straight
+ * from the row was carrying both, so a `timedOut` row presented as a type the
+ * database never stores — and any consumer comparing it against a real value
+ * found no match.
+ */
 export type TestStatus =
   | 'running'
   | 'passed'
   | 'failed'
   | 'flaky'
   | 'skipped'
-  | 'timedOut'
+  | 'timed_out'
   | 'queued';
 
 export interface TestRecord {

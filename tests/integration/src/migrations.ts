@@ -175,3 +175,32 @@ export async function tableNames(client: PGlite): Promise<string[]> {
   );
   return result.rows.map((row) => row.table_name);
 }
+
+/**
+ * The values a `CHECK` constraint permits for a column, read from the live
+ * catalogue.
+ *
+ * The Drizzle `enum` on a `text` column is compile-time only, so a test that
+ * compared it against a restated list would prove nothing. This reads the
+ * constraint PostgreSQL actually enforces.
+ */
+export async function readMigrationStateValues(
+  client: PGlite,
+  table: string,
+  column: string,
+): Promise<string[]> {
+  const result = await client.query<{ pg_get_constraintdef: string }>(
+    `SELECT pg_get_constraintdef(c.oid) AS pg_get_constraintdef
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+      WHERE t.relname = $1 AND c.conname = $2`,
+    [table, `${table}_${column}_check`],
+  );
+  const definition = result.rows[0]?.pg_get_constraintdef;
+  if (definition === undefined) {
+    throw new Error(`${table}_${column}_check not found; the constraint is not enforced`);
+  }
+  return [...definition.matchAll(/'([a-z_]+)'/g)]
+    .map((match) => match[1])
+    .filter((value): value is string => value !== undefined);
+}

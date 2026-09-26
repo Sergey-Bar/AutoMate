@@ -283,12 +283,16 @@ export const tests = pgTable(
     column: integer('column'),
     stableId: text('stable_id'),
     status: text('status', {
+      // `timed_out` and `timedOut` were both accepted here. Nothing writes or
+      // reads the camelCase spelling — `testStatus()` maps it to `unknown` on
+      // the way back out — so a `timedOut` row was a timed-out test that read as
+      // unobserved, and a `GROUP BY status` split one logical state into two
+      // rows. Migration 0007 normalises any such row and adds the CHECK.
       enum: [
         'passed',
         'failed',
         'flaky',
         'skipped',
-        'timedOut',
         'timed_out',
         'running',
         'queued',
@@ -313,6 +317,13 @@ export const tests = pgTable(
     primaryKey({ columns: [t.id, t.runId] }),
     index('tests_run_id_idx').on(t.runId),
     index('tests_stable_id_idx').on(t.stableId),
+    // The enum is compile-time only, so the spellings it permits are not
+    // enforced by the database. Without this a second spelling of a state can
+    // reappear and split every aggregation.
+    check(
+      'tests_status_check',
+      sql`${t.status} in ('passed', 'failed', 'flaky', 'skipped', 'timed_out', 'running', 'queued', 'blocked', 'cancelled', 'unknown')`,
+    ),
   ],
 );
 

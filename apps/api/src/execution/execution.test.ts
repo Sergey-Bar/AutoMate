@@ -37,7 +37,7 @@ describe('InMemoryExecutionStore', () => {
     const duplicate = await store.createRun({ projectId: 'project' }, 'key-1');
     expect(duplicate.duplicate).toBe(true);
     expect(duplicate.run.id).toBe(first.run.id);
-    expect((await store.listRuns()).length).toBe(1);
+    expect((await store.listRuns()).runs).toHaveLength(1);
     const cancelled = await store.cancelRun(first.run.id);
     expect(cancelled?.phase).toBe('cancelled');
     const retry = await store.retryRun(first.run.id);
