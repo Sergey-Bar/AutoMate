@@ -14,6 +14,7 @@
     "@automate/realtime": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
     "@automate/ui": "workspace:*",
+    "@sentry/react": "catalog:",
     "@tanstack/react-router": "^1.96.1",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "catalog:",
+    "@sentry/vite-plugin": "catalog:",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "^6.4.0",
