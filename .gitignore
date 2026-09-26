@@ -8,10 +8,15 @@ build/
 *.tsbuildinfo
 
 # Environment
+# `.env.*` covers every real environment file, so the two placeholder files have
+# to be excepted by name. `.env.compose.example` was added with the compose
+# secret guards and was silently excluded by this rule, which would have left
+# `${VAR:?set VAR}` in the compose files with no documented way to satisfy them.
 .env
 .env.*
 !.env.example
 !.env.production.example
+!.env.compose.example
 
 # OS
 .DS_Store

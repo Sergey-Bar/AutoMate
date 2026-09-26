@@ -1,0 +1,41 @@
+{
+  "$comment": [
+    "Duplication budget for the maintained source tree.",
+    "",
+    "The measured baseline at the time this was written is 1.61% of TypeScript",
+    "lines and 1.49% of tokens, so the 3% floor has real headroom and will catch",
+    "newly introduced copy-paste without blocking ordinary work. Whole-repo",
+    "duplication reads 30% only because it counts YAML, Markdown and lockfiles,",
+    "which is not what a duplication budget is for — so this is scoped to source.",
+    "",
+    "Tests are excluded: two table-driven suites that assert the same rule from",
+    "opposite directions is a feature, not a clone. Generated files are excluded",
+    "because they are not maintained by hand."
+  ],
+  "threshold": 3,
+  "reporters": ["console", "json"],
+  "output": "./var/jscpd",
+  "absolute": true,
+  "gitignore": true,
+  "pattern": "**/*.{ts,tsx,js,mjs,cjs}",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/var/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "**/blob-report/**",
+    "**/.turbo/**",
+    "**/.git/**",
+    "**/.kilo/**",
+    "**/*.d.ts",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/__tests__/**"
+  ],
+  "minLines": 10,
+  "minTokens": 50
+}
