@@ -21,7 +21,39 @@ export const TestStatusSchema = z.enum([
 ]);
 export type TestStatus = z.infer<typeof TestStatusSchema>;
 
-export const RunStatusSchema = z.enum(['running', 'passed', 'failed', 'interrupted', 'queued']);
+/**
+ * The one run-status vocabulary.
+ *
+ * This was declared five times across three packages — the `runs.status` column,
+ * `RunStatusSchema`, the API's `RunStatus` type, the dashboard's
+ * `VALID_STATUSES`, and the reporter's upload schema — in **two** variants, one
+ * with `queued` and one without. So `RunStatusSchema.safeParse('queued')`
+ * succeeded while the `runs_status_check` constraint would have rejected the
+ * value: the contract accepted a state the database refused.
+ *
+ * `shared-contracts` is the authority because it is the leaf every other package
+ * depends on. `packages/db` cannot import it — it is itself a leaf, below the
+ * contracts — so its column keeps a literal list, and
+ * `run-status-vocabulary.test.ts` reads the real constraint and proves the
+ * column's set is exactly this one minus `queued`. That is the only direction
+ * that is safe: the column may hold less than the contract, never more.
+ */
+export const RUN_STATUS_VALUES = ['running', 'passed', 'failed', 'interrupted', 'queued'] as const;
+
+/**
+ * The statuses the `runs.status` column persists, which is
+ * {@link RUN_STATUS_VALUES} without `queued`.
+ *
+ * `queued` is the column's *default* — a run row exists before it has started —
+ * but the Drizzle enum never listed it, so the `runs_status_check` constraint
+ * rejected a row written with the default. Kept here so the relationship is
+ * declared once and the schema test can hold the two together.
+ */
+export const PERSISTED_RUN_STATUS_VALUES = RUN_STATUS_VALUES.filter(
+  (status) => status !== 'queued',
+) as readonly Exclude<(typeof RUN_STATUS_VALUES)[number], 'queued'>[];
+
+export const RunStatusSchema = z.enum(RUN_STATUS_VALUES);
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 
 // ---------------------------------------------------------------------------

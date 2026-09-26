@@ -133,9 +133,7 @@ function isSizeArgument(argument: string): boolean {
  */
 function isColorName(argument: string): boolean {
   if (!/^[a-z]/.test(argument)) return false;
-  return argument
-    .split('-')
-    .every((part) => /^[a-z0-9]+$/.test(part));
+  return argument.split('-').every((part) => /^[a-z0-9]+$/.test(part));
 }
 
 const COLOR_DECLARATIONS =
