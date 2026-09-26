@@ -122,4 +122,89 @@ describe('quality gate policy evaluation', () => {
     expect(result.evidenceRefs).toContain('artifact:artifact-1');
     expect(result.policyVersion).toBe('2');
   });
+
+  describe('a green claim with nothing behind it', () => {
+    // Every threshold above sits behind `if (summary.total > 0)`, so a run with
+    // no tests evaluated nothing at all and could gate `ready`.
+    const emptyRun = (outcome: 'passed' | 'failed') => ({
+      ...run(outcome),
+      tests: [],
+      rawEvidenceRefs: ['report:test-result'],
+      summary: {
+        total: 0,
+        passed: 0,
+        failed: 0,
+        flaky: 0,
+        skipped: 0,
+        blocked: 0,
+        unknown: 0,
+        durationMs: null,
+      },
+    });
+
+    it('refuses to pass a run that executed nothing', () => {
+      const result = evaluateQualityGate({
+        run: emptyRun('passed'),
+        policy: defaultPolicy('workspace-1'),
+        domainStatuses: { browser: 'passed' },
+      });
+      expect(result.status).toBe('failed');
+      expect(result.decision).toBe('blocked');
+      expect(result.reasons).toContain('evidence:NO_TESTS');
+    });
+
+    it('still reports the failure honestly for a run that did execute', () => {
+      const result = evaluateQualityGate({
+        run: { ...emptyRun('failed'), tests: run('failed', 'failed').tests },
+        policy: defaultPolicy('workspace-1'),
+        domainStatuses: { browser: 'passed' },
+      });
+      expect(result.reasons).not.toContain('evidence:NO_TESTS');
+    });
+
+    it('passes a run whose total is zero but which recorded a real test', () => {
+      // The count and the array must agree before a claim is refused: a run can
+      // legitimately carry a zero total with a test present if the reporter
+      // omitted the summary.
+      const result = evaluateQualityGate({
+        run: { ...emptyRun('passed'), tests: run('passed').tests },
+        policy: defaultPolicy('workspace-1'),
+        domainStatuses: { browser: 'passed' },
+      });
+      expect(result.reasons).not.toContain('evidence:NO_TESTS');
+    });
+  });
+
+  describe('the gate evaluation id matches the upsert conflict target', () => {
+    it('includes the policy hash, so a policy update updates rather than collides', () => {
+      // `DrizzleExecutionStore.saveGate` upserts on
+      // [runId, releaseId, policyId, policyVersion, policyHash]. An id without
+      // the hash is a different primary key for the same row, so the first
+      // policy update raised a unique violation instead of updating.
+      const policy = { ...defaultPolicy('workspace-1'), id: 'policy-1', version: '1' };
+      const runForGate = {
+        ...run('passed'),
+        id: 'run-1',
+        workspaceId: 'workspace-1',
+        releaseId: null,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      } as never;
+
+      const first = createGateEvaluation({ run: runForGate, policy: { ...policy, hash: 'aaa' } });
+      const unchanged = createGateEvaluation({
+        run: runForGate,
+        policy: { ...policy, hash: 'aaa' },
+      });
+      const updated = createGateEvaluation({ run: runForGate, policy: { ...policy, hash: 'bbb' } });
+
+      // Same policy: the same row, so the upsert is a no-op rather than a
+      // second insert under a different primary key.
+      expect(unchanged.id).toBe(first.id);
+      // Different policy content: a genuinely different evaluation.
+      expect(updated.id).not.toBe(first.id);
+      // And the hash is part of the id, not only a column beside it.
+      expect(first.id).toContain(first.policyHash);
+      expect(updated.id).toContain(updated.policyHash);
+    });
+  });
 });
