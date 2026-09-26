@@ -3,6 +3,7 @@ import path from 'node:path';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
+import { ExecutionEventLineSchema } from '@automate/shared-contracts';
 import type { RunRecord, RunRepository } from '../repositories/run-repository.js';
 import type { CanonicalRealtimeEvent, RealtimeBus } from '../realtime/realtime-bus.js';
 import { createGateEvaluation, defaultPolicy } from '../execution/quality-gate.js';
@@ -136,15 +137,19 @@ const ClaimSchema = z
   })
   .passthrough();
 
-const EventSchema = z
-  .object({
-    eventId: z.string().min(1),
-    sequence: z.number().int().positive(),
-    type: z.string().min(1),
-    occurredAt: z.string().datetime({ offset: true }).optional(),
-    payload: z.record(z.string(), z.unknown()).optional(),
-  })
-  .passthrough();
+// The shape a runner writes and this API reads, from the contract both sides
+// already depend on. The local copy was field-for-field identical but validated
+// `occurredAt` as "any `Date.parse`-able string" while this handler's own batch
+// schema demanded an offset — so a runner could pass its own parser and be
+// rejected on ingest. One schema, one rule.
+//
+// `occurredAt` is relaxed to optional here, and only here: a *reader* may
+// tolerate an absent timestamp because the store falls back to arrival time,
+// while a producer that omits one is a bug. Tightening the reader would reject
+// batches this API has always accepted.
+const EventSchema = ExecutionEventLineSchema.extend({
+  occurredAt: z.string().datetime({ offset: true }).optional(),
+}).passthrough();
 
 const EventBatchSchema = z
   .object({

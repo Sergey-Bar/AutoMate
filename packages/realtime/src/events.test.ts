@@ -7,8 +7,8 @@
  */
 
 import {
-  ReporterEventSchema,
-  RealtimeEventSchema,
+  FlatReporterEventSchema,
+  FlatRealtimeEventSchema,
   RunStartedEventSchema,
   RunCompletedEventSchema,
   RunUpdatedEventSchema,
@@ -29,10 +29,10 @@ function fail(result: { success: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// ReporterEventSchema — run:started
+// FlatReporterEventSchema — run:started
 // ---------------------------------------------------------------------------
 
-describe('ReporterEventSchema — run:started', () => {
+describe('FlatReporterEventSchema — run:started', () => {
   const valid = {
     type: 'run:started',
     version: '1',
@@ -42,34 +42,34 @@ describe('ReporterEventSchema — run:started', () => {
   };
 
   it('parses a valid run:started event', () => {
-    ok(ReporterEventSchema.safeParse(valid));
+    ok(FlatReporterEventSchema.safeParse(valid));
   });
 
   it('rejects wrong version', () => {
-    fail(ReporterEventSchema.safeParse({ ...valid, version: '2' }));
+    fail(FlatReporterEventSchema.safeParse({ ...valid, version: '2' }));
   });
 
   it('rejects missing runId', () => {
     const { runId: _runId, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 
   it('rejects missing projectName', () => {
     const { projectName: _p, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 
   it('rejects missing startedAt', () => {
     const { startedAt: _s, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 });
 
 // ---------------------------------------------------------------------------
-// ReporterEventSchema — run:completed
+// FlatReporterEventSchema — run:completed
 // ---------------------------------------------------------------------------
 
-describe('ReporterEventSchema — run:completed', () => {
+describe('FlatReporterEventSchema — run:completed', () => {
   const valid = {
     type: 'run:completed',
     version: '1',
@@ -82,28 +82,28 @@ describe('ReporterEventSchema — run:completed', () => {
   };
 
   it('parses a valid run:completed event', () => {
-    ok(ReporterEventSchema.safeParse(valid));
+    ok(FlatReporterEventSchema.safeParse(valid));
   });
 
   it('rejects wrong version', () => {
-    fail(ReporterEventSchema.safeParse({ ...valid, version: '0' }));
+    fail(FlatReporterEventSchema.safeParse({ ...valid, version: '0' }));
   });
 
   it('rejects non-numeric duration', () => {
-    fail(ReporterEventSchema.safeParse({ ...valid, duration: 'fast' }));
+    fail(FlatReporterEventSchema.safeParse({ ...valid, duration: 'fast' }));
   });
 
   it('rejects missing failed field', () => {
     const { failed: _f, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 });
 
 // ---------------------------------------------------------------------------
-// ReporterEventSchema — test:completed
+// FlatReporterEventSchema — test:completed
 // ---------------------------------------------------------------------------
 
-describe('ReporterEventSchema — test:completed', () => {
+describe('FlatReporterEventSchema — test:completed', () => {
   const valid = {
     type: 'test:completed',
     version: '1',
@@ -115,32 +115,32 @@ describe('ReporterEventSchema — test:completed', () => {
   };
 
   it('parses a valid test:completed event', () => {
-    ok(ReporterEventSchema.safeParse(valid));
+    ok(FlatReporterEventSchema.safeParse(valid));
   });
 
   it('rejects wrong version', () => {
-    fail(ReporterEventSchema.safeParse({ ...valid, version: 'v1' }));
+    fail(FlatReporterEventSchema.safeParse({ ...valid, version: 'v1' }));
   });
 
   it('rejects missing testId', () => {
     const { testId: _t, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 
   it('rejects missing title', () => {
     const { title: _t, ...rest } = valid;
-    fail(ReporterEventSchema.safeParse(rest));
+    fail(FlatReporterEventSchema.safeParse(rest));
   });
 });
 
 // ---------------------------------------------------------------------------
-// ReporterEventSchema — unknown type rejection
+// FlatReporterEventSchema — unknown type rejection
 // ---------------------------------------------------------------------------
 
-describe('ReporterEventSchema — unknown type', () => {
+describe('FlatReporterEventSchema — unknown type', () => {
   it('rejects an unknown event type', () => {
     fail(
-      ReporterEventSchema.safeParse({
+      FlatReporterEventSchema.safeParse({
         type: 'run:exploded',
         version: '1',
         runId: 'r-999',
@@ -150,7 +150,7 @@ describe('ReporterEventSchema — unknown type', () => {
 
   it('rejects missing type field entirely', () => {
     fail(
-      ReporterEventSchema.safeParse({
+      FlatReporterEventSchema.safeParse({
         version: '1',
         runId: 'r-999',
       }),
@@ -159,10 +159,10 @@ describe('ReporterEventSchema — unknown type', () => {
 });
 
 // ---------------------------------------------------------------------------
-// RealtimeEventSchema — run:updated
+// FlatRealtimeEventSchema — run:updated
 // ---------------------------------------------------------------------------
 
-describe('RealtimeEventSchema — run:updated', () => {
+describe('FlatRealtimeEventSchema — run:updated', () => {
   const valid = {
     type: 'run:updated',
     version: '1',
@@ -172,24 +172,24 @@ describe('RealtimeEventSchema — run:updated', () => {
   };
 
   it('parses a valid run:updated event', () => {
-    ok(RealtimeEventSchema.safeParse(valid));
+    ok(FlatRealtimeEventSchema.safeParse(valid));
   });
 
   it('rejects wrong version', () => {
-    fail(RealtimeEventSchema.safeParse({ ...valid, version: '2' }));
+    fail(FlatRealtimeEventSchema.safeParse({ ...valid, version: '2' }));
   });
 
   it('rejects missing timestamp', () => {
     const { timestamp: _ts, ...rest } = valid;
-    fail(RealtimeEventSchema.safeParse(rest));
+    fail(FlatRealtimeEventSchema.safeParse(rest));
   });
 });
 
 // ---------------------------------------------------------------------------
-// RealtimeEventSchema — ai:tool
+// FlatRealtimeEventSchema — ai:tool
 // ---------------------------------------------------------------------------
 
-describe('RealtimeEventSchema — ai:tool', () => {
+describe('FlatRealtimeEventSchema — ai:tool', () => {
   const valid = {
     type: 'ai:tool',
     version: '1',
@@ -200,29 +200,29 @@ describe('RealtimeEventSchema — ai:tool', () => {
   };
 
   it('parses a valid ai:tool event', () => {
-    ok(RealtimeEventSchema.safeParse(valid));
+    ok(FlatRealtimeEventSchema.safeParse(valid));
   });
 
   it('rejects wrong version', () => {
-    fail(RealtimeEventSchema.safeParse({ ...valid, version: '' }));
+    fail(FlatRealtimeEventSchema.safeParse({ ...valid, version: '' }));
   });
 
   it('rejects missing toolName', () => {
     const { toolName: _tn, ...rest } = valid;
-    fail(RealtimeEventSchema.safeParse(rest));
+    fail(FlatRealtimeEventSchema.safeParse(rest));
   });
 
   it('rejects missing conversationId', () => {
     const { conversationId: _c, ...rest } = valid;
-    fail(RealtimeEventSchema.safeParse(rest));
+    fail(FlatRealtimeEventSchema.safeParse(rest));
   });
 });
 
 // ---------------------------------------------------------------------------
-// RealtimeEventSchema — test:completed (shared schema)
+// FlatRealtimeEventSchema — test:completed (shared schema)
 // ---------------------------------------------------------------------------
 
-describe('RealtimeEventSchema — test:completed', () => {
+describe('FlatRealtimeEventSchema — test:completed', () => {
   const valid = {
     type: 'test:completed',
     version: '1',
@@ -234,18 +234,18 @@ describe('RealtimeEventSchema — test:completed', () => {
   };
 
   it('parses a valid test:completed event via realtime union', () => {
-    ok(RealtimeEventSchema.safeParse(valid));
+    ok(FlatRealtimeEventSchema.safeParse(valid));
   });
 });
 
 // ---------------------------------------------------------------------------
-// RealtimeEventSchema — unknown type rejection
+// FlatRealtimeEventSchema — unknown type rejection
 // ---------------------------------------------------------------------------
 
-describe('RealtimeEventSchema — unknown type', () => {
+describe('FlatRealtimeEventSchema — unknown type', () => {
   it('rejects an unknown event type', () => {
     fail(
-      RealtimeEventSchema.safeParse({
+      FlatRealtimeEventSchema.safeParse({
         type: 'dashboard:blink',
         version: '1',
         runId: 'r-999',
