@@ -10,13 +10,49 @@
 // Domain types (aligned with @automate/db schema)
 // ---------------------------------------------------------------------------
 
-export type RunStatus = 'running' | 'passed' | 'failed' | 'interrupted';
+import { PERSISTED_RUN_STATUS_VALUES, RUN_STATUS_VALUES } from '@automate/shared-contracts';
+
+/**
+ * The run statuses this repository persists.
+ *
+ * Derived from the contract rather than restated, because the list existed here
+ * in one variant and in `shared-contracts` in another — the contract accepted
+ * `queued` while the `runs_status_check` constraint rejected it.
+ *
+ * The **write** side is the persisted subset, because that is what the column
+ * accepts. The read side is the wider `RunStatus`, so a row written by something
+ * else can still be represented. Splitting them is what stops a `queued` from
+ * reaching the insert and failing as a 500 at runtime.
+ */
+export type RunStatus = (typeof RUN_STATUS_VALUES)[number];
+
+/** What `runs.status` will actually store. */
+export type PersistedRunStatus = (typeof PERSISTED_RUN_STATUS_VALUES)[number];
+
+/**
+ * Narrows a read status to one the column will store.
+ *
+ * A row read back from the database should never carry `queued` — the column
+ * forbids it — so a value that does is a real inconsistency between the
+ * contract and the store. It is reported rather than coerced: silently mapping it
+ * to something plausible is how a wrong status becomes a green run.
+ */
+export function toPersistedStatus(status: RunStatus): PersistedRunStatus {
+  if ((PERSISTED_RUN_STATUS_VALUES as readonly string[]).includes(status)) {
+    return status as PersistedRunStatus;
+  }
+  throw new Error(
+    `Run status "${status}" is not one the runs.status column stores ` +
+      `(${PERSISTED_RUN_STATUS_VALUES.join(', ')}). A read row is inconsistent with the schema.`,
+  );
+}
 
 export interface RunRecord {
   id: string;
   startedAt: string; // ISO-8601
   finishedAt: string | null;
-  status: RunStatus;
+  /** The persisted subset: this is written straight to `runs.status`. */
+  status: PersistedRunStatus;
   total: number;
   passed: number;
   failed: number;
@@ -63,7 +99,8 @@ export interface TestRecord {
  * increments without a read-modify-write race.
  */
 export interface RunPatch {
-  status?: RunStatus;
+  /** The persisted subset: this becomes a `runs.status` write. */
+  status?: PersistedRunStatus;
   finishedAt?: string | null;
   durationMs?: number | null;
   /** Increment passed counter by this amount */

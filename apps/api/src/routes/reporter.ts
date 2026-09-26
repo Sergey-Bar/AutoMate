@@ -35,10 +35,16 @@ import path from 'node:path';
 import {
   CANONICAL_REPORTER_EVENT_TYPES,
   LEGACY_FLAT_V1_CONTRACT_ID,
+  PERSISTED_RUN_STATUS_VALUES,
   REPORTER_EVENT_VERSION,
   RUN_CONTRACT_VERSION,
 } from '@automate/shared-contracts';
-import type { RunRepository, RunStatus, TestStatus } from '../repositories/run-repository.js';
+import {
+  toPersistedStatus,
+  type RunRepository,
+  type RunStatus,
+  type TestStatus,
+} from '../repositories/run-repository.js';
 import { persistReporterEvent } from '../services/reporter-persistence.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
 
@@ -148,7 +154,10 @@ const ReporterUploadSchema = z.object({
   runId: z.string().min(1),
   // No default: an absent status is derived from the uploaded evidence so an
   // evidence-free upload can never inherit a green `passed`.
-  status: z.enum(['running', 'passed', 'failed', 'interrupted']).optional(),
+  // From the contract, so this cannot accept a status the `runs_status_check`
+  // constraint would then reject. `queued` is excluded because an upload names a
+  // status it observed, and a queued run has observed nothing.
+  status: z.enum(PERSISTED_RUN_STATUS_VALUES).optional(),
   startedAt: z.string().min(1).optional(),
   finishedAt: z.string().nullable().optional(),
   durationMs: z.number().nonnegative().nullable().optional(),
@@ -538,6 +547,8 @@ function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPa
       id: `${file || 'junit'}::${name}::${index}`,
       title,
       file,
+      // A *test* status, not a run status — the run's status is derived from
+      // these below. `toPersistedStatus` does not belong on this line.
       status,
       durationMs,
     });
@@ -573,7 +584,13 @@ async function persistUploadPayload(
     id: payload.runId,
     startedAt,
     finishedAt: payload.finishedAt ?? (status === 'running' ? null : nowIso),
-    status,
+    // Narrowed at the write. `status` is typed as the wider contract union because
+    // the upload schema admits it, but the column stores the persisted subset, and
+    // a `queued` reaching `runs.status` would be rejected by `runs_status_check`
+    // as a 500. The upload schema no longer admits `queued` (it is
+    // `PERSISTED_RUN_STATUS_VALUES`), so this cannot throw in practice — and if it
+    // ever does, it says so rather than writing something plausible.
+    status: toPersistedStatus(status),
     total: summary.total ?? derived.total,
     passed: summary.passed ?? derived.passed,
     failed: summary.failed ?? derived.failed,

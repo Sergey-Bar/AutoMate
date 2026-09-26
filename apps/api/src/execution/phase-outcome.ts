@@ -1,3 +1,4 @@
+import { PERSISTED_RUN_STATUS_VALUES, RUN_STATUS_VALUES } from '@automate/shared-contracts';
 import type { RunOutcome, RunPhase } from './types.js';
 
 /**
@@ -98,8 +99,20 @@ const COMPLETE_OUTCOMES: readonly Exclude<RunOutcome, null>[] = [
 
 const COMPLETE_OUTCOME_SET: ReadonlySet<string> = new Set<string>(COMPLETE_OUTCOMES);
 
-/** Run statuses. `queued` is the DB default, not something this wave produces. */
-export type RunStatus = 'running' | 'passed' | 'failed' | 'interrupted';
+/**
+ * Run statuses, from the contract.
+ *
+ * `DerivedRunState.status` is deliberately the **persisted** subset, not the
+ * whole contract union. This module's output is written straight to
+ * `runs.status`, whose `runs_status_check` permits four values; typing the
+ * produced status as the wider union compiles right up to the insert and then
+ * fails at runtime as a 500. The compiler caught exactly that when the two lists
+ * were first unified, which is the argument for deriving both from one place.
+ */
+export type RunStatus = (typeof PERSISTED_RUN_STATUS_VALUES)[number];
+
+/** Everything the contract accepts, including the `queued` default. */
+export type ContractRunStatus = (typeof RUN_STATUS_VALUES)[number];
 
 export interface DerivedRunState {
   phase: RunPhase;

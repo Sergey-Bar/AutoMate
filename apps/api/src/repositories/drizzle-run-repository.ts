@@ -8,13 +8,13 @@ import { eq, and, sql, asc } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
-import type {
-  RunPatch,
-  RunRecord,
-  RunRepository,
-  RunStatus,
-  TestRecord,
-  TestStatus,
+import {
+  toPersistedStatus,
+  type RunPatch,
+  type RunRecord,
+  type RunRepository,
+  type TestRecord,
+  type TestStatus,
 } from './run-repository.js';
 
 /**
@@ -37,7 +37,7 @@ export class DrizzleRunRepository implements RunRepository {
         id: run.id,
         startedAt: new Date(run.startedAt),
         finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
-        status: run.status,
+        status: toPersistedStatus(run.status),
         total: run.total,
         passed: run.passed,
         failed: run.failed,
@@ -175,7 +175,10 @@ export class DrizzleRunRepository implements RunRepository {
       id: row.id,
       startedAt: row.startedAt.toISOString(),
       finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
-      status: row.status as RunStatus,
+      // No cast: `row.status` comes straight from the column, whose type is
+      // already the persisted subset. Casting it *wider* is what used to be
+      // possible, and a wider status would then fail at the next write.
+      status: row.status,
       total: row.total,
       passed: row.passed,
       failed: row.failed,
