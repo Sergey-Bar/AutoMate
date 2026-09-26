@@ -1,4 +1,5 @@
 import type { AppendOutboxEvent, OutboxEvent } from '@automate/db';
+import { EVENT_VERSION } from '@automate/shared-contracts';
 import type { RealtimeBus, RealtimeBusEvent, RunUpdatedPayload } from './realtime-bus.js';
 import { sanitizeOutboxNested } from '../infrastructure/outbox-sanitizer.js';
 
@@ -39,7 +40,7 @@ function toAppend(
     aggregateType: 'run',
     aggregateId: event.runId,
     eventType: event.type,
-    eventVersion: 1,
+    eventVersion: EVENT_VERSION,
     payload: { ...event },
     dedupeKey: dedupeKey(event, workspaceId),
     occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,

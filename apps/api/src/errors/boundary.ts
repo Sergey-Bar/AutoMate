@@ -2,9 +2,32 @@ import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
 import { ErrorCode, isDomainError } from './domain-error.js';
 import { classifyDatabaseError } from './db-errors.js';
 
+/**
+ * The coordinates of a failure, for a reporter that is not the log.
+ *
+ * Deliberately the request and the classification, never the cause: `log`
+ * already owns the cause, and a reporter that receives it would send a second
+ * copy of the SQLSTATE detail to somewhere with weaker access controls.
+ */
+export interface ReportedErrorContext {
+  requestId: string;
+  path: string;
+  method: string;
+  code: string;
+}
+
 export interface ErrorBoundaryOptions {
   /** Where the log line goes. Injected so tests can assert what was logged. */
   log?: (message: string, context: Record<string, unknown>) => void;
+  /**
+   * Called for a failure, and only for a failure.
+   *
+   * Injected rather than called directly so the boundary keeps no dependency on
+   * an error reporter, and so a test can assert which failures are reported
+   * without a transport. `Sentry` is the production implementation
+   * (`apps/api/src/observability/sentry.ts`).
+   */
+  reportError?: (error: unknown, context: ReportedErrorContext) => void;
   /** The request id attached to every error response. */
   requestId: (c: Context) => string;
 }
@@ -32,6 +55,7 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
   notFound: NotFoundHandler;
 } {
   const log = options.log ?? ((message, context) => console.error(message, context));
+  const report = options.reportError ?? ((): void => {});
 
   const onError: ErrorHandler = (error, c) => {
     const requestId = options.requestId(c);
@@ -39,6 +63,8 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
     const method = c.req.method;
 
     if (isDomainError(error)) {
+      // A 5xx is a defect; a 4xx is a caller doing something the API refuses,
+      // which is a normal answer and reporting it would bury the defects.
       if (error.status >= 500) {
         log('request failed', {
           requestId,
@@ -47,6 +73,7 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
           code: error.code,
           error: error.logMessage(),
         });
+        report(error, { requestId, path, method, code: error.code });
       } else if (error.logDetail !== undefined) {
         // A 4xx whose log detail names an internal object: the caller gets the
         // code and the safe message, the log gets the detail.
@@ -85,6 +112,9 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
           error: classified.logMessage(),
         });
       }
+      if (classified.status >= 500) {
+        report(error, { requestId, path, method, code: classified.code });
+      }
       return c.json(
         {
           error: {
@@ -105,6 +135,7 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
+    report(error, { requestId, path, method, code: ErrorCode.INTERNAL });
     return c.json(
       {
         error: {

@@ -8,14 +8,20 @@ import { resetAuthState } from './auth/useAuth.js';
 import { visibleRoutes } from './route-manifest.js';
 
 /**
- * A render assertion with a 15s budget, on a machine also running 150 test files.
+ * A render assertion with a 15s budget, on a machine also running 160 test files.
  *
  * This test timed out intermittently under load. The assertion is a render that
  * normally takes single-digit milliseconds, so a failure meant the event loop
  * was busy, not that the route was wrong — and a red test here is a lie about
  * the product. The assertion is unchanged; only the time it is allowed to take.
+ *
+ * The budget has to be set on the *test*, not only on `waitFor`: Vitest's own
+ * per-test timeout is 5s and fires first, so a generous `asyncUtilTimeout` on
+ * its own just guarantees the test times out at 5s with a clearer message about
+ * the wrong thing.
  */
 const RENDER_TIMEOUT_MS = 15_000;
+const TEST_TIMEOUT_MS = 30_000;
 configure({ asyncUtilTimeout: RENDER_TIMEOUT_MS });
 window.scrollTo = () => undefined;
 
@@ -40,7 +46,7 @@ afterEach(() => {
   resetAuthState();
 });
 
-describe('router', () => {
+describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
   it('activates the dashboard route and renders the release command center', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);

@@ -1,6 +1,23 @@
 import { z } from 'zod/v4';
 import { RunEventTypeSchema } from './execution.js';
 
+/**
+ * The version of the durable event contract.
+ *
+ * One constant because the number appeared in four places with two different
+ * values: the contract's `DurableSseRecordSchema` defaulted to 1, the SSE frame
+ * emitted `version: 1`, every writer passed `eventVersion: 1` — and
+ * `outboxEvents.event_version` defaulted to **2** in the database. A writer that
+ * omitted the field produced a row a consumer could not match against the frame,
+ * because it compared 2 to 1 and never found equality. Migration 0008 aligns the
+ * column; before that, a row written without an explicit version was
+ * unreadable.
+ *
+ * The contract is the authority, so the version is 1. A change to the *shape* of
+ * an event is what bumps this, and only this.
+ */
+export const EVENT_VERSION = 1;
+
 export const DURABLE_OUTBOX_EVENT_TYPES = [
   ...RunEventTypeSchema.options,
   'execution.run.created',
@@ -24,7 +41,7 @@ export type DurableSseEventType =
 export const DurableSseRecordSchema = z.object({
   sequence: z.number().int().positive(),
   eventId: z.string().min(1),
-  eventVersion: z.number().int().positive().default(1),
+  eventVersion: z.number().int().positive().default(EVENT_VERSION),
   eventType: DurableOutboxEventTypeSchema,
   occurredAt: z.coerce.date(),
   // Required, not defaulted. A frame with no run id used to be published with
@@ -101,7 +118,7 @@ export function toDurableSseFrame(record: DurableSseRecord): DurableSseFrame {
   return {
     event,
     data: {
-      version: 1,
+      version: EVENT_VERSION,
       type: reportedType(event, record),
       eventId,
       sequence,

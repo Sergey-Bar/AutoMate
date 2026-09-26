@@ -1,5 +1,6 @@
 import { getTableColumns, getTableName, isTable } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@automate/db';
 import { canonicalRunResults, quarantine, runs, workspaces, apiKeys } from '@automate/db';
@@ -127,6 +128,7 @@ describe('migration graph', () => {
       '0005_canonical_run_results',
       '0006_fail_closed_controls',
       '0007_one_status_spelling',
+      '0008_one_event_version',
     ]);
   });
 
@@ -158,146 +160,163 @@ describe('migration graph', () => {
  * Drizzle schema — the whole point is that the *database* refuses.
  */
 describe('fail-closed constraints from migration 0006', () => {
+  // One migrated database for the whole describe.
+  //
+  // Each test used to build its own, which meant applying all nine migrations
+  // *per test* — slow by construction, and slow enough to exceed Vitest's 5s
+  // per-test timeout on a loaded machine, so this suite failed intermittently
+  // for a reason that had nothing to do with the constraints it checks.
+  let client: PGlite;
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+  beforeAll(async () => {
+    assertSchemaBuildIsFresh();
+    client = await createMigratedDatabase();
+    db = drizzle(client, { schema });
+  });
+  afterAll(async () => {
+    if (client) await client.close();
+  });
+
   it('quarantines as pending by default and ties a time-to-fix to a resolution', async () => {
-    const client = await createMigratedDatabase();
-    try {
-      const db = drizzle(client, { schema });
-      await db.insert(quarantine).values({
-        id: 'q-1',
-        testTitle: 'flaky login',
-        testFile: 'tests/login.spec.ts',
-        quarantinedAt: new Date('2026-01-01T00:00:00.000Z'),
-      });
+    await db.insert(quarantine).values({
+      id: 'q-1',
+      testTitle: 'flaky login',
+      testFile: 'tests/login.spec.ts',
+      quarantinedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
 
-      const inserted = await client.query<{ status: string }>(
-        "SELECT status FROM quarantine WHERE id = 'q-1'",
-      );
-      // `pending`, not `approved`: a quarantined test stays in the pass rate
-      // until a human decides to remove it.
-      expect(inserted.rows[0]?.status).toBe('pending');
+    const inserted = await client.query<{ status: string }>(
+      "SELECT status FROM quarantine WHERE id = 'q-1'",
+    );
+    // `pending`, not `approved`: a quarantined test stays in the pass rate
+    // until a human decides to remove it.
+    expect(inserted.rows[0]?.status).toBe('pending');
 
-      // A time-to-fix claims the problem was fixed; it cannot exist without a
-      // resolution.
-      await expect(
-        client.exec("UPDATE quarantine SET ttf_ms = 60000 WHERE id = 'q-1'"),
-      ).rejects.toThrow();
+    // A time-to-fix claims the problem was fixed; it cannot exist without a
+    // resolution.
+    await expect(
+      client.exec("UPDATE quarantine SET ttf_ms = 60000 WHERE id = 'q-1'"),
+    ).rejects.toThrow();
 
-      await expect(
-        client.exec("UPDATE quarantine SET resolved_at = now(), ttf_ms = 60000 WHERE id = 'q-1'"),
-      ).resolves.toBeDefined();
-    } finally {
-      await client.close();
-    }
+    await expect(
+      client.exec("UPDATE quarantine SET resolved_at = now(), ttf_ms = 60000 WHERE id = 'q-1'"),
+    ).resolves.toBeDefined();
   });
 
   it('requires a checksum and a size for every artifact, legacy rows included', async () => {
-    const client = await createMigratedDatabase();
-    try {
-      const db = drizzle(client, { schema });
-      await db
-        .insert(workspaces)
-        .values({ id: 'ws-1', name: 'default', configPath: 'config', createdAt: new Date() });
-      await db.insert(runs).values({
-        id: '00000000-0000-4000-8000-0000000000aa',
-        externalId: 'ext-1',
-        startedAt: new Date(),
-        source: 'api',
-        testType: 'browser',
-        framework: 'playwright',
-        status: 'running',
-        phase: 'queued',
-        idempotencyKey: 'key-1',
-      });
-      const runId = '00000000-0000-4000-8000-0000000000aa';
+    await db
+      .insert(workspaces)
+      .values({ id: 'ws-1', name: 'default', configPath: 'config', createdAt: new Date() });
+    await db.insert(runs).values({
+      id: '00000000-0000-4000-8000-0000000000aa',
+      externalId: 'ext-1',
+      startedAt: new Date(),
+      source: 'api',
+      testType: 'browser',
+      framework: 'playwright',
+      status: 'running',
+      phase: 'queued',
+      idempotencyKey: 'key-1',
+    });
+    const runId = '00000000-0000-4000-8000-0000000000aa';
 
-      // A `legacy_attachment_id` used to exempt a row from carrying evidence, on
-      // a mutable column, so any artifact could opt out by setting it.
-      await expect(
-        db.insert(schema.artifacts).values({
-          runId,
-          legacyAttachmentId: 'legacy-1',
-          name: 'a.log',
-          contentType: 'text/plain',
-          storageKey: 'k/1',
-          kind: 'log',
-        } as typeof schema.artifacts.$inferInsert),
-      ).rejects.toThrow();
+    // A `legacy_attachment_id` used to exempt a row from carrying evidence, on
+    // a mutable column, so any artifact could opt out by setting it.
+    await expect(
+      db.insert(schema.artifacts).values({
+        runId,
+        legacyAttachmentId: 'legacy-1',
+        name: 'a.log',
+        contentType: 'text/plain',
+        storageKey: 'k/1',
+        kind: 'log',
+      } as typeof schema.artifacts.$inferInsert),
+    ).rejects.toThrow();
 
-      await expect(
-        db.insert(schema.artifacts).values({
-          runId,
-          name: 'a.log',
-          contentType: 'text/plain',
-          storageKey: 'k/2',
-          kind: 'log',
-          checksumAlgorithm: 'sha256',
-          checksum: 'a'.repeat(64),
-          sizeBytes: 5,
-        } as typeof schema.artifacts.$inferInsert),
-      ).resolves.toBeDefined();
-    } finally {
-      await client.close();
-    }
+    await expect(
+      db.insert(schema.artifacts).values({
+        runId,
+        name: 'a.log',
+        contentType: 'text/plain',
+        storageKey: 'k/2',
+        kind: 'log',
+        checksumAlgorithm: 'sha256',
+        checksum: 'a'.repeat(64),
+        sizeBytes: 5,
+      } as typeof schema.artifacts.$inferInsert),
+    ).resolves.toBeDefined();
   });
 
   it('defaults a new API key to viewer and demands scopes for admin', async () => {
-    const client = await createMigratedDatabase();
-    try {
-      const db = drizzle(client, { schema });
-      await db.insert(apiKeys).values({
-        id: 'key-1',
-        name: 'default',
-        keyHash: 'hash-1',
-        createdAt: new Date(),
-      });
-      const inserted = await client.query<{ role: string }>(
-        "SELECT role FROM api_keys WHERE id = 'key-1'",
-      );
-      // A key created with no role used to become `admin`.
-      expect(inserted.rows[0]?.role).toBe('viewer');
+    await db.insert(apiKeys).values({
+      id: 'key-1',
+      name: 'default',
+      keyHash: 'hash-1',
+      createdAt: new Date(),
+    });
+    const inserted = await client.query<{ role: string }>(
+      "SELECT role FROM api_keys WHERE id = 'key-1'",
+    );
+    // A key created with no role used to become `admin`.
+    expect(inserted.rows[0]?.role).toBe('viewer');
 
-      const admin = {
-        id: 'key-2',
-        name: 'admin',
-        keyHash: 'hash-2',
-        role: 'admin' as const,
-        createdAt: new Date(),
-      };
-      await expect(db.insert(apiKeys).values(admin)).rejects.toThrow();
-      await expect(
-        db.insert(apiKeys).values({ ...admin, scopes: ['runs:read'] }),
-      ).resolves.toBeDefined();
-    } finally {
-      await client.close();
-    }
+    const admin = {
+      id: 'key-2',
+      name: 'admin',
+      keyHash: 'hash-2',
+      role: 'admin' as const,
+      createdAt: new Date(),
+    };
+    await expect(db.insert(apiKeys).values(admin)).rejects.toThrow();
+    await expect(
+      db.insert(apiKeys).values({ ...admin, scopes: ['runs:read'] }),
+    ).resolves.toBeDefined();
   });
 
   it('stamps a generated test suggestion with a real time, not the epoch', async () => {
-    const client = await createMigratedDatabase();
-    try {
-      const db = drizzle(client, { schema });
-      const before = Date.now();
-      await db.insert(schema.generatedTestSuggestions).values({
-        id: 'sug-1',
-        sourceType: 'pr_diff',
-        status: 'draft',
-        originalContent: 'test("login", () => {})',
-        createdAt: new Date(),
-      });
-      const row = await client.query<{ updated_at: Date; status: string }>(
-        'SELECT updated_at, status FROM generated_test_suggestions WHERE id = $1',
-        ['sug-1'],
-      );
-      const stamped = row.rows[0]?.updated_at;
-      // Migration 0000 created this column with `DEFAULT '1970-01-01…'`, so a
-      // freshly inserted row looked 56 years stale to every "last updated"
-      // query — indistinguishable from a suggestion nobody ever touched.
-      // Migration 0006 changed the default to now().
-      expect(stamped?.getTime()).toBeGreaterThan(before - 60_000);
-      expect(row.rows[0]?.status).toBe('draft');
-    } finally {
-      await client.close();
-    }
+    const before = Date.now();
+    await db.insert(schema.generatedTestSuggestions).values({
+      id: 'sug-1',
+      sourceType: 'pr_diff',
+      status: 'draft',
+      originalContent: 'test("login", () => {})',
+      createdAt: new Date(),
+    });
+    const row = await client.query<{ updated_at: Date; status: string }>(
+      'SELECT updated_at, status FROM generated_test_suggestions WHERE id = $1',
+      ['sug-1'],
+    );
+    const stamped = row.rows[0]?.updated_at;
+    // Migration 0000 created this column with `DEFAULT '1970-01-01…'`, so a
+    // freshly inserted row looked 56 years stale to every "last updated" query —
+    // indistinguishable from a suggestion nobody ever touched. Migration 0006
+    // changed the default to now().
+    expect(stamped?.getTime()).toBeGreaterThan(before - 60_000);
+    expect(row.rows[0]?.status).toBe('draft');
+  });
+
+  it('agrees with the contract on the durable event version', async () => {
+    // The column defaulted to 2 while the contract, the SSE frame and every
+    // writer used 1. A writer that omitted the field — which the type allowed —
+    // produced a row a consumer could never match against the frame, because it
+    // compared 2 to 1 and found no equality. `packages/db` is a leaf and cannot
+    // import the contract, so the two agreeing is asserted here instead.
+    const { EVENT_VERSION } = (await import('@automate/shared-contracts')) as {
+      EVENT_VERSION: number;
+    };
+    expect(EVENT_VERSION).toBe(1);
+
+    // Read the live default rather than the Drizzle declaration: Drizzle's
+    // `default()` is compile-time only, and the mismatch lived in the database.
+    const defaulted = await client.query<{ column_default: string | null }>(
+      `SELECT column_default FROM information_schema.columns
+        WHERE table_name = 'outbox_events' AND column_name = 'event_version'`,
+    );
+    const columnDefault = defaulted.rows[0]?.column_default;
+    expect(columnDefault, 'outbox_events.event_version has no database default').toBeDefined();
+    expect(String(columnDefault)).toContain(String(EVENT_VERSION));
+    // And not the old value, which is the whole point.
+    expect(String(columnDefault)).not.toContain('2');
   });
 });
 
