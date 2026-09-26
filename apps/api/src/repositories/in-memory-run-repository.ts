@@ -4,7 +4,14 @@
  * Kept inside apps/api for the T14 vertical slice.  NOT for production use.
  * A real Drizzle+Postgres implementation would satisfy the same interface.
  */
-import type { RunPatch, RunRecord, RunRepository, TestRecord } from './run-repository.js';
+import {
+  aggregateRuns,
+  type RunAnalyticsSummary,
+  type RunPatch,
+  type RunRecord,
+  type RunRepository,
+  type TestRecord,
+} from './run-repository.js';
 
 export class InMemoryRunRepository implements RunRepository {
   // Keyed by runId
@@ -55,6 +62,18 @@ export class InMemoryRunRepository implements RunRepository {
 
   async listRuns(): Promise<RunRecord[]> {
     return Array.from(this._runs.values());
+  }
+
+  /**
+   * The aggregation, over the rows already in memory.
+   *
+   * Shared with the SQL implementation's semantics — completed runs only for the
+   * pass rate, recorded durations only for the average — and `store-parity`
+   * style tests hold the two to the same numbers, so the dashboard does not
+   * change value depending on which repository is mounted.
+   */
+  getAnalyticsSummary(): Promise<RunAnalyticsSummary> {
+    return Promise.resolve(aggregateRuns(this._runs.values()));
   }
 
   async upsertTest(test: TestRecord): Promise<void> {

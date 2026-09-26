@@ -10,6 +10,7 @@ import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
 import {
   toPersistedStatus,
+  type RunAnalyticsSummary,
   type RunPatch,
   type RunRecord,
   type RunRepository,
@@ -108,6 +109,42 @@ export class DrizzleRunRepository implements RunRepository {
   async listRuns(): Promise<RunRecord[]> {
     const rows = await this.db.select().from(runs).orderBy(asc(runs.startedAt));
     return rows.map((r) => this._mapRun(r));
+  }
+
+  /**
+   * The dashboard's three numbers, in one query.
+   *
+   * The route used to call `listRuns()` for this, which selected **every row**,
+   * materialised it in Node and reduced it in JavaScript — on the page an operator
+   * opens first after an incident, with a cost that grew with how long the install
+   * had been running.
+   *
+   * Three aggregates over an index-only scan instead. The `avg` is taken with
+   * `avg(...) FILTER (WHERE duration_ms IS NOT NULL)`, so a run with no recorded
+   * duration is excluded from the average rather than counted as zero — which is
+   * the difference between "no runs recorded a duration" and "every run was
+   * instant".
+   */
+  async getAnalyticsSummary(): Promise<RunAnalyticsSummary> {
+    const [row] = await this.db
+      .select({
+        totalRuns: sql<number>`count(*)::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${runs.status} IN ('passed', 'failed'))::int`,
+        passed: sql<number>`count(*) FILTER (WHERE ${runs.status} = 'passed')::int`,
+        durationCount: sql<number>`count(${runs.durationMs})::int`,
+        durationTotal: sql<number>`coalesce(sum(${runs.durationMs}), 0)::bigint`,
+      })
+      .from(runs);
+    const totalRuns = Number(row?.totalRuns ?? 0);
+    const completed = Number(row?.completed ?? 0);
+    const passed = Number(row?.passed ?? 0);
+    const durationCount = Number(row?.durationCount ?? 0);
+    const durationTotal = Number(row?.durationTotal ?? 0);
+    return {
+      totalRuns,
+      passRate: completed === 0 ? 0 : Math.round((passed / completed) * 100),
+      avgDurationMs: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
+    };
   }
 
   async upsertTest(test: TestRecord): Promise<void> {
