@@ -15,6 +15,10 @@ export default defineConfig({
       exclude: [
         'src/**/*.test.ts',
         'src/index.ts',
+        // A side-effect-only preload, like `src/index.ts`: it exists to run once
+        // under `node --import`, which no test drives. Its logic is covered in
+        // `src/observability/sentry.test.ts`.
+        'src/instrument.ts',
         'src/execution/drizzle-execution-store.ts',
         'src/infrastructure/drizzle-realtime-feed.ts',
         'src/execution/index.ts',

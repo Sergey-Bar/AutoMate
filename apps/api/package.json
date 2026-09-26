@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "tsx --import ./src/instrument.ts src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
@@ -21,6 +21,7 @@
     "@automate/reporter": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
     "@hono/node-server": "^1.19.14",
+    "@sentry/node": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "^3.21.2",
     "hono": "^4.12.29",
