@@ -1,4 +1,10 @@
-import { forwardRef, useEffect, useRef, type DialogHTMLAttributes, type HTMLAttributes } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useRef,
+  type DialogHTMLAttributes,
+  type HTMLAttributes,
+} from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../lib/utils.js';
 
@@ -22,7 +28,7 @@ const drawerVariants = cva(
     defaultVariants: {
       position: 'right',
     },
-  }
+  },
 );
 
 export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
@@ -85,30 +91,35 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
         {children}
       </dialog>
     );
-  }
+  },
 );
 Drawer.displayName = 'Drawer';
 
 // Wait, the tests use DrawerContent. Let me define DrawerContent.
 // Actually it's easier to just use Drawer as the container.
 // Let's create a DrawerContent that just passes through for structure.
-export const DrawerContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement> & { position?: 'left' | 'right' | 'top' | 'bottom' }>(
-  ({ className, position: _position, ...props }, ref) => (
-    <div ref={ref} className={cn('p-6 h-full overflow-y-auto', className)} {...props} />
-  )
-);
+export const DrawerContent = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement> & { position?: 'left' | 'right' | 'top' | 'bottom' }
+>(({ className, position: _position, ...props }, ref) => (
+  <div ref={ref} className={cn('p-6 h-full overflow-y-auto', className)} {...props} />
+));
 DrawerContent.displayName = 'DrawerContent';
 
 export const DrawerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div ref={ref} className={cn('flex flex-col space-y-1.5 mb-4', className)} {...props} />
-  )
+  ),
 );
 DrawerHeader.displayName = 'DrawerHeader';
 
 export const DrawerTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h2 ref={ref} className={cn('text-lg font-semibold leading-none tracking-tight', className)} {...props} />
-  )
+    <h2
+      ref={ref}
+      className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      {...props}
+    />
+  ),
 );
 DrawerTitle.displayName = 'DrawerTitle';

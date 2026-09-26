@@ -12,7 +12,7 @@ test('renders tabs and handles clicking', () => {
       </TabsList>
       <TabsContent value="tab1">Content 1</TabsContent>
       <TabsContent value="tab2">Content 2</TabsContent>
-    </Tabs>
+    </Tabs>,
   );
 
   expect(screen.getByText('Content 1')).toBeInTheDocument();
@@ -34,7 +34,7 @@ test('handles keyboard navigation', () => {
       <TabsContent value="tab1">Content 1</TabsContent>
       <TabsContent value="tab2">Content 2</TabsContent>
       <TabsContent value="tab3">Content 3</TabsContent>
-    </Tabs>
+    </Tabs>,
   );
 
   const tab1 = screen.getByText('Tab 1');

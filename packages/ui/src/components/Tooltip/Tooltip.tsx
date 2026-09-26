@@ -32,6 +32,6 @@ export const Tooltip = forwardRef<HTMLDivElement, TooltipProps>(
         )}
       </div>
     );
-  }
+  },
 );
 Tooltip.displayName = 'Tooltip';

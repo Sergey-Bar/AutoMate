@@ -7,6 +7,17 @@ let status: AuthStatus = 'checking';
 let refreshPromise: Promise<void> | undefined;
 const listeners = new Set<Listener>();
 
+/**
+ * Incremented on every reset.
+ *
+ * A refresh in flight when `resetAuthState()` is called still resolves
+ * afterwards, and its `setStatus` would then overwrite the state the *next*
+ * caller just established — so a logout did not take effect until some later
+ * request, and a stale session flashed back. The generation lets a continuation
+ * notice it belongs to a superseded attempt and drop its result.
+ */
+let generation = 0;
+
 function setStatus(next: AuthStatus) {
   status = next;
   for (const listener of listeners) listener(next);
@@ -14,23 +25,29 @@ function setStatus(next: AuthStatus) {
 
 async function refreshSession(): Promise<void> {
   if (refreshPromise) return refreshPromise;
+  const attempt = generation;
   refreshPromise = (async () => {
     try {
       const response = await fetch('/api/v1/auth/session', {
         credentials: 'include',
         headers: { Accept: 'application/json' },
       });
+      if (attempt !== generation) return;
       setStatus(response.ok ? 'authenticated' : 'unauthenticated');
     } catch {
+      if (attempt !== generation) return;
       setStatus('unauthenticated');
     } finally {
-      refreshPromise = undefined;
+      // Only the attempt that is still current may clear the memo, or a
+      // superseded request would unblock the next one mid-flight.
+      if (attempt === generation) refreshPromise = undefined;
     }
   })();
   return refreshPromise;
 }
 
 export function resetAuthState(): void {
+  generation += 1;
   status = 'checking';
   refreshPromise = undefined;
   listeners.clear();

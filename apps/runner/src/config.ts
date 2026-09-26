@@ -62,7 +62,12 @@ const RunnerConfigSchema = z
     spoolKey: z.string().min(16).optional(),
     spoolMaxEntries: z.coerce.number().int().min(1).max(1_000_000).default(10_000),
     spoolMaxBytes: z.coerce.number().int().min(1_024).max(2_000_000_000).default(64_000_000),
-    spoolCompactThresholdBytes: z.coerce.number().int().min(1_024).max(2_000_000_000).default(8_000_000),
+    spoolCompactThresholdBytes: z.coerce
+      .number()
+      .int()
+      .min(1_024)
+      .max(2_000_000_000)
+      .default(8_000_000),
     spoolRetryMaxAttempts: z.coerce.number().int().min(1).max(100).default(8),
     spoolRetryBaseDelayMs: z.coerce.number().int().min(1).max(60_000).default(250),
     spoolRetryMaxDelayMs: z.coerce.number().int().min(1).max(600_000).default(30_000),

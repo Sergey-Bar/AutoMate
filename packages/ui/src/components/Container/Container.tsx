@@ -16,17 +16,12 @@ const containerVariants = cva('mx-auto px-4 sm:px-6 lg:px-8', {
   },
 });
 
-export interface ContainerProps extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof containerVariants> {}
+export interface ContainerProps
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof containerVariants> {}
 
 export const Container = forwardRef<HTMLDivElement, ContainerProps>(
   ({ className, size, ...props }, ref) => {
-    return (
-      <div
-        ref={ref}
-        className={cn(containerVariants({ size, className }))}
-        {...props}
-      />
-    );
-  }
+    return <div ref={ref} className={cn(containerVariants({ size, className }))} {...props} />;
+  },
 );
 Container.displayName = 'Container';

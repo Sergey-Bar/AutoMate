@@ -13,7 +13,7 @@ describe('Toast', () => {
       <Toast>
         <ToastTitle>Title</ToastTitle>
         <ToastDescription>Description</ToastDescription>
-      </Toast>
+      </Toast>,
     );
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('Description')).toBeInTheDocument();

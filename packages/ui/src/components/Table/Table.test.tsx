@@ -17,7 +17,7 @@ test('renders a basic table', () => {
           <TableCell>Cell 2</TableCell>
         </TableRow>
       </TableBody>
-    </Table>
+    </Table>,
   );
 
   const table = screen.getByTestId('my-table');
@@ -44,7 +44,7 @@ test('handles sortable headers', () => {
           <TableCell>Content</TableCell>
         </TableRow>
       </TableBody>
-    </Table>
+    </Table>,
   );
 
   const th = screen.getByTestId('sort-head');

@@ -7,11 +7,19 @@ describe('Badge', () => {
     expect(screen.getByTestId('badge')).toBeInTheDocument();
   });
   it('renders variant', () => {
-    render(<Badge data-testid="badge" variant="outline">Badge</Badge>);
+    render(
+      <Badge data-testid="badge" variant="outline">
+        Badge
+      </Badge>,
+    );
     expect(screen.getByTestId('badge')).toHaveClass('text-fg');
   });
   it('applies custom classes', () => {
-    render(<Badge data-testid="badge" className="custom">Badge</Badge>);
+    render(
+      <Badge data-testid="badge" className="custom">
+        Badge
+      </Badge>,
+    );
     expect(screen.getByTestId('badge')).toHaveClass('custom');
   });
 });

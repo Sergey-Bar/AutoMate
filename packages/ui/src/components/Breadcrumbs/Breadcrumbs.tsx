@@ -28,10 +28,7 @@ export const Breadcrumbs = forwardRef<HTMLElement, BreadcrumbsProps>(
               <li key={index} className="flex items-center">
                 {isLast || !item.href ? (
                   <span
-                    className={cn(
-                      'truncate',
-                      isLast ? 'font-medium text-text-primary' : ''
-                    )}
+                    className={cn('truncate', isLast ? 'font-medium text-text-primary' : '')}
                     aria-current={isLast ? 'page' : undefined}
                   >
                     {item.label}
@@ -57,7 +54,7 @@ export const Breadcrumbs = forwardRef<HTMLElement, BreadcrumbsProps>(
         </ol>
       </nav>
     );
-  }
+  },
 );
 
 Breadcrumbs.displayName = 'Breadcrumbs';

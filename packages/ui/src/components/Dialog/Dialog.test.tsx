@@ -1,5 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from './Dialog.js';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from './Dialog.js';
 
 describe('Dialog', () => {
   beforeEach(() => {
@@ -19,7 +26,11 @@ describe('Dialog', () => {
   });
 
   it('renders dialog open when prop is true', () => {
-    render(<Dialog data-testid="dialog" open>Content</Dialog>);
+    render(
+      <Dialog data-testid="dialog" open>
+        Content
+      </Dialog>,
+    );
     const dialog = screen.getByTestId('dialog');
     expect(dialog).toHaveAttribute('open');
   });
@@ -34,7 +45,7 @@ describe('Dialog', () => {
           </DialogHeader>
           <DialogFooter>Footer</DialogFooter>
         </DialogContent>
-      </Dialog>
+      </Dialog>,
     );
     expect(screen.getByText('Title')).toBeInTheDocument();
     expect(screen.getByText('Description')).toBeInTheDocument();

@@ -14,7 +14,7 @@ const emptyStateVariants = cva(
     defaultVariants: {
       variant: 'default',
     },
-  }
+  },
 );
 
 export type EmptyStateVariants = VariantProps<typeof emptyStateVariants>;
@@ -28,7 +28,19 @@ export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement>, EmptySt
 }
 
 export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
-  ({ className, variant, icon, title, description, action, 'data-testid': testId = 'empty-state', ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      icon,
+      title,
+      description,
+      action,
+      'data-testid': testId = 'empty-state',
+      ...props
+    },
+    ref,
+  ) => {
     return (
       <div
         ref={ref}
@@ -46,7 +58,7 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
         {action && <div>{action}</div>}
       </div>
     );
-  }
+  },
 );
 
 EmptyState.displayName = 'EmptyState';

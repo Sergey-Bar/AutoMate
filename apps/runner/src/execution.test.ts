@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PassThrough } from 'node:stream';
 import type { ChildProcessWithoutNullStreams, SpawnOptions } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -20,13 +21,29 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
+const here = dirname(fileURLToPath(import.meta.url));
+
 function fixtureRoot(): string {
-  return join(process.cwd(), 'fixtures', 'playwright-smoke');
+  // Derived from this file, not from `process.cwd()`. A root `vitest` run has
+  // the repo root as its cwd, so a cwd-relative fixture path resolved to
+  // `<repo>/fixtures/playwright-smoke`, the pre-flight existence check failed,
+  // and the two tests that assert a successful Playwright execution were red
+  // for a reason that had nothing to do with the code under test.
+  return join(here, '..', 'fixtures', 'playwright-smoke');
 }
 
 function fakeSpawn(
   code: number,
   calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }>,
+  /**
+   * How long the fake child waits before completing on its own.
+   *
+   * `null` means it never completes, so the adapter's deadline is the only thing
+   * that can end the run. The timeout test used a 5 ms auto-complete against a
+   * `deadlineMs: 5` deadline — two timers of the same length, so which one won
+   * depended on registration order and the test flaked under load.
+   */
+  autoCompleteMs: number | null = 5,
 ): (
   command: string,
   args: readonly string[],
@@ -35,23 +52,25 @@ function fakeSpawn(
   return (command, args, options) => {
     calls.push({ command, args, options });
     const child = new FakeChild();
-    const timeout = setTimeout(() => {
-      void (async () => {
-        const reportPath = String(options.env?.['PLAYWRIGHT_JSON_OUTPUT_NAME']);
-        await mkdir(dirname(reportPath), { recursive: true });
-        await Promise.all([
-          writeFile(reportPath, '{"stats":{"unexpected":0}}\n'),
-          writeFile(String(options.env?.['PLAYWRIGHT_JUNIT_OUTPUT_NAME']), '<testsuites/>\n'),
-          writeFile(
-            String(options.env?.['AUTOMATE_RUNNER_EVENTS_PATH']),
-            `${JSON.stringify({ eventId: 'event-1', sequence: 1, type: 'test.completed', occurredAt: new Date().toISOString(), payload: { testId: 'test-1', status: 'passed' } })}\n`,
-          ),
-        ]);
-        child.stdout.write('token=super-secret\n');
-        child.emit('close', code, null);
-      })();
-    }, 5);
-    timeout.unref();
+    if (autoCompleteMs !== null) {
+      const timeout = setTimeout(() => {
+        void (async () => {
+          const reportPath = String(options.env?.['PLAYWRIGHT_JSON_OUTPUT_NAME']);
+          await mkdir(dirname(reportPath), { recursive: true });
+          await Promise.all([
+            writeFile(reportPath, '{"stats":{"unexpected":0}}\n'),
+            writeFile(String(options.env?.['PLAYWRIGHT_JUNIT_OUTPUT_NAME']), '<testsuites/>\n'),
+            writeFile(
+              String(options.env?.['AUTOMATE_RUNNER_EVENTS_PATH']),
+              `${JSON.stringify({ eventId: 'event-1', sequence: 1, type: 'test.completed', occurredAt: new Date().toISOString(), payload: { testId: 'test-1', status: 'passed' } })}\n`,
+            ),
+          ]);
+          child.stdout.write('token=super-secret\n');
+          child.emit('close', code, null);
+        })();
+      }, autoCompleteMs);
+      timeout.unref();
+    }
     return child as unknown as ChildProcessWithoutNullStreams;
   };
 }
@@ -138,6 +157,7 @@ describe('PlaywrightExecutionAdapter', () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'runner-execution-'));
     roots.push(workspaceRoot);
     const calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+    let terminated = false;
     const adapter = new PlaywrightExecutionAdapter({
       projectRoot: fixtureRoot(),
       allowedProjects: ['smoke-pass'],
@@ -145,8 +165,11 @@ describe('PlaywrightExecutionAdapter', () => {
       workspaceRoot,
       artifactMaxBytes: 1_000_000,
       logMaxBytes: 10_000,
-      spawnProcess: fakeSpawn(0, calls),
+      // The child never completes on its own, so the deadline is the only thing
+      // that can end this run and the outcome is not a race.
+      spawnProcess: fakeSpawn(0, calls, null),
       terminateProcess: async (child) => {
+        terminated = true;
         child.emit('close', null, 'SIGTERM');
       },
       playwrightCliPath: 'playwright-cli.js',
@@ -159,5 +182,7 @@ describe('PlaywrightExecutionAdapter', () => {
       signal: new AbortController().signal,
     });
     expect(result.status).toBe('timed_out');
+    // And it really was the deadline that ended it, not a spontaneous exit.
+    expect(terminated).toBe(true);
   });
 });

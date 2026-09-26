@@ -23,9 +23,20 @@ function DialogDemo() {
             <DialogTitle>Confirm action</DialogTitle>
             <DialogDescription>Are you sure you want to proceed?</DialogDescription>
           </DialogHeader>
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
-            <Button variant="outline" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button size="sm" onClick={() => setOpen(false)}>Confirm</Button>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.5rem',
+              justifyContent: 'flex-end',
+              marginTop: '1rem',
+            }}
+          >
+            <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={() => setOpen(false)}>
+              Confirm
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

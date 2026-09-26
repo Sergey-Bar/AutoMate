@@ -78,20 +78,42 @@ export function makePhaseEvent({
   };
 }
 
+/**
+ * A fully-defaulted `ApiClient` double.
+ *
+ * Every method has a typed `mockResolvedValue` default. Previously six of them
+ * were a bare `vi.fn()`, so a test that forgot an override got
+ * `await api.getRun(id) === undefined` typed as `Run` — and then asserted on a
+ * property of `undefined`, or crashed somewhere unrelated, with no indication
+ * that the fixture was the problem. A default that is wrong is still a
+ * deliberate choice in the test; a default that is absent is a trap.
+ */
 export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
-  return {
-    getRuns: vi.fn().mockResolvedValue([]),
-    getRun: vi.fn(),
-    createRun: vi.fn(),
-    cancelRun: vi.fn(),
-    retryRun: vi.fn(),
-    getRunArtifacts: vi.fn().mockResolvedValue([]),
-    getRunGate: vi.fn().mockResolvedValue(null),
-    getReleaseReadiness: vi.fn().mockResolvedValue(null),
-    getAnalyticsSummary: vi.fn(),
-    getQuarantine: vi.fn(),
-    addQuarantine: vi.fn(),
+  const run: Run = makeRun();
+  const base: ApiClient = {
+    getRuns: vi.fn(async () => []),
+    getRun: vi.fn(async () => run),
+    createRun: vi.fn(async () => run),
+    cancelRun: vi.fn(async () => run),
+    retryRun: vi.fn(async () => run),
+    getRunArtifacts: vi.fn(async () => []),
+    getRunGate: vi.fn(async () => null),
+    getReleaseReadiness: vi.fn(async () => null),
+    getAnalyticsSummary: vi.fn(async () => ({
+      totalRuns: 0,
+      passRate: 0,
+      avgDurationMs: null,
+    })),
+    getQuarantine: vi.fn(async () => []),
+    addQuarantine: vi.fn(async (entry) => ({
+      id: 'quarantine-1',
+      testTitle: entry.testTitle,
+      testFile: entry.testFile,
+      reason: entry.reason ?? null,
+      quarantinedAt: TEST_TIMESTAMP,
+      status: 'pending',
+    })),
     subscribeToRunEvents: vi.fn(() => () => undefined),
-    ...overrides,
   };
+  return { ...base, ...overrides };
 }

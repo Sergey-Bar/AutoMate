@@ -18,7 +18,7 @@ export const NavItem = forwardRef<HTMLAnchorElement, NavItemProps>(
           active
             ? 'bg-bg-muted text-text-primary'
             : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary',
-          className
+          className,
         )}
         aria-current={active ? 'page' : undefined}
         {...props}
@@ -28,7 +28,7 @@ export const NavItem = forwardRef<HTMLAnchorElement, NavItemProps>(
             <span
               className={cn(
                 'flex h-5 w-5 items-center justify-center',
-                active ? 'text-text-primary' : 'text-text-muted group-hover:text-text-primary'
+                active ? 'text-text-primary' : 'text-text-muted group-hover:text-text-primary',
               )}
             >
               {icon}
@@ -40,7 +40,7 @@ export const NavItem = forwardRef<HTMLAnchorElement, NavItemProps>(
           <span
             className={cn(
               'flex h-5 items-center justify-center rounded-full px-2 text-xs font-medium',
-              active ? 'bg-text-primary text-bg-base' : 'bg-bg-elevated text-text-secondary'
+              active ? 'bg-text-primary text-bg-base' : 'bg-bg-elevated text-text-secondary',
             )}
           >
             {badge}
@@ -48,7 +48,7 @@ export const NavItem = forwardRef<HTMLAnchorElement, NavItemProps>(
         )}
       </a>
     );
-  }
+  },
 );
 
 NavItem.displayName = 'NavItem';

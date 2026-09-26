@@ -17,10 +17,11 @@ const toastVariants = cva(
     defaultVariants: {
       variant: 'default',
     },
-  }
+  },
 );
 
-export interface ToastProps extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof toastVariants> {}
+export interface ToastProps
+  extends HTMLAttributes<HTMLDivElement>, VariantProps<typeof toastVariants> {}
 
 export const Toast = forwardRef<HTMLDivElement, ToastProps>(
   ({ className, variant, ...props }, ref) => {
@@ -33,20 +34,20 @@ export const Toast = forwardRef<HTMLDivElement, ToastProps>(
         {...props}
       />
     );
-  }
+  },
 );
 Toast.displayName = 'Toast';
 
 export const ToastTitle = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div ref={ref} className={cn('text-sm font-semibold', className)} {...props} />
-  )
+  ),
 );
 ToastTitle.displayName = 'ToastTitle';
 
 export const ToastDescription = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div ref={ref} className={cn('text-sm opacity-90', className)} {...props} />
-  )
+  ),
 );
 ToastDescription.displayName = 'ToastDescription';

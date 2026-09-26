@@ -46,8 +46,12 @@ export const WithSortableHeaders: Story = {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead sortable sortDirection="asc">Name</TableHead>
-          <TableHead sortable sortDirection={null}>Status</TableHead>
+          <TableHead sortable sortDirection="asc">
+            Name
+          </TableHead>
+          <TableHead sortable sortDirection={null}>
+            Status
+          </TableHead>
           <TableHead>Duration</TableHead>
         </TableRow>
       </TableHeader>

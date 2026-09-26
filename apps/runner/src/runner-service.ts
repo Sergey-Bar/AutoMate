@@ -308,11 +308,13 @@ export class RunnerService {
     let workspacePath: string | undefined;
     let completionAttempted = false;
     const complete = async (completion: JobCompletion): Promise<void> => {
-      state.eventChain = state.eventChain.catch(() => undefined).then(async () => {
-        await this.options.spool.enqueue(
-          this.entry(claim, 'completion', state.sequence, randomUUID(), completion),
-        );
-      });
+      state.eventChain = state.eventChain
+        .catch(() => undefined)
+        .then(async () => {
+          await this.options.spool.enqueue(
+            this.entry(claim, 'completion', state.sequence, randomUUID(), completion),
+          );
+        });
       await state.eventChain;
       completionAttempted = true;
       await this.scheduleFlush();
@@ -502,12 +504,14 @@ export class RunnerService {
       occurredAt: this.now().toISOString(),
       ...draft,
     });
-    state.eventChain = state.eventChain.catch(() => undefined).then(async () => {
-      await this.options.spool.enqueue(
-        this.entry(claim, 'event', event.sequence, event.eventId, event),
-      );
-      await this.scheduleFlush();
-    });
+    state.eventChain = state.eventChain
+      .catch(() => undefined)
+      .then(async () => {
+        await this.options.spool.enqueue(
+          this.entry(claim, 'event', event.sequence, event.eventId, event),
+        );
+        await this.scheduleFlush();
+      });
     await state.eventChain;
   }
 
@@ -569,9 +573,7 @@ export class RunnerService {
         if (outcome.conflict && TERMINAL_SPOOL_CONFLICTS.has(outcome.conflict)) {
           settledIds.push(...batch.map((entry) => entry.id));
           index += batch.length;
-          this.onError(
-            new Error(`Runner spool entry permanently rejected (${outcome.conflict})`),
-          );
+          this.onError(new Error(`Runner spool entry permanently rejected (${outcome.conflict})`));
           continue;
         }
         this.onError(new Error('Runner spool entries are not acknowledged and stay queued'));
@@ -597,7 +599,11 @@ export class RunnerService {
     if (head.kind !== 'event') return [head];
     const batch: SpoolEntry[] = [];
     for (const entry of pending.slice(index)) {
-      if (batch.length >= MAX_EVENT_BATCH || entry.jobId !== head.jobId || entry.kind !== head.kind) {
+      if (
+        batch.length >= MAX_EVENT_BATCH ||
+        entry.jobId !== head.jobId ||
+        entry.kind !== head.kind
+      ) {
         break;
       }
       batch.push(entry);

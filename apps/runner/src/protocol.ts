@@ -20,6 +20,12 @@ export const RunnerRegistrationRequestSchema = z.object({
   capabilities: z.array(IdSchema),
   labels: z.array(IdSchema).default([]),
   slots: z.number().int().min(1).max(32),
+  /**
+   * The credential currently held for this runner id. The API refuses to
+   * rotate an already-registered runner without it, so a restart sends the
+   * token it already has and an impersonator cannot claim the id.
+   */
+  rotationToken: z.string().min(1).optional(),
   protocolVersion: z.literal('1').default('1'),
 });
 

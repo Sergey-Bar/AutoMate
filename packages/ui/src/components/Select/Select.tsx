@@ -14,7 +14,7 @@ const selectVariants = cva(
     defaultVariants: {
       variant: 'default',
     },
-  }
+  },
 );
 
 export type SelectVariants = VariantProps<typeof selectVariants>;
@@ -33,7 +33,21 @@ export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement>, Se
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ className, variant, label, error, options, placeholder, id, 'data-testid': testId, disabled, ...props }, ref) => {
+  (
+    {
+      className,
+      variant,
+      label,
+      error,
+      options,
+      placeholder,
+      id,
+      'data-testid': testId,
+      disabled,
+      ...props
+    },
+    ref,
+  ) => {
     const selectVariant = error ? 'error' : variant;
 
     return (
@@ -67,7 +81,12 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           </select>
           <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-text-secondary">
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </div>
         </div>
@@ -78,7 +97,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Select.displayName = 'Select';

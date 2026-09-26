@@ -10,9 +10,11 @@ const buttonVariants = cva(
       variant: {
         primary: 'font-medium text-white bg-primary hover:brightness-110',
         default: 'font-medium text-white bg-primary hover:brightness-110',
-        secondary: 'font-medium border bg-bg-elevated border-border-default text-text-primary hover:brightness-110',
+        secondary:
+          'font-medium border bg-bg-elevated border-border-default text-text-primary hover:brightness-110',
         destructive: 'font-medium text-white bg-error hover:brightness-110',
-        outline: 'font-medium border bg-transparent border-border-default text-text-primary hover:brightness-110',
+        outline:
+          'font-medium border bg-transparent border-border-default text-text-primary hover:brightness-110',
         ghost: 'font-medium bg-transparent text-text-secondary hover:brightness-110',
         link: 'font-medium bg-transparent text-primary underline-offset-4 hover:underline',
       },
@@ -26,7 +28,7 @@ const buttonVariants = cva(
       variant: 'primary',
       size: 'md',
     },
-  }
+  },
 );
 
 export { buttonVariants };
@@ -41,7 +43,22 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Bu
 }
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ variant = 'primary', size = 'md', loading, icon, iconRight, children, className = '', disabled, style, 'data-testid': testId, ...rest }, ref) => {
+  (
+    {
+      variant = 'primary',
+      size = 'md',
+      loading,
+      icon,
+      iconRight,
+      children,
+      className = '',
+      disabled,
+      style,
+      'data-testid': testId,
+      ...rest
+    },
+    ref,
+  ) => {
     const isDisabled = disabled || loading;
 
     return (
@@ -59,7 +76,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         style={style}
         {...rest}
       >
-        {loading ? <Loader2 size={size === 'sm' ? 12 : 14} className="animate-spin shrink-0" /> : icon && <span className="shrink-0">{icon}</span>}
+        {loading ? (
+          <Loader2 size={size === 'sm' ? 12 : 14} className="animate-spin shrink-0" />
+        ) : (
+          icon && <span className="shrink-0">{icon}</span>
+        )}
         {children}
         {iconRight && <span className="shrink-0">{iconRight}</span>}
       </button>

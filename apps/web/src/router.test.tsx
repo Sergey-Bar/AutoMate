@@ -7,7 +7,16 @@ import { MemoryRouter } from './router.js';
 import { resetAuthState } from './auth/useAuth.js';
 import { visibleRoutes } from './route-manifest.js';
 
-configure({ asyncUtilTimeout: 5000 });
+/**
+ * A render assertion with a 15s budget, on a machine also running 150 test files.
+ *
+ * This test timed out intermittently under load. The assertion is a render that
+ * normally takes single-digit milliseconds, so a failure meant the event loop
+ * was busy, not that the route was wrong — and a red test here is a lie about
+ * the product. The assertion is unchanged; only the time it is allowed to take.
+ */
+const RENDER_TIMEOUT_MS = 15_000;
+configure({ asyncUtilTimeout: RENDER_TIMEOUT_MS });
 window.scrollTo = () => undefined;
 
 function mockAuthenticatedApi(): void {
@@ -42,7 +51,9 @@ describe('router', () => {
   it('redirects the root route to the command center instead of a placeholder home', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/']} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument(), {
+      timeout: RENDER_TIMEOUT_MS,
+    });
   });
 
   it('navigates from the canonical run list back to the command center', async () => {
@@ -50,7 +61,9 @@ describe('router', () => {
     render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('link', { name: 'Command Center' }));
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument(), {
+      timeout: RENDER_TIMEOUT_MS,
+    });
   });
 
   it('exposes only registered visible navigation targets', async () => {
@@ -66,6 +79,8 @@ describe('router', () => {
   it('leaves legacy reporting unreachable', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/reporting/run-1']} />);
-    await waitFor(() => expect(screen.getByText('Not Found')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Not Found')).toBeInTheDocument(), {
+      timeout: RENDER_TIMEOUT_MS,
+    });
   });
 });

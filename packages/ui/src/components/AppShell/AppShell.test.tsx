@@ -9,13 +9,9 @@ describe('AppShell', () => {
   });
   it('renders slots', () => {
     render(
-      <AppShell
-        header={<div>Header</div>}
-        sidebar={<div>Sidebar</div>}
-        footer={<div>Footer</div>}
-      >
+      <AppShell header={<div>Header</div>} sidebar={<div>Sidebar</div>} footer={<div>Footer</div>}>
         Main Content
-      </AppShell>
+      </AppShell>,
     );
     expect(screen.getByText('Header')).toBeInTheDocument();
     expect(screen.getByText('Sidebar')).toBeInTheDocument();

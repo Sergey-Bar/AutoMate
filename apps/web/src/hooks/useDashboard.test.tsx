@@ -134,17 +134,15 @@ describe('dashboard hooks', () => {
 
   it('loads and appends quarantine entries', async () => {
     const api = makeApi({
-      getQuarantine: vi
-        .fn()
-        .mockResolvedValue([
-          {
-            id: 'q-1',
-            testTitle: 'existing',
-            testFile: 'tests/existing.spec.ts',
-            reason: null,
-            quarantinedAt: TEST_TIMESTAMP,
-          },
-        ]),
+      getQuarantine: vi.fn().mockResolvedValue([
+        {
+          id: 'q-1',
+          testTitle: 'existing',
+          testFile: 'tests/existing.spec.ts',
+          reason: null,
+          quarantinedAt: TEST_TIMESTAMP,
+        },
+      ]),
       addQuarantine: vi.fn().mockResolvedValue({
         id: 'q-2',
         testTitle: 'new flaky test',

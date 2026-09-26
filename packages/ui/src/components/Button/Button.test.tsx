@@ -17,7 +17,11 @@ describe('Button Component', () => {
 
   it('disabled prevents click', () => {
     const handleClick = vi.fn();
-    render(<Button disabled onClick={handleClick}>Disabled</Button>);
+    render(
+      <Button disabled onClick={handleClick}>
+        Disabled
+      </Button>,
+    );
     const button = screen.getByRole('button', { name: 'Disabled' });
 
     expect(button).toBeDisabled();
