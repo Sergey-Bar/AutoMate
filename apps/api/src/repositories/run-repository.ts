@@ -126,6 +126,50 @@ export interface RunPatch {
  *   - patchRun: if run does not exist, the patch is a no-op (graceful).
  *   - patchTest: if test does not exist, the patch is a no-op.
  */
+export interface RunAnalyticsSummary {
+  totalRuns: number;
+  /** Percentage, 0–100, over completed runs only. */
+  passRate: number;
+  /** Mean of the runs that recorded a duration; null when none did. */
+  avgDurationMs: number | null;
+}
+
+/**
+ * The dashboard's three numbers, from the runs.
+ *
+ * Exported so the in-memory repository and the SQL one cannot disagree about
+ * what they mean: the pass rate is over **completed** runs only, so a run still
+ * executing is not silently counted as a failure, and the average is over runs
+ * that recorded a duration and is `null` when none did — not zero, which would
+ * read as "instant".
+ *
+ * The SQL implementation must produce these same numbers; `analytics-parity.test.ts`
+ * holds the two to each other against a real database.
+ */
+export function aggregateRuns(runs: Iterable<RunRecord>): RunAnalyticsSummary {
+  let totalRuns = 0;
+  let completed = 0;
+  let passed = 0;
+  let durationTotal = 0;
+  let durationCount = 0;
+  for (const run of runs) {
+    totalRuns += 1;
+    if (run.status === 'passed' || run.status === 'failed') {
+      completed += 1;
+      if (run.status === 'passed') passed += 1;
+    }
+    if (run.durationMs !== null && run.durationMs !== undefined) {
+      durationTotal += run.durationMs;
+      durationCount += 1;
+    }
+  }
+  return {
+    totalRuns,
+    passRate: completed === 0 ? 0 : Math.round((passed / completed) * 100),
+    avgDurationMs: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
+  };
+}
+
 export interface RunRepository {
   /**
    * Insert or overwrite a run row.
@@ -148,6 +192,22 @@ export interface RunRepository {
    * Returns an empty array when no runs exist.
    */
   listRuns(): Promise<RunRecord[]>;
+
+  /**
+   * The dashboard's three numbers, aggregated.
+   *
+   * A method rather than three, because the alternative was `listRuns()` on the
+   * dashboard's first request — which loads **every run in the installation** into
+   * memory to compute a count, a percentage and an average. The cost grew with
+   * how long the install had been running, and it grew on the page an operator
+   * opens first after an incident.
+   *
+   * `passRate` is over completed runs only (`passed` and `failed`), so a run still
+   * executing is not counted as a failure. `avgDurationMs` is over runs with a
+   * recorded duration, and is null when none has one — not zero, which would read
+   * as "instant".
+   */
+  getAnalyticsSummary(): Promise<RunAnalyticsSummary>;
 
   /**
    * Insert or overwrite a test row.
