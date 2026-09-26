@@ -32,7 +32,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await client.close();
+  // Defensive: when `beforeAll` throws, `client` is undefined, and a teardown
+  // that then throws on `client.close()` buries the real failure.
+  if (client) await client.close();
 });
 
 describe('identity persistence', () => {
