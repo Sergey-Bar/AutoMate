@@ -127,7 +127,9 @@ const ratcheted = Object.entries(baseline).filter(
 const unconfigured = Object.entries(baseline).filter(
   (entry) => /** @type {{status?: string}} */ (entry[1]).status === 'not_configured',
 );
-const lowest = lowestFloor(/** @type {Array<[string, {statements?: number, lines?: number}]>} */ (ratcheted));
+const lowest = lowestFloor(
+  /** @type {Array<[string, {statements?: number, lines?: number}]>} */ (ratcheted),
+);
 record(
   'coverage',
   'pass',
