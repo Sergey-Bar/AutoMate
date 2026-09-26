@@ -13,8 +13,16 @@
     "sourceMap": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "lib": ["ESNext"]
+    "lib": ["ESNext"],
+    // `vitest/globals` alongside `node`: the schema test was invisible to the
+    // typecheck precisely because it was excluded, so its globals were never
+    // declared anywhere.
+    "types": ["node", "vitest/globals"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  // Tests are included here, matching every other package: they were excluded,
+  // which meant `pnpm typecheck` never looked at them and the type-aware ESLint
+  // rules could not resolve the files at all. `tsconfig.build.json` excludes them
+  // so they never ship.
+  "exclude": ["node_modules", "dist"]
 }

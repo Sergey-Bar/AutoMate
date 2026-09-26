@@ -59,7 +59,17 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
   const [createdRun, setCreatedRun] = useState<Run | null>(null);
   const idempotencyKey = useRef<string | null>(null);
 
-  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+  /**
+   * The form handler itself. It is sync because it awaits the create call,
+   * but React does not await an onSubmit handler: the value it returns is
+   * discarded, and a rejection there would be an unhandled rejection rather
+   * than a visible error.
+   *
+   * So the async part is a named function and the handler is a thin wrapper that
+   * discards the promise *after* attaching a catch, which is what turns a failed
+   * submit into the error state this component already renders.
+   */
+  const submitAsync = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsSubmitting(true);
     setError(null);
@@ -117,7 +127,7 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
       </div>
       <form
         data-testid="launch-run-form"
-        onSubmit={submit}
+        onSubmit={(event) => void submitAsync(event)}
         className="mt-5 grid gap-4 md:grid-cols-2"
       >
         <label className="text-sm font-medium">

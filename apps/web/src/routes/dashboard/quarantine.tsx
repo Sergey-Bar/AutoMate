@@ -36,7 +36,13 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
     );
   }
 
-  const handleAdd = async (e: React.FormEvent) => {
+  /**
+   * React does not await an onSubmit handler, so the value it returns is
+   * discarded and a rejection would be unhandled rather than rendered. The wrapper
+   * discards the promise *after* the async body has already attached its own
+   * catch, which is what makes a failed add visible in the error state.
+   */
+  const addAsync = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testTitle || !testFile) return;
     try {
@@ -66,7 +72,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
       {isAdding && (
         <form
           data-testid="quarantine-form"
-          onSubmit={handleAdd}
+          onSubmit={(event) => void addAsync(event)}
           className="bg-bg-elevated border border-border-default rounded-lg p-6 space-y-4"
         >
           <h3 className="text-lg font-medium text-text-primary">Quarantine a Test</h3>
