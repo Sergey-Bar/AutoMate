@@ -7,15 +7,22 @@ import { createRequire } from 'node:module';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod/v4';
+import { ExecutionEventLineSchema } from '@automate/shared-contracts';
 
 const require = createRequire(import.meta.url);
-const ReporterEventSchema = z.object({
-  eventId: z.string().min(1),
-  sequence: z.number().int().min(1),
-  type: z.string().min(1),
-  occurredAt: z.string().refine((value) => !Number.isNaN(Date.parse(value))),
-  payload: z.record(z.string(), z.unknown()).default({}),
-});
+/**
+ * The line a runner writes and the API reads.
+ *
+ * This was a third declaration of `ReporterEventSchema` — and was neither the
+ * contract's reporter event nor the realtime package's broadcast event. It was,
+ * field for field, the execution event: `{eventId, sequence, type, occurredAt,
+ * payload}`. The schema now lives in `@automate/shared-contracts` as
+ * `ExecutionEventLineSchema`, which both sides already depend on, so the name
+ * says what the thing is and there is one validator rather than three. There is
+ * deliberately no local alias: an alias named `ReporterEventSchema` would read as
+ * a fourth declaration to the next person grepping for one.
+ */
+const eventLineSchema = ExecutionEventLineSchema;
 
 export type ExecutionStatus =
   | 'succeeded'
@@ -35,7 +42,7 @@ export interface ExecutionContext {
   project?: string;
   deadlineMs: number;
   signal: AbortSignal;
-  onEvent?: (event: z.infer<typeof ReporterEventSchema>) => Promise<void>;
+  onEvent?: (event: z.infer<typeof eventLineSchema>) => Promise<void>;
   redactions?: string[];
 }
 
@@ -312,7 +319,7 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
         const parts = chunk.split(/\r?\n/u);
         eventBuffer = data.endsWith('\n') ? '' : (parts.pop() ?? '');
         for (const line of parts.filter(Boolean)) {
-          const event = ReporterEventSchema.parse(JSON.parse(line) as unknown);
+          const event = eventLineSchema.parse(JSON.parse(line) as unknown);
           if (context.onEvent) await context.onEvent(event);
         }
       };

@@ -44,4 +44,5 @@ export type {
 } from './canonical-reporting.js';
 export * from './orchestration.js';
 export * from './execution.js';
+export * from './execution-event-line.js';
 export * from './legacy-reporter-adapter.js';
