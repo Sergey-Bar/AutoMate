@@ -1,65 +1,119 @@
+# Semgrep rules for the Automate monorepo.
+#
+# Two of the five rules here were previously unparseable, so nothing was ever
+# reported:
+#
+#   - `no-vault-password-log` used `where $X contains 'password'`. `contains` is
+#     not a semgrep operator — the set operators are `<<` and `>>` — so the
+#     clause never matched anything.
+#   - `no-raw-sql-injection` declared `pattern` *and* `pattern-regex` at the rule
+#     level. A rule may have one or the other, never both.
+#
+# `scripts/static-analysis-config-check.mjs` asserts those structural invariants
+# so a future malformed rule fails the build instead of silently matching
+# nothing. Invoke the real scanner with `pnpm security:semgrep`.
+
 rules:
-  - id: no-vault-password-log
+  - id: no-secret-in-log
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: >-
+      Potential secret exposure: a log call whose text mentions a credential.
+      Remove the log, or log a redacted identifier instead of the value.
+    metadata:
+      category: security
+      confidence: MEDIUM
+      cwe: 'CWE-532: Insertion of Sensitive Information into Log File'
     patterns:
-      - pattern: console.log(...)
       - pattern-either:
-          - pattern: console.log($X, ...) where $X contains 'password'
-          - pattern: console.log($X, ...) where $X contains 'secret'
-          - pattern: console.log($X, ...) where $X contains 'decrypted'
-          - pattern: console.log(..., $X, ...) where $X contains 'vault'
-    message: >
-      Potential secret exposure: console.log() near vault/password/secret context.
-      Remove this log or redact the sensitive value before logging.
+          - pattern: console.log(...)
+          - pattern: console.error(...)
+          - pattern: console.warn(...)
+          - pattern: console.info(...)
+          - pattern: console.debug(...)
+      # Filters the matched region, not the file. `contains` is not a semgrep
+      # operator; the previous spelling of this clause matched nothing.
+      - pattern-regex: '(?i)(password|secret|apikey|api_key|decrypted|private_key|credential)'
+
+  - id: no-raw-sql-interpolation
     languages: [typescript, javascript]
     severity: ERROR
+    message: >-
+      SQL built by interpolating a variable. Use a parameterized query: Drizzle's
+      sql tag with bound parameters, or a prepared statement with placeholders.
     metadata:
       category: security
       confidence: MEDIUM
+      cwe: 'CWE-89: SQL Injection'
+    patterns:
+      - pattern-either:
+          - pattern: $DB.execute(`...${...}...`)
+          - pattern: $DB.query(`...${...}...`)
+          - pattern: $DB.raw(`...${...}...`)
+          - pattern: $DB.prepare(`...${...}...`)
+          - pattern: $DB.unsafe(`...${...}...`)
+          - pattern: sql`...${...}...`
+      # A bound parameter inside the sql tag is the safe form, so that shape is
+      # excluded rather than flagged.
+      - pattern-not: sql`...${...}...`
 
-  - id: no-raw-sql-injection
-    pattern: |
-      `$SQL ${$VAR} $REST`
-    pattern-regex: "(?i)(SELECT|INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)"
-    message: >
-      Raw SQL string interpolation detected. Use parameterized queries (Drizzle ORM
-      or prepared statements) instead of template literals to prevent SQL injection.
+  - id: no-string-concat-sql
     languages: [typescript, javascript]
     severity: ERROR
+    message: >-
+      SQL assembled by string concatenation. Use a parameterized query instead.
     metadata:
       category: security
-      confidence: MEDIUM
-
-  - id: zod-safeParse-required
-    pattern: $SCHEMA.parse($INPUT)
-    message: >
-      Use $SCHEMA.safeParse($INPUT) instead of $SCHEMA.parse($INPUT).
-      Calling .parse() throws on invalid input; .safeParse() returns a typed Result
-      that must be handled explicitly. See AGENTS.md error handling guidelines.
-    languages: [typescript, javascript]
-    severity: WARNING
-    metadata:
-      category: correctness
-      confidence: HIGH
-
-  - id: no-any-cast
-    pattern: $EXPR as any
-    message: >
-      Avoid 'as any' type cast. Use a specific type, 'as unknown', or narrow the type
-      properly. This is also enforced by @typescript-eslint/no-explicit-any.
-    languages: [typescript]
-    severity: WARNING
-    metadata:
-      category: correctness
-      confidence: HIGH
+      confidence: LOW
+      cwe: 'CWE-89: SQL Injection'
+    patterns:
+      - pattern: $A + $B
+      - metavariable-pattern:
+          metavariable: $A
+          patterns:
+            - pattern-regex: '(?i)^\s*(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM)\b'
 
   - id: no-empty-catch
-    pattern: |
-      try { ... } catch ($ERR) {}
-    message: >
-      Empty catch block detected. Either handle the error explicitly or log it with
-      (err as Error).message. Never swallow exceptions silently.
     languages: [typescript, javascript]
     severity: WARNING
+    message: >-
+      Empty catch block. Handle the error, log it, or rethrow. A swallowed
+      exception is indistinguishable from success.
     metadata:
       category: correctness
       confidence: HIGH
+    pattern: |
+      try { ... } catch ($ERR) { }
+
+  - id: no-comment-only-catch
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      A catch block that only contains a comment silently swallows the error.
+      Log it, handle it, or rethrow with context.
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+    patterns:
+      - pattern: |
+          try { ... } catch ($ERR) { ... }
+      - pattern-not: |
+          try { ... } catch ($ERR) { ...anything... }
+
+  - id: zod-parse-without-guard
+    languages: [typescript, javascript]
+    severity: WARNING
+    message: >-
+      parse() throws on invalid input, so every caller needs a try/catch. Prefer
+      safeParse() and a classified error response; where a throw is genuinely
+      intended, add a `// nosemgrep: zod-parse-without-guard` comment explaining
+      why.
+    metadata:
+      category: correctness
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $SCHEMA.parse($INPUT)
+          - pattern: $SCHEMA.array().parse($INPUT)
+      - pattern-not-inside: |
+          try { ... } catch ($$$) { ... }

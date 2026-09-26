@@ -1,20 +1,125 @@
 {
-  "api": {
-    "statements": 93
+  "apps/api": {
+    "statements": 93,
+    "branches": 84,
+    "functions": 93,
+    "lines": 96
   },
-  "web": {
-    "statements": 91
+  "apps/runner": {
+    "status": "not_configured"
   },
-  "shared-contracts": {
+  "apps/web": {
+    "statements": 95,
+    "branches": 85,
+    "functions": 95,
+    "lines": 97
+  },
+  "apps/worker": {
+    "statements": 57,
+    "branches": 43,
+    "functions": 62,
+    "lines": 59
+  },
+  "packages/auth": {
+    "statements": 95,
+    "branches": 90,
+    "functions": 92,
+    "lines": 100
+  },
+  "packages/automation": {
+    "statements": 93,
+    "branches": 80,
+    "functions": 83,
+    "lines": 95
+  },
+  "packages/config": {
+    "statements": 93,
+    "branches": 95,
+    "functions": 100,
+    "lines": 100
+  },
+  "packages/connectors/github": {
+    "statements": 10,
+    "branches": 0,
+    "functions": 0,
+    "lines": 11
+  },
+  "packages/connectors/jira": {
+    "statements": 11,
+    "branches": 0,
+    "functions": 0,
+    "lines": 12
+  },
+  "packages/connectors/sdk": {
+    "statements": 82,
+    "branches": 80,
+    "functions": 60,
+    "lines": 100
+  },
+  "packages/connectors/slack": {
+    "statements": 11,
+    "branches": 0,
+    "functions": 0,
+    "lines": 12
+  },
+  "packages/db": {
+    "statements": 31,
+    "branches": 0,
+    "functions": 0,
+    "lines": 32
+  },
+  "packages/orchestration": {
     "statements": 100,
     "branches": 100,
     "functions": 100,
     "lines": 100
   },
-  "reporting": { "statements": 94 },
-  "reporter": { "statements": 90 },
-  "orchestration": { "statements": 100 },
-  "automation": { "statements": 93 },
-  "runner-sdk": { "statements": 87 },
-  "config": { "statements": 93 }
+  "packages/realtime": {
+    "statements": 92,
+    "branches": 85,
+    "functions": 88,
+    "lines": 94
+  },
+  "packages/reporter": {
+    "statements": 91,
+    "branches": 80,
+    "functions": 96,
+    "lines": 95
+  },
+  "packages/reporting": {
+    "statements": 98,
+    "branches": 98,
+    "functions": 95,
+    "lines": 97
+  },
+  "packages/runner-sdk": {
+    "statements": 93,
+    "branches": 89,
+    "functions": 100,
+    "lines": 94
+  },
+  "packages/shared-contracts": {
+    "statements": 100,
+    "branches": 99,
+    "functions": 100,
+    "lines": 100
+  },
+  "packages/ui": {
+    "statements": 62,
+    "branches": 74,
+    "functions": 62,
+    "lines": 62
+  },
+  "tests/contract": {
+    "status": "not_configured"
+  },
+  "tests/integration": {
+    "status": "not_configured"
+  },
+  "tools/migrate-cli": {
+    "statements": 78,
+    "branches": 62,
+    "functions": 91,
+    "lines": 79
+  }
 }

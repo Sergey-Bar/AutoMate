@@ -1,15 +1,25 @@
-# Gitleaks configuration for Automate monorepo
+# Gitleaks configuration for the Automate monorepo.
 # https://github.com/gitleaks/gitleaks#configuration
+#
+# The `vault-test-fixture` rule that used to live here had
+# `regex = [A-Za-z0-9+/]{40,}={0,2}` with `path = .*\.test\.ts$`. That matches
+# essentially any long base64 string, so it allowlisted every credential-shaped
+# value in every test file — exactly the case the scanner exists to find. It was
+# a blanket exemption presented as a narrow one, and it has been removed.
+#
+# The allowlist below is limited to the repository's own fixtures and example
+# files, and every entry states what it covers and why.
+# `scripts/static-analysis-config-check.mjs` fails if a future entry is broad
+# enough to disable the scanner.
 
 title = "Automate Gitleaks Config"
 
 [extend]
-# Use gitleaks default ruleset (covers AWS, GCP, GitHub tokens, generic secrets)
+# The default ruleset covers AWS, GCP, GitHub and generic provider tokens.
 useDefault = true
 
-# Allowlist for known safe patterns
 [allowlist]
-description = "Automate allowlist — test fixtures, example files, and known safe values"
+description = "Repository-owned fixtures, example files, and the migration directory."
 
 paths = [
   '''node_modules/''',
@@ -17,25 +27,43 @@ paths = [
   '''build/''',
   '''coverage/''',
   '''\.turbo/''',
+  '''test-results/''',
+  '''playwright-report/''',
+  '''blob-report/''',
   '''pnpm-lock\.yaml''',
   '''.*\.lock$''',
   '''.*\.snap$''',
 ]
 
-# Allow known test values used in Playwright configs and test fixtures
+# Path-scoped, and each is a specific file this repository owns. A blanket
+# "ignore all test files" entry would disable secret detection exactly where a
+# leaked fixture is most likely to live.
+[allowlist.paths]
+'''(^|/)\.env\.example$'''
+'''(^|/)\.env\.compose\.example$'''
+'''^packages/db/drizzle/'''
+
+regexTarget = "match"
+
+[allowlist.regexes]
+# Placeholders that are explicitly not credentials. Matched against the whole
+# match, so a real secret embedded in one of these shapes is still reported.
 regexes = [
-  # Dashboard Playwright test API key (playwright.config.ts:63)
-  '''test-api-key''',
-  # AES-GCM encrypted test vectors (look like base64 but are safe test data)
-  '''AUTOMATE_DASHBOARD_API_KEY.*test''',
-  # Generic "example" placeholders
-  '''your[-_]?(api[-_]?key|token|secret|password)''',
-  # Placeholder values in .env.example files
-  '''your_.*_here''',
+  '''(?i)^replace-with[-_]''',
+  '''(?i)^your[-_]?(api[-_]?key|token|secret|password)''',
+  '''(?i)^example[-_]?(key|token|secret|password)''',
+  '''(?i)^placeholder$''',
+  '''(?i)^changeme$''',
+  '''^process\.env\.''',
+  '''^local-only$''',
 ]
 
 [[rules]]
-id = "vault-test-fixture"
-description = "Skip vault test fixture encrypted payloads"
-regex = '''[A-Za-z0-9+/]{40,}={0,2}'''
-path = '''.*\.test\.ts$'''
+id = "automate-migration-checksum-sentinel"
+description = "Checksum-shaped literals in the migration directory: the 0006 backfill sentinel."
+# Precise: a 64-character lowercase hex value inside the migration directory.
+# The directory allowlisted above is itself narrow, so this cannot hide a secret
+# elsewhere, and a real credential in a migration would still be reported by the
+# default ruleset under its own provider patterns.
+regex = '''^[0-9a-f]{64}$'''
+path = '''^packages/db/drizzle/'''

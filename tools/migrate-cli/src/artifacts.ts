@@ -8,7 +8,10 @@ export interface ArtifactInventoryEntry {
   digest: string;
 }
 
-export async function inventoryArtifacts(root: string, logicalRoot = root): Promise<ArtifactInventoryEntry[]> {
+export async function inventoryArtifacts(
+  root: string,
+  logicalRoot = root,
+): Promise<ArtifactInventoryEntry[]> {
   const output: ArtifactInventoryEntry[] = [];
   async function walk(current: string): Promise<void> {
     for (const entry of await readdir(current, { withFileTypes: true })) {

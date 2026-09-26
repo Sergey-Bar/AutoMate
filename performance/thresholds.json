@@ -1,0 +1,42 @@
+{
+  "$comment": [
+    "Thresholds for the committed k6 scenario in performance/smoke.js.",
+    "`scripts/performance-gate.mjs` compares nothing itself: k6's own `thresholds`",
+    "block is the authority, and k6 exits 99 when one is breached. This file",
+    "records the numbers the scenario carries, plus the floor the gate script",
+    "refuses to go below, so a future edit cannot quietly relax a published",
+    "performance claim without the change showing up here.",
+    "",
+    "These are the floors for a self-hosted single-node install on the reference",
+    "hardware, not a service-level agreement. They exist to catch a regression",
+    "that a change to this repository introduced, which is the only claim the CI",
+    "gate can make."
+  ],
+  "release": {
+    "http_req_duration": {
+      "p(95)": 500,
+      "p(99)": 1500
+    },
+    "http_req_failed": {
+      "rate": 0.01
+    },
+    "checks": {
+      "rate": 1
+    }
+  },
+  "observed_on_reference_hardware": {
+    "$comment": "Recorded by `pnpm test:performance` on the reference container. Not a gate.",
+    "http_req_duration_p95": null,
+    "http_req_duration_p99": null,
+    "http_req_failed_rate": null
+  },
+  "endpoints_covered": [
+    "/api/v1/health",
+    "/api/v1/features",
+    "/api/v1/runs"
+  ],
+  "endpoints_deliberately_not_covered": [
+    "/api/v1/events (SSE — a long-lived stream, not a latency budget)",
+    "/api/v1/reporter/upload (multipart, covered by a body-size limit instead)"
+  ]
+}

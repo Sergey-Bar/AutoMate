@@ -16,7 +16,13 @@ export class MigrationStateStore {
     try {
       return JSON.parse(readFileSync(this.filePath, 'utf8')) as MigrationCheckpoint;
     } catch {
-      return { planFingerprint: '', completedWaves: [], rowDigests: {}, artifactTransfers: {}, vaultTransfers: {} };
+      return {
+        planFingerprint: '',
+        completedWaves: [],
+        rowDigests: {},
+        artifactTransfers: {},
+        vaultTransfers: {},
+      };
     }
   }
 

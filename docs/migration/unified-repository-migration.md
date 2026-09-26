@@ -8,11 +8,11 @@ This specification uses the current unified repository as the target base and po
 
 ### Authoritative baselines
 
-| System | Immutable baseline | Provenance confidence |
-|---|---|---|
-| Unified target | `01cc19c8167e0e8365928862de463fd50caaee5c` plus the explicitly reviewed current working-tree changes | High for inspected files; working tree is dirty |
-| AutoMate source | `https://github.com/Sergey-Bar/AutoMate.git` at `bce507ecc36e9f5cc33b3016741238b7fc834f0f` | High; exact commit inspected with `git show` |
-| Automate-Dashboard source | `https://github.com/Sergey-Bar/Automate-Dashboard.git` at `b5a068538e433e09d816292852dba2a0a87acf22` | Commit existence confirmed; source not materialized in this plan-only session |
+| System                        | Immutable baseline                                                                                            | Provenance confidence                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Unified target                | `01cc19c8167e0e8365928862de463fd50caaee5c` plus the explicitly reviewed current working-tree changes          | High for inspected files; working tree is dirty                                     |
+| AutoMate source               | `https://github.com/Sergey-Bar/AutoMate.git` at `bce507ecc36e9f5cc33b3016741238b7fc834f0f`                    | High; exact commit inspected with `git show`                                        |
+| Automate-Dashboard source     | `https://github.com/Sergey-Bar/Automate-Dashboard.git` at `b5a068538e433e09d816292852dba2a0a87acf22`          | Commit existence confirmed; source not materialized in this plan-only session       |
 | QA-Doctor / Mjölnir reference | `https://github.com/Sergey-Bar/Mjolnir.git` at `d981ba356313ae8cea0538ca85c665e88b84c530`, clean local `main` | High; inspected as a read-only evidence/reporting reference, not a migration source |
 
 A full untracked Dashboard candidate exists at `AutoMate/dashboard/`, but it identifies a different upstream and is not byte-verified. It is evidence for investigation only, not an authoritative migration input.
@@ -73,34 +73,34 @@ The unified repository is the only active development codebase. The pinned Dashb
 
 ### 3.3 Source parity summary
 
-| Capability | Current state | Core-first disposition |
-|---|---|---|
-| Reporter lifecycle and run/test persistence | Real but contract-drifting | Restore and make canonical |
-| Run detail, quarantine, basic analytics, quality gates | Partially real | Complete, persist, and verify |
-| Browser live updates | Process-local SSE | Preserve SSE, add durable outbox/cursor |
-| Binary artifacts and reports | Missing end to end | Build against object storage |
-| Installation login | Dirty, signed boolean cookie | Replace with revocable sessions |
-| Source API keys/RBAC/SAML | Schema exists, behavior not migrated | Defer and exclude from launch |
-| Model-backed chat | Mock | Restore with dynamic Kilo catalog |
-| Provider adapters | Four in-memory model values | Replace with gateway/provider ports |
-| GitHub/Jira/Slack connectors | Missing | Restore core outbound connectors |
-| MCP | Missing/unwired in target and inconsistent in source | Defer behind a new ADR |
-| Scheduling and inventory | Missing | Required control-plane core |
-| Runner fleet, leases, capacity, offline reconnect | Missing | Required control-plane core |
-| Playwright, k6, ZAP, Appium adapter policy | Partial/missing | First Playwright/k6/ZAP are required; Appium follows only after device lifecycle is proven |
-| Advanced prediction, clustering, visual baselines | Mock, unwired, or missing | Defer |
-| Webwright | Three incompatible contracts | Remove from launch; preserve history |
-| Tauri desktop | Empty source shell | Do not migrate |
-| i18n/RTL | Present in provisional source, absent in target | Defer |
+| Capability                                             | Current state                                        | Core-first disposition                                                                     |
+| ------------------------------------------------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Reporter lifecycle and run/test persistence            | Real but contract-drifting                           | Restore and make canonical                                                                 |
+| Run detail, quarantine, basic analytics, quality gates | Partially real                                       | Complete, persist, and verify                                                              |
+| Browser live updates                                   | Process-local SSE                                    | Preserve SSE, add durable outbox/cursor                                                    |
+| Binary artifacts and reports                           | Missing end to end                                   | Build against object storage                                                               |
+| Installation login                                     | Dirty, signed boolean cookie                         | Replace with revocable sessions                                                            |
+| Source API keys/RBAC/SAML                              | Schema exists, behavior not migrated                 | Defer and exclude from launch                                                              |
+| Model-backed chat                                      | Mock                                                 | Restore with dynamic Kilo catalog                                                          |
+| Provider adapters                                      | Four in-memory model values                          | Replace with gateway/provider ports                                                        |
+| GitHub/Jira/Slack connectors                           | Missing                                              | Restore core outbound connectors                                                           |
+| MCP                                                    | Missing/unwired in target and inconsistent in source | Defer behind a new ADR                                                                     |
+| Scheduling and inventory                               | Missing                                              | Required control-plane core                                                                |
+| Runner fleet, leases, capacity, offline reconnect      | Missing                                              | Required control-plane core                                                                |
+| Playwright, k6, ZAP, Appium adapter policy             | Partial/missing                                      | First Playwright/k6/ZAP are required; Appium follows only after device lifecycle is proven |
+| Advanced prediction, clustering, visual baselines      | Mock, unwired, or missing                            | Defer                                                                                      |
+| Webwright                                              | Three incompatible contracts                         | Remove from launch; preserve history                                                       |
+| Tauri desktop                                          | Empty source shell                                   | Do not migrate                                                                             |
+| i18n/RTL                                               | Present in provisional source, absent in target      | Defer                                                                                      |
 
 ### 3.4 Repository disposition
 
-| Repository | Future state | Permitted use during migration |
-|---|---|---|
-| Current unified Automate | Sole active development repository and release source | Implement all approved product behavior, runner, dashboard, governance, and deployment |
-| Automate-Dashboard | Primary UX/product reference and legacy data/protocol source | Port verified behavior and data semantics; do not merge its legacy server/migration architecture or continue feature development there |
-| AutoMate | Frozen extraction source and temporary rollback archive | Preserve unique runner, protocol, connector, validation, and automation semantics until explicitly ported/replaced; then archive/delete after zero-consumer gates |
-| QA-Doctor / Mjölnir | Read-only evidence/trust/ingestion reference | Copy or adapt approved ideas with tests; do not import its static-report CLI as the product architecture or track its generated artifacts |
+| Repository               | Future state                                                 | Permitted use during migration                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current unified Automate | Sole active development repository and release source        | Implement all approved product behavior, runner, dashboard, governance, and deployment                                                                            |
+| Automate-Dashboard       | Primary UX/product reference and legacy data/protocol source | Port verified behavior and data semantics; do not merge its legacy server/migration architecture or continue feature development there                            |
+| AutoMate                 | Frozen extraction source and temporary rollback archive      | Preserve unique runner, protocol, connector, validation, and automation semantics until explicitly ported/replaced; then archive/delete after zero-consumer gates |
+| QA-Doctor / Mjölnir      | Read-only evidence/trust/ingestion reference                 | Copy or adapt approved ideas with tests; do not import its static-report CLI as the product architecture or track its generated artifacts                         |
 
 ## 4. Target repository architecture
 
@@ -296,15 +296,15 @@ collectArtifacts()
 
 Use logical schemas to make ownership explicit:
 
-| Schema | Owner | Core tables |
-|---|---|---|
-| `identity` | auth | `installation_keys`, `sessions`, `service_credentials`, `runner_identities` |
-| `orchestration` | orchestration | `automation_inventory`, `schedules`, `jobs`, `job_leases`, `runner_instances`, `runner_capabilities` |
-| `reporting` | reporting | `workspaces`, `runs`, `checks`, `attempts`, `steps`, `evidence`, `artifacts`, `quarantine`, `quality_gates`, KPI/read models |
-| `automation` | automation | `conversations`, `messages`, `model_profiles`, `flow_templates`, `tool_runs` |
-| `integrations` | connectors | `connectors`, `connector_configs`, `vault_entries` |
-| `audit` | auth/audit | `audit_events` |
-| `system` | platform | `outbox_events`, `legacy_id_map`, `migration_runs`, `schema_migrations` |
+| Schema          | Owner         | Core tables                                                                                                                  |
+| --------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `identity`      | auth          | `installation_keys`, `sessions`, `service_credentials`, `runner_identities`                                                  |
+| `orchestration` | orchestration | `automation_inventory`, `schedules`, `jobs`, `job_leases`, `runner_instances`, `runner_capabilities`                         |
+| `reporting`     | reporting     | `workspaces`, `runs`, `checks`, `attempts`, `steps`, `evidence`, `artifacts`, `quarantine`, `quality_gates`, KPI/read models |
+| `automation`    | automation    | `conversations`, `messages`, `model_profiles`, `flow_templates`, `tool_runs`                                                 |
+| `integrations`  | connectors    | `connectors`, `connector_configs`, `vault_entries`                                                                           |
+| `audit`         | auth/audit    | `audit_events`                                                                                                               |
+| `system`        | platform      | `outbox_events`, `legacy_id_map`, `migration_runs`, `schema_migrations`                                                      |
 
 Apply the existing PostgreSQL baseline first; move or recreate tables with new forward migrations. Never edit already-applied migration history.
 
@@ -449,35 +449,35 @@ Reference: Kilo Gateway documents an OpenAI-compatible endpoint and live model c
 
 ### 6.1 Namespace and ownership conflicts
 
-| Conflict | Canonical resolution |
-|---|---|
-| All three roots are named `automate` | Keep only the unified root manifest/lockfile; source manifests are read-only inputs |
-| Legacy `apps/web` collides with target `apps/web` | Port behavior into the target app; never overlay trees |
-| Fastify source servers vs Hono target | Reimplement source use cases behind Hono routes; do not retain Fastify runtime |
-| `@automate/shared`, `@automate/dashboard-shared`, and `@automate/shared-contracts` | Keep `@automate/shared-contracts`; port and deduplicate schemas |
-| `Permission` in auth and contracts | Contracts own wire values/types; auth consumes and re-exports only if needed |
-| `ReporterEventSchema`/`RealtimeEventSchema` in API, realtime, and contracts | Contracts own event shape/version; realtime owns transport |
-| Local web `RunSchema`, `TestSchema`, `MessageSchema` | Delete after web imports canonical contracts |
-| Source reporter/CLI names | Restore `@automate/reporter`; keep `@automate/migrate-cli` separate; assess `@automate/cli` independently |
-| `AUTOMATE_DASHBOARD_API_KEY` vs `AUTOMATE_API_KEY` | Deployment maps the old secret to `AUTOMATE_API_KEY`; do not expose both in app config |
-| `SESSION_SECRET` vs `COOKIE_SECRET` | `COOKIE_SECRET` is canonical; time-boxed parser alias only |
-| Source port 4000/4001 vs target 3000/SSE | Target ports/routes win; legacy reporter WS is adapter-only |
-| Source SQLite migrations vs target PostgreSQL | Target Drizzle migrations win; source SQL is never executed |
+| Conflict                                                                           | Canonical resolution                                                                                      |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| All three roots are named `automate`                                               | Keep only the unified root manifest/lockfile; source manifests are read-only inputs                       |
+| Legacy `apps/web` collides with target `apps/web`                                  | Port behavior into the target app; never overlay trees                                                    |
+| Fastify source servers vs Hono target                                              | Reimplement source use cases behind Hono routes; do not retain Fastify runtime                            |
+| `@automate/shared`, `@automate/dashboard-shared`, and `@automate/shared-contracts` | Keep `@automate/shared-contracts`; port and deduplicate schemas                                           |
+| `Permission` in auth and contracts                                                 | Contracts own wire values/types; auth consumes and re-exports only if needed                              |
+| `ReporterEventSchema`/`RealtimeEventSchema` in API, realtime, and contracts        | Contracts own event shape/version; realtime owns transport                                                |
+| Local web `RunSchema`, `TestSchema`, `MessageSchema`                               | Delete after web imports canonical contracts                                                              |
+| Source reporter/CLI names                                                          | Restore `@automate/reporter`; keep `@automate/migrate-cli` separate; assess `@automate/cli` independently |
+| `AUTOMATE_DASHBOARD_API_KEY` vs `AUTOMATE_API_KEY`                                 | Deployment maps the old secret to `AUTOMATE_API_KEY`; do not expose both in app config                    |
+| `SESSION_SECRET` vs `COOKIE_SECRET`                                                | `COOKIE_SECRET` is canonical; time-boxed parser alias only                                                |
+| Source port 4000/4001 vs target 3000/SSE                                           | Target ports/routes win; legacy reporter WS is adapter-only                                               |
+| Source SQLite migrations vs target PostgreSQL                                      | Target Drizzle migrations win; source SQL is never executed                                               |
 
 ### 6.2 Version conflicts
 
-| Area | Conflicting state | Target |
-|---|---|---|
-| Node | Legacy drift between root engines, `.nvmrc`, docs, and locked package requirements | `.nvmrc` `24.21.0`; engines `>=24.0.0 <25`; CI `24.x`; Docker `node:24.21.0` |
-| pnpm | Source 10.6.5, source docs 9, target 10.30.2 | Exactly `pnpm@10.30.2` in root, CI, Docker, docs |
-| TypeScript | Repeated `~5.9`, `^5.9.0`, `^5.9.3` | One catalog entry, `~5.9.3` |
-| Zod | Dashboard source v3; target v4 | Port source schemas to Zod 4; no dual runtime |
-| React | React 19 in all useful sources | One React 19 resolution; upgrade `lucide-react` to a React-19-compatible release |
-| Vite | Source 7; target lock override 6.4.3 | Keep 6.4.3 during migration; upgrade separately only if a required feature demands it |
-| Drizzle | Target package drift around 0.45.1/0.45.2 | One 0.45.x resolution through a pnpm catalog |
-| Fastify/Hono | Source Fastify; target Hono | Hono only |
-| Playwright | Source/current target older; verified current release 1.63.0 | Upgrade reporter, E2E, adapter fixtures, and the Playwright OCI image atomically; pin the image by digest |
-| Python/Webwright | Floating uv/Python and broken image | Remove from launch; any future return requires a pinned ADR and clean image |
+| Area             | Conflicting state                                                                  | Target                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Node             | Legacy drift between root engines, `.nvmrc`, docs, and locked package requirements | `.nvmrc` `24.21.0`; engines `>=24.0.0 <25`; CI `24.x`; Docker `node:24.21.0`                              |
+| pnpm             | Source 10.6.5, source docs 9, target 10.30.2                                       | Exactly `pnpm@10.30.2` in root, CI, Docker, docs                                                          |
+| TypeScript       | Repeated `~5.9`, `^5.9.0`, `^5.9.3`                                                | One catalog entry, `~5.9.3`                                                                               |
+| Zod              | Dashboard source v3; target v4                                                     | Port source schemas to Zod 4; no dual runtime                                                             |
+| React            | React 19 in all useful sources                                                     | One React 19 resolution; upgrade `lucide-react` to a React-19-compatible release                          |
+| Vite             | Source 7; target lock override 6.4.3                                               | Keep 6.4.3 during migration; upgrade separately only if a required feature demands it                     |
+| Drizzle          | Target package drift around 0.45.1/0.45.2                                          | One 0.45.x resolution through a pnpm catalog                                                              |
+| Fastify/Hono     | Source Fastify; target Hono                                                        | Hono only                                                                                                 |
+| Playwright       | Source/current target older; verified current release 1.63.0                       | Upgrade reporter, E2E, adapter fixtures, and the Playwright OCI image atomically; pin the image by digest |
+| Python/Webwright | Floating uv/Python and broken image                                                | Remove from launch; any future return requires a pinned ADR and clean image                               |
 
 ### 6.3 Dependency hygiene procedure
 
@@ -502,16 +502,16 @@ Reference: Kilo Gateway documents an OpenAI-compatible endpoint and live model c
 
 The platform normalizes producer output without pretending every format has the same fidelity:
 
-| Producer | Required input | Normalization rule |
-|---|---|---|
-| Playwright | JSON/report events | Preserve project/browser, every result/retry, recursive steps, errors, stdout/stderr, worker/shard, and attachments |
-| JUnit-family tools | XML | Stream with bounded input; map suites/tests/status/duration/output; do not invent retries, steps, or attachments absent from the source |
-| Robot Framework | JSON/XML/listener events | Preserve suites/tests/keywords, tags, messages, and emitted files; use Rebot only as a source adapter |
-| k6/Locust | JSONL/CSV/JSON/OTel/Prometheus | Normalize thresholds and metrics separately from pass/fail checks; do not force load samples into JUnit |
-| OWASP ZAP | JSON/SARIF/API events | Map alerts to security findings and retain native reports as immutable artifacts |
-| Appium/WebDriver | Host-framework JUnit/Allure plus driver logs | Do not treat WebDriver events as a complete result model |
-| Sonar/DefectDojo | Generic quality/SARIF records | Keep source coverage, findings, and gate outcomes as typed external authorities |
-| Arbitrary CLI | JUnit, Allure, canonical JSON, or artifact manifest | Reject unsupported output with an explicit non-pass completeness state |
+| Producer           | Required input                                      | Normalization rule                                                                                                                      |
+| ------------------ | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Playwright         | JSON/report events                                  | Preserve project/browser, every result/retry, recursive steps, errors, stdout/stderr, worker/shard, and attachments                     |
+| JUnit-family tools | XML                                                 | Stream with bounded input; map suites/tests/status/duration/output; do not invent retries, steps, or attachments absent from the source |
+| Robot Framework    | JSON/XML/listener events                            | Preserve suites/tests/keywords, tags, messages, and emitted files; use Rebot only as a source adapter                                   |
+| k6/Locust          | JSONL/CSV/JSON/OTel/Prometheus                      | Normalize thresholds and metrics separately from pass/fail checks; do not force load samples into JUnit                                 |
+| OWASP ZAP          | JSON/SARIF/API events                               | Map alerts to security findings and retain native reports as immutable artifacts                                                        |
+| Appium/WebDriver   | Host-framework JUnit/Allure plus driver logs        | Do not treat WebDriver events as a complete result model                                                                                |
+| Sonar/DefectDojo   | Generic quality/SARIF records                       | Keep source coverage, findings, and gate outcomes as typed external authorities                                                         |
+| Arbitrary CLI      | JUnit, Allure, canonical JSON, or artifact manifest | Reject unsupported output with an explicit non-pass completeness state                                                                  |
 
 Rules:
 
@@ -660,40 +660,40 @@ Automate therefore owns the product core and composes the following layers.
 
 ### 8.2 Dashboarding and reporting shortlist
 
-| Repository | Stars | License | Best alignment | Product disposition |
-|---|---:|---|---|---|
-| [reportportal/reportportal](https://github.com/reportportal/reportportal) | 2,031 | Apache-2.0 | Central launch/test/step/log/artifact ingestion and QA drill-down | Benchmark the product model; do not deploy initially because it duplicates persistence, search, queues, and UI |
-| [allure-framework/allure2](https://github.com/allure-framework/allure2) | 5,544 | Apache-2.0 | Stable test identity, nested steps, attachments, history, retries, and strong report UX | Support Allure result export/import compatibility and borrow UX semantics |
-| [grafana/grafana](https://github.com/grafana/grafana) | 76,889 | AGPL-3.0 | Fleet KPIs, trends, annotations, alerts, runner utilization, queue and duration metrics | Optional internal/portfolio dashboard over a dedicated read model; do not replace the product UI |
-| [SonarSource/sonarqube](https://github.com/SonarSource/sonarqube) | 11,021 | LGPL-3.0 | Source coverage, static quality, branch measures, and quality gates | Optional external quality authority represented as typed checks; not the result store |
-| [DefectDojo/django-DefectDojo](https://github.com/DefectDojo/django-DefectDojo) | 4,957 | BSD-3-Clause | Security scanner normalization, finding fingerprinting, lifecycle, risk, and SLA KPIs | Borrow the finding model or integrate only when AppSec lifecycle is enabled |
+| Repository                                                                      |  Stars | License      | Best alignment                                                                          | Product disposition                                                                                            |
+| ------------------------------------------------------------------------------- | -----: | ------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [reportportal/reportportal](https://github.com/reportportal/reportportal)       |  2,031 | Apache-2.0   | Central launch/test/step/log/artifact ingestion and QA drill-down                       | Benchmark the product model; do not deploy initially because it duplicates persistence, search, queues, and UI |
+| [allure-framework/allure2](https://github.com/allure-framework/allure2)         |  5,544 | Apache-2.0   | Stable test identity, nested steps, attachments, history, retries, and strong report UX | Support Allure result export/import compatibility and borrow UX semantics                                      |
+| [grafana/grafana](https://github.com/grafana/grafana)                           | 76,889 | AGPL-3.0     | Fleet KPIs, trends, annotations, alerts, runner utilization, queue and duration metrics | Optional internal/portfolio dashboard over a dedicated read model; do not replace the product UI               |
+| [SonarSource/sonarqube](https://github.com/SonarSource/sonarqube)               | 11,021 | LGPL-3.0     | Source coverage, static quality, branch measures, and quality gates                     | Optional external quality authority represented as typed checks; not the result store                          |
+| [DefectDojo/django-DefectDojo](https://github.com/DefectDojo/django-DefectDojo) |  4,957 | BSD-3-Clause | Security scanner normalization, finding fingerprinting, lifecycle, risk, and SLA KPIs   | Borrow the finding model or integrate only when AppSec lifecycle is enabled                                    |
 
 ### 8.3 Test-runner shortlist
 
-| Repository | Stars | License | Role in the portfolio | Isolation/result notes |
-|---|---:|---|---|---|
-| [microsoft/playwright](https://github.com/microsoft/playwright) | 96,636 | Apache-2.0 | Primary browser/API runner | Shard externally, merge reports centrally, publish JSON/JUnit/blob and artifacts; official OCI images |
-| [grafana/k6](https://github.com/grafana/k6) | 31,570 | AGPL-3.0 | Primary programmable load/performance runner | One-job OCI or execution segment; ingest JSONL/OTel/Prometheus and enforce thresholds |
-| [zaproxy/zaproxy](https://github.com/zaproxy/zaproxy) | 15,823 | Apache-2.0 | Primary DAST/security runner | Isolated scan container, stop API, JSON/SARIF, native HTML/XML/Markdown/PDF artifacts |
-| [appium/appium](https://github.com/appium/appium) | 22,006 | Apache-2.0 | Mobile/native runner | Device/simulator fleet is an infrastructure concern; host framework supplies test result semantics |
-| [locustio/locust](https://github.com/locustio/locust) | 28,180 | MIT | Python-native load alternative | Ephemeral master plus worker containers; JSON/CSV/HTML/OTel |
-| [SeleniumHQ/selenium](https://github.com/SeleniumHQ/selenium) | 34,514 | Apache-2.0 | Legacy/cross-language browser compatibility and Grid | WebDriver/BiDi is not a result model; framework adapters supply reports |
-| [vitest-dev/vitest](https://github.com/vitest-dev/vitest) | 17,042 | MIT | High-throughput JS/TS unit/component runner | External shards plus blob merge; JSON/JUnit/TAP/HTML |
-| [junit-team/junit-framework](https://github.com/junit-team/junit-framework) | 7,058 | Eclipse-2.0 | JVM execution platform | Small pinned JRE image; stream Open Test Reporting XML and listener events |
-| [robotframework/robotframework](https://github.com/robotframework/robotframework) | 11,914 | Apache-2.0 | Low-code and heterogeneous compatibility layer | JSON/XML/listener events; Pabot/Rebot for sharding/merging |
-| [cypress-io/cypress](https://github.com/cypress-io/cypress) | 51,025 | MIT | Secondary browser/component engine | Keep only for existing suites; overlaps Playwright and lacks comparable open distributed sharding |
-| [postmanlabs/newman](https://github.com/postmanlabs/newman) | 7,253 | Apache-2.0 | Postman collection/API execution adapter | JSON/JUnit and custom reporters; no native scheduler |
+| Repository                                                                        |  Stars | License     | Role in the portfolio                                | Isolation/result notes                                                                                |
+| --------------------------------------------------------------------------------- | -----: | ----------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [microsoft/playwright](https://github.com/microsoft/playwright)                   | 96,636 | Apache-2.0  | Primary browser/API runner                           | Shard externally, merge reports centrally, publish JSON/JUnit/blob and artifacts; official OCI images |
+| [grafana/k6](https://github.com/grafana/k6)                                       | 31,570 | AGPL-3.0    | Primary programmable load/performance runner         | One-job OCI or execution segment; ingest JSONL/OTel/Prometheus and enforce thresholds                 |
+| [zaproxy/zaproxy](https://github.com/zaproxy/zaproxy)                             | 15,823 | Apache-2.0  | Primary DAST/security runner                         | Isolated scan container, stop API, JSON/SARIF, native HTML/XML/Markdown/PDF artifacts                 |
+| [appium/appium](https://github.com/appium/appium)                                 | 22,006 | Apache-2.0  | Mobile/native runner                                 | Device/simulator fleet is an infrastructure concern; host framework supplies test result semantics    |
+| [locustio/locust](https://github.com/locustio/locust)                             | 28,180 | MIT         | Python-native load alternative                       | Ephemeral master plus worker containers; JSON/CSV/HTML/OTel                                           |
+| [SeleniumHQ/selenium](https://github.com/SeleniumHQ/selenium)                     | 34,514 | Apache-2.0  | Legacy/cross-language browser compatibility and Grid | WebDriver/BiDi is not a result model; framework adapters supply reports                               |
+| [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                         | 17,042 | MIT         | High-throughput JS/TS unit/component runner          | External shards plus blob merge; JSON/JUnit/TAP/HTML                                                  |
+| [junit-team/junit-framework](https://github.com/junit-team/junit-framework)       |  7,058 | Eclipse-2.0 | JVM execution platform                               | Small pinned JRE image; stream Open Test Reporting XML and listener events                            |
+| [robotframework/robotframework](https://github.com/robotframework/robotframework) | 11,914 | Apache-2.0  | Low-code and heterogeneous compatibility layer       | JSON/XML/listener events; Pabot/Rebot for sharding/merging                                            |
+| [cypress-io/cypress](https://github.com/cypress-io/cypress)                       | 51,025 | MIT         | Secondary browser/component engine                   | Keep only for existing suites; overlaps Playwright and lacks comparable open distributed sharding     |
+| [postmanlabs/newman](https://github.com/postmanlabs/newman)                       |  7,253 | Apache-2.0  | Postman collection/API execution adapter             | JSON/JUnit and custom reporters; no native scheduler                                                  |
 
 ### 8.4 Control-panel and orchestration shortlist
 
-| Repository | Stars | License | Strength | Constraint/disposition |
-|---|---:|---|---|---|
-| [kubeshop/testkube](https://github.com/kubeshop/testkube) | 1,661 | MIT + Testkube Community License | Closest QA-specific product, test workflows, OCI tools, artifacts, schedules, events, optional agent | Full fleet/dashboard is commercial and license is mixed; benchmark and optional Agent API, not foundation |
-| [windmill-labs/windmill](https://github.com/windmill-labs/windmill) | 17,879 | AGPL-3.0 | Fully OSS UI/API, schedules, queues, workers, health, retries, Docker/nsjail | General workflow product, not QA model; optional separate-service pilot, never embed casually |
-| [triggerdotdev/trigger.dev](https://github.com/triggerdotdev/trigger.dev) | 14,518 | Apache-2.0 | Durable TS tasks, schedules, concurrency, retries, isolated per-run containers | Duplicates the planned control plane and lacks test/case inventory; study only |
-| [woodpecker-ci/woodpecker](https://github.com/woodpecker-ci/woodpecker) | 12,142 | Apache-2.0 | Lean server/DB, pull agents, queue, UI/API, cron, per-step OCI | Weak automatic step retry and no QA result model; CI backend reference |
-| [kestra-io/kestra](https://github.com/kestra-io/kestra) | 27,468 | Apache-2.0 core; enterprise gates | Excellent workflow UX, triggers, retries, logs, API, Docker | Worker groups, autoscaling, K8s runner, and HA are commercial; UX study only |
-| [argoproj/argo-workflows](https://github.com/argoproj/argo-workflows) | 17,003 | Apache-2.0 | Kubernetes-native DAGs, schedules, retries, artifacts, REST/gRPC, pod isolation | No runner inventory or QA semantics; future execution backend after measured need |
+| Repository                                                                |  Stars | License                           | Strength                                                                                             | Constraint/disposition                                                                                    |
+| ------------------------------------------------------------------------- | -----: | --------------------------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| [kubeshop/testkube](https://github.com/kubeshop/testkube)                 |  1,661 | MIT + Testkube Community License  | Closest QA-specific product, test workflows, OCI tools, artifacts, schedules, events, optional agent | Full fleet/dashboard is commercial and license is mixed; benchmark and optional Agent API, not foundation |
+| [windmill-labs/windmill](https://github.com/windmill-labs/windmill)       | 17,879 | AGPL-3.0                          | Fully OSS UI/API, schedules, queues, workers, health, retries, Docker/nsjail                         | General workflow product, not QA model; optional separate-service pilot, never embed casually             |
+| [triggerdotdev/trigger.dev](https://github.com/triggerdotdev/trigger.dev) | 14,518 | Apache-2.0                        | Durable TS tasks, schedules, concurrency, retries, isolated per-run containers                       | Duplicates the planned control plane and lacks test/case inventory; study only                            |
+| [woodpecker-ci/woodpecker](https://github.com/woodpecker-ci/woodpecker)   | 12,142 | Apache-2.0                        | Lean server/DB, pull agents, queue, UI/API, cron, per-step OCI                                       | Weak automatic step retry and no QA result model; CI backend reference                                    |
+| [kestra-io/kestra](https://github.com/kestra-io/kestra)                   | 27,468 | Apache-2.0 core; enterprise gates | Excellent workflow UX, triggers, retries, logs, API, Docker                                          | Worker groups, autoscaling, K8s runner, and HA are commercial; UX study only                              |
+| [argoproj/argo-workflows](https://github.com/argoproj/argo-workflows)     | 17,003 | Apache-2.0                        | Kubernetes-native DAGs, schedules, retries, artifacts, REST/gRPC, pod isolation                      | No runner inventory or QA semantics; future execution backend after measured need                         |
 
 Do not run multiple orchestrators initially. Define one internal execution-provider port—lease, dispatch, status, cancel, capacity, logs, artifacts—and choose at most one backend per deployment.
 
@@ -701,16 +701,16 @@ Do not run multiple orchestrators initially. Define one internal execution-provi
 
 A repeated winner is intentional: roles need different depth of the same durable platform, not four unrelated systems.
 
-| QA role | Dashboard/reporting | Test runner | Control panel/orchestration | Multi-language/multi-tool |
-|---|---|---|---|---|
-| General QA Engineer | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), as product reference/optional agent | Robot Framework (11,914) |
-| SDET / Automation Engineer | Allure 2 (5,544) | Playwright (96,636) | Testkube (1,661), workflow and OCI patterns | Robot Framework (11,914) |
-| Performance Engineer | Grafana (76,889) | k6 (31,570) | Windmill (17,879), optional isolated-job pilot | Testkube (1,661), k6/JMeter/Gatling/Locust workload catalog |
-| Security / AppSec Tester | DefectDojo (4,957) | OWASP ZAP (15,823) | Testkube (1,661), dedicated ZAP/container patterns | Robot Framework (11,914), heterogeneous API/browser/process composition |
-| Mobile / Native QA Engineer | Allure 2 (5,544) | Appium (22,006) | Windmill (17,879), device-job workflow reference | Robot Framework (11,914), AppiumLibrary and remote libraries |
-| DevOps / CI Engineer | Grafana (76,889) | Playwright (96,636) | Woodpecker (12,142), lean Apache CI backend | Testkube (1,661), arbitrary OCI test workloads |
-| QA Lead / Test Manager | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), inventory/scheduling/product benchmark | Robot Framework (11,914), broad existing-suite compatibility |
-| Automation Platform Engineer / Architect | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), closest QA control-plane reference | Robot Framework (11,914), language-neutral adapter layer |
+| QA role                                  | Dashboard/reporting  | Test runner         | Control panel/orchestration                              | Multi-language/multi-tool                                               |
+| ---------------------------------------- | -------------------- | ------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------- |
+| General QA Engineer                      | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), as product reference/optional agent    | Robot Framework (11,914)                                                |
+| SDET / Automation Engineer               | Allure 2 (5,544)     | Playwright (96,636) | Testkube (1,661), workflow and OCI patterns              | Robot Framework (11,914)                                                |
+| Performance Engineer                     | Grafana (76,889)     | k6 (31,570)         | Windmill (17,879), optional isolated-job pilot           | Testkube (1,661), k6/JMeter/Gatling/Locust workload catalog             |
+| Security / AppSec Tester                 | DefectDojo (4,957)   | OWASP ZAP (15,823)  | Testkube (1,661), dedicated ZAP/container patterns       | Robot Framework (11,914), heterogeneous API/browser/process composition |
+| Mobile / Native QA Engineer              | Allure 2 (5,544)     | Appium (22,006)     | Windmill (17,879), device-job workflow reference         | Robot Framework (11,914), AppiumLibrary and remote libraries            |
+| DevOps / CI Engineer                     | Grafana (76,889)     | Playwright (96,636) | Woodpecker (12,142), lean Apache CI backend              | Testkube (1,661), arbitrary OCI test workloads                          |
+| QA Lead / Test Manager                   | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), inventory/scheduling/product benchmark | Robot Framework (11,914), broad existing-suite compatibility            |
+| Automation Platform Engineer / Architect | ReportPortal (2,031) | Playwright (96,636) | Testkube (1,661), closest QA control-plane reference     | Robot Framework (11,914), language-neutral adapter layer                |
 
 The matrix is a curated market benchmark, not an instruction to embed all 32 choices. Automate implements the common control plane once and supplies role-specific views over the same normalized data.
 
@@ -757,15 +757,15 @@ The product dashboard, not Grafana, owns:
 
 Product role views are projections of the same canonical evidence:
 
-| Role | Primary cockpit | Required drill-through |
-|---|---|---|
-| General QA Engineer | Recent runs, failed checks, environment | Failed check → attempts → steps → artifacts |
-| SDET / Automation Engineer | Flake trends, retries, producer coverage | Comparable runs and producer provenance |
-| Performance Engineer | Throughput, latency percentiles, saturation, thresholds | Metric window → request samples → threshold result |
-| Security / AppSec Tester | Alert lifecycle, severity, affected target, SLA | Finding → scanner evidence → run/artifact |
-| Mobile / Native QA Engineer | Device/OS/browser matrix and session history | Device session → test → driver log/artifact |
-| DevOps / CI Engineer | Queue latency, runner health, capacity, tool cost | Queue/job → runner/lease → image/tool version |
-| QA Lead / Test Manager | Quality posture, missing scope, trend, capacity, SLA | KPI → affected checks/runs → policy/gate reason |
+| Role                                     | Primary cockpit                                                 | Required drill-through                                  |
+| ---------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------- |
+| General QA Engineer                      | Recent runs, failed checks, environment                         | Failed check → attempts → steps → artifacts             |
+| SDET / Automation Engineer               | Flake trends, retries, producer coverage                        | Comparable runs and producer provenance                 |
+| Performance Engineer                     | Throughput, latency percentiles, saturation, thresholds         | Metric window → request samples → threshold result      |
+| Security / AppSec Tester                 | Alert lifecycle, severity, affected target, SLA                 | Finding → scanner evidence → run/artifact               |
+| Mobile / Native QA Engineer              | Device/OS/browser matrix and session history                    | Device session → test → driver log/artifact             |
+| DevOps / CI Engineer                     | Queue latency, runner health, capacity, tool cost               | Queue/job → runner/lease → image/tool version           |
+| QA Lead / Test Manager                   | Quality posture, missing scope, trend, capacity, SLA            | KPI → affected checks/runs → policy/gate reason         |
 | Automation Platform Engineer / Architect | Runner fleet, toolchain versions, reliability, events, security | Event cursor → job attempt → tool image/config/artifact |
 
 Grafana may consume a separate read model or bounded-cardinality metrics, but individual test names, stack traces, and run IDs must not become Prometheus labels.
@@ -977,26 +977,26 @@ Prefer forward database fixes. Data cutover rollback means restoring/repointing 
 
 ## 11. Failure modes and controls
 
-| Failure mode | Control |
-|---|---|
-| Legacy run ID rejected or overwritten | Dual IDs, legacy map, unique workspace/external key |
-| Reporter event silently lost | Canonical v2 schema, v1 normalization fixtures, dead-letter record |
-| Unsupported/malformed report appears as pass | Bounded adapters, explicit completeness/proof state, missing-required-check policy |
-| Two runners execute the same lease | Atomic lease acquisition, fencing token, renewal deadline, terminal-state compare-and-set |
-| Disconnected runner loses terminal result | Encrypted durable spool, monotonic event sequence, idempotent replay, artifact reconciliation |
-| Tool container escapes limits | Rootless OCI, no host runtime socket, non-root image, seccomp/AppArmor/capability/network policy, hard deadline |
-| Cancellation leaves browser/container orphan | Native cancel, process-tree cleanup, runtime provider reconciliation, hard-kill test |
-| Duplicate result shards inflate flake metrics | Producer attempt identity, shard identity, deterministic deduplication, historical comparability checks |
-| Multi-instance SSE misses events | Transactional outbox, durable cursor, replay, heartbeat |
-| Imported conversations remain invisible | Replace in-memory application stores before cutover |
-| Artifact rows point to dead files | S3 manifest, checksums, path rewrite, serving smoke tests |
-| Vault migration loses credentials | Separate decrypt/re-encrypt/verify command; rotate after acceptance |
-| Provider outage breaks all chat | Kilo model catalog is dynamic; per-profile timeout/fallback and clear errors |
-| Connector duplicate side effects | Idempotency keys, operation-specific retry policy, execution audit |
-| Env/cache contamination | Typed config, Turbo env declarations, no secret build-time variables |
-| CI passes locally different systems | Root commands as sole interface, frozen install, canonical Compose |
-| Legacy files re-enter the build | Automated nested-root/duplicate-config check |
-| Source and target drift during migration | Freeze source, immutable backups, final delta, no continuous dual-write |
+| Failure mode                                  | Control                                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Legacy run ID rejected or overwritten         | Dual IDs, legacy map, unique workspace/external key                                                             |
+| Reporter event silently lost                  | Canonical v2 schema, v1 normalization fixtures, dead-letter record                                              |
+| Unsupported/malformed report appears as pass  | Bounded adapters, explicit completeness/proof state, missing-required-check policy                              |
+| Two runners execute the same lease            | Atomic lease acquisition, fencing token, renewal deadline, terminal-state compare-and-set                       |
+| Disconnected runner loses terminal result     | Encrypted durable spool, monotonic event sequence, idempotent replay, artifact reconciliation                   |
+| Tool container escapes limits                 | Rootless OCI, no host runtime socket, non-root image, seccomp/AppArmor/capability/network policy, hard deadline |
+| Cancellation leaves browser/container orphan  | Native cancel, process-tree cleanup, runtime provider reconciliation, hard-kill test                            |
+| Duplicate result shards inflate flake metrics | Producer attempt identity, shard identity, deterministic deduplication, historical comparability checks         |
+| Multi-instance SSE misses events              | Transactional outbox, durable cursor, replay, heartbeat                                                         |
+| Imported conversations remain invisible       | Replace in-memory application stores before cutover                                                             |
+| Artifact rows point to dead files             | S3 manifest, checksums, path rewrite, serving smoke tests                                                       |
+| Vault migration loses credentials             | Separate decrypt/re-encrypt/verify command; rotate after acceptance                                             |
+| Provider outage breaks all chat               | Kilo model catalog is dynamic; per-profile timeout/fallback and clear errors                                    |
+| Connector duplicate side effects              | Idempotency keys, operation-specific retry policy, execution audit                                              |
+| Env/cache contamination                       | Typed config, Turbo env declarations, no secret build-time variables                                            |
+| CI passes locally different systems           | Root commands as sole interface, frozen install, canonical Compose                                              |
+| Legacy files re-enter the build               | Automated nested-root/duplicate-config check                                                                    |
+| Source and target drift during migration      | Freeze source, immutable backups, final delta, no continuous dual-write                                         |
 
 ## 12. Phased execution roadmap
 

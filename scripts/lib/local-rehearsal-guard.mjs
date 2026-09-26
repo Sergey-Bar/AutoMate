@@ -2,6 +2,7 @@ import path from 'node:path';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 
+/** @param {NodeJS.ProcessEnv} env */
 export function assertLocalRehearsal(env) {
   if (env['REHEARSAL_MODE'] !== 'local') throw new Error('Rehearsal requires REHEARSAL_MODE=local');
   const databaseUrl = env['DATABASE_URL'];
@@ -19,6 +20,7 @@ export function assertLocalRehearsal(env) {
   return { databaseHost: parsed.hostname, databaseName: parsed.pathname.slice(1) };
 }
 
+/** @param {string} root @param {string} candidate */
 export function isLocalPathWithin(root, candidate) {
   const rootPath = path.resolve(root);
   const candidatePath = path.resolve(root, candidate);

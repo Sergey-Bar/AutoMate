@@ -22,7 +22,16 @@ describe('migration artifact and vault references', () => {
   });
 
   it('requires a versioned key reference for vault transfer', () => {
-    expect(() => validateVaultTransfer({ sourceId: 'a', targetId: 'b', envelopeVersion: 1, keyReference: 'vault-key' })).not.toThrow();
-    expect(() => validateVaultTransfer({ sourceId: 'a', targetId: 'b', envelopeVersion: 1, keyReference: '' })).toThrow();
+    expect(() =>
+      validateVaultTransfer({
+        sourceId: 'a',
+        targetId: 'b',
+        envelopeVersion: 1,
+        keyReference: 'vault-key',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      validateVaultTransfer({ sourceId: 'a', targetId: 'b', envelopeVersion: 1, keyReference: '' }),
+    ).toThrow();
   });
 });

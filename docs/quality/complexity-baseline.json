@@ -1,0 +1,158 @@
+{
+  "ceiling": 15,
+  "count": 30,
+  "offenders": [
+    {
+      "file": "apps/api/src/execution/in-memory-execution-store.ts",
+      "line": 723,
+      "complexity": 75
+    },
+    {
+      "file": "apps/api/src/execution/in-memory-execution-store.ts",
+      "line": 1071,
+      "complexity": 71
+    },
+    {
+      "file": "apps/api/src/execution/drizzle-execution-store.ts",
+      "line": 1221,
+      "complexity": 65
+    },
+    {
+      "file": "apps/api/src/routes/reporter.ts",
+      "line": 353,
+      "complexity": 50
+    },
+    {
+      "file": "apps/api/src/execution/drizzle-execution-store.ts",
+      "line": 1002,
+      "complexity": 38
+    },
+    {
+      "file": "apps/api/src/routes/events.ts",
+      "line": 69,
+      "complexity": 38
+    },
+    {
+      "file": "apps/api/src/routes/reporter.ts",
+      "line": 240,
+      "complexity": 38
+    },
+    {
+      "file": "apps/api/src/startup-policy.ts",
+      "line": 45,
+      "complexity": 38
+    },
+    {
+      "file": "packages/automation/src/kilo-gateway.ts",
+      "line": 56,
+      "complexity": 36
+    },
+    {
+      "file": "packages/automation/src/ollama-gateway.ts",
+      "line": 31,
+      "complexity": 36
+    },
+    {
+      "file": "apps/runner/src/execution.ts",
+      "line": 238,
+      "complexity": 35
+    },
+    {
+      "file": "apps/api/src/execution/quality-gate.ts",
+      "line": 112,
+      "complexity": 33
+    },
+    {
+      "file": "apps/web/src/routes/dashboard/run-detail.tsx",
+      "line": 152,
+      "complexity": 31
+    },
+    {
+      "file": "apps/worker/src/postgres-store.ts",
+      "line": 315,
+      "complexity": 29
+    },
+    {
+      "file": "apps/api/src/routes/execution.ts",
+      "line": 956,
+      "complexity": 25
+    },
+    {
+      "file": "apps/runner/src/runner-service.ts",
+      "line": 307,
+      "complexity": 25
+    },
+    {
+      "file": "apps/api/src/execution/execution-coverage.test.ts",
+      "line": 246,
+      "complexity": 23
+    },
+    {
+      "file": "apps/worker/src/scheduler.ts",
+      "line": 25,
+      "complexity": 21
+    },
+    {
+      "file": "apps/api/src/errors/boundary.ts",
+      "line": 36,
+      "complexity": 20
+    },
+    {
+      "file": "apps/api/src/routes/execution.ts",
+      "line": 895,
+      "complexity": 20
+    },
+    {
+      "file": "packages/reporter/src/compatibility/legacy-reporter.ts",
+      "line": 15,
+      "complexity": 20
+    },
+    {
+      "file": "apps/api/src/execution/drizzle-execution-store.ts",
+      "line": 1638,
+      "complexity": 19
+    },
+    {
+      "file": "apps/api/src/execution/in-memory-execution-store.ts",
+      "line": 579,
+      "complexity": 19
+    },
+    {
+      "file": "apps/api/src/middleware/auth.ts",
+      "line": 83,
+      "complexity": 19
+    },
+    {
+      "file": "apps/web/src/theme-resolution.test.ts",
+      "line": 139,
+      "complexity": 18
+    },
+    {
+      "file": "tools/migrate-cli/src/index.ts",
+      "line": 21,
+      "complexity": 18
+    },
+    {
+      "file": "apps/worker/src/in-memory-store.ts",
+      "line": 250,
+      "complexity": 16
+    },
+    {
+      "file": "apps/worker/src/worker.ts",
+      "line": 115,
+      "complexity": 16
+    },
+    {
+      "file": "packages/runner-sdk/src/spool.ts",
+      "line": 480,
+      "complexity": 16
+    },
+    {
+      "file": "scripts/unify-preflight.mjs",
+      "line": 164,
+      "complexity": 16
+    }
+  ],
+  "measuredAt": "2026-09-26",
+  "worst": 75
+}

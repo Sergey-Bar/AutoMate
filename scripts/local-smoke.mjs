@@ -21,6 +21,8 @@ const DEFAULTS = {
   json: false,
 };
 
+/** @param {string[]} argv */
+/** @param {string[]} argv */
 function parseArgs(argv) {
   const options = { ...DEFAULTS };
 
@@ -47,13 +49,13 @@ function parseArgs(argv) {
         throw new Error(`Invalid --timeout-ms value: ${raw}`);
       }
       options.timeoutMs = parsed;
-      continue;
     }
   }
 
   return options;
 }
 
+/** @param {string} url @param {number} timeoutMs */
 async function fetchWithTimeout(url, timeoutMs) {
   try {
     const timeoutPromise = new Promise((resolve) => {
@@ -86,13 +88,19 @@ async function fetchWithTimeout(url, timeoutMs) {
   }
 }
 
+/**
+ * @param {string} name
+ * @param {{ok: boolean, status: number | null, statusText: string | null, error: string | null, detail?: string, ms?: number}} result
+ */
 function formatResult(name, result) {
-  if (result.ok) {
-    return `PASS ${name}: ${result.status}`;
-  }
+  if (result.error) return `FAIL ${name}: ${result.error}`;
 
-  if (result.error) {
-    return `FAIL ${name}: ${result.error}`;
+  if (result.ok) {
+    // Every check carries `detail`; `status` is null for a successful health
+    // probe on some checks, so printing it unconditionally produced
+    // "PASS health: null" — a green line that says nothing.
+    const measured = result.detail ?? (result.status === null ? 'ok' : String(result.status));
+    return `PASS ${name}: ${measured}`;
   }
 
   return `FAIL ${name}: ${result.status} ${result.statusText ?? ''}`.trim();
@@ -146,6 +154,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  process.stderr.write(`Unhandled error: ${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `Unhandled error: ${error instanceof Error ? error.message : String(error)}\n`,
+  );
   process.exitCode = 1;
 });

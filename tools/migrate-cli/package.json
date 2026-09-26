@@ -15,13 +15,13 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
-    "pg": "^8.13.3"
+    "pg": "catalog:"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^22.15.18",
-    "@types/pg": "^8.11.13",
+    "@types/node": "catalog:",
+    "@types/pg": "catalog:",
     "typescript": "catalog:",
-    "vitest": "^4.0.0"
+    "vitest": "catalog:"
   }
 }
