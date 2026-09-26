@@ -16,7 +16,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings=0 src/",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node dist/migrate.js"
   },
