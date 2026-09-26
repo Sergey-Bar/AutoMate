@@ -11,14 +11,9 @@
  *  - `RealtimeEventSchema`  — events broadcast to browser clients
  */
 import { z } from 'zod/v4';
-import {
-  RunEventEnvelopeSchema,
-  type RunEventEnvelope,
-} from '@automate/shared-contracts';
+import { RunEventEnvelopeSchema, type RunEventEnvelope } from '@automate/shared-contracts';
 
-export {
-  RunEventEnvelopeSchema,
-} from '@automate/shared-contracts';
+export { RunEventEnvelopeSchema } from '@automate/shared-contracts';
 export type { RunEventEnvelope };
 export type RunEvent = RunEventEnvelope;
 export const CanonicalRunEventSchema = RunEventEnvelopeSchema;

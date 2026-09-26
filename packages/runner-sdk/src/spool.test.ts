@@ -219,8 +219,9 @@ describe('DurableSpool', () => {
       key: 'stable-runner-key',
       maxBytes: 512,
     });
-    await expect(compact.enqueue({ ...entry('c', 2), payload: 'x'.repeat(2_000) })).rejects
-      .toBeInstanceOf(SpoolCapacityError);
+    await expect(
+      compact.enqueue({ ...entry('c', 2), payload: 'x'.repeat(2_000) }),
+    ).rejects.toBeInstanceOf(SpoolCapacityError);
     await expect(
       DurableSpool.open({ directory: root, key: 'stable-runner-key', name: '../escape.spool' }),
     ).rejects.toBeInstanceOf(SpoolPathError);

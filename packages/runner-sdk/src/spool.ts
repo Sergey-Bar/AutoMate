@@ -276,7 +276,10 @@ export class DurableSpool implements SpoolQueue {
 
   async enqueue(entry: SpoolEntry): Promise<void> {
     const frame = this.frame(entry);
-    if (this.entries.length >= this.maxEntries || this.committedBytes + frame.length > this.maxBytes) {
+    if (
+      this.entries.length >= this.maxEntries ||
+      this.committedBytes + frame.length > this.maxBytes
+    ) {
       throw new SpoolCapacityError('Runner spool is full');
     }
     const prefix = this.committedBytes === 0 ? this.header() : EMPTY;
@@ -414,7 +417,10 @@ async function readSequenceState(path: string, keyId: string): Promise<Map<strin
   }
   const value = parsed as { keyId?: unknown; sequences?: unknown };
   if (value.keyId !== keyId) {
-    throw new SpoolIntegrityError('SPOOL_WRONG_KEY', 'Runner spool sequence state key does not match');
+    throw new SpoolIntegrityError(
+      'SPOOL_WRONG_KEY',
+      'Runner spool sequence state key does not match',
+    );
   }
   if (!value.sequences || typeof value.sequences !== 'object' || Array.isArray(value.sequences)) {
     throw new SpoolIntegrityError('SPOOL_FORMAT', 'Runner spool sequence state is invalid');
@@ -430,7 +436,13 @@ async function readSequenceState(path: string, keyId: string): Promise<Map<strin
 }
 
 function containedPath(directory: string, name: string): string {
-  if (!name || isAbsolute(name) || name.includes('/') || name.includes('\\') || name.includes('..')) {
+  if (
+    !name ||
+    isAbsolute(name) ||
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('..')
+  ) {
     throw new SpoolPathError('Spool file name must be a single relative path segment');
   }
   const target = resolve(directory, name);
@@ -475,7 +487,10 @@ function decodeFile(
     throw new SpoolIntegrityError('SPOOL_FORMAT', 'Runner spool file header is not readable');
   }
   if (data.subarray(SPOOL_MAGIC.length, HEADER_BYTES).toString('utf8') !== codec.keyId()) {
-    throw new SpoolIntegrityError('SPOOL_WRONG_KEY', 'Runner spool key does not match the sealed queue');
+    throw new SpoolIntegrityError(
+      'SPOOL_WRONG_KEY',
+      'Runner spool key does not match the sealed queue',
+    );
   }
   const entries: SpoolEntry[] = [];
   let offset = HEADER_BYTES;

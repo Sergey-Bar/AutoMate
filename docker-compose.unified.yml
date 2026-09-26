@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: automate
       POSTGRES_USER: automate
-      POSTGRES_PASSWORD: local-postgres-password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     ports:
       - '127.0.0.1:55432:5432'
     volumes:
@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: infra/docker/db-migrate.Dockerfile
     environment:
-      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
+      DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
     depends_on:
       postgres:
         condition: service_healthy
@@ -34,12 +34,12 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: '3000'
-      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
-      COOKIE_SECRET: local-cookie-secret-32-characters-long
-      VAULT_SECRET: local-vault-secret-32-characters-long
-      AUTOMATE_API_KEY: local-installation-api-key-32-characters
-      REPORTER_SECRET: local-reporter-secret-32-characters-long
-      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-32-chars
+      DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET}
+      VAULT_SECRET: ${VAULT_SECRET:?set VAULT_SECRET}
+      AUTOMATE_API_KEY: ${AUTOMATE_API_KEY:?set AUTOMATE_API_KEY}
+      REPORTER_SECRET: ${REPORTER_SECRET:?set REPORTER_SECRET}
+      RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       ARTIFACT_ROOT: /var/lib/automate/artifacts
       PUBLIC_APP_URL: http://127.0.0.1:53173
     depends_on:
@@ -69,7 +69,7 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: '3001'
-      DATABASE_URL: postgresql://automate:local-postgres-password@postgres:5432/automate
+      DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
       ARTIFACT_ROOT: /var/lib/automate/artifacts
       WORKER_INSTANCE_ID: 00000000-0000-4000-8000-000000000001
       WORKER_CAPABILITIES: playwright
@@ -104,7 +104,7 @@ services:
       NODE_ENV: production
       AUTOMATE_API_URL: http://api:3000
       RUNNER_INSTANCE_ID: ${RUNNER_INSTANCE_ID:-00000000-0000-4000-8000-000000000002}
-      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-32-chars
+      RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       RUNNER_SLOTS: '1'
       RUNNER_ALLOWED_TARGET_URLS: 'http://web,http://api'
       ARTIFACT_ROOT: /var/lib/automate/artifacts
@@ -132,13 +132,27 @@ services:
     build:
       context: .
       dockerfile: infra/docker/web.Dockerfile
-    environment:
-      VITE_API_URL: http://127.0.0.1:53000
+    # No VITE_API_URL. Vite inlines `VITE_*` at build time, so a runtime value
+    # here could never reach the bundle, and `apps/web/src/lib/api.ts` uses
+    # relative `/api/v1/…` paths regardless. The API is reached through the
+    # nginx `location /api/` proxy in this image — same origin, so no CORS and no
+    # second base URL to keep in sync.
     depends_on:
       api:
         condition: service_healthy
+    # Unprivileged: the image runs as `nginx` on 8080, so it needs no
+    # capabilities, no new privileges, and a read-only filesystem. The only
+    # writable path nginx still needs is its cache and pid directory, which the
+    # Dockerfile points at /tmp via a tmpfs.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - '127.0.0.1:53173:80'
+      - '127.0.0.1:53173:8080'
 
 networks:
   runner_egress:

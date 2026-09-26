@@ -74,9 +74,7 @@ describe('computeBackoff — exponential growth', () => {
     // Run 100 samples; at each attempt the median should increase
     const medians: number[] = [];
     for (let attempt = 1; attempt <= 5; attempt++) {
-      const samples = Array.from({ length: 100 }, () =>
-        computeBackoff(attempt, 1000, 30_000),
-      );
+      const samples = Array.from({ length: 100 }, () => computeBackoff(attempt, 1000, 30_000));
       const sorted = samples.slice().sort((a, b) => a - b);
       medians.push(sorted[49]!);
     }
@@ -144,9 +142,7 @@ describe('computeBackoff — jitter', () => {
   });
 
   it('produces different values on successive calls (randomness present)', () => {
-    const results = new Set(
-      Array.from({ length: 50 }, () => computeBackoff(1, 1000, 30_000)),
-    );
+    const results = new Set(Array.from({ length: 50 }, () => computeBackoff(1, 1000, 30_000)));
     // With real Math.random we should see at least a few distinct values
     expect(results.size).toBeGreaterThan(1);
   });
@@ -179,13 +175,7 @@ describe('computeBackoff — edge cases', () => {
 
 describe('ReconnectState type', () => {
   it('accepts all documented states', () => {
-    const states: ReconnectState[] = [
-      'idle',
-      'connecting',
-      'connected',
-      'reconnecting',
-      'failed',
-    ];
+    const states: ReconnectState[] = ['idle', 'connecting', 'connected', 'reconnecting', 'failed'];
     expect(states).toHaveLength(5);
   });
 });

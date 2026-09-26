@@ -60,9 +60,7 @@ export function parseConfig(
   input: Record<string, string | undefined>,
   options: { requireProductionSecrets?: boolean } = {},
 ): AppConfig {
-  const normalized = Object.fromEntries(
-    Object.entries(input).filter(([, value]) => value !== ''),
-  );
+  const normalized = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== ''));
   const parsed = EnvironmentSchema.parse(normalized);
   const requireProductionSecrets =
     options.requireProductionSecrets ?? parsed.NODE_ENV === 'production';
