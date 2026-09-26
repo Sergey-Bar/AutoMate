@@ -174,6 +174,7 @@ export interface ExecutionRun {
 export interface ExecutionJob {
   id: string;
   runId: string;
+  workspaceId: string;
   attempt: number;
   priority: number;
   state: JobState;
@@ -364,6 +365,16 @@ export interface JobCompletionResult {
   status: 'accepted' | 'duplicate';
 }
 
+/**
+ * Every method that reads or mutates a job, its events, its completion, or its
+ * artifacts accepts a trailing `workspaceId`. Passing it scopes the query to
+ * that workspace; omitting it means *unscoped, system-wide* and is only correct
+ * for internal sweepers that are already workspace-agnostic (lease reaping,
+ * retention). Any caller acting on behalf of a request must pass the workspace
+ * it authenticated — a runner token in workspace A must not be able to read or
+ * write workspace B, and under D3 (single-tenant) this is scoping discipline,
+ * not tenant isolation.
+ */
 export interface ExecutionStore {
   createRun(
     input: CreateRunInput,
@@ -391,7 +402,7 @@ export interface ExecutionStore {
     workspaceId?: string,
     idempotencyKey?: string,
   ): Promise<CreateRunResult | null>;
-  getJob(jobId: string): Promise<ExecutionJob | null>;
+  getJob(jobId: string, workspaceId?: string): Promise<ExecutionJob | null>;
   listJobs(workspaceId?: string): Promise<ExecutionJob[]>;
   registerRunner(
     manifest: RunnerManifest,
@@ -411,28 +422,37 @@ export interface ExecutionStore {
     capabilities?: string[],
     labels?: string[],
     now?: Date,
+    workspaceId?: string,
   ): Promise<JobClaim | null>;
   appendEvents(
     jobId: string,
     leaseId: string,
     fencingToken: number,
     events: ExecutionEventInput[],
+    workspaceId?: string,
   ): Promise<EventApplyResult[]>;
   listEvents(runId: string): Promise<ExecutionEvent[]>;
   getRunEvents(runId: string): Promise<ExecutionEvent[]>;
-  completeJob(jobId: string, completion: JobCompletionInput): Promise<JobCompletionResult | null>;
+  completeJob(
+    jobId: string,
+    completion: JobCompletionInput,
+    workspaceId?: string,
+  ): Promise<JobCompletionResult | null>;
   addArtifact(
     input: Omit<StoredArtifact, 'id' | 'checksum' | 'sizeBytes' | 'createdAt'> & {
       bytes: Uint8Array;
     },
   ): Promise<ArtifactDescriptor>;
-  getArtifact(artifactId: string): Promise<StoredArtifact | null>;
+  getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null>;
   /**
    * Metadata-only lookup. Lets callers tell a missing artifact row apart from a
    * row whose bytes could not be read, which `getArtifact` reports as null for
    * both. Optional so existing store doubles keep working.
    */
-  getArtifactDescriptor?(artifactId: string): Promise<ArtifactDescriptor | null>;
+  getArtifactDescriptor?(
+    artifactId: string,
+    workspaceId?: string,
+  ): Promise<ArtifactDescriptor | null>;
   listArtifacts(runId: string): Promise<ArtifactDescriptor[]>;
   createPolicy(
     input: Omit<QualityPolicy, 'id' | 'hash' | 'createdAt' | 'updatedAt'>,

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createAuthMiddleware } from './auth.js';
 
@@ -117,6 +117,85 @@ describe('createAuthMiddleware', () => {
       it('GET /api/v1/reporter/* is accessible without auth (has its own auth)', async () => {
         const res = await app.request('/api/v1/reporter/events');
         expect(res.status).toBe(200);
+      });
+    });
+
+    describe('runner-token bypass is an exact allowlist', () => {
+      const runnerApp = (): Hono => {
+        const runner = new Hono();
+        runner.use('/*', createAuthMiddleware(TEST_KEY));
+        runner.get('/api/v1/runners/register', (c) => c.json({ ok: true }));
+        runner.get('/api/v1/runners/:runnerId/heartbeat', (c) => c.json({ ok: true }));
+        runner.get('/api/v1/runners/:runnerId/jobs/claim', (c) => c.json({ ok: true }));
+        runner.get('/api/v1/jobs/:jobId/events', (c) => c.json({ ok: true }));
+        runner.get('/api/v1/jobs/:jobId/artifacts', (c) => c.json({ ok: true }));
+        runner.get('/api/v1/jobs/:jobId/complete', (c) => c.json({ ok: true }));
+        return runner;
+      };
+
+      it('lets the declared runner routes through the API-key check', async () => {
+        const runner = runnerApp();
+        for (const path of [
+          '/api/v1/runners/register',
+          '/api/v1/runners/runner-1/heartbeat',
+          '/api/v1/runners/runner-1/jobs/claim',
+          '/api/v1/jobs/job-1/events',
+          '/api/v1/jobs/job-1/artifacts',
+          '/api/v1/jobs/job-1/complete',
+        ]) {
+          expect((await runner.request(path)).status).toBe(200);
+        }
+      });
+
+      it('does not let an undeclared route under those prefixes through', async () => {
+        // These used to bypass authentication purely because of a startsWith.
+        for (const path of [
+          '/api/v1/jobs',
+          '/api/v1/jobs/job-1/cancel',
+          '/api/v1/jobs/job-1/anything-new',
+          '/api/v1/runners',
+          '/api/v1/runners/runner-1/secrets',
+          '/api/v1/runner/v1/anything-new',
+        ]) {
+          const response = await app.request(path);
+          expect(response.status).toBe(401);
+        }
+      });
+
+      it('does not let a deeper path impersonate a declared one', async () => {
+        const response = await app.request('/api/v1/jobs/job-1/events/extra');
+        expect(response.status).toBe(401);
+      });
+    });
+
+    describe('session validation failures', () => {
+      it('falls through to the API key instead of 500-ing when the store is down', async () => {
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          const flaky = new Hono();
+          flaky.use(
+            '/*',
+            createAuthMiddleware(TEST_KEY, () => {
+              throw new Error('connection terminated unexpectedly');
+            }),
+          );
+          flaky.get('/api/v1/runs', (c) => c.json({ runs: [] }));
+          const response = await flaky.request('/api/v1/runs', {
+            headers: { Cookie: 'automate_session=signed-session' },
+          });
+          expect(response.status).toBe(401);
+          expect(errorLog).toHaveBeenCalled();
+
+          const withKey = await flaky.request('/api/v1/runs', {
+            headers: {
+              Cookie: 'automate_session=signed-session',
+              Authorization: `Bearer ${TEST_KEY}`,
+            },
+          });
+          expect(withKey.status).toBe(200);
+        } finally {
+          errorLog.mockRestore();
+        }
       });
     });
   });

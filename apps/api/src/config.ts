@@ -1,6 +1,9 @@
 import { parseConfig, type AppConfig as CanonicalConfig } from '@automate/config';
 import { DEVELOPMENT_COOKIE_SECRET } from './startup-policy.js';
-import { normalizeObjectStoreSettings, type ObjectStoreSettings } from './infrastructure/s3-artifact-bytes.js';
+import {
+  normalizeObjectStoreSettings,
+  type ObjectStoreSettings,
+} from './infrastructure/s3-artifact-bytes.js';
 
 export type AppConfig = Omit<Partial<CanonicalConfig>, 'nodeEnv' | 'port'> & {
   nodeEnv: string;
@@ -65,7 +68,11 @@ export function readObjectStoreSettings(
     );
   }
   const forcePathStyle = value('forcePathStyle');
-  if (forcePathStyle !== undefined && !OBJECT_STORE_TRUTHY.has(forcePathStyle) && !OBJECT_STORE_FALSY.has(forcePathStyle)) {
+  if (
+    forcePathStyle !== undefined &&
+    !OBJECT_STORE_TRUTHY.has(forcePathStyle) &&
+    !OBJECT_STORE_FALSY.has(forcePathStyle)
+  ) {
     throw new Error(`${OBJECT_STORE_VARIABLES.forcePathStyle} must be a boolean`);
   }
   const allowInsecureHttp = value('allowInsecureHttp');
@@ -82,7 +89,8 @@ export function readObjectStoreSettings(
     region: value('region'),
     accessKeyId: value('accessKeyId'),
     secretAccessKey: value('secretAccessKey'),
-    forcePathStyle: forcePathStyle === undefined ? undefined : OBJECT_STORE_TRUTHY.has(forcePathStyle),
+    forcePathStyle:
+      forcePathStyle === undefined ? undefined : OBJECT_STORE_TRUTHY.has(forcePathStyle),
     allowInsecureHttp:
       allowInsecureHttp === undefined ? undefined : OBJECT_STORE_TRUTHY.has(allowInsecureHttp),
     maxBytes: positiveInteger(value('maxBytes'), OBJECT_STORE_VARIABLES.maxBytes),

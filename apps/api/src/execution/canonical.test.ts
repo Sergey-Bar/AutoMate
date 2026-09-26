@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { toCanonicalRun } from './canonical.js';
 
 const base = {
@@ -122,5 +123,42 @@ describe('canonical execution projections', () => {
     expect(result.error?.code).toBe('EXECUTION_ERROR');
     expect(result.artifacts).toHaveLength(1);
     expect(result.policyEvaluation?.status).toBe('passed');
+  });
+
+  it('raises a classified error, not a bare ZodError, for a row the contract rejects', () => {
+    // `.parse()` threw a `ZodError` with no code and no status, which through the
+    // boundary became an indistinguishable 500 — the same response a genuine
+    // defect produces, so the offending field could not be found.
+    let captured: unknown;
+    try {
+      toCanonicalRun({ ...base, phase: 'not-a-phase' } as never);
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(DomainError);
+    const error = captured as DomainError;
+    expect(error.code).toBe(ErrorCode.RUN_SERIALIZATION_FAILED);
+    expect(error.status).toBe(500);
+    // The issue path identifies the field, and belongs in the log only.
+    expect(error.logDetail).toContain('phase');
+    expect(error.message).not.toContain('phase');
+    expect(error.cause).toBeDefined();
+  });
+
+  it('reports an artifact descriptor the contract rejects the same way', () => {
+    // An artifact with no `storageKey` is not addressable, so the canonical
+    // descriptor schema refuses it — and the refusal has to be classified.
+    const broken = {
+      ...base,
+      artifacts: [{ kind: 'log', name: 'a.log', contentType: 'text/plain', sizeBytes: 1 }],
+    } as unknown as Parameters<typeof toCanonicalRun>[0];
+    let captured: unknown;
+    try {
+      toCanonicalRun(broken);
+    } catch (error) {
+      captured = error;
+    }
+    expect(captured).toBeInstanceOf(DomainError);
+    expect((captured as DomainError).code).toBe(ErrorCode.RUN_SERIALIZATION_FAILED);
   });
 });

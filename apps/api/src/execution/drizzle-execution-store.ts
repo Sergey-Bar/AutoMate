@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
@@ -14,7 +14,15 @@ import {
   runs,
   tests,
 } from '@automate/db';
+import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
+import {
+  ARTIFACT_BYTE_CAPACITY,
+  BoundedByteMap,
+  BoundedMap,
+  COMPLETION_HASH_CAPACITY,
+} from './bounded-map.js';
+import { deriveRunState, isRequestablePhase } from './phase-outcome.js';
 import type {
   ArtifactDescriptor,
   CreateRunInput,
@@ -64,11 +72,6 @@ export interface DrizzleExecutionStoreOptions extends ExecutionStoreOptions {
   outboxRetentionHours?: number;
 }
 
-const OUTBOX_SENSITIVE_KEY =
-  /token|secret|password|credential|api[-_]?key|authorization|cookie|bearer|private/i;
-const OUTBOX_MAX_DEPTH = 5;
-const OUTBOX_MAX_ITEMS = 100;
-const OUTBOX_MAX_TEXT_LENGTH = 1024;
 const OUTBOX_DEFAULT_RETENTION_HOURS = 24;
 
 interface OutboxAppend {
@@ -80,38 +83,18 @@ interface OutboxAppend {
   payload: Record<string, unknown>;
 }
 
-function sanitizeOutboxValue(value: unknown, depth: number): unknown {
-  if (value === null || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (typeof value === 'string')
-    return value.length > OUTBOX_MAX_TEXT_LENGTH
-      ? value.slice(0, OUTBOX_MAX_TEXT_LENGTH)
-      : value;
-  if (depth >= OUTBOX_MAX_DEPTH) return null;
-  if (Array.isArray(value))
-    return value.slice(0, OUTBOX_MAX_ITEMS).map((item) => sanitizeOutboxValue(item, depth + 1));
-  if (typeof value === 'object')
-    return sanitizeOutboxRecord(value as Record<string, unknown>, depth + 1);
-  return null;
-}
-
-function sanitizeOutboxRecord(
-  value: Record<string, unknown>,
-  depth: number,
-): Record<string, unknown> {
-  const sanitized: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    if (OUTBOX_SENSITIVE_KEY.test(key)) continue;
-    sanitized[key] = sanitizeOutboxValue(item, depth);
-  }
-  return sanitized;
-}
-
-function sanitizeOutboxPayload(value: Record<string, unknown>): Record<string, unknown> {
-  return sanitizeOutboxRecord(value, 0);
-}
-
 function nowDate(options: ExecutionStoreOptions): Date {
   return options.now ? options.now() : new Date();
+}
+
+/**
+ * Narrows a job predicate to a workspace. An omitted `workspaceId` stays
+ * unscoped on purpose — only internal sweepers may call that way.
+ */
+function jobScope(predicate: SQL | undefined, workspaceId: string | undefined): SQL | undefined {
+  if (predicate === undefined) return undefined;
+  if (workspaceId === undefined) return predicate;
+  return and(predicate, eq(executionJobs.workspaceId, workspaceId));
 }
 
 function iso(value: Date): string {
@@ -269,6 +252,7 @@ function mapJob(row: DbRow): ExecutionJob {
   return {
     id: stringValue(row['id']),
     runId: stringValue(row['runId']),
+    workspaceId: stringValue(row['workspaceId'], 'default-workspace'),
     attempt: numberValue(row['attempt'], 1),
     priority: numberValue(row['priority']),
     state: stringValue(row['state'], 'queued') as ExecutionJob['state'],
@@ -448,8 +432,13 @@ function rowValue(row: unknown): DbRow {
 export class DrizzleExecutionStore implements ExecutionStore {
   private readonly db: AnyPgDb;
   private readonly options: DrizzleExecutionStoreOptions;
-  private readonly memoryBytes = new Map<string, Uint8Array>();
-  private readonly completionHashes = new Map<string, string>();
+  /** Bounded: the in-process artifact fallback, by total bytes, not by entry count. */
+  private readonly memoryBytes = new BoundedByteMap<string>(ARTIFACT_BYTE_CAPACITY);
+  /** Bounded: a job completion hash is only consulted while a client retries that job. */
+  private readonly completionHashes = new BoundedMap<string, string>(
+    'completionHashes',
+    COMPLETION_HASH_CAPACITY,
+  );
 
   constructor(options: DrizzleExecutionStoreOptions) {
     this.db = options.db;
@@ -470,7 +459,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         aggregateId: event.aggregateId,
         eventType: event.eventType,
         eventVersion: 1,
-        payload: sanitizeOutboxPayload(event.payload),
+        payload: sanitizeOutboxEnvelope(event.payload),
         dedupeKey: event.dedupeKey,
         occurredAt: event.occurredAt,
         expiresAt: new Date(
@@ -778,9 +767,13 @@ export class DrizzleExecutionStore implements ExecutionStore {
     );
   }
 
-  async getJob(jobId: string): Promise<ExecutionJob | null> {
+  async getJob(jobId: string, workspaceId?: string): Promise<ExecutionJob | null> {
     const row = (
-      await this.db.select().from(executionJobs).where(eq(executionJobs.id, jobId)).limit(1)
+      await this.db
+        .select()
+        .from(executionJobs)
+        .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
+        .limit(1)
     )[0];
     return row ? mapJob(rowValue(row)) : null;
   }
@@ -897,6 +890,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
     capabilities: string[] = [],
     labels: string[] = [],
     now = nowDate(this.options),
+    workspaceId?: string,
   ): Promise<JobClaim | null> {
     await this.reapExpiredLeases(now);
     const runner = await this.getRunner(runnerId);
@@ -904,7 +898,12 @@ export class DrizzleExecutionStore implements ExecutionStore {
     const active = await this.db
       .select()
       .from(executionJobs)
-      .where(and(eq(executionJobs.leaseOwner, runnerId), eq(executionJobs.state, 'leased')));
+      .where(
+        jobScope(
+          and(eq(executionJobs.leaseOwner, runnerId), eq(executionJobs.state, 'leased')),
+          workspaceId,
+        ),
+      );
     if (active.length >= Math.max(1, runner.slots)) return null;
     const effective = new Set([...runner.capabilities, ...capabilities]);
     const effectiveLabels = new Set([...runner.labels, ...labels]);
@@ -912,7 +911,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       const candidates = await tx
         .select()
         .from(executionJobs)
-        .where(inArray(executionJobs.state, ['queued', 'requeued']))
+        .where(jobScope(inArray(executionJobs.state, ['queued', 'requeued']), workspaceId))
         .orderBy(desc(executionJobs.priority), asc(executionJobs.createdAt))
         .limit(50)
         .for('update', { skipLocked: true });
@@ -941,7 +940,10 @@ export class DrizzleExecutionStore implements ExecutionStore {
           updatedAt: now,
         })
         .where(
-          and(eq(executionJobs.id, job.id), inArray(executionJobs.state, ['queued', 'requeued'])),
+          jobScope(
+            and(eq(executionJobs.id, job.id), inArray(executionJobs.state, ['queued', 'requeued'])),
+            workspaceId,
+          ),
         )
         .returning();
       if (updatedRows.length === 0) return null;
@@ -995,10 +997,15 @@ export class DrizzleExecutionStore implements ExecutionStore {
     leaseId: string,
     fencingToken: number,
     inputs: ExecutionEventInput[],
+    workspaceId?: string,
   ): Promise<EventApplyResult[]> {
     return this.db.transaction(async (tx) => {
       const jobRow = (
-        await tx.select().from(executionJobs).where(eq(executionJobs.id, jobId)).limit(1)
+        await tx
+          .select()
+          .from(executionJobs)
+          .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
+          .limit(1)
       )[0];
       const job = jobRow ? mapJob(rowValue(jobRow)) : null;
       if (
@@ -1077,7 +1084,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         if (input.type === 'run.completed' || input.payload?.['terminal'] === true) terminal = true;
       }
       const results: EventApplyResult[] = [];
-      const workspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
+      const eventWorkspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
       const outboxBatch: OutboxAppend[] = [];
       for (const item of prepared) {
         if (item.duplicate) {
@@ -1095,7 +1102,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         await tx.insert(runEvents).values({
           eventId,
           runId: job.runId,
-          workspaceId,
+          workspaceId: eventWorkspaceId,
           jobId,
           sequence: input.sequence,
           source: 'runner',
@@ -1115,10 +1122,10 @@ export class DrizzleExecutionStore implements ExecutionStore {
           hash: item.hash,
         });
         outboxBatch.push({
-          workspaceId,
+          workspaceId: eventWorkspaceId,
           aggregateId: job.runId,
           eventType: 'execution.event.appended',
-          dedupeKey: `execution:${workspaceId}:event.appended:${item.eventKey}`,
+          dedupeKey: `execution:${eventWorkspaceId}:event.appended:${item.eventKey}`,
           occurredAt,
           payload: {
             runId: job.runId,
@@ -1138,56 +1145,20 @@ export class DrizzleExecutionStore implements ExecutionStore {
           .where(eq(runs.id, job.runId));
         const payload = input.payload ?? {};
         const requestedPhase = input.type === 'run.completed' ? 'complete' : payload['phase'];
-        if (
-          typeof requestedPhase === 'string' &&
-          [
-            'queued',
-            'assigned',
-            'preparing',
-            'running',
-            'collecting',
-            'normalizing',
-            'analyzing',
-            'gate_evaluation',
-            'complete',
-            'cancelled',
-            'timed_out',
-            'runner_lost',
-            'infra_failed',
-            'config_failed',
-            'blocked',
-            'partial',
-          ].includes(requestedPhase)
-        ) {
-          const isTerminal = [
-            'complete',
-            'cancelled',
-            'timed_out',
-            'runner_lost',
-            'infra_failed',
-            'config_failed',
-            'blocked',
-            'partial',
-          ].includes(requestedPhase);
+        if (isRequestablePhase(requestedPhase)) {
+          // `phase` and `outcome` are derived together from the phase, never
+          // taken independently from the payload. Writing them separately made
+          // the CHECK unreachable by a client choice, rolled the transaction
+          // back, and surfaced as a 500 for a merely malformed request.
+          const derived = deriveRunState(requestedPhase, payload['outcome']);
           await tx
             .update(runs)
             .set({
-              phase: requestedPhase as RunPhase,
-              outcome:
-                payload['outcome'] === null || payload['outcome'] === undefined
-                  ? input.type === 'run.completed'
-                    ? 'unknown'
-                    : null
-                  : (String(payload['outcome']) as RunOutcome),
-              status: isTerminal
-                ? requestedPhase === 'complete'
-                  ? payload['outcome'] === 'passed'
-                    ? 'passed'
-                    : 'failed'
-                  : 'interrupted'
-                : 'running',
-              completedAt: isTerminal ? nowDate(this.options) : null,
-              finishedAt: isTerminal ? nowDate(this.options) : null,
+              phase: derived.phase,
+              outcome: derived.outcome,
+              status: derived.status,
+              completedAt: derived.terminal ? nowDate(this.options) : null,
+              finishedAt: derived.terminal ? nowDate(this.options) : null,
               updatedAt: nowDate(this.options),
             })
             .where(eq(runs.id, job.runId));
@@ -1243,12 +1214,17 @@ export class DrizzleExecutionStore implements ExecutionStore {
   async completeJob(
     jobId: string,
     completion: JobCompletionInput,
+    workspaceId?: string,
   ): Promise<JobCompletionResult | null> {
     const completionHash = digest(completion);
     const previousHash = this.completionHashes.get(jobId);
     const result = await this.db.transaction(async (tx) => {
       const jobRow = (
-        await tx.select().from(executionJobs).where(eq(executionJobs.id, jobId)).limit(1)
+        await tx
+          .select()
+          .from(executionJobs)
+          .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
+          .limit(1)
       )[0];
       if (!jobRow) return null;
       const jobRecord = rowValue(jobRow);
@@ -1294,6 +1270,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
                     : status === 'config_failed'
                       ? 'config_failed'
                       : 'unknown');
+      // Derived after the tests and summary are written, so a run that reports
+      // nothing cannot land as a green run. The phase and the outcome are decided
+      // together — writing them independently is what made
+      // `runs_phase_outcome_check` reachable by a client choice.
+      const derived = deriveRunState(phase, outcome);
       if (completion.tests) {
         for (const test of completion.tests) {
           await tx
@@ -1330,13 +1311,28 @@ export class DrizzleExecutionStore implements ExecutionStore {
           errorMessage: completion.error?.message ?? null,
         })
         .where(eq(executionJobs.id, jobId));
+      const summaryTotal = completion.summary?.total ?? completion.tests?.length ?? 0;
+      const summaryPassed = completion.summary?.passed ?? 0;
+      const summaryFailed = completion.summary?.failed ?? 0;
+      const summaryFlaky = completion.summary?.flaky ?? 0;
+      // A run with no tests, a zero total and no recorded pass has produced no
+      // evidence, so `passed` is not available to it. `interrupted` is the
+      // existing "finished without a determinate outcome" value — using it keeps
+      // the status vocabulary at four members and needs no migration.
+      const runStatus =
+        derived.outcome === 'passed' &&
+        summaryTotal === 0 &&
+        summaryPassed === 0 &&
+        summaryFailed === 0 &&
+        summaryFlaky === 0
+          ? 'interrupted'
+          : derived.status;
       await tx
         .update(runs)
         .set({
-          phase,
-          outcome,
-          status:
-            phase === 'complete' ? (outcome === 'passed' ? 'passed' : 'failed') : 'interrupted',
+          phase: derived.phase,
+          outcome: derived.outcome,
+          status: runStatus,
           completedAt: timestamp,
           finishedAt: timestamp,
           updatedAt: timestamp,
@@ -1447,8 +1443,8 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return mapArtifact(dbRow);
   }
 
-  async getArtifact(artifactId: string): Promise<StoredArtifact | null> {
-    const descriptor = await this.getArtifactDescriptor(artifactId);
+  async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
+    const descriptor = await this.getArtifactDescriptor(artifactId, workspaceId);
     if (!descriptor) return null;
     const bytes = this.options.artifactBytes
       ? await this.options.artifactBytes.get(descriptor.storageKey)
@@ -1456,10 +1452,21 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return bytes ? { ...descriptor, bytes: new Uint8Array(bytes) } : null;
   }
 
-  async getArtifactDescriptor(artifactId: string): Promise<ArtifactDescriptor | null> {
-    const row = (
-      await this.db.select().from(artifacts).where(eq(artifacts.id, artifactId)).limit(1)
-    )[0];
+  async getArtifactDescriptor(
+    artifactId: string,
+    workspaceId?: string,
+  ): Promise<ArtifactDescriptor | null> {
+    // `artifacts` has no workspace column of its own, so the scope is the
+    // artifact's run. A run with a NULL workspace_id never matches.
+    let scope: SQL | undefined = eq(artifacts.id, artifactId);
+    if (workspaceId !== undefined) {
+      const scopedRuns = this.db
+        .select({ id: runs.id })
+        .from(runs)
+        .where(eq(runs.workspaceId, workspaceId));
+      scope = and(scope, inArray(artifacts.runId, scopedRuns));
+    }
+    const row = (await this.db.select().from(artifacts).where(scope).limit(1))[0];
     return row ? mapArtifact(rowValue(row)) : null;
   }
 
@@ -1566,8 +1573,16 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return row ? mapGate(rowValue(row)) : null;
   }
 
-  async getRunGate(_workspaceId: string, runId: string): Promise<GateEvaluation | null> {
-    return this.getGate(runId);
+  async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    const row = (
+      await this.db
+        .select()
+        .from(gateEvaluations)
+        .where(and(eq(gateEvaluations.runId, runId), eq(gateEvaluations.workspaceId, workspaceId)))
+        .orderBy(desc(gateEvaluations.evaluatedAt))
+        .limit(1)
+    )[0];
+    return row ? mapGate(rowValue(row)) : null;
   }
 
   async reapExpiredLeases(now = nowDate(this.options)): Promise<LeaseReapResult[]> {

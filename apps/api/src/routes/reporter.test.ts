@@ -771,7 +771,7 @@ describe('Reporter routes — upload ingestion', () => {
     expect(tests.some((t) => t.status === 'queued')).toBe(true);
   });
 
-  it('parses junit skipped and error outcomes', async () => {
+  it('parses junit skipped and error outcomes, and fails closed on an undeclared one', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -796,9 +796,86 @@ describe('Reporter routes — upload ingestion', () => {
     expect(res.status).toBe(202);
     const tests = await repo.listTests('upload-junit-branches-001');
     expect(tests).toHaveLength(3);
-    expect(tests.some((t) => t.status === 'skipped')).toBe(true);
-    expect(tests.some((t) => t.status === 'failed')).toBe(true);
-    expect(tests.some((t) => t.status === 'passed')).toBe(true);
+    const byTitle = new Map(tests.map((t) => [t.title, t.status]));
+    expect(byTitle.get('smoke')).toBe('skipped');
+    expect(byTitle.get('api :: api error')).toBe('failed');
+    // The third testcase declares no status and carries no failure child, so
+    // it proves nothing. It used to be recorded as a pass.
+    expect(byTitle.get('ok')).toBe('queued');
+    expect(tests.some((t) => t.status === 'passed')).toBe(false);
+  });
+
+  it('rejects a JUnit body past its own size cap instead of parsing it', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+    // Comfortably past MAX_JUNIT_BYTES (5 MiB) of well-formed testcases.
+    const filler = 'a'.repeat(1_000);
+    const body = `<testsuite>${`<testcase name="${filler}" time="0.1" />`.repeat(6_000)}</testsuite>`;
+    expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(5 * 1024 * 1024);
+
+    const form = new FormData();
+    form.set('runId', 'junit-oversize');
+    form.set('artifactType', 'junit');
+    form.set('file', new File([body], 'junit.xml', { type: 'application/xml' }));
+
+    const started = Date.now();
+    const res = await app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
+    expect(Date.now() - started).toBeLessThan(20_000);
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(await repo.getRun('junit-oversize')).toBeNull();
+  });
+
+  it('scans malformed JUnit markup deterministically', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+
+    const upload = async (runId: string, xml: string): Promise<Response> => {
+      const form = new FormData();
+      form.set('runId', runId);
+      form.set('artifactType', 'junit');
+      form.set('file', new File([xml], 'junit.xml', { type: 'application/xml' }));
+      return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
+    };
+
+    // An unterminated element swallows the remainder and the request still
+    // terminates, instead of rescanning the tail for every opener.
+    const unterminated = await upload(
+      'junit-unterminated',
+      '<testsuite><testcase name="a" time="0.1"><testcase name="b" time="0.2">',
+    );
+    expect(unterminated.status).toBe(202);
+    const unterminatedTests = await repo.listTests('junit-unterminated');
+    expect(unterminatedTests).toHaveLength(1);
+    expect(unterminatedTests[0]?.title).toBe('a');
+
+    // A tag whose name merely starts with `testcase` is not a testcase.
+    const lookalike = await upload(
+      'junit-lookalike',
+      '<testsuite><testcaseextra name="nope" /><testcase name="real" time="0.1" /></testsuite>',
+    );
+    expect(lookalike.status).toBe(202);
+    const lookalikeTests = await repo.listTests('junit-lookalike');
+    expect(lookalikeTests).toHaveLength(1);
+    expect(lookalikeTests[0]?.title).toBe('real');
+
+    // An encoded `>` inside an attribute value must not truncate the element.
+    // This hand-rolled scanner does not decode entities, so the raw text is
+    // preserved verbatim — which is what proves the element was not split.
+    const quoted = await upload(
+      'junit-quoted',
+      '<testsuite><testcase name="a &gt; b" classname="pkg.Cls" time="0.1" /></testsuite>',
+    );
+    expect(quoted.status).toBe(202);
+    expect((await repo.listTests('junit-quoted'))[0]?.title).toBe('pkg.Cls :: a &gt; b');
+
+    // Entity-bearing and deeply repeated markup must not expand or recurse.
+    const bomb = await upload(
+      'junit-entity',
+      '<testsuite><testcase name="x" time="0.1"><system-out>&lol;</system-out>' +
+        '&lol;'.repeat(50_000) +
+        '</testcase></testsuite>',
+    );
+    expect(bomb.status).toBe(202);
   });
 
   it('keeps run open when upload status is running and honors summary override', async () => {
@@ -1184,11 +1261,18 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
 });
 
 describe('Reporter upload — JUnit artifact status derivation', () => {
-  async function uploadJunit(app: Hono, runId: string, xml: string): Promise<Response> {
+  async function uploadJunit(
+    app: Hono,
+    runId: string,
+    xml: string,
+    fields: Record<string, string> = {},
+  ): Promise<Response> {
     const form = new FormData();
     form.set('runId', runId);
     form.set('artifactType', 'junit');
     form.set('file', new File([xml], 'junit.xml', { type: 'application/xml' }));
+    if (fields['status'] !== undefined) form.set('status', fields['status']);
+    if (fields['summary'] !== undefined) form.set('summary', fields['summary']);
     return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
   }
 
@@ -1212,21 +1296,23 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
     expect(await repo.listTests('junit-empty')).toHaveLength(0);
   });
 
-  it('derives passed for a non-empty JUnit report with no failures', async () => {
+  it('keeps a JUnit report whose testcases declare no outcome non-green', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
     const res = await uploadJunit(
       app,
       'junit-clean',
-      '<testsuite name="s" tests="1">'
-        + '<testcase name="ok" file="a.spec.ts" time="0.1" /></testsuite>',
+      '<testsuite name="s" tests="1">' +
+        '<testcase name="ok" file="a.spec.ts" time="0.1" /></testsuite>',
     );
 
+    // A bare <testcase> used to be recorded as a pass, so the whole report went
+    // green on nothing but the reporter's own optimism.
     expect(res.status).toBe(202);
     const run = await repo.getRun('junit-clean');
-    expect(run?.status).toBe('passed');
-    expect(run?.passed).toBe(1);
+    expect(run?.status).toBe('interrupted');
+    expect(run?.passed).toBe(0);
   });
 
   it('keeps an all-skipped JUnit report non-green', async () => {

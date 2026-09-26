@@ -82,7 +82,10 @@ function deriveSigningKey(
 }
 
 function amzTimestamp(date: Date): string {
-  return date.toISOString().replace(/[:-]/g, '').replace(/\.\d{3}/, '');
+  return date
+    .toISOString()
+    .replace(/[:-]/g, '')
+    .replace(/\.\d{3}/, '');
 }
 
 /** RFC 3986 percent-encoding: `!'()*` are escaped even though encodeURIComponent leaves them. */
@@ -137,14 +140,14 @@ export function signSigV4(credentials: SigV4Credentials, request: SigV4Request):
     request.payloadHash,
   ].join('\n');
   const scope = `${dateStamp}/${credentials.region}/${credentials.service}/${SIGV4_TERMINATOR}`;
-  const stringToSign = [
-    SIGV4_ALGORITHM,
-    amzDate,
-    scope,
-    sha256Hex(canonicalRequest),
-  ].join('\n');
+  const stringToSign = [SIGV4_ALGORITHM, amzDate, scope, sha256Hex(canonicalRequest)].join('\n');
   const signature = hmacHex(
-    deriveSigningKey(credentials.secretAccessKey, dateStamp, credentials.region, credentials.service),
+    deriveSigningKey(
+      credentials.secretAccessKey,
+      dateStamp,
+      credentials.region,
+      credentials.service,
+    ),
     stringToSign,
   );
   return `${SIGV4_ALGORITHM} Credential=${credentials.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
@@ -228,7 +231,10 @@ async function readBounded(response: Response, limit: number): Promise<Uint8Arra
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    chunks.push(Buffer.from(value.buffer, value.byteOffset, value.byteLength));
+    // `Buffer.from(value.buffer, ...)` would create a *view* over the stream's
+    // recyclable chunk, so the bytes could be overwritten before the response
+    // is consumed — silently corrupted evidence. Copy instead.
+    chunks.push(Buffer.from(value));
     total += value.byteLength;
     if (total > limit) {
       await reader.cancel();

@@ -58,7 +58,9 @@ describe('assertInMemoryAllowed', () => {
 
   it('keeps explicit in-memory composition in development and test', () => {
     for (const nodeEnv of ['development', 'test']) {
-      expect(() => assertInMemoryAllowed(config({ nodeEnv }), 'InMemoryRunRepository')).not.toThrow();
+      expect(() =>
+        assertInMemoryAllowed(config({ nodeEnv }), 'InMemoryRunRepository'),
+      ).not.toThrow();
     }
   });
 });
@@ -69,9 +71,9 @@ describe('checkProductionPolicy', () => {
   });
 
   it('rejects the development-only cookie secret literal in production', () => {
-    expect(() => checkProductionPolicy(config({ cookieSecret: DEVELOPMENT_COOKIE_SECRET }))).toThrow(
-      'COOKIE_SECRET must not be a placeholder',
-    );
+    expect(() =>
+      checkProductionPolicy(config({ cookieSecret: DEVELOPMENT_COOKIE_SECRET })),
+    ).toThrow('COOKIE_SECRET must not be a placeholder');
   });
 
   it('rejects a placeholder RUNNER_REGISTRATION_SECRET in production', () => {
@@ -101,7 +103,9 @@ describe('checkProductionPolicy', () => {
 
   it('allows the local artifact store outside production', () => {
     for (const nodeEnv of ['development', 'test']) {
-      expect(() => checkProductionPolicy(config({ nodeEnv, objectStore: undefined }))).not.toThrow();
+      expect(() =>
+        checkProductionPolicy(config({ nodeEnv, objectStore: undefined })),
+      ).not.toThrow();
     }
   });
 
@@ -138,15 +142,37 @@ describe('resolveAuthSecrets', () => {
     );
   });
 
-  it('uses the named development literals only outside production', () => {
-    const bare = (nodeEnv: string) => config({ nodeEnv, cookieSecret: undefined, apiKey: undefined });
-    expect(resolveAuthSecrets(bare('development'))).toEqual({
+  it('reaches the committed literals only where they are harmless', () => {
+    const bare = (nodeEnv: string) =>
+      config({ nodeEnv, cookieSecret: undefined, apiKey: undefined });
+
+    // A test run may use the literal: there is nothing to protect.
+    expect(resolveAuthSecrets(bare('test'), {})).toEqual({
       cookieSecret: DEVELOPMENT_COOKIE_SECRET,
       installationKey: DEVELOPMENT_INSTALLATION_KEY,
     });
-    expect(resolveAuthSecrets(bare('test'))).toEqual({
+
+    // A development machine must ask for it by name. Previously a missing
+    // secret silently became the published literal, on any `nodeEnv` that was
+    // not the exact string `production`.
+    expect(() => resolveAuthSecrets(bare('development'), {})).toThrow(/COOKIE_SECRET is required/);
+    expect(resolveAuthSecrets(bare('development'), { AUTOMATE_ALLOW_DEV_SECRETS: '1' })).toEqual({
       cookieSecret: DEVELOPMENT_COOKIE_SECRET,
       installationKey: DEVELOPMENT_INSTALLATION_KEY,
     });
+
+    // And production refuses them even with the opt-in set.
+    expect(() =>
+      resolveAuthSecrets(bare('production'), { AUTOMATE_ALLOW_DEV_SECRETS: '1' }),
+    ).toThrow(/required in production/);
+  });
+
+  it('never returns a placeholder secret in production, whatever the env allows', () => {
+    const placeholder = config({
+      nodeEnv: 'production',
+      cookieSecret: DEVELOPMENT_COOKIE_SECRET,
+      apiKey: 'a'.repeat(32),
+    });
+    expect(() => checkProductionPolicy(placeholder)).toThrow(/must not be a placeholder/);
   });
 });

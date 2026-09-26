@@ -110,9 +110,9 @@ describe('readObjectStoreSettings', () => {
     expect(() => readObjectStoreSettings({ ...complete, OBJECT_STORE_BUCKET: 'Automate' })).toThrow(
       'OBJECT_STORE_BUCKET must be a lowercase S3 bucket name',
     );
-    expect(() => readObjectStoreSettings({ ...complete, OBJECT_STORE_FORCE_PATH_STYLE: 'yes please' })).toThrow(
-      'OBJECT_STORE_FORCE_PATH_STYLE must be a boolean',
-    );
+    expect(() =>
+      readObjectStoreSettings({ ...complete, OBJECT_STORE_FORCE_PATH_STYLE: 'yes please' }),
+    ).toThrow('OBJECT_STORE_FORCE_PATH_STYLE must be a boolean');
     expect(() => readObjectStoreSettings({ ...complete, OBJECT_STORE_MAX_BYTES: 'lots' })).toThrow(
       'OBJECT_STORE_MAX_BYTES must be a positive integer',
     );

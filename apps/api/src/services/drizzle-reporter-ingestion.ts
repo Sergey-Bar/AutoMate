@@ -38,7 +38,10 @@ export class DrizzleReporterIngestionService implements ReporterResultStore {
         result: result as unknown as Record<string, unknown>,
       })
       .onConflictDoNothing({ target: [canonicalRunResults.workspaceId, canonicalRunResults.runId] })
-      .returning({ fingerprint: canonicalRunResults.fingerprint, result: canonicalRunResults.result });
+      .returning({
+        fingerprint: canonicalRunResults.fingerprint,
+        result: canonicalRunResults.result,
+      });
     if (inserted[0]) return { status: 'accepted', result };
     const raced = await this.find(result.identity.runId);
     return raced?.fingerprint === digest
@@ -59,7 +62,9 @@ export class DrizzleReporterIngestionService implements ReporterResultStore {
     return rows.map((row) => this.parseResult(row.result));
   }
 
-  private async find(runId: string): Promise<{ fingerprint: string; result: Record<string, unknown> } | null> {
+  private async find(
+    runId: string,
+  ): Promise<{ fingerprint: string; result: Record<string, unknown> } | null> {
     const rows = await this.db
       .select({ fingerprint: canonicalRunResults.fingerprint, result: canonicalRunResults.result })
       .from(canonicalRunResults)

@@ -1,5 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { createErrorBoundary } from './errors/boundary.js';
+import { withClassifiedErrors } from './errors/db-errors.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createReporterRoutes } from './routes/reporter.js';
 import { createAuthRoutes } from './routes/auth.js';
@@ -25,12 +28,7 @@ import type { ExecutionStore } from './execution/types.js';
 // Post-MVP: Remove InMemoryRunRepository fallback entirely (issue #TBD).
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
-import {
-  createDbClient,
-  createDbResources,
-  DrizzleInstallationKeyStore,
-  DrizzleSessionStore,
-} from '@automate/db';
+import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
 import type { RunRepository } from './repositories/run-repository.js';
 // Realtime transport: durable outbox-backed bus in production, in-memory for
 // development/test. Post-MVP: Add WebSocket transport (issue #TBD).
@@ -68,10 +66,19 @@ checkProductionPolicy(runtimeConfig);
 const { cookieSecret: authCookieSecret, installationKey: installationKey } =
   resolveAuthSecrets(runtimeConfig);
 
+const installationId = '00000000-0000-4000-8000-000000000001';
+const databaseUrl = runtimeConfig.databaseUrl;
+/**
+ * One pool for the process. Every repository, store, feed and health probe
+ * below shares `databaseResources.db`. Constructing a client per component
+ * created five `pg.Pool` instances — 40–50 sockets for a single
+ * `DATABASE_URL` — and exhausting them was a matter of traffic, not scale.
+ */
+const databaseResources = databaseUrl ? createDbResources(databaseUrl) : undefined;
+
 function createRunRepository(): RunRepository {
-  const databaseUrl = runtimeConfig.databaseUrl;
-  if (databaseUrl) {
-    return new DrizzleRunRepository(createDbClient(databaseUrl));
+  if (databaseResources) {
+    return new DrizzleRunRepository(databaseResources.db);
   }
   // Development/test fallback — startup policy enforces DATABASE_URL in production.
   assertInMemoryAllowed(runtimeConfig, 'InMemoryRunRepository');
@@ -82,24 +89,43 @@ function createDashboardStores(): {
   quarantineStore?: DrizzleQuarantineStore;
   qualityGateStore?: DrizzleQualityGateStore;
 } {
-  const databaseUrl = runtimeConfig.databaseUrl;
-  if (!databaseUrl) {
+  if (!databaseResources) {
     assertInMemoryAllowed(runtimeConfig, 'dashboard stores');
     return {};
   }
-  const db = createDbClient(databaseUrl);
   return {
-    quarantineStore: new DrizzleQuarantineStore(db),
-    qualityGateStore: new DrizzleQualityGateStore(db),
+    quarantineStore: new DrizzleQuarantineStore(databaseResources.db),
+    qualityGateStore: new DrizzleQualityGateStore(databaseResources.db),
   };
 }
 
 const app = new Hono();
 
+/**
+ * One error boundary for the whole app.
+ *
+ * Without it, Hono's default handler produced a bare 500 for anything a handler
+ * threw, so a Postgres CHECK violation — a state transition the schema rejects —
+ * was indistinguishable from a defect, and a serialization failure (which is
+ * retryable) was indistinguishable from either. Every response now carries a
+ * stable `code`; see `apps/api/src/errors/`.
+ */
+const errorBoundary = createErrorBoundary({
+  requestId: (c) => c.req.header('x-request-id')?.trim() || randomUUID(),
+});
+app.onError(errorBoundary.onError);
+app.notFound(errorBoundary.notFound);
+
 // Shared run repository — lives for the lifetime of the process.
 // createRunRepository() selects DrizzleRunRepository when DATABASE_URL is set,
 // falling back to InMemoryRunRepository for development/test.
-const runRepository = createRunRepository();
+//
+// Wrapped in `withClassifiedErrors` so no store method can leak a raw `pg` error:
+// a CHECK, unique or FK violation arrives as a `DomainError` with a code and a
+// mapped status, for the HTTP route and for the worker's reaper alike. Wrapping
+// method by method is what misses the ones nobody remembers, and a missed one
+// surfaces as a bare 500 that a caller then retries forever.
+const runRepository = withClassifiedErrors(createRunRepository());
 const artifactStore = new LocalArtifactStore(
   runtimeConfig.artifactRoot ?? process.env['ARTIFACT_ROOT'] ?? '.artifacts',
 );
@@ -125,9 +151,9 @@ function createArtifactBytesStore(): ArtifactBytesStore {
 const artifactBytesStore = createArtifactBytesStore();
 
 function createExecutionStore(): ExecutionStore {
-  if (runtimeConfig.databaseUrl) {
+  if (databaseResources) {
     return new DrizzleExecutionStore({
-      db: createDbClient(runtimeConfig.databaseUrl),
+      db: databaseResources.db,
       workspaceId: runtimeConfig.workspaceId,
       artifactBytes: artifactBytesStore,
     });
@@ -136,7 +162,7 @@ function createExecutionStore(): ExecutionStore {
   return new InMemoryExecutionStore();
 }
 
-const executionStore = createExecutionStore();
+const executionStore = withClassifiedErrors(createExecutionStore());
 const dashboardStores = createDashboardStores();
 
 function mountReportingRoutes(): void {
@@ -146,7 +172,13 @@ function mountReportingRoutes(): void {
         runtimeConfig.workspaceId ?? 'default-workspace',
       )
     : new ReporterIngestionService(runtimeConfig.workspaceId ?? 'default-workspace');
-  app.route('/', createReporterResultsRoute(reporterStore));
+  app.route(
+    '/',
+    createReporterResultsRoute(reporterStore, {
+      reporterSecret: runtimeConfig.reporterSecret,
+      requireReporterSecret: runtimeConfig.nodeEnv === 'production',
+    }),
+  );
   app.route('/', createReportingRoutes(reporterStore));
 }
 
@@ -176,9 +208,6 @@ function mountLegacyProcessLocalRoutes(): void {
   app.route('/', createRunnerRoutes(new RunnerControlService()));
   app.route('/', createOrchestrationRoutes(new OrchestrationService()));
 }
-const installationId = '00000000-0000-4000-8000-000000000001';
-const databaseUrl = runtimeConfig.databaseUrl;
-const databaseResources = databaseUrl ? createDbResources(databaseUrl) : undefined;
 // Durable outbox-backed realtime in production; process-local events otherwise.
 const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
@@ -212,12 +241,25 @@ const installationKeyHash = databaseResources
       displayPrefix: 'dev',
     })
   : hashCredential(authCookieSecret, installationKey);
+/**
+ * Cookie `secure` is derived from how the request actually arrived, not from
+ * a configured public URL. A deployment behind a TLS-terminating proxy that
+ * forgets to set `PUBLIC_APP_URL` to an `https://` value would otherwise emit
+ * a session cookie without `Secure`. An explicit `COOKIE_SECURE` still wins.
+ */
+function resolveSecureCookies(): boolean {
+  const explicit = process.env['COOKIE_SECURE']?.trim().toLowerCase();
+  if (explicit === 'true' || explicit === '1' || explicit === 'yes') return true;
+  if (explicit === 'false' || explicit === '0' || explicit === 'no') return false;
+  return (runtimeConfig.publicAppUrl ?? 'http://localhost:5173').startsWith('https://');
+}
+
 const authRoutes = createAuthRoutes({
   cookieSecret: authCookieSecret,
   installationId,
   installationKeyHash,
   sessionTtlMs: 24 * 60 * 60 * 1000,
-  secureCookies: (runtimeConfig.publicAppUrl ?? 'http://localhost:5173').startsWith('https://'),
+  secureCookies: resolveSecureCookies(),
   sessionBackend,
 });
 
@@ -293,10 +335,7 @@ if (runtimeConfig.nodeEnv !== 'test') {
   const { serve } = await import('@hono/node-server');
   // Startup policy already ran above, before any composition; the server only
   // starts once that gate has passed.
-  serve(
-    { fetch: app.fetch, port: runtimeConfig.port, hostname: runtimeConfig.host },
-    (info) => {
-      console.info(`automate-api listening on http://${runtimeConfig.host}:${info.port}`);
-    },
-  );
+  serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: runtimeConfig.host }, (info) => {
+    console.info(`automate-api listening on http://${runtimeConfig.host}:${info.port}`);
+  });
 }

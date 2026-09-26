@@ -1,5 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
+import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
+import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
 import {
   isTerminalPhase,
   type ArtifactDescriptor,
@@ -100,16 +102,33 @@ function countTests(tests: ExecutionTestResult[]): ExecutionSummary {
   return summary;
 }
 
-function defaultStatus(phase: RunPhase): string {
-  if (phase === 'complete') return 'passed';
-  if (phase === 'cancelled') return 'cancelled';
-  if (phase === 'timed_out') return 'timed_out';
-  if (phase === 'runner_lost') return 'runner_lost';
-  if (phase === 'infra_failed') return 'infra_failed';
-  if (phase === 'config_failed') return 'config_failed';
-  if (phase === 'blocked') return 'blocked';
-  if (phase === 'partial') return 'partial';
-  return 'running';
+/**
+ * Whether a run carries any evidence at all: at least one test, a non-zero
+ * declared total, or an explicit outcome of something other than "nothing ran".
+ *
+ * The product's promise is evidence before claims, and this is the check that
+ * keeps a green run from being asserted by a client that ran nothing. A run with
+ * no tests and a zero summary resolves to `unknown`, not `passed`.
+ */
+function hasEvidence(run: { tests: ExecutionTestResult[]; summary: ExecutionSummary }): boolean {
+  if (run.tests.length > 0) return true;
+  if (run.summary.total > 0) return true;
+  if (run.summary.passed > 0 || run.summary.failed > 0 || run.summary.flaky > 0) return true;
+  return false;
+}
+
+/**
+ * Resolves a run's status from its phase and outcome, together.
+ *
+ * This used to be `if (phase === 'complete') return 'passed'`, which reported a
+ * green run for *any* completed phase — including one where no test ever ran.
+ * A run with no evidence is not a pass; it is `interrupted`, the existing
+ * "finished without a determinate outcome" value, so the status vocabulary stays
+ * at four members and no migration is needed.
+ */
+function statusForTerminal(derived: DerivedRunState, evidence: boolean): string {
+  if (derived.outcome === 'passed' && !evidence) return 'interrupted';
+  return derived.status;
 }
 
 function normalizePhase(value: unknown): RunPhase | null {
@@ -200,7 +219,11 @@ export class InMemoryExecutionStore implements ExecutionStore {
   private readonly policies = new Map<string, QualityPolicy>();
   private readonly gates = new Map<string, GateEvaluation>();
   private readonly idempotency = new Map<string, string>();
-  private readonly completionHashes = new Map<string, string>();
+  /** Bounded: a job completion hash is only consulted while a client retries that job. */
+  private readonly completionHashes = new BoundedMap<string, string>(
+    'completionHashes',
+    COMPLETION_HASH_CAPACITY,
+  );
   private readonly now: () => Date;
   private readonly leaseDurationMs: number;
 
@@ -273,6 +296,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
     const job: ExecutionJob = {
       id: jobId,
       runId,
+      workspaceId: run.workspaceId,
       attempt,
       priority: run.priority,
       state: 'queued',
@@ -375,16 +399,16 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return result;
   }
 
-  async getJob(jobId: string): Promise<ExecutionJob | null> {
+  async getJob(jobId: string, workspaceId?: string): Promise<ExecutionJob | null> {
     const job = this.jobs.get(jobId);
-    return job ? clone(job) : null;
+    if (!job) return null;
+    if (workspaceId !== undefined && job.workspaceId !== workspaceId) return null;
+    return clone(job);
   }
 
   async listJobs(workspaceId?: string): Promise<ExecutionJob[]> {
     return [...this.jobs.values()]
-      .filter(
-        (job) => workspaceId === undefined || this.runs.get(job.runId)?.workspaceId === workspaceId,
-      )
+      .filter((job) => workspaceId === undefined || job.workspaceId === workspaceId)
       .map((job) => clone(job));
   }
 
@@ -409,6 +433,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
       updatedAt: timestamp,
     };
     this.runners.set(runner.id, runner);
+    // Revoke the previous credential. Leaving the old hash mapped would keep a
+    // rotated-out token working, which the Drizzle store does not do — the two
+    // stores must not disagree on token rotation.
+    for (const [hash, mappedRunnerId] of [...this.runnerTokens]) {
+      if (mappedRunnerId === runner.id) this.runnerTokens.delete(hash);
+    }
     this.runnerTokens.set(tokenHash, runner.id);
     return clone(runner);
   }
@@ -461,10 +491,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
     capabilities: string[] = [],
     labels: string[] = [],
     now = this.now(),
+    workspaceId?: string,
   ): Promise<JobClaim | null> {
     await this.reapExpiredLeases(now);
     const runner = this.runners.get(runnerId);
     if (!runner || runner.health === 'revoked' || runner.health === 'offline') return null;
+    const inScope = (job: ExecutionJob): boolean =>
+      workspaceId === undefined || job.workspaceId === workspaceId;
     const effectiveCapabilities = new Set([...runner.capabilities, ...capabilities]);
     const effectiveLabels = new Set([...runner.labels, ...labels]);
     const active = [...this.jobs.values()].filter(
@@ -476,6 +509,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       .filter(
         (job) =>
           (job.state === 'queued' || job.state === 'requeued') &&
+          inScope(job) &&
           new Date(job.availableAt).getTime() <= now.getTime(),
       )
       .filter((job) =>
@@ -547,10 +581,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
     leaseId: string,
     fencingToken: number,
     events: ExecutionEventInput[],
+    workspaceId?: string,
   ): Promise<EventApplyResult[]> {
     const job = this.jobs.get(jobId);
     if (
       !job ||
+      (workspaceId !== undefined && job.workspaceId !== workspaceId) ||
       job.state !== 'leased' ||
       job.leaseId !== leaseId ||
       job.fencingToken !== fencingToken ||
@@ -687,9 +723,11 @@ export class InMemoryExecutionStore implements ExecutionStore {
   async completeJob(
     jobId: string,
     completion: JobCompletionInput,
+    workspaceId?: string,
   ): Promise<JobCompletionResult | null> {
     const job = this.jobs.get(jobId);
     if (!job) return null;
+    if (workspaceId !== undefined && job.workspaceId !== workspaceId) return null;
     const completionHash = digest(completion);
     const previousHash = this.completionHashes.get(jobId);
     if (previousHash) {
@@ -724,7 +762,10 @@ export class InMemoryExecutionStore implements ExecutionStore {
                   : status === 'config_failed'
                     ? 'config_failed'
                     : 'complete'));
-    const outcome =
+    // The runner's own vocabulary, mapped onto the canonical outcome set. This is
+    // the only authority the payload has: it can name a pass, not invent an
+    // outcome, and it cannot pair an outcome with a phase that forbids one.
+    const claimed =
       completion.outcome ??
       (status === 'passed' || status === 'succeeded' || status === 'success'
         ? 'passed'
@@ -741,15 +782,16 @@ export class InMemoryExecutionStore implements ExecutionStore {
                   : status === 'config_failed'
                     ? 'config_failed'
                     : 'unknown');
-    run.phase = phase;
-    run.outcome = outcome;
-    run.status = defaultStatus(phase);
-    run.completedAt = timestamp;
-    run.updatedAt = timestamp;
+    const derived = deriveRunState(phase, claimed);
     if (completion.tests) run.tests = clone(completion.tests);
     if (completion.summary)
       run.summary = { ...run.summary, ...clone(completion.summary) } as ExecutionSummary;
     else run.summary = countTests(run.tests);
+    run.phase = derived.phase;
+    run.outcome = derived.outcome;
+    run.status = statusForTerminal(derived, hasEvidence(run));
+    run.completedAt = timestamp;
+    run.updatedAt = timestamp;
     if (completion.error !== undefined)
       run.error =
         completion.error === null
@@ -817,14 +859,22 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return descriptor;
   }
 
-  async getArtifact(artifactId: string): Promise<StoredArtifact | null> {
-    const artifact = this.artifacts.get(artifactId);
-    return artifact ? clone(artifact) : null;
-  }
-
-  async getArtifactDescriptor(artifactId: string): Promise<ArtifactDescriptor | null> {
+  async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
     const artifact = this.artifacts.get(artifactId);
     if (!artifact) return null;
+    if (workspaceId !== undefined && this.runs.get(artifact.runId)?.workspaceId !== workspaceId)
+      return null;
+    return clone(artifact);
+  }
+
+  async getArtifactDescriptor(
+    artifactId: string,
+    workspaceId?: string,
+  ): Promise<ArtifactDescriptor | null> {
+    const artifact = this.artifacts.get(artifactId);
+    if (!artifact) return null;
+    if (workspaceId !== undefined && this.runs.get(artifact.runId)?.workspaceId !== workspaceId)
+      return null;
     const descriptor = clone(artifact);
     delete (descriptor as Partial<StoredArtifact>).bytes;
     return descriptor;
@@ -881,7 +931,8 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return gate ? clone(gate) : null;
   }
 
-  async getRunGate(_workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+  async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    if (this.runs.get(runId)?.workspaceId !== workspaceId) return null;
     return this.getGate(runId);
   }
 
@@ -1031,9 +1082,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
     ) {
       const phase = normalizePhase(payload['phase']);
       if (phase) {
-        run.phase = phase;
-        run.status = defaultStatus(phase);
-        if (phase === 'complete') run.completedAt = timestamp;
+        // Same derivation as the completion path: a non-terminal phase has no
+        // outcome, and a `complete` phase with no evidence is not a pass.
+        const derived = deriveRunState(phase, payload['outcome']);
+        run.phase = derived.phase;
+        run.outcome = derived.outcome;
+        run.status = statusForTerminal(derived, hasEvidence(run));
+        if (derived.terminal) run.completedAt = timestamp;
       }
     }
     if (event.type === 'test.started') {
@@ -1078,11 +1133,6 @@ export class InMemoryExecutionStore implements ExecutionStore {
     }
     if (event.type === 'run.completed') {
       const phase = normalizePhase(payload['phase']) ?? 'complete';
-      const outcome = normalizeOutcome(payload['outcome'] ?? payload['status']);
-      run.phase = phase;
-      run.outcome = outcome;
-      run.status = defaultStatus(phase);
-      run.completedAt = timestamp;
       if (payload['error'] !== undefined) run.error = this.errorValue(payload['error']);
       if (
         payload['summary'] !== undefined &&
@@ -1107,6 +1157,16 @@ export class InMemoryExecutionStore implements ExecutionStore {
               : run.summary.durationMs,
         };
       }
+      // Derived after the summary is folded in, so a run reporting a zero total
+      // cannot be recorded as a pass.
+      const derived = deriveRunState(
+        phase,
+        normalizeOutcome(payload['outcome'] ?? payload['status']),
+      );
+      run.phase = derived.phase;
+      run.outcome = derived.outcome;
+      run.status = statusForTerminal(derived, hasEvidence(run));
+      run.completedAt = timestamp;
     }
   }
 

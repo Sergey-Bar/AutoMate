@@ -1,18 +1,19 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { Hono, type Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import type { RunRecord, RunRepository } from '../repositories/run-repository.js';
 import type { CanonicalRealtimeEvent, RealtimeBus } from '../realtime/realtime-bus.js';
 import { createGateEvaluation, defaultPolicy } from '../execution/quality-gate.js';
 import { listIntegrationMaturity } from '../execution/maturity.js';
+import { DEFAULT_MAX_ARTIFACT_BYTES } from '../infrastructure/s3-artifact-bytes.js';
 import { createRunnerToken, hashRunnerToken } from '../execution/in-memory-execution-store.js';
 import { toCanonicalRun } from '../execution/canonical.js';
 import type {
   ArtifactKind,
   CreateRunInput,
   DomainName,
-  ExecutionEventInput,
   ExecutionRun,
   ExecutionStore,
   JobCompletionInput,
@@ -96,6 +97,11 @@ const RegistrationSchema = z
     capabilities: z.array(z.string().min(1)).default([]),
     labels: z.array(z.string().min(1)).default([]),
     slots: z.number().int().positive().max(1000).default(1),
+    /**
+     * The runner's current token, required to rotate the credential of an
+     * already-registered runner id.
+     */
+    rotationToken: z.string().min(1).optional(),
     manifest: z
       .object({
         id: z.string().min(1).optional(),
@@ -175,6 +181,40 @@ const ArtifactSchema = z
   })
   .passthrough();
 
+/**
+ * The event types this boundary forwards to the realtime bus. Anything outside
+ * the set is still persisted — it is only not republished, so an unknown event
+ * can never be laundered into a canonical one.
+ */
+const CANONICAL_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'run.queued',
+  'run.assigned',
+  'run.started',
+  'run.phase_changed',
+  'test.queued',
+  'test.started',
+  'test.completed',
+  'run.completed',
+  'artifact.created',
+  'gate.evaluated',
+]);
+
+/**
+ * A real object schema. `z.record(z.string(), z.unknown())` let a client send
+ * `{ total: "many" }`, which reached `integer('total')` and surfaced as an
+ * unhandled Postgres `22P02` 500.
+ */
+const SummarySchema = z.object({
+  total: z.number().int().nonnegative().optional(),
+  passed: z.number().int().nonnegative().optional(),
+  failed: z.number().int().nonnegative().optional(),
+  flaky: z.number().int().nonnegative().optional(),
+  skipped: z.number().int().nonnegative().optional(),
+  blocked: z.number().int().nonnegative().optional(),
+  unknown: z.number().int().nonnegative().optional(),
+  durationMs: z.number().nonnegative().nullable().optional(),
+});
+
 const CompleteSchema = z
   .object({
     jobId: z.string().min(1).optional(),
@@ -219,7 +259,7 @@ const CompleteSchema = z
       ])
       .nullable()
       .optional(),
-    summary: z.record(z.string(), z.unknown()).optional(),
+    summary: SummarySchema.optional(),
     tests: z
       .array(
         z.object({
@@ -259,6 +299,8 @@ export interface ExecutionRoutesOptions {
   registrationSecret?: string;
   requireIdempotencyKey?: boolean;
   bus?: RealtimeBus;
+  /** Largest decoded artifact a runner may upload. */
+  maxArtifactBytes?: number;
 }
 
 function workspace(options: ExecutionRoutesOptions): string {
@@ -409,8 +451,9 @@ async function missingArtifact(
   store: ExecutionStore,
   artifactId: string,
   runId?: string,
+  workspaceId?: string,
 ): Promise<Response> {
-  const descriptor = await store.getArtifactDescriptor?.(artifactId);
+  const descriptor = await store.getArtifactDescriptor?.(artifactId, workspaceId);
   if (descriptor && (!runId || descriptor.runId === runId)) {
     return error(
       c,
@@ -468,10 +511,38 @@ function publishCanonical(
   bus?.publish({ version: '1', sequence, ...event });
 }
 
+/**
+ * Upper bound on any single request body reaching the execution boundary.
+ * Base64 inflates by 4/3, so this is the ceiling before the decoded-size check
+ * in the artifact handler. Without it a single runner-token request could
+ * allocate an arbitrary amount of memory.
+ */
+const MAX_EXECUTION_BODY_BYTES = 96 * 1024 * 1024;
+
 export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
   const app = new Hono();
   const ws = workspace(options);
   const eventSequences = new Map<string, number>();
+  const maxArtifactBytes = options.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
+
+  app.use(
+    '*',
+    bodyLimit({
+      maxSize: MAX_EXECUTION_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          {
+            error: {
+              code: 'PAYLOAD_TOO_LARGE',
+              message: 'Request body exceeds the configured limit',
+              requestId: requestId(c),
+              details: { maxBytes: MAX_EXECUTION_BODY_BYTES },
+            },
+          },
+          413,
+        ),
+    }),
+  );
 
   app.post('/api/v1/runs', async (c) => {
     const parsed = await parseBody(c, CreateRunSchema);
@@ -520,8 +591,9 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
   });
 
   app.get('/api/v1/artifacts/:artifactId', async (c) => {
-    const artifact = await options.store.getArtifact(c.req.param('artifactId'));
-    if (!artifact) return missingArtifact(c, options.store, c.req.param('artifactId'));
+    const artifactId = c.req.param('artifactId');
+    const artifact = await options.store.getArtifact(artifactId, ws);
+    if (!artifact) return missingArtifact(c, options.store, artifactId, undefined, ws);
     const headers: Record<string, string> = {
       'content-type': artifact.contentType,
       'content-length': String(artifact.sizeBytes),
@@ -574,20 +646,11 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
         version: '1',
         eventId: event.eventId,
         sequence: event.sequence,
-        type: [
-          'run.queued',
-          'run.assigned',
-          'run.started',
-          'run.phase_changed',
-          'test.queued',
-          'test.started',
-          'test.completed',
-          'run.completed',
-          'artifact.created',
-          'gate.evaluated',
-        ].includes(event.type)
-          ? event.type
-          : 'run.phase_changed',
+        // The stored type is reported verbatim, even when it is not one of
+        // CANONICAL_EVENT_TYPES: a silent rewrite makes an unknown event
+        // indistinguishable from a real phase change, which is exactly the
+        // evidence-integrity failure this product promises never to ship.
+        type: event.type,
         occurredAt: event.occurredAt,
         runId: event.runId,
         payload: event.payload,
@@ -701,8 +764,7 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     const artifactId = c.req.param('artifactId');
     const artifact = await options.store.getArtifact(artifactId);
     if (!artifact) return missingArtifact(c, options.store, artifactId, runId);
-    if (artifact.runId !== runId)
-      return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+    if (artifact.runId !== runId) return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
     return new Response(Buffer.from(artifact.bytes), {
       headers: {
         'content-type': artifact.contentType,
@@ -737,6 +799,27 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
       slots?: number;
     };
     const runnerId = parsed.runnerId ?? manifest.id ?? randomUUID();
+    // Re-registering an existing id used to silently rotate that runner's
+    // token, so anyone holding the registration secret could impersonate any
+    // runner. Rotation now requires the current token as proof of possession.
+    const existing = await options.store.getRunner(runnerId);
+    if (existing) {
+      if (parsed.rotationToken === undefined)
+        return error(
+          c,
+          409,
+          'RUNNER_ID_TAKEN',
+          'Runner id is already registered; supply rotationToken to rotate its credential',
+        );
+      const presented = await options.store.authenticateRunner(parsed.rotationToken);
+      if (!presented || presented.id !== runnerId)
+        return error(
+          c,
+          403,
+          'RUNNER_ROTATION_UNAUTHORIZED',
+          'rotationToken does not authenticate the runner being rotated',
+        );
+    }
     const token = createRunnerToken();
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
     const capabilitiesInput = manifest.capabilities ?? parsed.capabilities;
@@ -802,6 +885,8 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
       runner.id,
       parsed.capabilities ?? parsed.requiredCapabilities,
       parsed.labels,
+      undefined,
+      ws,
     );
     if (!job) return c.body(null, 204);
     return c.json(job);
@@ -815,50 +900,45 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     if (!parsed?.success) return error(c, 400, 'INVALID_EVENT_BATCH', 'Event batch is invalid');
     const jobId = c.req.param('jobId');
     if (!jobId) return error(c, 400, 'INVALID_JOB_ID', 'Job id is required');
-    const batch = parsed.data as {
-      leaseId?: string;
-      fencingToken?: number;
-      events: ExecutionEventInput[];
-    };
-    const job = await options.store.getJob(jobId);
-    const leaseId = batch.leaseId ?? job?.leaseId;
-    const fencingToken = batch.fencingToken ?? job?.fencingToken;
-    if (!leaseId || !fencingToken)
-      return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease is required');
-    const results = await options.store.appendEvents(jobId, leaseId, fencingToken, batch.events);
-    if (job) {
-      for (const [index, result] of results.entries()) {
-        if (result.status !== 'accepted') continue;
-        const input = batch.events[index];
-        if (!input) continue;
-        const type = input.type === 'run.phase' ? 'run.phase_changed' : input.type;
-        if (
-          ![
-            'run.queued',
-            'run.assigned',
-            'run.started',
-            'run.phase_changed',
-            'test.queued',
-            'test.started',
-            'test.completed',
-            'run.completed',
-            'artifact.created',
-            'gate.evaluated',
-          ].includes(type)
-        )
-          continue;
-        publishCanonical(
-          options.bus,
-          {
-            type: type as CanonicalRealtimeEvent['type'],
-            eventId: input.eventId,
-            occurredAt: input.occurredAt ?? new Date().toISOString(),
-            runId: job.runId,
-            payload: input.payload ?? {},
-          },
-          eventSequences,
-        );
-      }
+    const batch = parsed.data;
+    // The runner must present its own lease credentials. Falling back to the
+    // stored lease would let any authenticated runner write events into any
+    // job in any workspace.
+    if (batch.leaseId === undefined || batch.fencingToken === undefined)
+      return error(c, 409, 'JOB_LEASE_REQUIRED', 'Job lease credentials are required');
+    const workspaceId = workspace(options);
+    const job = await options.store.getJob(jobId, workspaceId);
+    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (job.leaseOwner !== runner.id)
+      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
+    if (job.leaseId !== batch.leaseId)
+      return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease is stale');
+    if (job.fencingToken !== batch.fencingToken)
+      return error(c, 409, 'JOB_FENCING_STALE', 'Job fencing token is stale');
+    const results = await options.store.appendEvents(
+      jobId,
+      batch.leaseId,
+      batch.fencingToken,
+      batch.events,
+      workspaceId,
+    );
+    for (const [index, result] of results.entries()) {
+      if (result.status !== 'accepted') continue;
+      const input = batch.events[index];
+      if (!input) continue;
+      const type = input.type === 'run.phase' ? 'run.phase_changed' : input.type;
+      if (!CANONICAL_EVENT_TYPES.has(type)) continue;
+      publishCanonical(
+        options.bus,
+        {
+          type: type as CanonicalRealtimeEvent['type'],
+          eventId: input.eventId,
+          occurredAt: input.occurredAt ?? new Date().toISOString(),
+          runId: job.runId,
+          payload: input.payload ?? {},
+        },
+        eventSequences,
+      );
     }
     if (results.some((result) => result.status === 'conflict'))
       return c.json({ results, duplicate: false }, 409);
@@ -878,9 +958,10 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     if (!runner) return error(c, 401, 'RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, ArtifactSchema);
     if (!parsed) return error(c, 400, 'INVALID_ARTIFACT', 'Artifact metadata is invalid');
-    const job = await options.store.getJob(c.req.param('jobId'));
-    if (!job || job.leaseOwner !== runner.id || !job.leaseId)
-      return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease is not owned by runner');
+    const job = await options.store.getJob(c.req.param('jobId'), ws);
+    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (job.leaseOwner !== runner.id || !job.leaseId)
+      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by runner');
     if (parsed.leaseId !== undefined && parsed.leaseId !== job.leaseId)
       return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease is stale');
     if (parsed.fencingToken !== undefined && parsed.fencingToken !== job.fencingToken)
@@ -890,6 +971,15 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     if (encoded) {
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || encoded.length % 4 !== 0)
         return error(c, 400, 'INVALID_ARTIFACT_BYTES', 'Artifact bytes are invalid');
+      // Base64 expands 3 bytes to 4, so an over-long string decodes to an
+      // over-large artifact. Reject on the decoded size, not just the encoded.
+      const decodedBytes =
+        (encoded.length / 4) * 3 - (encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0);
+      if (decodedBytes > maxArtifactBytes) {
+        return error(c, 413, 'ARTIFACT_TOO_LARGE', 'Artifact exceeds the configured maximum size', {
+          maxBytes: maxArtifactBytes,
+        });
+      }
       try {
         bytes = new Uint8Array(Buffer.from(encoded, 'base64'));
       } catch {
@@ -938,19 +1028,24 @@ export function createExecutionRoutes(options: ExecutionRoutesOptions): Hono {
     if (!runner) return error(c, 401, 'RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, CompleteSchema);
     if (!parsed) return error(c, 400, 'INVALID_COMPLETION', 'Job completion is invalid');
-    const parsedData = parsed as {
-      phase?: string;
-      tests?: Array<{ id?: string; testId?: string }>;
-    };
-    const completion = {
-      ...parsedData,
-      phase: parsedData.phase === 'completed' ? 'complete' : parsedData.phase,
-      tests: parsedData.tests?.map((test) => ({
+    const jobId = c.req.param('jobId');
+    // The completion path is a write into a run's terminal state, so it needs
+    // the same lease-ownership proof the artifact path already had.
+    const job = await options.store.getJob(jobId, ws);
+    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (job.leaseOwner !== runner.id)
+      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
+    const completion: JobCompletionInput = {
+      ...parsed,
+      leaseId: parsed.leaseId,
+      fencingToken: parsed.fencingToken,
+      phase: parsed.phase === 'completed' ? 'complete' : parsed.phase,
+      tests: parsed.tests?.map((test) => ({
         ...test,
         id: test.id ?? test.testId ?? randomUUID(),
       })),
-    } as JobCompletionInput;
-    const result = await options.store.completeJob(c.req.param('jobId'), completion);
+    };
+    const result = await options.store.completeJob(jobId, completion, ws);
     if (!result) return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease or completion is stale');
     publishCanonical(
       options.bus,

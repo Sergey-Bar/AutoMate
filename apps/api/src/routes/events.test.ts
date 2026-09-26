@@ -1,16 +1,8 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
-import type {
-  RealtimeBus,
-  RealtimeBusEvent,
-  RunUpdatedPayload,
-} from '../realtime/realtime-bus.js';
-import {
-  createEventsRoutes,
-  type DurableRealtimeFeed,
-  type EventsRouteOptions,
-} from './events.js';
+import type { RealtimeBus, RealtimeBusEvent, RunUpdatedPayload } from '../realtime/realtime-bus.js';
+import { createEventsRoutes, type DurableRealtimeFeed, type EventsRouteOptions } from './events.js';
 
 class TrackingBus implements RealtimeBus {
   unsubscribeCalls = 0;
@@ -84,9 +76,7 @@ describe('GET /api/v1/events', () => {
   });
 
   it('replays rows after Last-Event-ID before waiting for live rows', async () => {
-    let requestedPage:
-      | { workspaceId: string; afterSequence: number; limit?: number }
-      | undefined;
+    let requestedPage: { workspaceId: string; afterSequence: number; limit?: number } | undefined;
     const feed: DurableRealtimeFeed = {
       getRetentionFloor: async () => 2,
       readAfter: async (page) => {
@@ -94,7 +84,7 @@ describe('GET /api/v1/events', () => {
         return [
           {
             sequence: 2,
-            eventType: 'run.updated',
+            eventType: 'run:updated',
             payload: { runId: 'run-1', status: 'running' },
           },
         ];
@@ -131,7 +121,7 @@ describe('GET /api/v1/events', () => {
       readAfter: async () => [
         {
           sequence: 4,
-          eventType: 'run.updated',
+          eventType: 'run:updated',
           payload: { runId: 'run-1', status: 'running' },
         },
       ],
@@ -149,21 +139,56 @@ describe('GET /api/v1/events', () => {
 
       expect(frame).toContain('event: refetch');
       expect(frame).toContain('id: 3');
-      expect(frame).toContain(
-        'data: {"reason":"cursor_gap","requestedCursor":1,"resumeCursor":3}',
+      expect(frame).toContain('data: {"reason":"cursor_gap","requestedCursor":1,"resumeCursor":3}');
+      expect(frame.indexOf('event: refetch')).toBeLessThan(
+        frame.indexOf('event: run.phase_changed'),
       );
-      expect(frame.indexOf('event: refetch')).toBeLessThan(frame.indexOf('event: run.phase_changed'));
     } finally {
       await reader.cancel();
     }
   });
 
+  it('never republishes an unknown event type as a phase change', async () => {
+    // `toDurableSseFrame` used to rewrite any type outside the vocabulary to
+    // `run.phase_changed`, so an event a consumer could not recognise arrived
+    // indistinguishable from a real phase change — the same evidence-integrity
+    // failure as recording a status-less JUnit testcase as a pass.
+    const feed: DurableRealtimeFeed = {
+      getRetentionFloor: async () => 0,
+      readAfter: async () => [
+        {
+          sequence: 1,
+          eventType: 'some.future.event',
+          payload: { runId: 'run-1' },
+        },
+      ],
+    };
+    const app = createApp({ feed, workspaceId: 'workspace-a', pollIntervalMs: 60_000 });
+
+    const response = await app.request('/api/v1/events?cursor=0');
+    const reader = response.body!.getReader();
+
+    try {
+      let frame = '';
+      while (!frame.includes('data:')) {
+        frame += new TextDecoder().decode((await read(reader)).value);
+      }
+
+      // The compatibility event, with the real type in the payload.
+      expect(frame).toContain('event: message');
+      expect(frame).toContain('"type":"some.future.event"');
+      // And not the laundering.
+      expect(frame).not.toContain('"type":"run.phase_changed"');
+    } finally {
+      await reader.cancel();
+    }
+  });
   it('polls committed rows after the query cursor replay', async () => {
     const pages = [
       [
         {
           sequence: 3,
-          eventType: 'run.updated',
+          eventType: 'run:updated',
           payload: { runId: 'run-1', status: 'running' },
         },
       ],

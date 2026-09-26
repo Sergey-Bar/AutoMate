@@ -38,11 +38,17 @@ const result = {
 };
 
 describe('reporter results route', () => {
-  it('accepts canonical results and reports duplicates', async () => {
-    const app = new Hono().route(
+  const openIngestion = () =>
+    new Hono().route(
       '/',
-      createReporterResultsRoute(new ReporterIngestionService('workspace-1')),
+      createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
+        reporterSecret: undefined,
+        requireReporterSecret: false,
+      }),
     );
+
+  it('accepts canonical results and reports duplicates', async () => {
+    const app = openIngestion();
     const first = await app.request('/api/v1/reporter/results', {
       method: 'POST',
       body: JSON.stringify(result),
@@ -58,39 +64,74 @@ describe('reporter results route', () => {
   });
 
   it('requires the reporter secret when configured', async () => {
+    const app = new Hono().route(
+      '/',
+      createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
+        reporterSecret: 'reporter-secret',
+      }),
+    );
+    const unauthorized = await app.request('/api/v1/reporter/results', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(unauthorized.status).toBe(401);
+    const authorized = await app.request('/api/v1/reporter/results', {
+      method: 'POST',
+      body: JSON.stringify(result),
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer reporter-secret',
+      },
+    });
+    expect(authorized.status).toBe(202);
+  });
+
+  it('fails closed with 503 when the secret is unset and one is required', async () => {
     const previous = process.env['REPORTER_SECRET'];
-    process.env['REPORTER_SECRET'] = 'reporter-secret';
+    delete process.env['REPORTER_SECRET'];
     try {
       const app = new Hono().route(
         '/',
-        createReporterResultsRoute(new ReporterIngestionService('workspace-1')),
+        createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
+          reporterSecret: undefined,
+        }),
       );
-      const unauthorized = await app.request('/api/v1/reporter/results', {
-        method: 'POST',
-        body: '{}',
-        headers: { 'content-type': 'application/json' },
-      });
-      expect(unauthorized.status).toBe(401);
-      const authorized = await app.request('/api/v1/reporter/results', {
+      // An unset secret used to leave this endpoint completely open.
+      const response = await app.request('/api/v1/reporter/results', {
         method: 'POST',
         body: JSON.stringify(result),
-        headers: {
-          'content-type': 'application/json',
-          authorization: 'Bearer reporter-secret',
-        },
+        headers: { 'content-type': 'application/json' },
       });
-      expect(authorized.status).toBe(202);
+      expect(response.status).toBe(503);
+      expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+        'REPORTER_SECRET_NOT_CONFIGURED',
+      );
     } finally {
       if (previous === undefined) delete process.env['REPORTER_SECRET'];
       else process.env['REPORTER_SECRET'] = previous;
     }
   });
 
-  it('quarantines invalid results', async () => {
+  it('rejects a token that is a prefix of the secret, differs in case, or is empty', async () => {
     const app = new Hono().route(
       '/',
-      createReporterResultsRoute(new ReporterIngestionService('workspace-1')),
+      createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
+        reporterSecret: 'reporter-secret',
+      }),
     );
+    for (const token of ['reporter-secre', 'Reporter-secret', '']) {
+      const response = await app.request('/api/v1/reporter/results', {
+        method: 'POST',
+        body: JSON.stringify(result),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      });
+      expect(response.status).toBe(401);
+    }
+  });
+
+  it('quarantines invalid results', async () => {
+    const app = openIngestion();
     const response = await app.request('/api/v1/reporter/results', {
       method: 'POST',
       body: '{}',
