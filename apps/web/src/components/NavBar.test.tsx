@@ -1,7 +1,6 @@
 /// <reference types="vitest/globals" />
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom';
 import { NavBar } from './NavBar';
 import { resetAuthState } from '../auth/useAuth.js';
 import { ThemeProvider } from '../theme/ThemeProvider';

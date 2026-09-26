@@ -1,7 +1,6 @@
 import React from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { MemoryRouter } from '../router.js';
 import { LaunchRunForm } from './dashboard.js';
 import { makeApi, makeRun } from '../test-utils.js';

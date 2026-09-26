@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx --import ./src/instrument.ts src/index.ts",
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run --coverage",
+    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --max-warnings=0 src/"
   },

@@ -1,4 +1,5 @@
 import {
+  attemptsOf,
   ConnectorHttpError,
   executeWithRetry,
   type ConnectorAdapter,
@@ -33,7 +34,7 @@ export const githubAdapter: ConnectorAdapter = {
           retryable: status >= 500,
           message: 'GitHub operation failed',
         },
-        attempts: 1,
+        attempts: attemptsOf(error),
       };
     }
   },

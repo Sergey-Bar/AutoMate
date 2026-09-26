@@ -2,7 +2,6 @@ import React from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { configure } from '@testing-library/dom';
-import '@testing-library/jest-dom/vitest';
 import { MemoryRouter } from './router.js';
 import { resetAuthState } from './auth/useAuth.js';
 import { visibleRoutes } from './route-manifest.js';

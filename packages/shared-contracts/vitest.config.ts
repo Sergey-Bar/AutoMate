@@ -1,34 +1,20 @@
 import { defineConfig } from 'vitest/config';
+import { standardCoverage } from '../../vitest.shared.js';
 
 export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
     include: ['src/**/*.test.ts'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'json-summary', 'html'],
-      reportsDirectory: './coverage',
-      /**
-       * Without an explicit `include`, V8 coverage only reports files that a
-       * test happened to import, so a schema module nothing imports escaped the
-       * threshold entirely. `all: true` plus `include` makes every source file
-       * count.
-       *
-       * The floors are the plan's standard "clean-as-you-code" levels
-       * (≥90% lines, ≥80% branches), rounded to a stable value. This package
-       * previously claimed 100% and did not meet it once it was actually
-       * measured.
-       */
-      all: true,
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.test-d.ts', 'src/**/index.ts'],
-      thresholds: {
-        statements: 95,
-        branches: 90,
-        functions: 95,
-        lines: 95,
-      },
-    },
+    // This config used to be hand-rolled: its own `all: true`, its own reporters,
+    // its own thresholds at 95/90/95/95, and an `src/**/index.ts` exclusion.
+    //
+    // That exclusion contradicted the stated policy in `vitest.shared.ts`, which
+    // says barrels are deliberately *not* excluded because packages that keep
+    // their code in `src/index.ts` otherwise report 0/0. Two authorities, one of
+    // them contradicting the other, is how a floor ends up meaning nothing. The
+    // floor for every package now lives in one place: its row in
+    // `coverage-baseline.json`, enforced by `pnpm coverage:ratchet`.
+    coverage: standardCoverage(process.cwd()),
   },
 });

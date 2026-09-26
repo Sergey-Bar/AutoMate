@@ -1,7 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import '@testing-library/jest-dom/vitest';
 import { RunsListPage } from './index.js';
 import { makeApi, makeRun } from '../../test-utils.js';
 
