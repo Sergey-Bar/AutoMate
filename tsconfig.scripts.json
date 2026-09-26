@@ -1,0 +1,40 @@
+{
+  // Allow JavaScript to be typechecked, and enable it for the scripts.
+  //
+  // The root project already claimed to include `scripts/**/*.ts`, which matches
+  // nothing: every script in the repository is `.mjs`. So the preflight gate, the
+  // coverage ratchet, the licence check, the secret scan, the OCI scripts and the
+  // static-analysis runner — the checks that decide whether a commit is mergeable
+  // — had no type checking at all, which is how a typo in a path or a wrong
+  // argument count stayed invisible.
+  //
+  // `checkJs` costs nothing for `.mjs` (it is not part of the build) and turns
+  // those scripts into checked code. The allowlist is explicit so a new script is
+  // opted in deliberately rather than silently unchecked.
+  "allowJs": true,
+  "checkJs": true,
+
+  // Only the scripts. Everything else in the repo is TypeScript, already
+  // typechecked through its package tsconfig.
+  "include": ["scripts/**/*.mjs", "vitest.shared.ts", "vitest.config.ts"],
+
+  "compilerOptions": {
+    // `.mjs` scripts run directly under Node, not through a bundler, so the
+    // emit settings are irrelevant; only the checking matters.
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    // Scripts legitimately deal in `process.env` values that are
+    // `string | undefined` and in argv-driven arguments.
+    "noUncheckedIndexedAccess": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}

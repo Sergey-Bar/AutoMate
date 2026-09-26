@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 
 export function rowDigest(row: Record<string, unknown>): string {
-  return createHash('sha256').update(JSON.stringify(row, Object.keys(row).sort())).digest('hex');
+  return createHash('sha256')
+    .update(JSON.stringify(row, Object.keys(row).sort()))
+    .digest('hex');
 }
 
 export function reconcileCounts(source: Record<string, number>, target: Record<string, number>) {

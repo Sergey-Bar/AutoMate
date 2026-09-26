@@ -13,9 +13,16 @@ describe('migration engine control plane', () => {
     try {
       const source = path.join(directory, 'source.db');
       const database = new Database(source);
-      database.exec('CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT); INSERT INTO runs VALUES (\'r1\', \'passed\')');
+      database.exec(
+        "CREATE TABLE runs (id TEXT PRIMARY KEY, status TEXT); INSERT INTO runs VALUES ('r1', 'passed')",
+      );
       database.close();
-      const plan = createPlan({ source, sourceId: 'fixture', sourceCommit: 'source-sha', targetCommit: 'target-sha' });
+      const plan = createPlan({
+        source,
+        sourceId: 'fixture',
+        sourceCommit: 'source-sha',
+        targetCommit: 'target-sha',
+      });
       expect(plan.catalogFingerprint).toHaveLength(64);
       expect(() => validatePlan(plan)).not.toThrow();
       const planPath = path.join(directory, 'plan.json');
@@ -31,9 +38,18 @@ describe('migration engine control plane', () => {
     try {
       const statePath = path.join(directory, 'state.json');
       const store = new MigrationStateStore(statePath);
-      store.write({ planFingerprint: 'f', completedWaves: ['foundation'], rowDigests: {}, artifactTransfers: {}, vaultTransfers: {} });
+      store.write({
+        planFingerprint: 'f',
+        completedWaves: ['foundation'],
+        rowDigests: {},
+        artifactTransfers: {},
+        vaultTransfers: {},
+      });
       expect(store.read().completedWaves).toEqual(['foundation']);
-      expect(reconcileCounts({ runs: 1 }, { runs: 0 })).toEqual({ ok: false, discrepancies: ['runs: source=1 target=0'] });
+      expect(reconcileCounts({ runs: 1 }, { runs: 0 })).toEqual({
+        ok: false,
+        discrepancies: ['runs: source=1 target=0'],
+      });
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

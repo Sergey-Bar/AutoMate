@@ -167,11 +167,9 @@ describe('migrateToPostgres', () => {
       { table: 'tests', rowCount: 1, inserted: 1, failed: 0 },
     ]);
     expect(mocks.query).toHaveBeenCalledTimes(3);
-    expect(mocks.query.mock.calls.map((call) => String(call[0]).match(/INSERT INTO "([^"]+)"/)?.[1])).toEqual([
-      'runs',
-      'suites',
-      'tests',
-    ]);
+    expect(
+      mocks.query.mock.calls.map((call) => String(call[0]).match(/INSERT INTO "([^"]+)"/)?.[1]),
+    ).toEqual(['runs', 'suites', 'tests']);
     expect(mocks.query.mock.calls[0]?.[1]).toContain('11111111-1111-4111-8111-111111111111');
     expect(mocks.query.mock.calls[0]?.[1]).toContainEqual({ retries: 0 });
     expect(mocks.query.mock.calls[2]?.[1]).toContainEqual(['smoke']);
@@ -210,7 +208,9 @@ describe('migrateToPostgres', () => {
       dryRun: false,
     });
 
-    expect(mocks.query.mock.calls.every((call) => String(call[0]).includes('ON CONFLICT DO NOTHING'))).toBe(true);
+    expect(
+      mocks.query.mock.calls.every((call) => String(call[0]).includes('ON CONFLICT DO NOTHING')),
+    ).toBe(true);
   });
 
   it('batches inserts in groups of 100 rows', async () => {
@@ -305,10 +305,12 @@ describe('migrateToPostgres', () => {
     `);
     db.close();
 
-    await expect(migrateToPostgres({
-      from,
-      to: 'postgres://user:pass@localhost:5432/automate',
-      dryRun: true,
-    })).rejects.toThrow('Schema mismatch for runs: unknown columns unexpected_column');
+    await expect(
+      migrateToPostgres({
+        from,
+        to: 'postgres://user:pass@localhost:5432/automate',
+        dryRun: true,
+      }),
+    ).rejects.toThrow('Schema mismatch for runs: unknown columns unexpected_column');
   });
 });

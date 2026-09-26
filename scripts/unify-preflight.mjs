@@ -2,14 +2,46 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findDisabledTests } from './disabled-tests.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/** @type {Array<{name: string, ok: boolean, detail: string}>} */
 const checks = [];
+/** @param {string} name @param {boolean} ok @param {string} detail */
 const add = (name, ok, detail) => checks.push({ name, ok, detail });
+/** @param {string} relativePath */
 const abs = (relativePath) => path.join(repoRoot, relativePath);
+/** @param {string} relativePath */
 const read = (relativePath) =>
   existsSync(abs(relativePath)) ? readFileSync(abs(relativePath), 'utf8') : '';
 
+/**
+ * Directories no walk should ever descend into.
+ *
+ * The two walks in this file used separate, shorter lists, so both descended
+ * into `.turbo`, `.omo`, `.sisyphus`, `playwright-report`, `var` and
+ * `blob-report`. The preflight is step 1 of `pnpm verify`, which meant every
+ * verification run first walked the whole git object database and every
+ * package's turbo log.
+ */
+const IGNORED_DIRECTORIES = new Set([
+  '.artifacts',
+  '.git',
+  '.kilo',
+  '.omo',
+  '.sisyphus',
+  '.turbo',
+  'blob-report',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'playwright-report',
+  'test-results',
+  'var',
+]);
+
+/** @returns {string[]} */
 function gitFiles() {
   try {
     return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
@@ -23,20 +55,22 @@ function gitFiles() {
   }
 }
 
+/**
+ * @param {string} relativePath
+ * @param {(fullPath: string) => void} onFile
+ */
 function walk(relativePath, onFile) {
   const root = abs(relativePath);
   if (!existsSync(root)) return;
   const stack = [root];
   while (stack.length > 0) {
-    const current = stack.pop();
+    // Popped from a non-empty array, but TypeScript cannot see that, and an
+    // `undefined` path here would produce a silent "scan nothing" pass.
+    const current = /** @type {string} */ (stack.pop());
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const fullPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (
-          !['.git', '.kilo', 'node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(
-            entry.name,
-          )
-        ) {
+        if (!IGNORED_DIRECTORIES.has(entry.name)) {
           stack.push(fullPath);
         }
       } else {
@@ -95,6 +129,7 @@ add(
   generatedTracked.join(', ') || 'none',
 );
 
+/** @type {string[]} */
 const nestedLocks = [];
 walk('.', (file) => {
   const relative = path.relative(repoRoot, file).replaceAll('\\', '/');
@@ -111,7 +146,9 @@ add(
   nestedLocks.join(', ') || 'none',
 );
 
+/** @type {string[]} */
 const nestedRepositories = [];
+/** @type {string[]} */
 const duplicateAuthorities = [];
 const authorityNames = new Set([
   'pnpm-workspace.yaml',
@@ -120,6 +157,10 @@ const authorityNames = new Set([
   '.prettierrc',
   'tsconfig.base.json',
 ]);
+/**
+ * @param {string} relativePath
+ * @param {number} [depth]
+ */
 function scanBoundaries(relativePath, depth = 0) {
   const current = abs(relativePath);
   if (!existsSync(current)) return;
@@ -131,9 +172,7 @@ function scanBoundaries(relativePath, depth = 0) {
       continue;
     }
     if (entry.isDirectory()) {
-      if (
-        !['.kilo', 'node_modules', 'dist', 'build', 'coverage', 'test-results'].includes(entry.name)
-      ) {
+      if (!IGNORED_DIRECTORIES.has(entry.name)) {
         scanBoundaries(relative, depth + 1);
       }
     } else if (depth > 0 && authorityNames.has(entry.name)) {
@@ -157,20 +196,21 @@ add(
 
 const skippedTests = tracked
   .filter((file) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file))
-  .filter((file) => /\.(skip|only)\s*\(/.test(read(file)));
+  .flatMap((file) => findDisabledTests(read(file)).map((hit) => `${file}:${hit}`));
 add(
-  'tests do not use .skip or .only',
+  'tests do not skip or focus any case',
   skippedTests.length === 0,
   skippedTests.join(', ') || 'none',
 );
 
+/** @type {{name?: string, scripts?: Record<string, string>}} */
 let packageJson = {};
 try {
   packageJson = JSON.parse(read('package.json'));
 } catch {
   add('package.json parses', false, 'invalid JSON');
 }
-add('package.json parses', Boolean(packageJson.name), packageJson.name || 'missing name');
+add('package.json parses', Boolean(packageJson.name), packageJson.name ?? 'missing name');
 
 const requiredScripts = [
   'format:check',
@@ -250,28 +290,62 @@ const workflowDirectory = abs('.github/workflows');
 const workflowFiles = existsSync(workflowDirectory)
   ? readdirSync(workflowDirectory).filter((file) => file.endsWith('.yml'))
   : [];
+
+// Assert the workflow set exists before checking anything about its contents.
+//
+// These two checks used to read `workflowText` out of an empty array when
+// `.github/workflows` was missing or empty, so `''.match(...)` returned null,
+// `mutableActions.length === 0` was true, and the gate reported PASS ("all
+// pinned") for a repository that has no CI at all. The same held for the
+// Playwright-command check. A gate that passes on absence is worse than no
+// gate, because it is read as evidence.
+add(
+  'GitHub Actions workflows are present',
+  workflowFiles.length > 0,
+  workflowFiles.length > 0 ? `${workflowFiles.length} workflow(s)` : 'no workflows found',
+);
+
 const obsoleteWorkflows = workflowFiles.filter((file) =>
   ['publish-docker.yml', 'runner.yml', 'integration.yml'].includes(file),
 );
 add(
   'obsolete or duplicate workflows are absent',
-  obsoleteWorkflows.length === 0,
-  obsoleteWorkflows.join(', ') || 'none',
+  workflowFiles.length > 0 && obsoleteWorkflows.length === 0,
+  workflowFiles.length === 0 ? 'no workflows to check' : obsoleteWorkflows.join(', ') || 'none',
 );
 const workflowText = workflowFiles.map((file) => read(`.github/workflows/${file}`)).join('\n');
 const mutableActions = workflowText.match(/uses:\s*[^\s@]+@(?:v\d+|main|master)/g) ?? [];
 add(
   'GitHub Actions are pinned to commit SHAs',
-  mutableActions.length === 0,
-  mutableActions.join(', ') || 'all pinned',
+  workflowFiles.length > 0 && mutableActions.length === 0,
+  workflowFiles.length === 0 ? 'no workflows to check' : mutableActions.join(', ') || 'all pinned',
 );
 add(
   'workflows use the root Playwright command',
-  !workflowText.includes('npx playwright') &&
+  workflowFiles.length > 0 &&
+    !workflowText.includes('npx playwright') &&
     !workflowText.includes('working-directory: e2e/integration'),
-  workflowText.includes('npx playwright')
-    ? 'child Playwright invocation found'
-    : 'root command surface only',
+  workflowFiles.length === 0
+    ? 'no workflows to check'
+    : workflowText.includes('npx playwright')
+      ? 'child Playwright invocation found'
+      : 'root command surface only',
+);
+
+// The same absence trap applies to every other content check in this file, so
+// the preflight reports which inputs it was actually able to read.
+const unreadableInputs = [
+  'package.json',
+  'pnpm-workspace.yaml',
+  '.gitignore',
+  'playwright.config.ts',
+]
+  .concat(workflowFiles.map((file) => `.github/workflows/${file}`))
+  .filter((file) => read(file).trim() === '');
+add(
+  'every preflight input was readable',
+  unreadableInputs.length === 0,
+  unreadableInputs.join(', ') || 'complete',
 );
 
 const passed = checks.filter((check) => check.ok).length;

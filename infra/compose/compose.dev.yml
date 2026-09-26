@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: automate
       POSTGRES_USER: automate
-      POSTGRES_PASSWORD: local-only
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
     ports:
       - '127.0.0.1:55432:5432'
     volumes:
@@ -21,16 +21,24 @@ services:
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: local-only
-      MINIO_ROOT_PASSWORD: local-only-secret
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
     ports:
       - '127.0.0.1:59000:9000'
       - '127.0.0.1:59001:9001'
+    # `minio` is a dependency of the object store the API uses, so it needs a
+    # healthcheck of its own for a dependent to be able to wait on it.
+    healthcheck:
+      test: ['CMD-SHELL', 'mc ready local || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
   migrate:
     build:
       context: ../..
       dockerfile: infra/docker/migrate.Dockerfile
     environment:
-      DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
+      DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,17 +50,32 @@ services:
       NODE_ENV: development
       HOST: 0.0.0.0
       PORT: '3000'
-      DATABASE_URL: postgresql://automate:local-only@postgres:5432/automate
-      COOKIE_SECRET: local-cookie-secret-change-me-32-chars
-      VAULT_SECRET: local-vault-secret-change-me-32-chars
-      AUTOMATE_API_KEY: local-installation-key
-      REPORTER_SECRET: local-reporter-secret-change-me-32-chars
-      RUNNER_REGISTRATION_SECRET: local-runner-registration-secret-change-me
+      DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
+      COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET}
+      VAULT_SECRET: ${VAULT_SECRET:?set VAULT_SECRET}
+      AUTOMATE_API_KEY: ${AUTOMATE_API_KEY:?set AUTOMATE_API_KEY}
+      REPORTER_SECRET: ${REPORTER_SECRET:?set REPORTER_SECRET}
+      RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       ARTIFACT_ROOT: /var/lib/automate/artifacts
       PUBLIC_APP_URL: http://localhost:58080
     depends_on:
       migrate:
         condition: service_completed_successfully
+    # `web` and `edge` both wait on `service_healthy`, and only `postgres` had a
+    # healthcheck, so the documented dev stack could never start: the condition
+    # was never satisfied. `/api/v1/health` needs no credential.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
     ports:
       - '127.0.0.1:53000:3000'
     volumes:
@@ -61,13 +84,31 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/web.Dockerfile
-    environment:
-      VITE_API_URL: http://127.0.0.1:53000
+    # No VITE_API_URL. Vite inlines `VITE_*` at build time, so a runtime value
+    # here could never reach the bundle, and `apps/web/src/lib/api.ts` uses
+    # relative `/api/v1/…` paths regardless. The API is reached through the
+    # nginx `location /api/` proxy in this image.
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    # Unprivileged: the image runs as `nginx` on 8080, so it needs no
+    # capabilities, no new privileges, and a read-only filesystem. The two tmpfs
+    # mounts are the only writable paths nginx needs.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - '127.0.0.1:53173:80'
+      - '127.0.0.1:53173:8080'
   edge:
     build:
       context: ../..
@@ -76,9 +117,19 @@ services:
       api:
         condition: service_healthy
       web:
+        # `service_started`, not `service_healthy`: `web` is reached through this
+        # proxy, so requiring it healthy before edge starts would make edge
+        # depend on itself.
         condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - '127.0.0.1:58080:80'
+      - '127.0.0.1:58080:8080'
 
 volumes:
   postgres_data:

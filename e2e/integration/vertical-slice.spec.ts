@@ -11,10 +11,10 @@
  * 5. SSE live update: seed run as running → POST run:end → assert status changes to "passed" without reload
  *
  * Evidence files saved:
- *   .sisyphus/evidence/task-17-runs-api.json       (from step 2 — API JSON)
- *   .sisyphus/evidence/task-17-invalid-reporter-response.json  (from step 3)
- *   .sisyphus/evidence/production-readiness/task-29-reporter-dashboard.png  (step 4 screenshot)
- *   .sisyphus/evidence/production-readiness/task-29-sse-live-update.txt     (step 5 text summary)
+ *   test-results/evidence/runs-api.json       (from step 2 — API JSON)
+ *   test-results/evidence/invalid-reporter-response.json  (from step 3)
+ *   test-results/evidence/vertical-slice/dashboard-run-item.png  (step 4 screenshot)
+ *   test-results/evidence/vertical-slice/vertical-slice-sse-live-update.txt     (step 5 text summary)
  *
  * Prerequisites (handled by playwright.config.ts webServer):
  *   - API server running on http://localhost:3000
@@ -30,9 +30,16 @@ import { fileURLToPath } from 'node:url';
 // ---------------------------------------------------------------------------
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// From e2e/integration/ → up 2 levels → workspace root → .sisyphus/evidence
-const EVIDENCE_DIR = path.resolve(__dirname, '../../.sisyphus/evidence');
-const EVIDENCE_DIR_T29 = path.resolve(__dirname, '../../.sisyphus/evidence/production-readiness');
+/**
+ * Evidence goes to `test-results/evidence`, which CI uploads as an artifact.
+ *
+ * It used to go to `.sisyphus/evidence/`, which `.gitignore` ignores — so the
+ * artifacts the suite exists to produce were written, never committed and never
+ * uploaded. The filenames were also agent bookkeeping (`task-17-…`,
+ * `task-29-…`) leaked into a product test; they are named for what they show.
+ */
+const EVIDENCE_DIR = path.resolve(__dirname, '../../test-results/evidence');
+const EVIDENCE_DIR_T29 = path.join(EVIDENCE_DIR, 'vertical-slice');
 
 function saveEvidence(filename: string, data: unknown): void {
   fs.mkdirSync(EVIDENCE_DIR, { recursive: true });
@@ -119,7 +126,7 @@ test('vertical slice — reporter event reaches run list (API)', async ({ reques
   expect(found?.['branch']).toBe('main');
 
   // Save API evidence
-  saveEvidence('task-17-runs-api.json', runs);
+  saveEvidence('runs-api.json', runs);
 });
 
 // ---------------------------------------------------------------------------
@@ -147,7 +154,7 @@ test('vertical slice — invalid event rejected, no run created (API negative)',
   const badRun = runs.find((r) => r['id'] === undefined || r['id'] === '');
   expect(badRun).toBeUndefined();
 
-  saveEvidence('task-17-invalid-reporter-response.json', {
+  saveEvidence('invalid-reporter-response.json', {
     postStatus: invalidRes.status(),
     postBody: invalidBody,
     runsAfterInvalidEvent: runs,
@@ -159,22 +166,45 @@ test('vertical slice — invalid event rejected, no run created (API negative)',
 // ---------------------------------------------------------------------------
 
 test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', async ({ request }) => {
-  // We can't stream SSE via Playwright request API, but we can verify the headers
-  const res = await request
-    .get(`${API_BASE}/api/v1/events`, {
+  // A streaming endpoint never ends, so a plain `request.get` can only observe
+  // the response *headers*. The previous version called `.catch(() => null)` and
+  // then wrapped its only assertions in `if (res !== null)`, so a deleted
+  // `/api/v1/events` route and a working one produced the same green test: the
+  // timeout was described as "expected for a streaming endpoint", which is
+  // indistinguishable from the route not existing.
+  //
+  // `failOnStatusCode: false` stops Playwright throwing on the 200, and the
+  // request is bounded by an AbortController rather than by swallowing the
+  // error — so a 404, a 401, or a connection refusal all fail here.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 2000);
+  try {
+    const res = await request.get(`${API_BASE}/api/v1/events`, {
       headers: API_AUTH_HEADERS,
-      // Short timeout to just check headers, stream won't end
+      failOnStatusCode: false,
       timeout: 2000,
-    })
-    .catch(() => null);
-
-  // A null result means timeout (which is expected for a streaming endpoint)
-  // But the test proves the route exists at minimum
-  if (res !== null) {
-    expect(res.status()).toBe(200);
+    });
+    expect(res.status(), 'SSE endpoint must answer 200').toBe(200);
     expect(res.headers()['content-type']).toContain('text/event-stream');
+  } catch (error) {
+    // A timeout is only acceptable if the response headers were already seen.
+    // Playwright's request API does not surface partial responses, so we assert
+    // reachability with a bounded probe instead of guessing.
+    const probe = await fetch(`${API_BASE}/api/v1/health`, {
+      headers: API_AUTH_HEADERS,
+      signal: AbortSignal.timeout(2000),
+    }).catch(() => null);
+    expect(
+      probe,
+      `SSE endpoint was unreachable: ${error instanceof Error ? error.message : String(error)}`,
+    ).not.toBeNull();
+    throw new Error(
+      'SSE endpoint could not be inspected for headers. The endpoint must be ' +
+        'verifiable: a timeout is not proof the route exists.',
+    );
+  } finally {
+    clearTimeout(timer);
   }
-  // If the request timed out, the endpoint is SSE (expected behaviour)
 });
 
 // ---------------------------------------------------------------------------
@@ -212,7 +242,7 @@ test('vertical slice — browser shows exact seeded run-item (T29)', async ({ pa
   // Take screenshot as evidence
   fs.mkdirSync(EVIDENCE_DIR_T29, { recursive: true });
   await page.screenshot({
-    path: path.join(EVIDENCE_DIR_T29, 'task-29-reporter-dashboard.png'),
+    path: path.join(EVIDENCE_DIR_T29, 'dashboard-run-item.png'),
     fullPage: true,
   });
 });
@@ -263,27 +293,57 @@ test('vertical slice — SSE live update: run:end changes status to passed witho
   });
   expect(endRes.status).toBe(202);
 
-  // Step 4: Wait for SSE push to update the status to "passed" — no page reload
+  // Step 4: assert the flip came from the stream, not from the 5-second poll.
+  //
+  // `useRuns.ts:107` also refreshes on a `setInterval`, so "the status eventually
+  // changed" cannot tell SSE apart from polling. Polling is disabled for the
+  // duration of this test and the transition is required inside one poll
+  // interval, which only a pushed event can satisfy.
+  const POLL_INTERVAL_MS = 5_000;
+  await page.evaluate(() => {
+    (window as unknown as { __pollDisabled?: boolean }).__pollDisabled = true;
+  });
+
+  const beforePollDeadline = Date.now();
   await page.waitForFunction(
     (runId: string) => {
       const el = document.querySelector(`[data-testid="run-status-${runId}"]`);
       return el !== null && (el.textContent ?? '').toLowerCase().includes('passed');
     },
     RUN_ID,
-    { timeout: 10000 },
+    { timeout: POLL_INTERVAL_MS - 1_000 },
   );
+  const elapsedMs = Date.now() - beforePollDeadline;
+  expect(
+    elapsedMs,
+    `status flipped after ${elapsedMs}ms, which is within the ${POLL_INTERVAL_MS}ms poll ` +
+      'interval, so this could be polling rather than SSE',
+  ).toBeLessThan(POLL_INTERVAL_MS - 1_000);
 
   // Hard assertion: status element now shows "passed"
   await expect(statusLocator).toContainText('passed');
 
-  // Save text evidence
+  await page.evaluate(() => {
+    delete (window as unknown as { __pollDisabled?: boolean }).__pollDisabled;
+  });
+
+  // Evidence derived from observed state, not from a hard-coded "PASSED" line.
+  const observedStatus = (await statusLocator.textContent())?.trim() ?? '';
+  const observedRunTitle = (await page.locator(`[data-testid="run-item-${RUN_ID}"]`).textContent())
+    ?.trim()
+    .replace(/\s+/g, ' ');
   const summary = [
-    'SSE Live Update Test — PASSED',
-    `Run ID: ${RUN_ID}`,
-    `Seeded status: running`,
-    `After run:end POST: status changed to passed via SSE (no page reload)`,
-    `Timestamp: ${new Date().toISOString()}`,
+    'SSE live update — observed transition',
+    `runId: ${RUN_ID}`,
+    `seeded status: running`,
+    `observed status: ${observedStatus}`,
+    `mechanism: pushed event, flip observed in ${elapsedMs}ms ` +
+      `(poll interval is ${POLL_INTERVAL_MS}ms)`,
+    `run item text: ${observedRunTitle ?? ''}`,
+    `observed at: ${new Date().toISOString()}`,
   ].join('\n');
 
-  saveEvidenceT29('task-29-sse-live-update.txt', summary);
+  expect(observedStatus.toLowerCase()).toContain('passed');
+
+  saveEvidenceT29('vertical-slice-sse-live-update.txt', summary);
 });

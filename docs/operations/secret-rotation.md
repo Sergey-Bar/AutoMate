@@ -4,13 +4,13 @@ This guide describes procedures for rotating secrets across Automate and Automat
 
 ## Quick Reference
 
-| Secret Name | Product | Location | Frequency | Impact |
-| :--- | :--- | :--- | :--- | :--- |
-| `AUTOMATE_DASHBOARD_API_KEY` | Dashboard | `.automate/auth.json` | 90 days | High |
-| `COOKIE_SECRET` | Dashboard | Environment Variable | 180 days | Medium |
-| `REPORTER_SECRET` | Dashboard | Environment Variable | 90 days | Medium |
-| `VAULT_PASSWORD` | Automate | Environment Variable / CLI | 90 days | Critical |
-| `AUTOMATE_API_KEY` | Automate | Environment Variable | 90 days | High |
+| Secret Name                  | Product   | Location                   | Frequency | Impact   |
+| :--------------------------- | :-------- | :------------------------- | :-------- | :------- |
+| `AUTOMATE_DASHBOARD_API_KEY` | Dashboard | `.automate/auth.json`      | 90 days   | High     |
+| `COOKIE_SECRET`              | Dashboard | Environment Variable       | 180 days  | Medium   |
+| `REPORTER_SECRET`            | Dashboard | Environment Variable       | 90 days   | Medium   |
+| `VAULT_PASSWORD`             | Automate  | Environment Variable / CLI | 90 days   | Critical |
+| `AUTOMATE_API_KEY`           | Automate  | Environment Variable       | 90 days   | High     |
 
 ---
 
@@ -19,15 +19,18 @@ This guide describes procedures for rotating secrets across Automate and Automat
 The Dashboard API key controls web interface access.
 
 ### Procedure
+
 1. Generate a new API key in **Settings > Access Control**.
 2. Distribute the new key to users or automated systems.
 3. Log out and log back in with the new key to verify.
 4. Revoke the old key in the **Settings > Access Control** menu.
 
 ### Impact
+
 Existing sessions stay valid until they expire. New logins require the new key immediately.
 
 ### Verification
+
 Confirm the new key works for login. Ensure the revoked key no longer allows access.
 
 ---
@@ -37,14 +40,17 @@ Confirm the new key works for login. Ensure the revoked key no longer allows acc
 The `COOKIE_SECRET` signs session cookies.
 
 ### Procedure
+
 1. Generate a random 32-character string.
 2. Update the `COOKIE_SECRET` environment variable.
 3. Restart the Dashboard server.
 
 ### Impact
+
 All users will be logged out. They must log in again to start a new session.
 
 ### Verification
+
 Confirm the server starts without errors. Access the dashboard to verify the login prompt appears.
 
 ---
@@ -54,15 +60,18 @@ Confirm the server starts without errors. Access the dashboard to verify the log
 The `REPORTER_SECRET` secures the WebSocket connection for Playwright reporters.
 
 ### Procedure
+
 1. Update the `REPORTER_SECRET` environment variable on the Dashboard server.
 2. Restart the server.
 3. Update the `AUTOMATE_DASHBOARD_API_KEY` in your Playwright CI configuration.
 4. Run a test job to confirm results appear.
 
 ### Impact
+
 Reporters using the old secret will fail to connect. Test results will not reach the dashboard until the CI configuration is updated.
 
 ### Verification
+
 Check server logs for `[reporter] ws-reporter connected` messages.
 
 ---
@@ -72,6 +81,7 @@ Check server logs for `[reporter] ws-reporter connected` messages.
 The `VAULT_PASSWORD` protects connector credentials. Changing it requires re-encrypting the vault.
 
 ### Procedure
+
 1. Unlock the vault with the current password.
 2. Document current credentials for all enabled connectors.
 3. Update the `VAULT_PASSWORD` environment variable.
@@ -79,9 +89,11 @@ The `VAULT_PASSWORD` protects connector credentials. Changing it requires re-enc
 5. Log in, unlock with the new password, and re-save connector credentials.
 
 ### Impact
+
 Automate cannot use connectors until you unlock the vault and re-save credentials. AI chat tools will fail during this window.
 
 ### Verification
+
 Unlock the vault in the UI. Test a connector tool like "List Jira issues" to confirm it works.
 
 ---
@@ -91,13 +103,16 @@ Unlock the vault in the UI. Test a connector tool like "List Jira issues" to con
 The `AUTOMATE_API_KEY` secures the Automate API.
 
 ### Procedure
+
 1. Update the `AUTOMATE_API_KEY` environment variable.
 2. Restart the Automate server.
 
 ### Impact
+
 Scripts or integrations calling the API will fail until they use the new key.
 
 ### Verification
+
 Call the `/health` endpoint or send a chat request using the new key.
 
 ---
