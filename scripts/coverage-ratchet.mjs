@@ -69,6 +69,9 @@ function listMemberDirectories(relativeRoot) {
 
 const workspacePackages = WORKSPACE_ROOTS.flatMap(listMemberDirectories).sort();
 
+/** The coverage metrics a baseline entry may declare a floor for. */
+const RATCHETED_METRICS = ['statements', 'branches', 'functions', 'lines'];
+
 /**
  * The stamp a package's last coverage run left beside its summary.
  *
@@ -154,7 +157,28 @@ for (const relativePath of workspacePackages) {
     failures.push(staleness);
     continue;
   }
-  const metrics = /** @type {Array<[string, number]>} */ (Object.entries(entry));
+  // Only the four known metrics are floors. Reading every key meant a documented
+  // reason in a baseline entry would be compared against a coverage number and
+  // reported as a regression, so there was nowhere to explain a floor without the
+  // explanation itself becoming the defect. An unrecognised key is now a finding
+  // rather than a metric, so a typo is caught instead of quietly checked.
+  const known = /** @type {Array<[string, number]>} */ (
+    RATCHETED_METRICS.filter((metric) => entry[metric] !== undefined).map((metric) => [
+      metric,
+      /** @type {number} */ (entry[metric]),
+    ])
+  );
+  const unknown = Object.keys(entry).filter(
+    (key) => !RATCHETED_METRICS.includes(key) && key !== 'reason',
+  );
+  for (const key of unknown) {
+    failures.push(
+      `${relativePath}: baseline declares "${key}", which is not a coverage metric. ` +
+        `Known metrics are ${RATCHETED_METRICS.join(', ')}, plus an optional "reason".`,
+    );
+  }
+
+  const metrics = known;
   if (metrics.length === 0) {
     failures.push(
       `${relativePath}: baseline entry declares no metric and no status, so it checks nothing`,

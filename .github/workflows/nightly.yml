@@ -11,6 +11,7 @@ permissions:
 env:
   NODE_VERSION: 24.x
   PNPM_VERSION: 10.30.2
+  E2E_DATABASE_URL: postgresql://automate:automate@127.0.0.1:5432/automate
 
 jobs:
   security:
@@ -32,5 +33,113 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      # The nightly had no install step, so `security:static` reported
+      # `not_configured — missing semgrep and gitleaks` and failed on every run. The
+      # job was scheduled and had never once succeeded.
+      - name: Set up Python for semgrep
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install security scanners
+        run: pnpm security:install
+      - name: Put user-installed tools on PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Security and license verification
         run: pnpm security:verify
+
+  performance:
+    name: Performance budgets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: automate
+          POSTGRES_USER: automate
+          POSTGRES_PASSWORD: automate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: ${{ env.E2E_DATABASE_URL }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      # Nothing in the repository installed k6, so `pnpm test:performance` could
+      # only ever report `not_configured` and exit non-zero. That is an honest
+      # outcome and a useless gate: a performance budget nobody has ever measured.
+      - name: Set up k6
+        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
+      # The API is started in the background and left running for the k6 step, which
+      # is why the logs are redirected: a step that produces output the next step
+      # never reads is a step that reports nothing when it fails. `smoke:local` is
+      # the wait, and it is the same probe the release gate uses.
+      - name: Start the API
+        run: |
+          pnpm --filter @automate/db build
+          pnpm db:migrate
+          pnpm --filter @automate/api run dev > /tmp/api.log 2>&1 &
+      - name: Wait for the API
+        run: pnpm smoke:local
+      - name: Performance budgets
+        run: pnpm test:performance
+      - name: API log on failure
+        if: failure()
+        run: cat /tmp/api.log
+
+  oci:
+    name: OCI runner images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      # `verify:release` ends in `oci:verify`, which needs images that exist. The
+      # release workflow could not have passed this without a runner that had built
+      # them first, and nothing built them.
+      - name: Build runner images
+        run: pnpm oci:build
+      - name: Verify runner images
+        run: pnpm oci:verify
+      - name: Record the built manifests
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add runners/*/manifest.json
+          # Only a real digest change is committed. An empty diff here means the
+          # build was reproducible, which is worth knowing and not worth a commit.
+          if git diff --cached --quiet; then
+            echo "Runner manifests unchanged; the build was reproducible."
+          else
+            git commit -m "chore(runners): record built image digests [skip ci]"
+            git push
+          fi
