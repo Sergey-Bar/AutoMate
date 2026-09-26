@@ -129,6 +129,7 @@ describe('migration graph', () => {
       '0006_fail_closed_controls',
       '0007_one_status_spelling',
       '0008_one_event_version',
+      '0009_enum_constraints',
     ]);
   });
 
