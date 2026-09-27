@@ -171,13 +171,28 @@ export function useRunDetail(id: string, api = defaultApiClient) {
     }
   }, [api, id, refresh]);
 
+  /**
+   * Start a retry, and return the new run without adopting it into this page's state.
+   *
+   * The previous version wrote the retried run into `data.run` and returned it. That
+   * put the retried run's phase, outcome, artifacts and gate on screen while three
+   * things still referred to the *old* run: the URL (`/runs/$runId`), this hook's
+   * `id`, and the event subscription's `event.runId !== id` filter. The page then
+   * showed one run's evidence under another run's URL, and the live stream for the
+   * old run kept folding old-run events into the new run's view until the next
+   * refetch flipped it back. In an evidence product that is a correctness bug, not
+   * a rough edge: the evidence on screen does not belong to the run in the address
+   * bar, and nothing on the page says so.
+   *
+   * So this returns the new run and changes nothing. The caller navigates to it,
+   * which moves the URL, the `id`, the subscription filter and the event list
+   * together, because they all derive from the same place.
+   */
   const retry = useCallback(async () => {
     setIsActing(true);
     setActionError(null);
     try {
-      const run = await api.retryRun(id);
-      setData((current) => ({ ...current, run, events: [], artifacts: [], gate: null }));
-      return run;
+      return await api.retryRun(id);
     } catch (caught) {
       const actionFailure = caught instanceof Error ? caught : new Error('Failed to retry run');
       setActionError(actionFailure);

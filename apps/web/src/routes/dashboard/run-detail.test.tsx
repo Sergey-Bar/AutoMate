@@ -231,6 +231,63 @@ describe('RunDetailPage', () => {
     expect(api.retryRun).toHaveBeenCalledWith('failed');
   });
 
+  it('navigates to the retried run instead of showing it under the failed run URL', async () => {
+    // The defect this covers: `useRunDetail.retry()` used to write the retried run
+    // into local state while the URL, the hook's `id`, and the event subscription's
+    // `event.runId !== id` filter all stayed on the failed run. The page then showed
+    // the retried run's phase, outcome and artifacts under the failed run's address,
+    // and kept folding the failed run's live events into it.
+    const failed = makeRun({ id: 'failed', phase: 'complete', outcome: 'failed' });
+    const retried = makeRun({
+      id: 'retry-run',
+      phase: 'queued',
+      attempt: 2,
+      retryOfRunId: 'failed',
+    });
+    const api = detailApi(failed, { retryRun: vi.fn().mockResolvedValue(retried) });
+    const onNavigate = vi.fn();
+    render(<RunDetailPage id="failed" api={api} onNavigate={onNavigate} />);
+    await waitFor(() => expect(screen.getByTestId('retry-run')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('retry-run'));
+
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('retry-run'));
+
+    // The rendered run must still be the run the URL names. If retry had adopted
+    // the new run into state, this reads `retry-run` while the address is `failed`.
+    await waitFor(() => expect(screen.getByTestId('run-id')).toHaveTextContent('failed'));
+    expect(screen.getByTestId('run-phase')).toHaveTextContent('complete');
+  });
+
+  it('ignores live events for the retried run while the page is still on the failed one', async () => {
+    // The second half of the same bug. `useRunDetail` filters the live stream on
+    // `event.runId !== id`, so after a retry the page on the failed run must keep
+    // ignoring the retried run's events. If retry had adopted the new run into
+    // state, the filter and the rendered run would disagree and the wrong run's
+    // events would be projected onto the view.
+    const failed = makeRun({ id: 'failed', phase: 'complete', outcome: 'failed' });
+    const retried = makeRun({ id: 'retry-run', phase: 'queued', attempt: 2 });
+    let deliver: ((event: { runId: string }) => void) | null = null;
+    const api = detailApi(failed, {
+      retryRun: vi.fn().mockResolvedValue(retried),
+      subscribeToRunEvents: vi.fn((handlers: { onEvent: (event: { runId: string }) => void }) => {
+        deliver = handlers.onEvent;
+        return () => undefined;
+      }),
+    });
+    const onNavigate = vi.fn();
+    render(<RunDetailPage id="failed" api={api} onNavigate={onNavigate} />);
+    await waitFor(() => expect(screen.getByTestId('retry-run')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('retry-run'));
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('retry-run'));
+
+    expect(deliver).not.toBeNull();
+    act(() => {
+      deliver?.({ runId: 'retry-run' });
+    });
+    // Still the failed run, in state and on screen.
+    await waitFor(() => expect(screen.getByTestId('run-id')).toHaveTextContent('failed'));
+  });
+
   it('renders terminal infrastructure phases and tests without attempts', async () => {
     const run = makeRun({
       id: 'infra-run',

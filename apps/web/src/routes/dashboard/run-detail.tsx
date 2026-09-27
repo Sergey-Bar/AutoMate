@@ -12,7 +12,15 @@ export const Route = createRoute({
   path: '/runs/$runId',
   component: () => {
     const { runId } = Route.useParams();
-    return <RunDetailPage id={runId} />;
+    const navigate = Route.useNavigate();
+    return (
+      <RunDetailPage
+        id={runId}
+        onNavigate={(nextId) =>
+          navigate({ to: '/dashboard/runs/$runId', params: { runId: nextId } })
+        }
+      />
+    );
   },
 });
 
@@ -149,7 +157,23 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
   );
 }
 
-export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
+export function RunDetailPage({
+  id,
+  api,
+  onNavigate,
+}: {
+  id: string;
+  api?: ApiClient;
+  /**
+   * How to move to a different run.
+   *
+   * Injected rather than imported so the component stays free of router context, the
+   * same way `api` is injected: it is the one thing this component needs from the
+   * outside to be testable, and a test can then assert the navigation actually
+   * happened without standing up a router.
+   */
+  onNavigate?: (runId: string) => void | Promise<void>;
+}) {
   const {
     run,
     artifacts,
@@ -204,6 +228,12 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     try {
       const next = await retry();
       setRetryTarget(next.id);
+      // Navigate, rather than leaving the retried run in local state under this
+      // run's URL. `useRunDetail` derives the event filter, the event list and the
+      // artifact set from `id`, so moving the URL moves all of them together.
+      // Without this, the page kept showing the retried run's evidence under the
+      // failed run's address, which is the defect this replaces.
+      await onNavigate?.(next.id);
     } catch {
       return;
     }
