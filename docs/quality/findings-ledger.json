@@ -36,18 +36,38 @@
       "title": "Runner registration is unauthenticated when the secret is unset",
       "band": "Blocker",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W1.2",
-      "summary": "`routes/execution/shared.ts:182` treats an absent `RUNNER_REGISTRATION_SECRET` as \"not production\", so registration with no configured secret succeeds everywhere. `middleware/auth.ts:110` and `runs.routes.ts:43` also read `process.env['NODE_ENV']` directly instead of the injected config."
+      "summary": "`registrationAuthorized` was `if (secret === undefined) return process.env['NODE_ENV'] !== 'production'`, which fails **open** everywhere that is not production. A staging deployment with no registration secret configured let any unauthenticated caller register a runner, and a registered runner can claim jobs — so this was an unauthenticated write on the whole execution path. It also failed open on any `NODE_ENV` a host had not heard of, which is the state every brand-new environment is in before anyone has configured it, and on a bare `node dist/index.js` where `NODE_ENV` is unset entirely. The default is now to refuse, and the only environment that may register without a secret is `test`, matched exactly rather than by prefix. That is the review ruleset’s own `no-fail-open-default` made executable. Dev and staging now set a secret like production does. Nine tests, including the four environments the old rule waved through and the unset-`NODE_ENV` case.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/execution/shared.ts",
+          "asserts": "The unset-secret branch returns `environment === 'test'` rather than `environment !== 'production'`, so an unknown or absent environment refuses."
+        },
+        {
+          "path": "apps/api/src/routes/execution/registration-authorized.test.ts",
+          "asserts": "`refuses when the process has no NODE_ENV at all` removes the ambient variable so the default parameter reads a genuinely absent one, and `matches the test environment exactly, not by prefix` pins that `test-eu` does not pass."
+        }
+      ]
     },
     {
       "id": "P-3",
       "title": "The result digest is a constant, so the proof chain verifies nothing",
       "band": "Blocker",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W1.3",
-      "summary": "`legacy-reporter.ts:53` emits `resultDigest: '0'.repeat(64)`. `DigestSchema` only regex-checks 64 hex characters, so 64 zeros pass it and two different runs produce the same digest end to end."
+      "summary": "`legacy-reporter.ts` emitted `resultDigest: '0'.repeat(64)` for every `run:end`. `DigestSchema` only checks that the value is 64 hex characters, so 64 zeros passed it, and two different runs produced an identical proof end to end: a digest that cannot distinguish two results made them indistinguishable to anything comparing them, and made a redelivery look like a fresh result. Replaced with `digestRunOutcome` — SHA-256 over a canonical serialisation of the legacy payload. Canonical means key-sorted at any depth, because `JSON.stringify` preserves insertion order and two producers that assembled the same object in a different order would otherwise hash differently, which is a digest reporting a difference where there is none. Seven tests cover the four properties that matter: two outcomes differ, one outcome is stable, key order does not matter, and it is not a run of zeros.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/compatibility/legacy-reporter.ts",
+          "asserts": "`digestRunOutcome` hashes the payload, and `normalizeLegacyEvent` passes `digestRunOutcome(payload)` rather than a literal, so the constant cannot return."
+        },
+        {
+          "path": "packages/reporter/src/compatibility/legacy-reporter.test.ts",
+          "asserts": "`distinguishes two different outcomes` fails if the digest is constant again, and `does not depend on the order the producer built its keys in` fails if the serialisation stops being canonical."
+        }
+      ]
     },
     {
       "id": "P-5",

@@ -178,8 +178,39 @@ export function safeEqual(left: string, right: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function registrationAuthorized(c: Context, secret: string | undefined): boolean {
-  if (secret === undefined) return process.env['NODE_ENV'] !== 'production';
+/**
+ * Whether a runner may register, and the two questions that decides it.
+ *
+ * The old version was:
+ *
+ *   if (secret === undefined) return process.env['NODE_ENV'] !== 'production';
+ *
+ * which fails **open** everywhere that is not production. A staging deployment with no
+ * registration secret configured let anyone who asked register a runner, and a runner
+ * that registers can claim jobs. It also failed open on any `NODE_ENV` the deployment
+ * had not heard of — which is the state a brand-new environment is in.
+ *
+ * The default is now to refuse, and the only environment that may register without a
+ * secret is `test`, named exactly. That is the review ruleset's `no-fail-open-default`
+ * made executable: a default that permits the insecure path where refusing is
+ * possible. Dev and staging now set a secret like production does, which is a
+ * one-line change to their environment and the entire point of requiring one.
+ *
+ * @param c the Hono context
+ * @param secret the configured registration secret, if any
+ * @param environment `NODE_ENV`, injected so the policy is testable
+ */
+export function registrationAuthorized(
+  c: Context,
+  secret: string | undefined,
+  environment: string | undefined = process.env['NODE_ENV'],
+): boolean {
+  if (secret === undefined) {
+    // The one environment where a missing secret is a fixture rather than a
+    // deployment. Everywhere else an unset secret is a misconfiguration, and the
+    // answer to a misconfiguration on an authenticated route is no.
+    return environment === 'test';
+  }
   const provided =
     c.req.header('x-runner-registration-secret') ?? bearerToken(c.req.header('authorization'));
   return provided !== undefined && safeEqual(provided, secret);
