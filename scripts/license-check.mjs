@@ -94,21 +94,6 @@ if (ownNames.size === 0) {
   process.exit(1);
 }
 
-/** @param {string[]} args */
-function runPnpm(args) {
-  if (process.env['npm_execpath']) {
-    return spawnSync(process.execPath, [process.env['npm_execpath'], ...args], {
-      stdio: 'inherit',
-    });
-  }
-
-  if (process.platform === 'win32') {
-    return spawnSync('cmd.exe', ['/d', '/s', '/c', 'pnpm', ...args], { stdio: 'inherit' });
-  }
-
-  return spawnSync('pnpm', args, { stdio: 'inherit' });
-}
-
 /**
  * @param {string[]} args
  * @returns {{ status: number | null, stdout: string }}
