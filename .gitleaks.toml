@@ -27,6 +27,21 @@
 #   gitleaks detect --config .gitleaks.toml --report-format json --report-path gl.json
 #
 # A finding that is not one of the documented placeholders is a real one.
+#
+# One commit is still listed below, and it is the only one. `3f52254` is an **ancestor
+# of `main`**, so a history rewrite correctly refused to touch it: filter-repo cannot
+# rewrite a commit that a shared ref depends on. It carries two committed credential
+# literals in `apps/api/src/index-production-composition.test.ts:12,13`, from before
+# this repository adopted `src/test-support/synthetic-credentials.ts` — which is exactly
+# the policy `AGENTS.md` now states. The current tip of that file has no literal.
+#
+# Removing them means rewriting `main`, which changes every SHA on the product branch,
+# breaks the baseline commit the capability register cites, and invalidates any open
+# pull request — to delete two test-fixture strings that GitHub has already served in
+# public since the branch was first pushed. That trade is the repository owner's to make,
+# not a config file's, which is why it is written down here rather than done silently.
+# The other eight commits that used to be listed are gone: their values were scrubbed and
+# the commits rewritten out of existence.
 
 title = "Automate Gitleaks Config"
 
@@ -36,6 +51,11 @@ useDefault = true
 
 [allowlist]
 description = "Repository-owned fixtures, example files, and the migration directory."
+
+# One commit. See the block comment above for why this one survived the scrub and what
+# removing it would cost. Narrower than a path: the file it touches is still scanned on
+# every other commit, including the current tip.
+commits = ["3f522546f46247a55e5f3f703339b8e5a9e44a3b"]
 
 
 
