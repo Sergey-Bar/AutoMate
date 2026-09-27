@@ -113,6 +113,45 @@ describe('dashboard hooks', () => {
     expect(result.current.readiness?.decision).toBe('unknown');
   });
 
+  it('treats a cancelled refresh as no answer, not as missing evidence', async () => {
+    // The distinction `foldEvidence` exists to make. A refresh that is superseded —
+    // the id changed, or the component unmounted — aborts all three evidence requests
+    // together, so every one of them rejects with an `AbortError`. Reporting that as
+    // "Some run evidence could not be loaded" would put an error on screen for a
+    // request nobody is waiting for any more.
+    const run = makeRun({ id: 'run-a' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(run),
+      getRunArtifacts: vi.fn().mockRejectedValue(abortError()),
+      getRunGate: vi.fn().mockRejectedValue(abortError()),
+      getReleaseReadiness: vi.fn().mockRejectedValue(abortError()),
+    });
+    const { result, unmount } = renderHook(() => useRunDetail(run.id, api));
+    await waitFor(() => expect(result.current.run?.id).toBe(run.id));
+    expect(result.current.evidenceError).toBeNull();
+    unmount();
+  });
+
+  it('reports partial evidence when a request fails for a reason other than cancellation', async () => {
+    // The other half of the same distinction: an abort means nobody wants the answer,
+    // a failure means the answer is missing. Conflating them is how a transient 503
+    // becomes an invisible blank panel.
+    const run = makeRun({ id: 'run-a' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(run),
+      getRunArtifacts: vi.fn().mockRejectedValue(new Error('gateway timeout')),
+      getRunGate: vi.fn().mockResolvedValue(gate),
+      getReleaseReadiness: vi.fn().mockResolvedValue(null),
+    });
+    const { result } = renderHook(() => useRunDetail(run.id, api));
+    await waitFor(() => expect(result.current.evidenceError).not.toBeNull());
+    expect(result.current.evidenceError?.message).toBe('Some run evidence could not be loaded');
+    // The run and the evidence that did arrive are still rendered: a partial answer is
+    // not a reason to hide what is known.
+    expect(result.current.run?.id).toBe(run.id);
+    expect(result.current.gate).toEqual(gate);
+  });
+
   it('exposes cancel and retry actions', async () => {
     const active = makeRun({ id: 'active', phase: 'running' });
     const cancelled = makeRun({ id: 'active', phase: 'cancelled', outcome: 'cancelled' });

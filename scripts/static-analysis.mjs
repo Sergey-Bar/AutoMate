@@ -13,29 +13,61 @@
  *                     defect this script exists to end.
  *
  * The structural check always runs, because it needs no external tool.
+ *
+ * The scanners are bounded by a wall-clock ceiling rather than being trusted to
+ * return: see `SCAN_TIMEOUT_MS` below for the measurement that made the ceiling
+ * necessary.
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runBounded } from './lib/scan-runner.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * The wall-clock ceiling for one scanner.
+ *
+ * `gitleaks detect` over this repository's full history takes about 24 s, so the
+ * default is generous for it; semgrep is the one that needs watching. Raise it with
+ * `AUTOMATE_SCAN_TIMEOUT_MS` if a host is genuinely slower — and record why, because an
+ * unbounded budget is the defect this replaced.
+ *
+ * @type {number}
+ */
+const SCAN_TIMEOUT_MS = Number(process.env['AUTOMATE_SCAN_TIMEOUT_MS'] ?? 10 * 60 * 1000);
+
 /** @param {string} binary */
 function have(binary) {
+  // No shell, for the same reason `run` has none: a `shell: true` spawn cannot be
+  // bounded reliably on Windows, and `--version` is a probe, not the scan.
   const result = spawnSync(binary, ['--version'], {
     encoding: 'utf8',
-    shell: process.platform === 'win32',
+    timeout: 60_000,
   });
   return !result.error && result.status === 0;
 }
 
-/** @param {string} binary @param {string[]} args */
-function run(binary, args) {
-  return spawnSync(binary, args, {
+/**
+ * Runs one scanner to completion, or kills it at the ceiling and says so.
+ *
+ * The logic lives in `scripts/lib/scan-runner.mjs` so a test can prove the ceiling
+ * works; a timeout that has never been exercised is a timeout that will not be
+ * believed. The measurement that made it necessary is in that module's doc comment:
+ * `semgrep scan` over one small package produced no output and no exit in 15 minutes,
+ * and this gate was killed at 30 and at 50 minutes.
+ *
+ * @param {string} binary
+ * @param {string[]} args
+ * @returns {Promise<number>} the exit status, 1 for "did not finish"
+ */
+async function run(binary, args) {
+  const { status } = await runBounded(binary, args, {
     cwd: root,
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
+    timeoutMs: SCAN_TIMEOUT_MS,
+    log: (message) => console.error(message),
   });
+  return status;
 }
 
 // Always: the check that needs no external tool. Spawned without a shell,
@@ -65,45 +97,46 @@ if (have('semgrep')) {
    * added here, and so a reviewer can see what is and is not covered without
    * reading the ruleset.
    */
-  const result = run('semgrep', [
-    'scan',
-    '--config',
-    '.semgrep.yml',
-    '--error',
-    // Findings are errors for the gate. The rule severities still decide what a
-    // human sees in CI.
-    '--exclude',
-    '**/node_modules',
-    '--exclude',
-    '**/dist',
-    '--exclude',
-    '**/coverage',
-    // Test files are scanned. A finding in a test is still a finding, and a
-    // blanket test exclusion is how a real secret in a fixture goes unnoticed.
-    'apps/api/src',
-    'apps/web/src',
-    'apps/runner/src',
-    'apps/worker/src',
-    'packages',
-    'tools',
-    'scripts',
-    'e2e',
-    'tests',
-  ]);
-  if (result.status !== 0) failed = true;
+  if (
+    (await run('semgrep', [
+      'scan',
+      '--config',
+      '.semgrep.yml',
+      '--error',
+      // Findings are errors for the gate. The rule severities still decide what a
+      // human sees in CI.
+      '--exclude',
+      '**/node_modules',
+      '--exclude',
+      '**/dist',
+      '--exclude',
+      '**/coverage',
+      // Test files are scanned. A finding in a test is still a finding, and a
+      // blanket test exclusion is how a real secret in a fixture goes unnoticed.
+      'apps/api/src',
+      'apps/web/src',
+      'apps/runner/src',
+      'apps/worker/src',
+      'packages',
+      'tools',
+      'scripts',
+      'e2e',
+      'tests',
+    ])) !== 0
+  ) {
+    failed = true;
+  }
 } else {
   missing.push('semgrep');
 }
 
 if (have('gitleaks')) {
-  const result = run('gitleaks', [
-    'detect',
-    '--config',
-    '.gitleaks.toml',
-    '--no-banner',
-    '--redact',
-  ]);
-  if (result.status !== 0) failed = true;
+  if (
+    (await run('gitleaks', ['detect', '--config', '.gitleaks.toml', '--no-banner', '--redact'])) !==
+    0
+  ) {
+    failed = true;
+  }
 } else {
   missing.push('gitleaks');
 }

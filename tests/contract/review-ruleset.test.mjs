@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   CATEGORIES,
@@ -192,41 +191,13 @@ describe('the two rules the plan added for defaults and double assertions', () =
     expect(ruleAppliesTo(rule, 'apps/api/src/index.ts')).toBe(false);
   });
 
-  it('fails lint on a real double assertion under a contract, and not on a single one', () => {
-    // The live half. A rule declared in JSON and enforced nowhere is a stated
-    // intention, so the planted file is linted for real — and the control assertion
-    // matters as much as the failing one, because a selector that matches *every*
-    // `as` would also pass this test.
-    const probe = fromRoot('packages/shared-contracts/src/double-assertion-probe.ts');
-    writeFileSync(
-      probe,
-      [
-        'export const twice = (new Date(0) as unknown) as Date;',
-        'export const once = new Date(0) as Date;',
-        '',
-      ].join('\n'),
-      'utf8',
-    );
-    try {
-      const result = spawnSync(
-        process.execPath,
-        [
-          fromRoot('node_modules', 'eslint', 'bin', 'eslint.js'),
-          'packages/shared-contracts/src/double-assertion-probe.ts',
-        ],
-        { cwd: repoRoot, encoding: 'utf8' },
-      );
-      const output = `${result.stdout}${result.stderr}`;
-      expect(output, 'the double assertion must be an error').toContain(
-        'Do not assert twice under a schema or a contract',
-      );
-      // Exactly one error, on line 1. A second one on line 2 means the selector has
-      // stopped distinguishing the two-assertion case from the one-assertion case.
-      expect(output).not.toContain('2:');
-    } finally {
-      rmSync(probe, { force: true });
-    }
-  }, 60_000);
+  // The live half — proving that `eslint.config.js` really rejects a double
+  // assertion — is in `scripts/lib/contract-double-assertion.test.mjs`, not here.
+  // It spawns ESLint, and a test that starts a linter costs a whole ESLint boot:
+  // this case measured 76 s in this file under `pnpm test`, where turbo runs
+  // thirty-odd package suites at once, and failed at a 60 s budget. A `node --test`
+  // suite in `scripts/lib/` runs serially with nothing else competing, which is
+  // where a process spawn belongs.
 });
 
 describe('the ruleset is the checked-in file, not a generated one', () => {

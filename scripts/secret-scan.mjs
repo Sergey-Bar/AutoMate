@@ -223,16 +223,14 @@ function scanHistory() {
   let currentFile;
   for (const line of patch.split(/\r?\n/)) {
     if (line.startsWith('+++ ')) {
-      const target = line.slice(4).trim();
-      // `+++ /dev/null` is a deletion: the value is already recorded from the
-      // commit that added it.
-      currentFile = target === '/dev/null' ? undefined : target.replace(/^b\//, '');
+      currentFile = addedPath(line);
       continue;
     }
     if (currentFile === undefined) continue;
-    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    const added = addedText(line);
+    if (added === null) continue;
     if (isBinaryPath(currentFile) || isAllowlistedPath(currentFile)) continue;
-    const hits = scanText(line.slice(1));
+    const hits = scanText(added);
     if (hits.length === 0) continue;
     const existing = byFile.get(currentFile) ?? new Set();
     for (const hit of hits) existing.add(hit);
@@ -240,6 +238,35 @@ function scanHistory() {
   }
 
   return [...byFile.entries()].map(([file, hits]) => ({ file, hits: [...hits] }));
+}
+
+/**
+ * The file a `+++ ` header names, or `undefined` for a deletion.
+ *
+ * Extracted from the loop because `git log -p` is a format with three header kinds and
+ * the loop had grown a branch per kind.
+ *
+ * @param {string} header
+ * @returns {string | undefined}
+ */
+function addedPath(header) {
+  const target = header.slice(4).trim();
+  // `+++ /dev/null` is a deletion: the value is already recorded from the commit that
+  // added it.
+  if (target === '/dev/null') return undefined;
+  return target.replace(/^b\//, '');
+}
+
+/**
+ * The text of an added line, or `null` for a context or removed line.
+ *
+ * @param {string} line
+ * @returns {string | null}
+ */
+function addedText(line) {
+  if (!line.startsWith('+')) return null;
+  if (line.startsWith('+++')) return null;
+  return line.slice(1);
 }
 
 /**

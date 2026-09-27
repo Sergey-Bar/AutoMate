@@ -21,6 +21,10 @@ import { execFileSync } from 'node:child_process';
 /**
  * Every way a floor can be weakened, as a list of findings.
  *
+ * Split per package and per metric because the single-function version of this was 28
+ * and the rules are much easier to check against the policy sentence when each is its
+ * own function.
+ *
  * @param {Record<string, Record<string, unknown>> | null} before
  * @param {Record<string, Record<string, unknown>>} after
  * @returns {string[]}
@@ -31,59 +35,95 @@ export function loweredFloors(before, after) {
   // be green. The caller decides whether "no base" is acceptable; this returns
   // nothing, and the caller says so out loud rather than passing quietly.
   if (before === null) return [];
+  return Object.entries(before).flatMap(([name, previous]) => {
+    const current = after[name];
+    if (current === undefined) return [removedFinding(name)];
+    if (isUnmeasured(previous) && !isUnmeasured(current)) return [];
+    if (!isUnmeasured(previous) && isUnmeasured(current)) return [unmeasuredFinding(name)];
+    if (isUnmeasured(previous)) return [];
+    return [...loweredMetrics(name, previous, current), ...newMetrics(name, previous, current)];
+  });
+}
 
+/**
+ * @param {Record<string, unknown> | undefined} entry
+ * @returns {boolean}
+ */
+function isUnmeasured(entry) {
+  return entry?.status === 'not_configured';
+}
+
+/** @param {string} name */
+function removedFinding(name) {
+  return (
+    `${name}: removed from coverage-baseline.json. Deleting a package's floor is a ` +
+    'lowering, and a package with tests cannot stop being measured.'
+  );
+}
+
+/** @param {string} name */
+function unmeasuredFinding(name) {
+  return (
+    `${name}: a measured floor was replaced with {"status":"not_configured"}. That is a ` +
+    'removal with a different spelling — nothing now stops the coverage dropping ' +
+    'below what it used to be required to reach.'
+  );
+}
+
+/**
+ * Metrics present at the base whose floor is now lower, or no longer a number.
+ *
+ * @param {string} name
+ * @param {Record<string, unknown>} previous
+ * @param {Record<string, unknown>} current
+ * @returns {string[]}
+ */
+function loweredMetrics(name, previous, current) {
   /** @type {string[]} */
   const findings = [];
-
-  for (const [name, previous] of Object.entries(before)) {
-    const current = after[name];
-    if (current === undefined) {
+  for (const [metric, floor] of Object.entries(previous)) {
+    if (isAnnotation(metric)) continue;
+    const now = current[metric];
+    if (typeof now !== 'number') {
       findings.push(
-        `${name}: removed from coverage-baseline.json. Deleting a package's floor is a ` +
-          'lowering, and a package with tests cannot stop being measured.',
+        `${name}: the ${metric} floor is no longer a number. A metric that stops being a ` +
+          'number stops being a floor.',
       );
       continue;
     }
-    const wasConfigured = previous?.status !== 'not_configured';
-    const isConfigured = current?.status !== 'not_configured';
-
-    if (wasConfigured && !isConfigured) {
-      findings.push(
-        `${name}: a measured floor was replaced with {"status":"not_configured"}. That is a ` +
-          'removal with a different spelling — nothing now stops the coverage dropping ' +
-          'below what it used to be required to reach.',
-      );
-      continue;
-    }
-    if (!wasConfigured) continue;
-
-    for (const [metric, floor] of Object.entries(previous ?? {})) {
-      if (metric === 'status' || metric === 'reason') continue;
-      const now = current?.[metric];
-      if (typeof now !== 'number') {
-        findings.push(
-          `${name}: the ${metric} floor is no longer a number. A metric that stops being a ` +
-            'number stops being a floor.',
-        );
-        continue;
-      }
-      if (now < /** @type {number} */ (floor)) {
-        findings.push(`${name}: ${metric} floor lowered from ${String(floor)} to ${String(now)}`);
-      }
-    }
-    for (const metric of Object.keys(current ?? {})) {
-      if (metric === 'status' || metric === 'reason') continue;
-      if (!(metric in /** @type {Record<string, unknown>} */ (previous ?? {}))) {
-        findings.push(
-          `${name}: the ${metric} floor is new but the metric it guards was previously ` +
-            'unmeasured. Adding a floor is good; adding one that is absent from the base is ' +
-            'not comparable, so it is reported rather than accepted silently.',
-        );
-      }
+    if (now < /** @type {number} */ (floor)) {
+      findings.push(`${name}: ${metric} floor lowered from ${String(floor)} to ${String(now)}`);
     }
   }
-
   return findings;
+}
+
+/**
+ * Metrics with no base floor to compare against.
+ *
+ * Adding a floor is good. Adding one that no base floor existed for is not comparable,
+ * and reporting it is the difference between a visible change and a silent one.
+ *
+ * @param {string} name
+ * @param {Record<string, unknown>} previous
+ * @param {Record<string, unknown>} current
+ * @returns {string[]}
+ */
+function newMetrics(name, previous, current) {
+  return Object.keys(current)
+    .filter((metric) => !isAnnotation(metric) && !(metric in previous))
+    .map(
+      (metric) =>
+        `${name}: the ${metric} floor is new but the metric it guards was previously ` +
+        'unmeasured. Adding a floor is good; adding one that is absent from the base is ' +
+        'not comparable, so it is reported rather than accepted silently.',
+    );
+}
+
+/** `status` and `reason` describe a row; they are not metrics. */
+/** @param {string} key */
+function isAnnotation(key) {
+  return key === 'status' || key === 'reason';
 }
 
 /**

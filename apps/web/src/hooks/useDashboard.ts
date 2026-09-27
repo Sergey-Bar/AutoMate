@@ -53,6 +53,45 @@ export interface RunDetailData {
   evidenceError: Error | null;
 }
 
+/**
+ * Folds three settled evidence requests into the next snapshot.
+ *
+ * Extracted from `refresh` because that function had grown a filter, an `every`, and
+ * four ternaries inline — enough branching that the one question it really answers,
+ * "is this a partial-evidence failure or a cancellation?", could no longer be read off
+ * the code. It is pure, so the distinction is a table-test rather than an integration
+ * test that has to be arranged to make a request abort.
+ *
+ * Returns `current` unchanged when every rejection was a cancellation: a cancellation
+ * is not a partial-evidence failure, nothing is missing, and the answers are simply no
+ * longer wanted. `refresh` calls this inside a `setData` updater rather than against a
+ * captured `data`, because events arrive between renders and a captured copy would
+ * silently discard them; React bails out on the identical reference, so the no-change
+ * case costs no re-render.
+ */
+function foldEvidence(
+  current: RunDetailData,
+  run: Run,
+  artifacts: PromiseSettledResult<ArtifactDescriptor[]>,
+  gate: PromiseSettledResult<GateEvaluation | null>,
+  readiness: PromiseSettledResult<ReleaseReadiness | null>,
+): RunDetailData {
+  const failures = [artifacts, gate, readiness].filter(
+    (result): result is PromiseRejectedResult => result.status === 'rejected',
+  );
+  if (failures.length > 0 && failures.every((failure) => isAbortError(failure.reason))) {
+    return current;
+  }
+  return {
+    ...current,
+    run,
+    artifacts: artifacts.status === 'fulfilled' ? artifacts.value : current.artifacts,
+    gate: run.policyEvaluation ?? (gate.status === 'fulfilled' ? gate.value : null),
+    readiness: readiness.status === 'fulfilled' ? readiness.value : current.readiness,
+    evidenceError: failures.length > 0 ? new Error('Some run evidence could not be loaded') : null,
+  };
+}
+
 export function useRunDetail(id: string, api = defaultApiClient) {
   const [data, setData] = useState<RunDetailData>({
     run: null,
@@ -95,26 +134,9 @@ export function useRunDetail(id: string, api = defaultApiClient) {
         ]);
         if (!mountedRef.current) return;
 
-        const failures = [artifactsResult, gateResult, readinessResult].filter(
-          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        setData((current) =>
+          foldEvidence(current, run, artifactsResult, gateResult, readinessResult),
         );
-        // A cancellation is not a partial-evidence failure: nothing is missing,
-        // the answers are simply no longer wanted.
-        if (failures.length > 0 && failures.every((failure) => isAbortError(failure.reason))) {
-          return;
-        }
-        setData((current) => ({
-          ...current,
-          run,
-          artifacts:
-            artifactsResult.status === 'fulfilled' ? artifactsResult.value : current.artifacts,
-          gate:
-            run.policyEvaluation ?? (gateResult.status === 'fulfilled' ? gateResult.value : null),
-          readiness:
-            readinessResult.status === 'fulfilled' ? readinessResult.value : current.readiness,
-          evidenceError:
-            failures.length > 0 ? new Error('Some run evidence could not be loaded') : null,
-        }));
       } catch (caught) {
         if (isAbortError(caught)) return;
         if (mountedRef.current) {

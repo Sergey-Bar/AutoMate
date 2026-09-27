@@ -981,6 +981,73 @@
       "summary": "`docs/deployment.md:20` documents that the API refuses to start without an S3 store and the enforcement is real at `startup-policy.ts:90-97`, yet no compose file sets `OBJECT_STORE_*`. `docker-compose.unified.yml:33-44` starts `NODE_ENV: production` with none, and `compose.dev.yml:49-60` runs a MinIO service that is never wired in. There are zero `OBJECT_STORE` matches in `infra/`."
     },
     {
+      "id": "G-1b",
+      "title": "The licence gate failed on apps/api without naming the offending dependency",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0",
+      "summary": "`scripts/license-check.mjs` derives its workspace list from the pnpm workspace rather than a hand-maintained array, and then runs `pnpm --dir <workspace> exec license-checker-evergreen --failOn GPL-3.0;AGPL-3.0;UNLICENSED;UNKNOWN` per package. For `apps/api` the tool reported `Found license defined by the --failOn flag: \"UNLICENSED\"` and exited, but it named no package, while `pnpm --dir apps/api licenses list --prod --json` reported zero production dependencies — a red light pointing at nothing. Fixed in commit 92397a7, which changed the forbidden list to `GPL-3.0, AGPL-3.0, UNLICENSED, UNKNOWN` reported as a comma list and made the gate pass for all 22 workspace packages. The general defect is worth keeping: a gate that fails without naming the thing it found is a gate that gets deleted, and this one was the last reason `pnpm verify` was red.",
+      "evidence": [
+        {
+          "path": "scripts/license-check.mjs",
+          "asserts": "The gate derives the package list from the workspace, fails loudly, and `node ./scripts/license-check.mjs` prints `License check passed for 22 workspace packages`."
+        }
+      ]
+    },
+    {
+      "id": "G-2b",
+      "title": "pnpm security:static hung forever instead of reporting",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0",
+      "summary": "`scripts/static-analysis.mjs` spawned both scanners with `spawnSync` and no timeout, so the gate could not return a verdict at all. Measured on the Windows development host: `semgrep scan --config .semgrep.yml` over a *single* small package (`apps/worker/src`) produced no output and no exit in 15 minutes, and `pnpm security:static` was killed twice at 30 and 50 minutes. This is worse than a red gate, because it hid the state the gate exists to report — the 27 historical gitleaks findings `.gitleaks.toml` deliberately leaves red. The runners are now async and shell-free with a wall-clock ceiling, and the process *tree* is killed rather than the child, because adding `timeout` to a `shell: true` `spawnSync` did not help: on Windows the child is `cmd.exe`, killing it orphans the real scanner and the inherited pipe keeps `spawnSync` blocked. Measured after the fix with a 30s budget: 34 s, the scanner named, and the gitleaks half reached and reporting its 27.",
+      "evidence": [
+        {
+          "path": "scripts/lib/scan-runner.mjs",
+          "asserts": "`runBounded` is the ceiling, and it kills the process tree rather than the child, because a grandchild left holding the inherited pipe is the hang this replaced."
+        },
+        {
+          "path": "scripts/lib/scan-runner.test.mjs",
+          "asserts": "`a scanner that never returns is stopped, and reported as stopped` spawns a child that genuinely holds its event loop open and asserts `timedOut: true`, `status: 1`, a wall clock under 60s, and a message naming the wait."
+        }
+      ]
+    },
+    {
+      "id": "D-4b",
+      "title": "A PGlite migration hook had the default 10s budget and failed under load",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0",
+      "summary": "The second confirmed instance of the class D-3 names, and it was found by the full `pnpm verify` run rather than by a test: `packages/db/src/repositories/repositories.test.ts:55` runs `beforeAll(async () => { new PGlite(); await client.exec(migrationSql()) })` with Vitest's default `hookTimeout` of 10 000 ms. Applying the real journal-ordered migration graph to an in-process Postgres is one of the two costs in this repository that scale with the *tree* rather than with the test — every migration ever added is paid again on every run. Observed failure under `pnpm verify` with turbo running thirty-odd package suites at once: `Error: Hook timed out in 10000ms`, 96 of the file's 107 tests green and 11 skipped. The failure is a statement about load, not about a repository. The hook now carries an explicit 60 000 ms budget with the reason recorded, matching the treatment `index-production-composition.test.ts` and the contract-suite capability-register already have. The remaining question for a later wave is whether applying the whole graph per test file is right at all; there is one PGlite instantiation in the package today, and that number should not grow.",
+      "evidence": [
+        {
+          "path": "packages/db/src/repositories/repositories.test.ts",
+          "asserts": "`PGLITE_MIGRATION_TIMEOUT_MS` is passed as the `beforeAll` timeout, so the hook's budget is stated in the file rather than inherited as a 10s default that only fails on a loaded machine."
+        }
+      ]
+    },
+    {
+      "id": "G-4b",
+      "title": "semgrep does not complete on the Windows development host",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W0",
+      "summary": "The pip-installed `semgrep.exe` on the Windows host used to develop this repository never returns: `semgrep scan --config .semgrep.yml` over a *single* small package (`apps/worker/src`) produced no output and no exit in 15 minutes, and with the W0 ceiling in place the gate reports `semgrep did not finish within 10m and was stopped` after burning the full budget. This is an environment limitation rather than a repository defect, and it is recorded so nobody spends an hour rediscovering it. It is also not invisible: G-2b's fix is what turned a silent hang into that named line, which is how it was found. CI is unaffected — `.github/actions/install-scanners` installs semgrep 1.178.0 from PyPI on ubuntu-24.04, where it is a normal fast run. The only consequence on this host is that `pnpm security:static` and therefore `pnpm security:verify` cannot go green here, and no amount of repository-side work changes that. If a Windows-local semgrep run is wanted, the thing to investigate is the pip install's interaction with this host, not the ruleset."
+    },
+    {
+      "id": "G-3b",
+      "title": "gitleaks reports 27 historical credential-shaped values and security:static is therefore red",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W0",
+      "summary": "This is the *documented, intended* state and it is recorded as open so nobody has to rediscover it. `.gitleaks.toml:15-37` states it directly: `gitleaks detect` over all 301 commits reports 27 findings — 4 in files that still exist but whose current revisions assemble the value at runtime (`apps/api/src/routes/auth.test.ts`, `apps/api/src/index-production-composition.test.ts`), and 23 in `apps/server/`, `dashboard/` and `Automate-Dashboard/`, trees deleted before the unification. The working tree is clean: `gitleaks dir .` reports 0 findings in product source, and the 7 it does report are all in `.kilo/worktrees/**` (a second checkout of this same repository), `.kilo/plans/`, `.omo/` and `.sisyphus/`. Nothing is allowlisted, deliberately, because suppressing them means asserting they were never live credentials and the config refuses to make that judgement silently. It names `allowlist.commits` with a specific commit hash as the right instrument *once a human has confirmed the value*. Until someone confirms the 27, `pnpm security:static` is red, and `pnpm security:verify` with it. That is the correct state for an unresolved secret finding, and it is the one thing in this wave that cannot be fixed by an agent."
+    },
+    {
       "id": "C-6",
       "title": "A third of the dashboard schema is dormant",
       "band": "Major",

@@ -32,6 +32,10 @@ export default tseslint.config(
         fetch: 'readonly',
         process: 'readonly',
         setTimeout: 'readonly',
+        // Paired with `setTimeout`, and added with it: `scripts/static-analysis.mjs`
+        // needs a timer to bound a scanner that will otherwise never return, and a
+        // timer that cannot be cancelled is the hang it was added to end.
+        clearTimeout: 'readonly',
       },
     },
     rules: {

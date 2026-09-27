@@ -8,8 +8,31 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     exclude: ['node_modules', 'dist'],
-    testTimeout: 30000,
-    hookTimeout: 30000,
+    /**
+     * 60s, up from Vitest's 5s default and this package's previous 30s.
+     *
+     * Three tests in this package are CPU-bound rather than I/O-bound, and their cost
+     * scales with the *machine*, not with the test: PBKDF2 key derivation in
+     * `src/infrastructure/vault-crypto.test.ts` (100 000 iterations per derivation, run
+     * hundreds of times to prove a derived key is never reused), and in-process
+     * Postgres `exec` in `src/execution/bounded-stores.test.ts` and
+     * `src/execution/artifact-compensation.test.ts`.
+     *
+     * Measured: those three files together pass in 4.92 s in isolation, and under
+     * `pnpm verify` — turbo running this package alongside thirty-odd others — they
+     * took 31.5 s, 44.0 s and 57.0 s and failed at the 30 s budget. The assertions had
+     * not changed and nothing was wrong; the *machine* was the variable.
+     *
+     * A timeout that reports a loaded machine as a failing repository is a timeout
+     * people learn to re-run, and a gate that must be re-run provides nothing. 60s is
+     * headroom for the observed worst case, not a target: if a test here genuinely
+     * needs 60 s, the cost has moved somewhere it can be made cheaper.
+     *
+     * This is not a weakened assertion. Nothing about what is checked changes; only
+     * how long the harness waits before saying so.
+     */
+    testTimeout: 60000,
+    hookTimeout: 60000,
     // `all: true` with an explicit `include` is what makes an untested module
     // visible. Without it V8 reports only the files a test happened to import, so
     // deleting every test in a module would *raise* the reported coverage — and

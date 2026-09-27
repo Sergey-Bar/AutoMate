@@ -105,6 +105,11 @@
     "C-3": "open",
     "C-4": "open",
     "C-5": "open",
+    "G-1b": "fixed",
+    "G-2b": "fixed",
+    "D-4b": "fixed",
+    "G-4b": "open",
+    "G-3b": "open",
     "C-6": "open"
   }
 }

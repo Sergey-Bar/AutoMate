@@ -52,6 +52,26 @@ let sessions: DrizzleSessionStore;
 let keys: DrizzleInstallationKeyStore;
 let outbox: DrizzleOutboxRepository;
 
+/**
+ * A budget for the hook that stands the whole migration graph up in PGlite.
+ *
+ * Vitest's default `hookTimeout` is 10 000 ms, and this hook's cost is
+ * `migrationSql()` — the real journal-ordered migration graph, applied to an
+ * in-process Postgres. That is one of the two costs in this repository that scale with
+ * the *tree* rather than with the test: every migration ever added is paid again on
+ * every run. It passes in a couple of seconds on an idle machine and was measured
+ * failing at 10 000 ms under `pnpm verify`, where turbo runs thirty-odd package suites
+ * at once, with `Error: Hook timed out in 10000ms` and 96 of the file's tests green.
+ *
+ * The failure is a statement about the machine's load, not about a repository, and a
+ * gate that reports a load problem as a defect is a gate people learn to re-run. So the
+ * budget is stated rather than left implicit.
+ *
+ * 60s is headroom, not a target. If this ever genuinely needs 60s, the migration graph
+ * has grown something that should be applied once for the package rather than per file.
+ */
+const PGLITE_MIGRATION_TIMEOUT_MS = 60_000;
+
 beforeAll(async () => {
   client = new PGlite();
   await client.exec(migrationSql());
@@ -59,7 +79,7 @@ beforeAll(async () => {
   sessions = new DrizzleSessionStore(db);
   keys = new DrizzleInstallationKeyStore(db);
   outbox = new DrizzleOutboxRepository(db as never);
-});
+}, PGLITE_MIGRATION_TIMEOUT_MS);
 
 afterAll(async () => {
   if (client) await client.close();
