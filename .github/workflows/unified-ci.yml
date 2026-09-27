@@ -50,6 +50,18 @@ jobs:
       # compose file was being validated by a command that could be edited without
       # anyone noticing a second copy had drifted.
       - name: Unified Compose config
+        # Placeholders rather than secrets. This step only asks docker compose to
+        # resolve and print the file — no container starts — and the compose file
+        # marks six variables required so a misconfigured local stack fails loudly.
+        # Resolving the file therefore needs values, and a real credential is not
+        # one of them.
+        env:
+          POSTGRES_PASSWORD: ci-config-validation
+          COOKIE_SECRET: ci-config-validation
+          VAULT_SECRET: ci-config-validation
+          AUTOMATE_API_KEY: ci-config-validation
+          REPORTER_SECRET: ci-config-validation
+          RUNNER_REGISTRATION_SECRET: ci-config-validation
         run: pnpm compose:config
       - name: Formatting
         run: pnpm format:check
@@ -156,18 +168,26 @@ jobs:
     name: Commit message
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    # No checkout and no install: `commitlint` reads commit *messages*, and the range
-    # comes from the event payload. A missing checkout here is deliberate — this job
-    # has no reason to touch the working tree.
+    # A checkout after all. `commitlint` reads `configFile` from disk, and the
+    # pull-request variant resolves `from`/`to` as a commit range in this
+    # repository, so both need a working tree. Without one the action falls back
+    # to its own defaults, which means the scope vocabulary in
+    # `commitlint.config.js` is not what CI enforces — the local hook is the only
+    # thing checking it. `fetch-depth: 0` because the range spans two SHAs the
+    # runner does not otherwise hold.
     steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - name: Lint commit messages
         if: github.event_name != 'pull_request'
-        uses: wagoid/commitlint-github-action@5173410a5350372d0c3c5e0d9b1bd0e8e8b8c1b1
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
         with:
           configFile: commitlint.config.js
       - name: Lint the PR's commits
         if: github.event_name == 'pull_request'
-        uses: wagoid/commitlint-github-action@5173410a5350372d0c3c5e0d9b1bd0e8e8b8c1b1
+        uses: wagoid/commitlint-github-action@b948419dd99f3fd78a6548d48f94e3df7f6bf3ed # v6.2.1
         with:
           configFile: commitlint.config.js
           # From the last commit on the base branch, so the messages checked are the
