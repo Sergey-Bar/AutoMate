@@ -292,6 +292,18 @@ export interface EventApplyResult {
   reason?: string;
 }
 
+/**
+ * One page of a run's events.
+ *
+ * `hasMore` is reported rather than inferred from `events.length === limit`, because
+ * a client that has to guess needs a page-size of `limit + 1` to tell the truth, and
+ * the two differ the moment a caller passes a limit the store clamped.
+ */
+export interface EventPage {
+  events: ExecutionEvent[];
+  hasMore: boolean;
+}
+
 export interface ArtifactDescriptor {
   id: string;
   runId: string;
@@ -466,8 +478,34 @@ export interface ExecutionStore {
     events: ExecutionEventInput[],
     workspaceId?: string,
   ): Promise<EventApplyResult[]>;
-  listEvents(runId: string): Promise<ExecutionEvent[]>;
-  getRunEvents(runId: string): Promise<ExecutionEvent[]>;
+  /**
+   * One page of a run's events, oldest first.
+   *
+   * Events grow with the number of **tests**, not with the number of runs: a
+   * Playwright run over 5 000 tests appends tens of thousands of rows, and this
+   * endpoint read every one of them and serialised the lot. The cost grew with the
+   * size of the run rather than the size of the page, which is the property the runs
+   * listing was fixed for and this one was not.
+   *
+   * Paged on **`sequence`**, which is what makes it safe: a run's sequences are
+   * allocated monotonically by `appendEvents`, so `afterSequence` is an exact
+   * position rather than a guess. A cursor on a timestamp would page between two
+   * events that shared one, and the page would repeat forever — a failure that looks
+   * like a correct page.
+   *
+   * Takes the workspace, and requires it. This and `listArtifacts`/`getGate` were
+   * the only three id-addressed methods that did not, which meant a caller holding
+   * a run id from another workspace could read that workspace's events, artifacts
+   * and gate straight through the store. The routes happened to resolve the run
+   * first, so nothing leaked — but the guarantee was the routes' diligence, not the
+   * store's contract, and one new route calling `listEvents` directly would have
+   * read across the tenancy boundary.
+   */
+  listEvents(
+    workspaceId: string,
+    runId: string,
+    page?: { afterSequence?: number; limit?: number },
+  ): Promise<EventPage>;
   completeJob(
     jobId: string,
     completion: JobCompletionInput,
@@ -488,14 +526,14 @@ export interface ExecutionStore {
     artifactId: string,
     workspaceId?: string,
   ): Promise<ArtifactDescriptor | null>;
-  listArtifacts(runId: string): Promise<ArtifactDescriptor[]>;
+  listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]>;
   createPolicy(
     input: Omit<QualityPolicy, 'id' | 'hash' | 'createdAt' | 'updatedAt'>,
   ): Promise<QualityPolicy>;
   listPolicies(workspaceId?: string): Promise<QualityPolicy[]>;
   getPolicy(policyId: string, workspaceId?: string): Promise<QualityPolicy | null>;
   saveGate(evaluation: GateEvaluation): Promise<GateEvaluation>;
-  getGate(runId: string): Promise<GateEvaluation | null>;
+  getGate(workspaceId: string, runId: string): Promise<GateEvaluation | null>;
   getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null>;
   reapExpiredLeases(now?: Date): Promise<LeaseReapResult[]>;
   getReadiness(releaseId: string, workspaceId?: string): Promise<ReleaseReadiness>;

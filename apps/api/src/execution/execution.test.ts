@@ -113,7 +113,9 @@ describe('InMemoryExecutionStore', () => {
     });
     expect(descriptor.checksum).toHaveLength(64);
     expect((await store.getArtifact(descriptor.id))?.bytes.byteLength).toBe(11);
-    expect((await store.listArtifacts(created.run.id))[0]?.metadata['source']).toBe('test');
+    expect(
+      (await store.listArtifacts('default-workspace', created.run.id))[0]?.metadata['source'],
+    ).toBe('test');
   });
 });
 

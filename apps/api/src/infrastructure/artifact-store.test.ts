@@ -114,3 +114,62 @@ describe('LocalArtifactStore', () => {
     }
   });
 });
+
+describe('the byte-store delete is the compensating half of an artifact write', () => {
+  it('removes the bytes, and an absent key is success rather than a failure', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const store = new LocalArtifactBytesStore(new LocalArtifactStore(root));
+      const bytes = new TextEncoder().encode('evidence');
+      await store.put('runs/run-1/trace.zip', bytes);
+      expect(await store.get('runs/run-1/trace.zip')).toEqual(bytes);
+
+      await expect(store.delete('runs/run-1/trace.zip')).resolves.toBeUndefined();
+      expect(await store.get('runs/run-1/trace.zip')).toBeNull();
+
+      // Idempotent: this runs on a failure path, where "already gone" is the
+      // outcome wanted. An ENOENT surfacing as an error would turn a cleaned-up
+      // write into a 500.
+      await expect(store.delete('runs/run-1/trace.zip')).resolves.toBeUndefined();
+      // A key that was never written is the same case.
+      await expect(store.delete('runs/run-1/never-existed')).resolves.toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a traversal key rather than deleting outside the root', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const store = new LocalArtifactBytesStore(new LocalArtifactStore(root));
+      await expect(store.delete('../secret')).rejects.toThrow(/relative|escapes/i);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('removes from both tiers, so a cleanup cannot miss the tier holding the bytes', async () => {
+    const primaryRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-primary-'));
+    const fallbackRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-fallback-'));
+    try {
+      const primary = new LocalArtifactBytesStore(new LocalArtifactStore(primaryRoot));
+      const fallback = new LocalArtifactBytesStore(new LocalArtifactStore(fallbackRoot));
+      const store = new FallbackArtifactBytesStore(primary, fallback);
+      // Written directly into each tier, because `put` only writes the primary. A
+      // delete that cleared only the primary would be correct *today* and would leave
+      // the orphan in place the moment a write fell back to the secondary — so both
+      // tiers are seeded here and the assertion is about the delete.
+      await primary.put('runs/run-1/current.json', new TextEncoder().encode('current'));
+      await fallback.put('runs/run-1/legacy.json', new TextEncoder().encode('legacy'));
+
+      await store.delete('runs/run-1/current.json');
+      await store.delete('runs/run-1/legacy.json');
+
+      expect(await primary.get('runs/run-1/current.json')).toBeNull();
+      expect(await fallback.get('runs/run-1/legacy.json')).toBeNull();
+    } finally {
+      await rm(primaryRoot, { recursive: true, force: true });
+      await rm(fallbackRoot, { recursive: true, force: true });
+    }
+  });
+});

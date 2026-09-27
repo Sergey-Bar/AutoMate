@@ -91,12 +91,14 @@ export default tseslint.config(
     //
     // `cognitive-complexity` is **off for now, and that is a recorded decision,
     // not an oversight.** 31 existing functions exceed 15, the worst at 75 and
-    // 71 — the two largest files, which Q0.14 splits. Turning it on as an error
-    // today would fail `pnpm lint` on code nobody is touching, and the realistic
-    // outcome of a permanently red lint gate is that it gets switched off, taking
-    // the other two rules with it. It becomes an error as part of the Q0.14
-    // split, and `docs/quality/debt-baseline.json` records the current offenders
-    // so the ceiling can only ratchet down from there.
+    // 71 — the two largest files, which the W5.1 split addresses. Turning it on
+    // as an error today would fail `pnpm lint` on code nobody is touching, and
+    // the realistic outcome of a permanently red lint gate is that it gets
+    // switched off, taking the other two rules with it. It becomes an error as
+    // part of that split, and `docs/quality/complexity-baseline.json` — the file
+    // `pnpm complexity:baseline` actually writes, and the one the ratchet reads —
+    // records the current offenders so the ceiling can only ratchet down from
+    // there.
     //
     // The other two are hard errors from day one: they are mechanical
     // simplifications with no judgement involved, and the tree passes both.
@@ -185,9 +187,63 @@ export default tseslint.config(
     },
   },
   {
-    files: ['apps/web/src/**/*.tsx'],
+    // `packages/ui` is in this list because it is where most of the interactive
+    // surface actually lives: Dialog, Drawer, Table, Tabs, Select, Toggle,
+    // Popover, CommandPalette and Splitter are all shared components, so scoping
+    // the rules to the app left every one of them unlinted. The defects jsx-a11y
+    // is good at finding (a control with no name, a click handler on a
+    // non-interactive element, an `alt` that lies) were therefore structurally
+    // invisible in the components that ship to every consumer.
+    files: ['apps/web/src/**/*.tsx', 'packages/ui/src/**/*.tsx'],
     rules: {
       ...jsxA11y.configs.recommended.rules,
+    },
+  },
+  {
+    // A focusable `role="separator"` is a window splitter, and ARIA 1.2 made it a
+    // *widget*: `aria-valuenow` is required and the arrow keys resize it. That is
+    // what `Splitter` now is, and what the a11y tests assert.
+    //
+    // `eslint-plugin-jsx-a11y@6` still classifies `separator` as non-interactive,
+    // so `no-noninteractive-tabindex` and `no-noninteractive-element-interactions`
+    // report a correct implementation as a defect. This is a false positive
+    // against the current ARIA spec, not a component with a real problem, so it
+    // is switched off for that one file with the reason recorded — the same
+    // treatment `security/detect-non-literal-fs-filename` gets above, scoped as
+    // narrowly as ESLint allows rather than disabled repo-wide.
+    files: ['packages/ui/src/components/Splitter/Splitter.tsx'],
+    rules: {
+      'jsx-a11y/no-noninteractive-tabindex': 'off',
+      'jsx-a11y/no-noninteractive-element-interactions': 'off',
+    },
+  },
+  {
+    // The two contract trees refuse a double assertion.
+    //
+    // `new Date(0) as unknown as Date` and its relatives assert twice: the first
+    // `as` silences a complaint the compiler made, and the second converts
+    // `unknown` into whatever the call site wanted. Everywhere else in the tree
+    // that is a debt worth carrying. Under the schema or under a shared contract
+    // it is the worst place to carry it, because a value that reaches the
+    // database or reaches every consumer is exactly the value whose type nothing
+    // checked.
+    //
+    // Scoped to two directories rather than repo-wide on purpose: the plan's
+    // W15.1 lands type-aware linting package by package, and a rule that fires
+    // across the whole tree on day one is a rule that gets switched off. The
+    // review ruleset carries the same rule as `double-assertion`, scoped the same
+    // way, so the human review and the lint gate speak one vocabulary.
+    files: ['packages/db/src/schema/**/*.ts', 'packages/shared-contracts/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'TSAsExpression > TSAsExpression',
+          message:
+            'Do not assert twice under a schema or a contract. Make the value have the ' +
+            'type, or record why the boundary cannot be typed yet.',
+        },
+      ],
     },
   },
   {

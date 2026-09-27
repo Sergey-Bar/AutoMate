@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { parseBaseline, partitionByBaseline } from './lib/secret-scan-baseline.mjs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -185,6 +186,63 @@ function scanRepository() {
 }
 
 /**
+ * The same patterns, over every commit.
+ *
+ * The working-tree scan above is `git ls-files`: it sees what is on disk now. A
+ * secret that was committed and then removed is the common case, not the rare one
+ * — `git rm` or an edit that strips a value both leave the value in history, and
+ * both are ordinary things to do. A scanner that only looks at the tree reports
+ * clean on a repository whose clone contains a live credential.
+ *
+ * So this walks the history. It is opt-in via `--history` because it is
+ * proportional to the number of commits and the tree is the fast check: a
+ * pre-commit hook runs the tree scan, and CI runs both.
+ *
+ * `git log -p` rather than `git rev-list` + one diff per commit, so the whole
+ * history is read in a single process.
+ */
+function scanHistory() {
+  /** @type {Map<string, Set<string>>} */
+  const byFile = new Map();
+  const patch = execFileSync(
+    'git',
+    [
+      'log',
+      '--all',
+      '--no-color',
+      '-p',
+      '--diff-filter=ACMR',
+      // One line of context: a secret is usually a whole added line, and more
+      // context only finds the same value again in an adjacent line.
+      '-U0',
+    ],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+  );
+
+  /** @type {string | undefined} */
+  let currentFile;
+  for (const line of patch.split(/\r?\n/)) {
+    if (line.startsWith('+++ ')) {
+      const target = line.slice(4).trim();
+      // `+++ /dev/null` is a deletion: the value is already recorded from the
+      // commit that added it.
+      currentFile = target === '/dev/null' ? undefined : target.replace(/^b\//, '');
+      continue;
+    }
+    if (currentFile === undefined) continue;
+    if (!line.startsWith('+') || line.startsWith('+++')) continue;
+    if (isBinaryPath(currentFile) || isAllowlistedPath(currentFile)) continue;
+    const hits = scanText(line.slice(1));
+    if (hits.length === 0) continue;
+    const existing = byFile.get(currentFile) ?? new Set();
+    for (const hit of hits) existing.add(hit);
+    byFile.set(currentFile, existing);
+  }
+
+  return [...byFile.entries()].map(([file, hits]) => ({ file, hits: [...hits] }));
+}
+
+/**
  * Credential-shaped values for this self-test, assembled rather than written.
  *
  * Written as literals they are exactly what GitHub's push protection declined a
@@ -194,7 +252,7 @@ function scanRepository() {
  * stays fully on for real secrets, and the patterns are still exercised because
  * the runtime value is byte-identical to a well-formed token.
  *
- * `apps/api/src/infrastructure/synthetic-credentials.ts` is the same idea for the
+ * `apps/api/src/test-support/synthetic-credentials.ts` is the same idea for the
  * tests that need these values from TypeScript.
  *
  * @param {string} prefix
@@ -271,14 +329,49 @@ function selfTest() {
   console.log(`Secret scan self-test passed: ${cases.length} synthetic cases behave as declared`);
 }
 
+/**
+ * @returns {Map<string, { file: string, kind: string, why: string }>}
+ */
+function readBaseline() {
+  const file = path.join(root, 'scripts', 'secret-scan-baseline.json');
+  if (!existsSync(file)) return new Map();
+  return parseBaseline(JSON.parse(readFileSync(file, 'utf8')));
+}
+
 if (process.argv.includes('--self-test')) {
   selfTest();
 } else {
-  const findings = scanRepository();
-  if (findings.length > 0) {
-    console.error('Secret scan failed');
+  const withHistory = process.argv.includes('--history');
+  let findings = scanRepository();
+  if (withHistory) findings = findings.concat(scanHistory());
+  if (findings.length > 0 && withHistory) {
+    // The baseline is consulted only for the history walk. The working tree is the
+    // thing that ships, and a finding there is a finding today — no grandfathering.
+    const known = readBaseline();
+    const { newFindings, stale } = partitionByBaseline(findings, known);
+    for (const entry of stale) {
+      console.info(
+        `note: ${entry.file} — ${entry.kind} is in scripts/secret-scan-baseline.json but ` +
+          `no longer occurs. Remove it: ${entry.why}`,
+      );
+    }
+    if (newFindings.length === 0) {
+      console.log(
+        `Secret scan passed (working tree + git history; ` +
+          `${findings.length} historical finding(s) enumerated in secret-scan-baseline.json)`,
+      );
+    } else {
+      console.error('Secret scan failed (working tree + git history)');
+      for (const { file, hits } of newFindings) console.error(`- ${file}: ${hits.join(', ')}`);
+      process.exit(1);
+    }
+  } else if (findings.length > 0) {
+    console.error('Secret scan failed (working tree)');
     for (const { file, hits } of findings) console.error(`- ${file}: ${hits.join(', ')}`);
     process.exit(1);
+  } else {
+    console.log(
+      `Secret scan passed (${withHistory ? 'working tree + git history' : 'working tree'})`,
+    );
   }
-  console.log('Secret scan passed');
 }

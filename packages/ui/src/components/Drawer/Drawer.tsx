@@ -1,12 +1,24 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useRef,
   type DialogHTMLAttributes,
   type HTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../lib/utils.js';
+
+/** See `Dialog.tsx` for why the selector is spelled out in full. */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function tabbableWithin(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (element) => element.getAttribute('aria-hidden') !== 'true',
+  );
+}
 
 export interface DrawerProps extends DialogHTMLAttributes<HTMLDialogElement> {
   open?: boolean;
@@ -34,6 +46,8 @@ const drawerVariants = cva(
 export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
   ({ className, open, onOpenChange, position = 'right', children, ...props }, ref) => {
     const internalRef = useRef<HTMLDialogElement>(null);
+    /** See `Dialog.tsx`. A drawer is a modal surface with the same obligation. */
+    const returnFocusTo = useRef<HTMLElement | null>(null);
 
     useEffect(() => {
       if (typeof ref === 'function') {
@@ -47,13 +61,37 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
       const dialog = internalRef.current;
       if (!dialog) return;
 
+      const handleClose = () => {
+        onOpenChange?.(false);
+        const target = returnFocusTo.current;
+        returnFocusTo.current = null;
+        if (target && document.contains(target)) target.focus();
+      };
+
+      /*
+       * Registered *before* the open/close below, not in a sibling effect.
+       *
+       * The element does not exist on the first render — `Drawer` renders `null`
+       * while closed, so a sibling effect saw `internalRef.current === null` and
+       * returned. With dependencies that never changed again, that listener was
+       * never attached, so a native `close` (a user pressing Escape, which a
+       * real browser fires without React being involved) reported nothing to
+       * `onOpenChange` and left the controlled `open` state lying, and focus was
+       * never returned to the trigger.
+       */
+      dialog.addEventListener('close', handleClose);
+
       if (open && !dialog.open) {
+        returnFocusTo.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
         // simple polyfill/check for showModal in tests
         if (dialog.showModal) {
           dialog.showModal();
         } else {
           dialog.open = true;
         }
+        const [first] = tabbableWithin(dialog);
+        (first ?? dialog).focus();
       } else if (!open && dialog.open) {
         if (dialog.close) {
           dialog.close();
@@ -61,19 +99,32 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
           dialog.open = false;
         }
       }
-    }, [open]);
 
-    useEffect(() => {
+      return () => dialog.removeEventListener('close', handleClose);
+    }, [open, onOpenChange]);
+
+    /** See `Dialog.tsx`. The trap is the same obligation on a different surface. */
+    const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDialogElement>) => {
+      if (event.key !== 'Tab') return;
       const dialog = internalRef.current;
       if (!dialog) return;
-
-      const handleClose = () => {
-        onOpenChange?.(false);
-      };
-
-      dialog.addEventListener('close', handleClose);
-      return () => dialog.removeEventListener('close', handleClose);
-    }, [onOpenChange]);
+      const focusable = tabbableWithin(dialog);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === dialog)) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }, []);
 
     // For testing purposes, if not open, we can just hide it completely,
     // but dialog element handles visibility. However, tests checking queryByTestId might fail if it's always in the DOM.
@@ -85,8 +136,13 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
       <dialog
         ref={internalRef}
         className={cn(drawerVariants({ position }), className)}
-        aria-modal="true"
+        onKeyDown={handleKeyDown}
         {...props}
+        // After the spread, deliberately — see `Dialog.tsx`. `aria-modal` is the
+        // only thing that tells a screen reader the page behind this surface is
+        // unavailable, and a spread could quietly take it away.
+        aria-modal="true"
+        tabIndex={-1}
       >
         {children}
       </dialog>
@@ -114,12 +170,14 @@ export const DrawerHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEle
 DrawerHeader.displayName = 'DrawerHeader';
 
 export const DrawerTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
-  ({ className, ...props }, ref) => (
+  ({ className, children, ...props }, ref) => (
     <h2
       ref={ref}
       className={cn('text-lg font-semibold leading-none tracking-tight', className)}
       {...props}
-    />
+    >
+      {children}
+    </h2>
   ),
 );
 DrawerTitle.displayName = 'DrawerTitle';

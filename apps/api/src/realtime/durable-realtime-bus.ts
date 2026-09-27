@@ -1,5 +1,5 @@
 import type { AppendOutboxEvent, OutboxEvent } from '@automate/db';
-import { EVENT_VERSION } from '@automate/shared-contracts';
+import { EVENT_VERSION, RUN_UPDATED_EVENT_TYPE } from '@automate/shared-contracts';
 import type { RealtimeBus, RealtimeBusEvent, RunUpdatedPayload } from './realtime-bus.js';
 import { sanitizeOutboxNested } from '../infrastructure/outbox-sanitizer.js';
 
@@ -8,9 +8,9 @@ export interface DurableRealtimeWriter {
 }
 
 function sanitizeEvent(event: RealtimeBusEvent): RealtimeBusEvent {
-  if (event.type === 'run:updated') {
+  if (event.type === RUN_UPDATED_EVENT_TYPE) {
     return {
-      type: 'run:updated',
+      type: RUN_UPDATED_EVENT_TYPE,
       version: event.version,
       runId: event.runId,
       status: event.status,
@@ -23,8 +23,11 @@ function sanitizeEvent(event: RealtimeBusEvent): RealtimeBusEvent {
 }
 
 function dedupeKey(event: RealtimeBusEvent, workspaceId: string): string {
-  if (event.type === 'run:updated') {
-    return `realtime:${workspaceId}:run:updated:${event.runId}:${event.status}:${event.timestamp}`;
+  if (event.type === RUN_UPDATED_EVENT_TYPE) {
+    // Interpolated from the constant rather than spelled out: this string is a
+    // durable dedupe key, so a typo here would not throw — it would silently mint a
+    // second key and let the same event be appended twice.
+    return `realtime:${workspaceId}:${RUN_UPDATED_EVENT_TYPE}:${event.runId}:${event.status}:${event.timestamp}`;
   }
   return `realtime:${workspaceId}:${event.type}:${event.eventId}`;
 }
@@ -34,7 +37,9 @@ function toAppend(
   workspaceId: string,
   retentionHours: number,
 ): AppendOutboxEvent {
-  const occurredAt = new Date(event.type === 'run:updated' ? event.timestamp : event.occurredAt);
+  const occurredAt = new Date(
+    event.type === RUN_UPDATED_EVENT_TYPE ? event.timestamp : event.occurredAt,
+  );
   return {
     workspaceId,
     aggregateType: 'run',

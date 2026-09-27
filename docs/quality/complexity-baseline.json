@@ -1,31 +1,31 @@
 {
   "ceiling": 15,
-  "count": 32,
+  "count": 31,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 712,
+      "line": 715,
       "complexity": 73
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 1061,
+      "line": 1064,
       "complexity": 71
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1284,
+      "line": 1357,
       "complexity": 65
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 367,
+      "line": 391,
       "complexity": 50
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1065,
-      "complexity": 38
+      "line": 1098,
+      "complexity": 39
     },
     {
       "file": "apps/api/src/routes/events.ts",
@@ -34,7 +34,7 @@
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 254,
+      "line": 278,
       "complexity": 38
     },
     {
@@ -73,13 +73,8 @@
       "complexity": 29
     },
     {
-      "file": "apps/api/src/routes/execution.ts",
-      "line": 1014,
-      "complexity": 25
-    },
-    {
       "file": "apps/runner/src/runner-service.ts",
-      "line": 307,
+      "line": 310,
       "complexity": 25
     },
     {
@@ -98,8 +93,8 @@
       "complexity": 21
     },
     {
-      "file": "apps/api/src/routes/execution.ts",
-      "line": 953,
+      "file": "apps/api/src/routes/execution/jobs.routes.ts",
+      "line": 37,
       "complexity": 20
     },
     {
@@ -109,22 +104,22 @@
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1706,
+      "line": 1823,
       "complexity": 19
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 568,
+      "line": 569,
       "complexity": 19
     },
     {
       "file": "apps/api/src/middleware/auth.ts",
-      "line": 83,
+      "line": 84,
       "complexity": 19
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 139,
+      "line": 168,
       "complexity": 18
     },
     {
@@ -149,7 +144,7 @@
     },
     {
       "file": "apps/worker/src/worker.ts",
-      "line": 115,
+      "line": 118,
       "complexity": 16
     },
     {

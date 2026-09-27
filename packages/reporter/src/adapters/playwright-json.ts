@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { CanonicalRunResultSchema, type CanonicalRunResult } from '@automate/shared-contracts';
+import type { CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
+import { canonicalRunResult } from '../canonical-run-result.js';
 
 interface PlaywrightAttachment {
   name?: string;
@@ -112,8 +113,14 @@ export const playwrightJsonAdapter: ProducerAdapter = {
         return results.map((attempt, attemptIndex) => ({
           index: attemptIndex + 1,
           testId: `${spec.file}:${test.title ?? testIndex}`,
-          specPath: spec.file,
-          title: test.title ?? spec.title,
+          // `collectSpecs` only pushes a suite that has **both** `file` and `title`,
+          // so these are present by construction. They were typed `string | undefined`
+          // and handed to `CanonicalRunResultSchema.parse`, which would have rejected
+          // the whole result — the throw is real, but it surfaced as an opaque Zod
+          // error on a legitimate-looking report rather than at the point where the
+          // invariant is established.
+          specPath: spec.file as string,
+          title: (test.title ?? spec.title) as string,
           suite: spec.title,
           // Each attempt keeps its own status: the retry history is evidence and
           // must not be rewritten. Flakiness is recorded alongside it.
@@ -129,51 +136,20 @@ export const playwrightJsonAdapter: ProducerAdapter = {
       });
     });
     if (attempts.length === 0) throw new Error('Playwright report contains no test attempts');
-    const hasFailure = finalOutcomes.some(
-      (outcome) => outcome === 'failed' || outcome === 'timedOut',
-    );
-    const hasUnknown = finalOutcomes.some((outcome) => outcome === 'unknown');
-    const allSkipped = finalOutcomes.every((outcome) => outcome === 'skipped');
-    const hasFlaky = finalOutcomes.some((outcome) => outcome === 'flaky');
-    // Aggregated over final outcomes, not over every attempt: a test that failed
-    // once and then passed is flaky, not a failed run.
-    const status = hasFailure
-      ? 'failed'
-      : hasUnknown
-        ? 'unknown'
-        : allSkipped
-          ? 'skipped'
-          : hasFlaky
-            ? 'flaky'
-            : 'passed';
-    return CanonicalRunResultSchema.parse({
-      contractVersion: '2',
-      identity: {
-        runId: context.runId,
-        workspaceId: context.workspaceId,
-        projectId: context.projectId,
-      },
-      status,
-      startedAt: context.startedAt,
-      finishedAt: context.finishedAt,
-      attempts,
-      evidence: attempts.flatMap((attempt) => attempt.evidence),
-      provenance: {
+    // The status comes from `finalOutcomes` — one entry per *test* — not from
+    // `attempts`, which holds one entry per retry. A test that failed once and then
+    // passed contributes a `failed` attempt and a `flaky` outcome; deriving the run
+    // from attempts would report the run failed, and deriving it from the last
+    // attempt alone would report it passed.
+    return canonicalRunResult(
+      {
+        outcomes: finalOutcomes,
+        attempts,
+        evidence: attempts.flatMap((attempt) => attempt.evidence),
         producer: 'playwright',
-        producerVersion: context.producerVersion,
-        adapterVersion: context.adapterVersion,
-        sourceDigest: context.sourceDigest,
-        sourceUri: context.sourceUri,
-        project: context.projectId,
+        verifier: 'playwright-adapter',
       },
-      retention: { class: 'standard' },
-      proof: { state: 'unverified', digest: context.sourceDigest, verifier: 'playwright-adapter' },
-      completeness: {
-        state: hasUnknown ? 'unknown' : 'complete',
-        missingShards: [],
-        duplicateShards: [],
-      },
-      raw: {},
-    });
+      context,
+    );
   },
 };

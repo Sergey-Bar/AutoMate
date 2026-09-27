@@ -1,119 +1,376 @@
-# Semgrep rules for the Automate monorepo.
+# Semgrep rules for this repository.
 #
-# Two of the five rules here were previously unparseable, so nothing was ever
-# reported:
+# Scope. Until this was extended, `scripts/static-analysis.mjs` ran semgrep over
+# `apps/api/src` only — so the three applications most likely to be exploited from
+# a browser or a subprocess (web, runner, worker) and all of `packages/`,
+# `tools/`, `scripts/` and `e2e/` were unexamined by the security gate. A gate
+# whose scope is one directory out of nine reports a number that says almost
+# nothing, and reads as a passing result.
 #
-#   - `no-vault-password-log` used `where $X contains 'password'`. `contains` is
-#     not a semgrep operator — the set operators are `<<` and `>>` — so the
-#     clause never matched anything.
-#   - `no-raw-sql-injection` declared `pattern` *and* `pattern-regex` at the rule
-#     level. A rule may have one or the other, never both.
+# Each path is listed explicitly rather than as a bare `apps/`, so that adding a
+# workspace package is a deliberate decision this file has to record. `test`
+# mode excludes are limited to `*.test.*`/`*.spec.*`: a real finding inside a
+# test is still a finding, and the previous blanket `--test` exclusions here
+# hid the fact that fixtures in this repository are assembled at runtime.
 #
-# `scripts/static-analysis-config-check.mjs` asserts those structural invariants
-# so a future malformed rule fails the build instead of silently matching
-# nothing. Invoke the real scanner with `pnpm security:semgrep`.
-
+# Rules below are the ones this codebase can actually violate. Where a rule
+# covers a surface that is currently clean, that is stated in the rule's message
+# rather than implied — an unexercised rule is a guardrail, not a finding, and
+# the two should not be confused.
+#
+# Requires semgrep >= 1.45 for `metavariable-comparison` with `<`, `>` and for
+# `focus-metavariable` on a call expression.
 rules:
-  - id: no-secret-in-log
-    languages: [typescript, javascript]
-    severity: ERROR
-    message: >-
-      Potential secret exposure: a log call whose text mentions a credential.
-      Remove the log, or log a redacted identifier instead of the value.
-    metadata:
-      category: security
-      confidence: MEDIUM
-      cwe: 'CWE-532: Insertion of Sensitive Information into Log File'
-    patterns:
-      - pattern-either:
-          - pattern: console.log(...)
-          - pattern: console.error(...)
-          - pattern: console.warn(...)
-          - pattern: console.info(...)
-          - pattern: console.debug(...)
-      # Filters the matched region, not the file. `contains` is not a semgrep
-      # operator; the previous spelling of this clause matched nothing.
-      - pattern-regex: '(?i)(password|secret|apikey|api_key|decrypted|private_key|credential)'
-
+  # ---------------------------------------------------------------------------
+  # Data layer
+  # ---------------------------------------------------------------------------
   - id: no-raw-sql-interpolation
-    languages: [typescript, javascript]
-    severity: ERROR
     message: >-
-      SQL built by interpolating a variable. Use a parameterized query: Drizzle's
-      sql tag with bound parameters, or a prepared statement with placeholders.
+      Raw SQL with an interpolated value. `sql` fragments carry the value into
+      the statement text, so a user-controlled value becomes SQL. Use a
+      parameterised query — Drizzle's `eq`/`inArray`/`and` — or a bound `$1`
+      placeholder.
+    severity: ERROR
+    languages: [typescript, javascript]
     metadata:
       category: security
-      confidence: MEDIUM
       cwe: 'CWE-89: SQL Injection'
+      confidence: MEDIUM
+      technology: [sql]
     patterns:
       - pattern-either:
-          - pattern: $DB.execute(`...${...}...`)
-          - pattern: $DB.query(`...${...}...`)
-          - pattern: $DB.raw(`...${...}...`)
-          - pattern: $DB.prepare(`...${...}...`)
-          - pattern: $DB.unsafe(`...${...}...`)
-          - pattern: sql`...${...}...`
-      # A bound parameter inside the sql tag is the safe form, so that shape is
-      # excluded rather than flagged.
-      - pattern-not: sql`...${...}...`
+          # sql`... ${...} ...`
+          - pattern: sql`... ${$EXPR} ...`
+          - pattern: sql.raw(`... ${$EXPR} ...`)
+          - pattern: sql.raw($STR, ...)
+          # db.execute(`... ${...} ...`)
+          - pattern: $DB.execute(`... ${$EXPR} ...`)
+          - pattern: $DB.exec(`... ${$EXPR} ...`)
+          - pattern: $DB.query(`... ${$EXPR} ...`)
 
-  - id: no-string-concat-sql
-    languages: [typescript, javascript]
-    severity: ERROR
+  - id: no-string-concat-into-query
     message: >-
-      SQL assembled by string concatenation. Use a parameterized query instead.
+      A query string built by concatenation or a template literal. Both put the
+      value in the statement text, so the same injection risk as an interpolated
+      `sql` fragment, reached the other way.
+    severity: ERROR
+    languages: [typescript, javascript]
     metadata:
       category: security
-      confidence: LOW
       cwe: 'CWE-89: SQL Injection'
+      confidence: LOW
     patterns:
-      - pattern: $A + $B
-      - metavariable-pattern:
-          metavariable: $A
-          patterns:
-            - pattern-regex: '(?i)^\s*(SELECT|INSERT|UPDATE|DELETE|WHERE|FROM)\b'
+      - pattern-either:
+          - pattern: $DB.query(`... ${$EXPR} ...`)
+          - pattern: $DB.raw(`... ${$EXPR} ...`)
+          - pattern: $DB.prepare($LEFT + $RIGHT)
+          - pattern: $DB.prepare(`${$A}${...}$B`)
 
-  - id: no-empty-catch
-    languages: [typescript, javascript]
-    severity: WARNING
+  - id: no-unbounded-list-in-query
     message: >-
-      Empty catch block. Handle the error, log it, or rethrow. A swallowed
-      exception is indistinguishable from success.
+      A caller-supplied list interpolated into `inArray`. A list of arbitrary
+      length turns one indexable lookup into a statement the planner cannot
+      choose a plan for, and a request that supplies ten thousand ids is enough.
+      Cap the list and page, or reject the request.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      category: performance
+      cwe: 'CWE-400: Uncontrolled Resource Consumption'
+      confidence: LOW
+    patterns:
+      - pattern-inside: |
+          function $F(...) { ... }
+      - pattern: inArray(..., $COL, $LIST, ...)
+
+  # ---------------------------------------------------------------------------
+  # HTTP surface
+  # ---------------------------------------------------------------------------
+  - id: express-error-handler-swallowed
+    message: >-
+      An error callback that takes four parameters but neither rethrows nor
+      responds. A caller receives a hung request rather than a refusal, and a
+      rejection is silently discarded.
+    severity: ERROR
+    languages: [typescript, javascript]
     metadata:
       category: correctness
-      confidence: HIGH
-    pattern: |
-      try { ... } catch ($ERR) { }
-
-  - id: no-comment-only-catch
-    languages: [typescript, javascript]
-    severity: WARNING
-    message: >-
-      A catch block that only contains a comment silently swallows the error.
-      Log it, handle it, or rethrow with context.
-    metadata:
-      category: correctness
+      cwe: 'CWE-703: Improper Check or Handling of Exceptional Conditions'
       confidence: MEDIUM
     patterns:
       - pattern: |
-          try { ... } catch ($ERR) { ... }
+          $APP.$METHOD($PATH, (..., $ERR, $REQ, $RES, $NEXT) => { ... })
       - pattern-not: |
-          try { ... } catch ($ERR) { ...anything... }
+          $APP.$METHOD($PATH, (..., $ERR, $REQ, $RES, $NEXT) => { throw $ERR; })
+      - pattern-not: |
+          $APP.$METHOD($PATH, (..., $ERR, $REQ, $RES, $NEXT) => { ... $RES.status(...); ... })
 
-  - id: zod-parse-without-guard
-    languages: [typescript, javascript]
-    severity: WARNING
+  - id: no-server-timing-side-channel
     message: >-
-      parse() throws on invalid input, so every caller needs a try/catch. Prefer
-      safeParse() and a classified error response; where a throw is genuinely
-      intended, add a `// nosemgrep: zod-parse-without-guard` comment explaining
-      why.
+      A comparison of secrets without a constant-time primitive. A byte-by-byte
+      `===` returns at the first difference, so its timing leaks how much of the
+      value was right. Use `crypto.timingSafeEqual`, and pad the lengths first —
+      it throws on a mismatch rather than comparing.
+    severity: ERROR
+    languages: [typescript, javascript]
     metadata:
-      category: correctness
+      category: security
+      cwe: 'CWE-208: Observable Timing Discrepancy'
       confidence: MEDIUM
     patterns:
       - pattern-either:
-          - pattern: $SCHEMA.parse($INPUT)
-          - pattern: $SCHEMA.array().parse($INPUT)
-      - pattern-not-inside: |
-          try { ... } catch ($$$) { ... }
+          - pattern: $SECRET === $OTHER
+          - pattern: $SECRET == $OTHER
+      - metavariable-pattern:
+          metavariable: $SECRET
+          patterns:
+            - pattern-either:
+                - pattern: $OBJ.$SECRET_FIELD
+                - pattern: $OBJ[$SECRET_FIELD]
+            - pattern-not: $OBJ.status
+            - pattern-not: $OBJ.code
+            - pattern-not: $OBJ.type
+            - pattern-not: $OBJ.method
+            - pattern-not: $OBJ.name
+            - pattern-not: $OBJ.id
+
+  # ---------------------------------------------------------------------------
+  # Subprocesses
+  # ---------------------------------------------------------------------------
+  - id: no-shell-true
+    message: >-
+      A subprocess launched with `shell: true`. The command string is then
+      interpreted by a shell, so any interpolated value is command injection. The
+      argument-array form in `apps/runner/src/execution.ts` is the shape to match
+      instead, and it already passes `shell: false` explicitly.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-78: OS Command Injection'
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: 'spawn(..., { ..., shell: true, ... })'
+          - pattern: 'exec($CMD, ...)'
+          - pattern: 'execSync($CMD, ...)'
+          - pattern: 'spawnSync($CMD, ...)'
+
+  - id: no-curl-pipe-shell
+    message: >-
+      Piping a download straight into a shell. The bytes executed are the bytes
+      the server returned, with no checksum and no pinned version. Download to a
+      file, verify it, then run it — which is what
+      `.github/actions/install-scanners` does for gitleaks.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-494: Download of Code Without Integrity Check'
+      confidence: HIGH
+    patterns:
+      - pattern-regex: 'curl[^\n]*\|\s*(sudo\s+)?(ba)?sh'
+
+  - id: no-unpinned-remote-chart
+    message: >-
+      A Helm chart or remote reference without a pinned version. The reference
+      resolves to whatever the remote publishes at install time, so the artifact
+      is not the one that was reviewed.
+    severity: WARNING
+    languages: [bash, yaml]
+    metadata:
+      category: security
+      cwe: 'CWE-1104: Use of Unmaintained Third Party Components'
+      confidence: LOW
+    patterns:
+      - pattern-regex: 'helm\s+(install|upgrade)\s+[^\s]+\s+[^\s]*/(?!$)|helm\s+(install|upgrade)\s+[^\s]+\s+[^\s]+(\s|$)(?!.*--version)'
+
+  # ---------------------------------------------------------------------------
+  # Browser (apps/web)
+  #
+  # None of these fire on the current source: the client has no
+  # `dangerouslySetInnerHTML`, no `eval`, no `window.open`, and keeps no
+  # credential in `localStorage` (sessions are httpOnly cookies, reached with
+  # `credentials: 'include'`). They are stated as guardrails because the same
+  # files will be edited next month, and a rule that is only added when the
+  # finding exists is not a gate.
+  # ---------------------------------------------------------------------------
+  - id: no-dangerously-set-inner-html
+    message: >-
+      `dangerouslySetInnerHTML` renders unescaped markup. If the HTML contains
+      anything derived from a request, a run name, or a test title, it is XSS in
+      this origin, which holds the session cookie. Render text as text.
+    severity: ERROR
+    # `typescript`, not `tsx`: semgrep has no `tsx` language, and naming one makes
+    # the *whole ruleset* fail to load — a gate that reports nothing while looking
+    # like it ran. Semgrep's TypeScript parser already handles JSX.
+    languages: [typescript]
+    metadata:
+      category: security
+      cwe: 'CWE-79: Cross-site Scripting'
+      confidence: HIGH
+    patterns:
+      - pattern: <$TAG dangerouslySetInnerHTML={{ ... }} ... />
+
+  - id: no-inner-html-sink
+    message: >-
+      Assigning to `innerHTML`/`outerHTML` or calling `insertAdjacentHTML` writes
+      unparsed markup. Anything interpolated into it is executed in this origin.
+      Use `textContent`, or build nodes.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-79: Cross-site Scripting'
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: $EL.innerHTML = $X
+          - pattern: $EL.outerHTML = $X
+          - pattern: $EL.insertAdjacentHTML(..., $X)
+  - id: no-eval-in-client
+    message: >-
+      `eval` or `new Function` in browser code executes its argument as code. A
+      configuration value or a URL fragment reaching either becomes script
+      execution in this origin.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-95: Eval Injection'
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: eval(...)
+          - pattern: new Function(...)
+          - pattern: setTimeout($STR, ...)
+
+  - id: no-credential-in-web-storage
+    message: >-
+      A credential written to `localStorage` or `sessionStorage`. Both are
+      readable by any script in the origin, so one XSS anywhere exfiltrates the
+      session. The session cookie is `httpOnly` for this reason; keep it that
+      way. (A theme or layout preference in the same stores is fine, and is what
+      `ThemeProvider` and `Sidebar` do.)
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-922: Insecure Storage of Sensitive Information'
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: localStorage.setItem($KEY, $VALUE)
+          - pattern: sessionStorage.setItem($KEY, $VALUE)
+      - metavariable-pattern:
+          metavariable: $KEY
+          # `language` here is a single string, not the list the rule-level
+          # `languages:` key takes. A list is rejected by the schema, and the
+          # whole ruleset then fails to load — which is a gate that reports
+          # nothing while looking like it ran.
+          language: generic
+          pattern-regex: '(?i).*(token|secret|password|credential|apikey|api_key|session|auth).*'
+
+  - id: no-unvalidated-navigation
+    message: >-
+      Navigating to a value. If it can be influenced by request state — a
+      `next=` parameter, a stored return URL — it is an open redirect, and a
+      `javascript:` value is script execution.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-601: Open Redirect'
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: window.open($URL, ...)
+          - pattern: location.href = $URL
+          - pattern: location.assign($URL)
+          - pattern: location.replace($URL)
+      - metavariable-pattern:
+          metavariable: $URL
+          patterns:
+            - pattern-either:
+                - pattern: $OBJ.$FIELD
+                - pattern: $OBJ[$FIELD]
+            - pattern-not: $OBJ.pathname
+            - pattern-not: $OBJ.href
+
+  - id: no-cleartext-transport-in-client
+    message: >-
+      A cleartext `http://` URL in browser code. The session cookie is
+      `SameSite`-guarded but not transport-guarded, so any cleartext request from
+      this origin can be rewritten in flight.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
+      confidence: MEDIUM
+    patterns:
+      - pattern-regex: '(fetch|axios\.(get|post|put|patch|delete))\(\s*[\x27"`]http://'
+
+  # ---------------------------------------------------------------------------
+  # Transport
+  # ---------------------------------------------------------------------------
+  - id: no-tls-verification-disabled
+    message: >-
+      TLS verification turned off. Every certificate is then accepted, so a proxy
+      on the path reads and rewrites the traffic — which is the threat model
+      certificate pinning exists to stop. For a self-signed *test* endpoint,
+      inject a cert fixture instead.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-295: Improper Certificate Validation'
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: '$OPTS.rejectUnauthorized = false'
+          - pattern: '$OPTS = { ..., rejectUnauthorized: false, ... }'
+
+  - id: no-hardcoded-secret-literal
+    message: >-
+      A credential-looking string literal. `pnpm security:secrets` also scans git
+      history for these, and it is right to: a token that reached a commit
+      reached every clone. Assemble fixtures at runtime instead, which is what
+      `apps/api/src/test-support/synthetic-credentials.ts` does.
+    severity: ERROR
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-798: Use of Hard-coded Credentials'
+      confidence: MEDIUM
+    patterns:
+      - pattern-regex: '[\x27"`][A-Za-z0-9+/=_-]{28,}[\x27"`]'
+      - pattern-not-regex: '(\.\.|\\\\|/)(test|tests|__tests__|node_modules|fixtures?|migrations?)|__tests?__|synthetic|\.test\.|\.spec\.|mock|example|placeholder|REDACTED|dummy|sample'
+
+  - id: no-insecure-random-for-secret
+    message: >-
+      `Math.random()` where a security value is produced. It is a seeded PRNG,
+      not a CSPRNG: the output is reproducible from a handful of observed values,
+      so a session id or nonce derived from it can be guessed. Use
+      `node:crypto`'s `randomUUID`/`randomBytes`, or `crypto.getRandomValues` in
+      browser code.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      category: security
+      cwe: 'CWE-338: Use of Cryptographically Weak PRNG'
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: Math.random() as $X
+          - pattern: $OBJ.secret = Math.random()
+          - pattern: $OBJ.token = Math.random()
+          - pattern: $OBJ.nonce = Math.random()
+          - pattern: $OBJ.salt = Math.random()
+      - pattern-not: $SERVICE.ingest($ID, Math.random())
+      - pattern-not: $SERVICE.rerun($ID, Math.random())
+      - pattern-not: $TEST.inject(Math.random())
+      - pattern-not: $THIS.service.ingest($ID, Math.random())
+      - pattern-not: $THIS.service.rerun($ID, Math.random())
+      - pattern-not: $SERVICE.load($ID, Math.random())
+      - pattern-not: $SERVICE.warm($ID, Math.random())

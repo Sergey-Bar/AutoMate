@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import type { ArtifactBytesStore } from './artifact-store.js';
 
 /**
  * Minimal S3-compatible artifact bytes adapter.
@@ -248,7 +249,7 @@ async function discard(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
-export class S3ArtifactBytesStore {
+export class S3ArtifactBytesStore implements ArtifactBytesStore {
   private readonly settings: ObjectStoreSettings;
   private readonly base: URL;
   private readonly now: () => Date;
@@ -271,6 +272,21 @@ export class S3ArtifactBytesStore {
     const response = await this.send('PUT', key, bytes, BINARY_CONTENT_TYPE);
     if (!response.ok) throw await this.failure('put', key, response);
     await discard(response);
+  }
+
+  /**
+   * Removes the object, and treats an absent one as success.
+   *
+   * A `DELETE` for a key that was never written is the compensating path's own
+   * race: the object store answers 404, and 404 is the outcome the caller wanted.
+   * Reporting it as a failure would turn a cleaned-up write into a 500.
+   */
+  async delete(storageKey: string): Promise<void> {
+    const key = assertArtifactStorageKey(storageKey);
+    const response = await this.send('DELETE', key, new Uint8Array());
+    await discard(response);
+    if (response.status === 404) return;
+    if (!response.ok) throw await this.failure('delete', key, response);
   }
 
   async get(storageKey: string): Promise<Uint8Array | null> {
@@ -311,7 +327,7 @@ export class S3ArtifactBytesStore {
   }
 
   private async send(
-    method: 'GET' | 'PUT',
+    method: 'GET' | 'PUT' | 'DELETE',
     key: string,
     payload: Uint8Array,
     contentType?: string,

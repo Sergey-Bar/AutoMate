@@ -13,7 +13,6 @@ import {
   RunCompletedEventSchema,
   RunUpdatedEventSchema,
   TestCompletedEventSchema,
-  AIToolEventSchema,
 } from './events.js';
 
 // ---------------------------------------------------------------------------
@@ -186,39 +185,6 @@ describe('FlatRealtimeEventSchema — run:updated', () => {
 });
 
 // ---------------------------------------------------------------------------
-// FlatRealtimeEventSchema — ai:tool
-// ---------------------------------------------------------------------------
-
-describe('FlatRealtimeEventSchema — ai:tool', () => {
-  const valid = {
-    type: 'ai:tool',
-    version: '1',
-    conversationId: 'conv-001',
-    toolName: 'create_issue',
-    status: 'started',
-    timestamp: '2024-01-01T00:02:00.000Z',
-  };
-
-  it('parses a valid ai:tool event', () => {
-    ok(FlatRealtimeEventSchema.safeParse(valid));
-  });
-
-  it('rejects wrong version', () => {
-    fail(FlatRealtimeEventSchema.safeParse({ ...valid, version: '' }));
-  });
-
-  it('rejects missing toolName', () => {
-    const { toolName: _tn, ...rest } = valid;
-    fail(FlatRealtimeEventSchema.safeParse(rest));
-  });
-
-  it('rejects missing conversationId', () => {
-    const { conversationId: _c, ...rest } = valid;
-    fail(FlatRealtimeEventSchema.safeParse(rest));
-  });
-});
-
-// ---------------------------------------------------------------------------
 // FlatRealtimeEventSchema — test:completed (shared schema)
 // ---------------------------------------------------------------------------
 
@@ -318,21 +284,6 @@ describe('TestCompletedEventSchema', () => {
         title: 'my test',
         status: 'passed',
         duration: 10,
-      }),
-    );
-  });
-});
-
-describe('AIToolEventSchema', () => {
-  it('parses a minimal valid ai:tool event', () => {
-    ok(
-      AIToolEventSchema.safeParse({
-        type: 'ai:tool',
-        version: '1',
-        conversationId: 'c-1',
-        toolName: 'run_query',
-        status: 'completed',
-        timestamp: '2024-01-01T00:00:00.000Z',
       }),
     );
   });

@@ -31,13 +31,17 @@ import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import path from 'node:path';
 import {
   CANONICAL_REPORTER_EVENT_TYPES,
   LEGACY_FLAT_V1_CONTRACT_ID,
   PERSISTED_RUN_STATUS_VALUES,
   REPORTER_EVENT_VERSION,
+  RUN_COMPLETED_EVENT_TYPE,
   RUN_CONTRACT_VERSION,
+  RUN_STARTED_EVENT_TYPE,
+  RUN_UPDATED_EVENT_TYPE,
+  TEST_COMPLETED_EVENT_TYPE,
+  TEST_STARTED_EVENT_TYPE,
 } from '@automate/shared-contracts';
 import {
   toPersistedStatus,
@@ -46,6 +50,8 @@ import {
   type TestStatus,
 } from '../repositories/run-repository.js';
 import { persistReporterEvent } from '../services/reporter-persistence.js';
+import { bearerToken } from '../http/bearer-token.js';
+import { safeRelativePath } from '../http/safe-path.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
 
 // ---------------------------------------------------------------------------
@@ -77,12 +83,22 @@ export type LegacyReporterEvent = z.infer<typeof LegacyReporterEventSchema>;
 // New versioned wire shape
 // ---------------------------------------------------------------------------
 
-/** Reporter SDK v1 colon vocabulary declared in shared-contracts reporter-events. */
+/**
+ * The reporter SDK v1 colon vocabulary, derived from the contract's constants.
+ *
+ * These four were spelled out as bare strings here, in the contract's own schemas,
+ * in `packages/realtime`'s flat broadcast schemas, and in the reporter adapters — so
+ * adding or renaming an event meant finding all of them, and missing one produced an
+ * event that was valid under its writer and silently dropped by its reader. The
+ * contract owns the strings (`event-type-ownership.test.ts` fails if one is written
+ * as a literal outside it); this list says only which of them belong to the v1 wire
+ * shape, because that is a statement about *this* route, not about the vocabulary.
+ */
 const REPORTER_V1_EVENT_TYPES = [
-  'run:started',
-  'test:started',
-  'test:completed',
-  'run:completed',
+  RUN_STARTED_EVENT_TYPE,
+  TEST_STARTED_EVENT_TYPE,
+  TEST_COMPLETED_EVENT_TYPE,
+  RUN_COMPLETED_EVENT_TYPE,
 ] as const;
 
 const VERSIONED_EVENT_VERSIONS = [REPORTER_EVENT_VERSION, RUN_CONTRACT_VERSION] as const;
@@ -188,11 +204,10 @@ const UNRESOLVED_TEST_STATUSES: ReadonlySet<TestStatus> = new Set<TestStatus>([
 ]);
 
 function sanitizePath(rawPath: string): string {
-  const normalized = path.normalize(rawPath);
-  if (path.isAbsolute(normalized) || normalized.includes('..') || normalized.includes('\0')) {
-    return path.basename(normalized);
-  }
-  return normalized.split(path.sep).join('/');
+  // The rule lives in `http/safe-path.ts` because `services/reporter-persistence.ts`
+  // sanitises the same field on the way to disk and used to carry its own
+  // byte-identical copy. One rule, one name.
+  return safeRelativePath(rawPath);
 }
 
 function countStatuses(tests: ReadonlyArray<z.infer<typeof UploadedTestSchema>>): {
@@ -227,6 +242,15 @@ function countStatuses(tests: ReadonlyArray<z.infer<typeof UploadedTestSchema>>)
  *   - any row that never resolved (queued/running) → non-green (unknown)
  *   - no row actually passed                     → non-green (unknown)
  *   - otherwise                                  → passed
+ *
+ * The `summary` counts are combined with the derived ones by **maximum**, never
+ * by preference. They used to be read as `summary?.failed ?? derived.failed`,
+ * which is a preference for the client: a body carrying one failing row and
+ * `summary: { total: 99, passed: 99, failed: 0 }` derived `passed`, because the
+ * declared `failed: 0` suppressed the row-derived `1`. A client could therefore
+ * turn a failing suite green by attaching a summary that disagreed with its own
+ * rows — which is the one thing this function exists to prevent. A summary is a
+ * claim about the rows, so the worst reading of the two is the honest one.
  */
 function deriveUploadStatus(
   tests: ReadonlyArray<UploadedTest>,
@@ -234,11 +258,11 @@ function deriveUploadStatus(
 ): RunStatus {
   const derived = countStatuses(tests);
   if (tests.length === 0) return UNDETERMINED_RUN_STATUS;
-  if ((summary?.failed ?? derived.failed) > 0) return 'failed';
+  if (Math.max(summary?.failed ?? 0, derived.failed) > 0) return 'failed';
   if (tests.some((test) => UNRESOLVED_TEST_STATUSES.has(normalizeTestStatus(test.status)))) {
     return UNDETERMINED_RUN_STATUS;
   }
-  if ((summary?.passed ?? derived.passed) === 0) return UNDETERMINED_RUN_STATUS;
+  if (Math.max(summary?.passed ?? 0, derived.passed) === 0) return UNDETERMINED_RUN_STATUS;
   return 'passed';
 }
 
@@ -620,7 +644,7 @@ async function persistUploadPayload(
     // nothing to await. Marked so the intent is visible here rather than left
     // implicit.
     void bus.publish({
-      type: 'run:updated',
+      type: RUN_UPDATED_EVENT_TYPE,
       version: '1',
       runId: payload.runId,
       status,
@@ -738,15 +762,14 @@ export function createReporterRoutes(
     // Accept token from Authorization header (preferred).
     // Query param ?token= is only accepted when allowQueryToken is explicitly enabled
     // (legacy ws-reporter compatibility mode).
-    const authHeader = c.req.header('Authorization');
     const queryToken = c.req.query('token');
 
-    let token: string | undefined;
-    if (authHeader?.startsWith('Bearer ')) {
-      token = authHeader.slice(7);
-    } else if (options?.allowQueryToken && queryToken !== undefined && queryToken !== '') {
-      token = queryToken;
-    }
+    const headerToken = bearerToken(c.req.header('Authorization'));
+    const token =
+      headerToken ??
+      (options?.allowQueryToken && queryToken !== undefined && queryToken !== ''
+        ? queryToken
+        : undefined);
 
     if (token === undefined) {
       return c.json({ error: 'Missing reporter authentication token' }, 401);
@@ -820,7 +843,7 @@ export function createReporterRoutes(
         const run = await options.repository.getRun(normalized.runId);
         if (run !== null) {
           await await options.bus.publish({
-            type: 'run:updated',
+            type: RUN_UPDATED_EVENT_TYPE,
             version: '1',
             runId: run.id,
             status: run.status,

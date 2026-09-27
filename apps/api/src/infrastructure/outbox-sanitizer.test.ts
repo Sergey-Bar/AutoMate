@@ -8,7 +8,7 @@ import {
   syntheticJwt,
   syntheticPrivateKeyBlock,
   syntheticSlackToken,
-} from './synthetic-credentials.js';
+} from '../test-support/synthetic-credentials.js';
 
 describe('outbox payload sanitizer', () => {
   it('keeps the keys the store is allowed to publish', () => {

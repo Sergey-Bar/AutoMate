@@ -1,7 +1,14 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { useAnalytics, useQuarantine, useReleaseReadiness, useRunDetail } from './useDashboard.js';
-import { makeApi, makeRun, TEST_TIMESTAMP } from '../test-utils.js';
+import {
+  abortError,
+  deferred,
+  fetchAborting,
+  makeApi,
+  makeRun,
+  TEST_TIMESTAMP,
+} from '../test-utils.js';
 import type { RunEventSubscription } from '../lib/api.js';
 
 const gate = {
@@ -62,8 +69,8 @@ describe('dashboard hooks', () => {
     await waitFor(() => expect(result.current.run?.id).toBe('run-a'));
     rerender({ id: 'run-b' });
     await waitFor(() => expect(result.current.run?.id).toBe('run-b'));
-    expect(api.getRun).toHaveBeenCalledWith('run-a');
-    expect(api.getRun).toHaveBeenCalledWith('run-b');
+    expect(api.getRun).toHaveBeenCalledWith('run-a', { signal: expect.any(AbortSignal) });
+    expect(api.getRun).toHaveBeenCalledWith('run-b', { signal: expect.any(AbortSignal) });
   });
 
   it('loads artifacts, gate, and release readiness without hiding the run', async () => {
@@ -141,6 +148,7 @@ describe('dashboard hooks', () => {
           testFile: 'tests/existing.spec.ts',
           reason: null,
           quarantinedAt: TEST_TIMESTAMP,
+          status: 'pending',
         },
       ]),
       addQuarantine: vi.fn().mockResolvedValue({
@@ -149,6 +157,7 @@ describe('dashboard hooks', () => {
         testFile: 'tests/new.spec.ts',
         reason: 'intermittent timeout',
         quarantinedAt: TEST_TIMESTAMP,
+        status: 'pending',
       }),
     });
     const { result } = renderHook(() => useQuarantine(api));
@@ -343,5 +352,347 @@ describe('dashboard hooks', () => {
     await waitFor(() =>
       expect(quarantine.result.current.error?.message).toBe('Quarantine unavailable'),
     );
+  });
+});
+
+/** The options argument every `ApiClient` method takes as its second parameter. */
+interface RequestOptionsLike {
+  signal?: AbortSignal;
+}
+
+/**
+ * A request that behaves like a real one: it stays open until its signal
+ * aborts, and then rejects with an `AbortError`.
+ */
+function openUntilAborted(
+  record: (signal: AbortSignal) => void,
+): (_id: string, options?: RequestOptionsLike) => Promise<never> {
+  return (_id, options) => {
+    if (options?.signal) record(options.signal);
+    return fetchAborting(options?.signal);
+  };
+}
+
+function signalAt(call: unknown[] | undefined, index: number): AbortSignal | undefined {
+  return (call?.[index] as RequestOptionsLike | undefined)?.signal;
+}
+
+describe('dashboard hook cancellation', () => {
+  it('aborts the run request and cancels the whole snapshot on unmount', async () => {
+    const signals: Record<string, AbortSignal> = {};
+    const record = (key: string) => (signal: AbortSignal) => {
+      signals[key] = signal;
+    };
+    const run = makeRun({ id: 'run-a' });
+    const api = makeApi({
+      getRun: vi.fn((_id, options) => {
+        record('getRun')(options?.signal as AbortSignal);
+        return Promise.resolve(run);
+      }),
+      getRunArtifacts: vi.fn(openUntilAborted(record('getRunArtifacts'))),
+      getRunGate: vi.fn(openUntilAborted(record('getRunGate'))),
+      getReleaseReadiness: vi.fn(openUntilAborted(record('getReleaseReadiness'))),
+    });
+
+    const { result, unmount } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() =>
+      expect(Object.keys(signals).sort()).toEqual([
+        'getReleaseReadiness',
+        'getRun',
+        'getRunArtifacts',
+        'getRunGate',
+      ]),
+    );
+    for (const [key, signal] of Object.entries(signals)) {
+      expect(signal.aborted, `${key} should still be open`).toBe(false);
+    }
+
+    unmount();
+
+    for (const [key, signal] of Object.entries(signals)) {
+      expect(signal.aborted, `${key} should be aborted on unmount`).toBe(true);
+    }
+    expect(result.current.error).toBeNull();
+  });
+
+  it('shares one signal across the run and its evidence, so a refresh cancels all of it', async () => {
+    const run = makeRun({ id: 'run-a' });
+    const signals: AbortSignal[] = [];
+    const api = makeApi({
+      getRun: vi.fn((_id, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return Promise.resolve(run);
+      }),
+      getRunArtifacts: vi.fn((_id, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return fetchAborting(options?.signal);
+      }),
+      getRunGate: vi.fn((_id, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return fetchAborting(options?.signal);
+      }),
+      getReleaseReadiness: vi.fn((_id, options) => {
+        if (options?.signal) signals.push(options.signal);
+        return fetchAborting(options?.signal);
+      }),
+    });
+
+    const { result, unmount } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.run?.id).toBe('run-a'));
+    expect(signals.length).toBeGreaterThanOrEqual(3);
+    // A snapshot assembled from endpoints that were not cancelled together can
+    // mix two different moments in time.
+    expect(new Set(signals).size).toBe(1);
+    // The run request and the evidence sweep are the same snapshot, so they
+    // arrive under one signal rather than two independent ones.
+    expect(signalAt(vi.mocked(api.getRun).mock.calls[0], 1)).toBe(signals[0]);
+    expect(signalAt(vi.mocked(api.getRunArtifacts).mock.calls[0], 1)).toBe(signals[0]);
+
+    await act(async () => {
+      void result.current.refresh();
+      await Promise.resolve();
+    });
+
+    expect(signals[0]?.aborted).toBe(true);
+    expect(new Set(signals).size).toBe(2);
+    unmount();
+    for (const signal of signals) expect(signal.aborted).toBe(true);
+  });
+
+  it('does not report a cancelled evidence sweep as missing evidence', async () => {
+    const run = makeRun({ id: 'run-a' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(run),
+      getRunArtifacts: vi.fn((_id, options) => fetchAborting(options?.signal)),
+      getRunGate: vi.fn((_id, options) => fetchAborting(options?.signal)),
+      getReleaseReadiness: vi.fn((_id, options) => fetchAborting(options?.signal)),
+    });
+
+    const { result, unmount } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.run?.id).toBe('run-a'));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // "Some run evidence could not be refreshed" is a claim about the server. A
+    // request this hook cancelled says nothing about the server.
+    expect(result.current.evidenceError).toBeNull();
+
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.evidenceError).toBeNull();
+  });
+
+  it('aborts analytics, quarantine and readiness loads on unmount', async () => {
+    const analyticsSignals: AbortSignal[] = [];
+    const analytics = renderHook(() =>
+      useAnalytics(
+        makeApi({
+          getAnalyticsSummary: vi.fn((options) => {
+            if (options?.signal) analyticsSignals.push(options.signal);
+            return fetchAborting(options?.signal);
+          }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(analyticsSignals).toHaveLength(1));
+    analytics.unmount();
+    expect(analyticsSignals[0]?.aborted).toBe(true);
+
+    const quarantineSignals: AbortSignal[] = [];
+    const quarantine = renderHook(() =>
+      useQuarantine(
+        makeApi({
+          getQuarantine: vi.fn((options) => {
+            if (options?.signal) quarantineSignals.push(options.signal);
+            return fetchAborting(options?.signal);
+          }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(quarantineSignals).toHaveLength(1));
+    quarantine.unmount();
+    expect(quarantineSignals[0]?.aborted).toBe(true);
+
+    const readinessSignals: AbortSignal[] = [];
+    const readiness = renderHook(() =>
+      useReleaseReadiness(
+        'release-1',
+        makeApi({
+          getReleaseReadiness: vi.fn((_id, options) => {
+            if (options?.signal) readinessSignals.push(options.signal);
+            return fetchAborting(options?.signal);
+          }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(readinessSignals).toHaveLength(1));
+    readiness.unmount();
+    expect(readinessSignals[0]?.aborted).toBe(true);
+  });
+
+  it('does not write an action result into a component that has unmounted', async () => {
+    const run = makeRun({ id: 'run-a', phase: 'running' });
+    const cancelled = makeRun({ id: 'run-a', phase: 'cancelled', outcome: 'cancelled' });
+    const pending = deferred<ReturnType<typeof makeRun>>();
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(run),
+      getRunArtifacts: vi.fn().mockResolvedValue([]),
+      getRunGate: vi.fn().mockResolvedValue(null),
+      getReleaseReadiness: vi.fn().mockResolvedValue(null),
+      cancelRun: vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(cancelled),
+    });
+
+    const { result, unmount } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.run?.phase).toBe('running'));
+    const inFlight = result.current.cancel();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    unmount();
+
+    // The cancel resolves after the component is gone. It must be returned to its
+    // caller and written nowhere: the run is not replaced with the cancelled one,
+    // no error is raised, and `isActing` is left at the value it had — still
+    // `true`, because writing `false` to a dead component is itself the write.
+    await act(async () => {
+      pending.resolve(cancelled);
+      await expect(inFlight).resolves.toMatchObject({ phase: 'cancelled' });
+    });
+    expect(result.current.run?.phase).toBe('running');
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.isActing).toBe(true);
+  });
+});
+
+describe('dashboard hook failure and emptiness', () => {
+  it('keeps the previously-good run and evidence when a later refresh fails', async () => {
+    const run = makeRun({ id: 'run-a' });
+    const artifact = {
+      id: 'artifact-1',
+      runId: run.id,
+      jobId: null,
+      testId: null,
+      kind: 'json',
+      name: 'results.json',
+      contentType: 'application/json',
+      storageKey: 'runs/run-a/results.json',
+      checksum: 'a'.repeat(64),
+      sizeBytes: 20,
+      createdAt: TEST_TIMESTAMP,
+      expiresAt: null,
+      legalHold: false,
+      metadata: {},
+    };
+    const api = makeApi({
+      getRun: vi
+        .fn()
+        .mockResolvedValueOnce(run)
+        .mockRejectedValue(new TypeError('Failed to fetch')),
+      getRunArtifacts: vi.fn().mockResolvedValue([artifact]),
+      getRunGate: vi.fn().mockResolvedValue(null),
+      getReleaseReadiness: vi.fn().mockResolvedValue(null),
+    });
+
+    const { result } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(1));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.error?.message).toBe('Failed to fetch');
+    // The run detail page renders the run above the error. Emptying the evidence
+    // would render a run as having produced nothing.
+    expect(result.current.run?.id).toBe('run-a');
+    expect(result.current.artifacts[0]?.name).toBe('results.json');
+  });
+
+  it('distinguishes an empty-but-valid run detail from a failure', async () => {
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(makeRun({ id: 'run-a', tests: [] })),
+      getRunArtifacts: vi.fn().mockResolvedValue([]),
+      getRunGate: vi.fn().mockResolvedValue(null),
+      getReleaseReadiness: vi.fn().mockResolvedValue(null),
+    });
+
+    const { result } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.evidenceError).toBeNull();
+    expect(result.current.run?.id).toBe('run-a');
+    expect(result.current.artifacts).toEqual([]);
+    expect(result.current.gate).toBeNull();
+    expect(result.current.readiness).toBeNull();
+  });
+
+  it('keeps a loaded analytics summary when a remounted request fails', async () => {
+    const good = { totalRuns: 4, passRate: 75, avgDurationMs: 900 };
+    const api = makeApi({
+      getAnalyticsSummary: vi
+        .fn()
+        .mockResolvedValueOnce(good)
+        .mockRejectedValue(new TypeError('offline')),
+    });
+
+    const first = renderHook(() => useAnalytics(api));
+    await waitFor(() => expect(first.result.current.data).toEqual(good));
+    first.unmount();
+
+    const second = renderHook(() => useAnalytics(api));
+    await waitFor(() => expect(second.result.current.error).not.toBeNull());
+    // The same hook, a new mount: a null here is what renders an empty summary
+    // card as though the workspace had no runs.
+    expect(second.result.current.data).toBeNull();
+  });
+
+  it('does not throw past the hook when a detail load rejects with a contract error', async () => {
+    const { ResponseContractError } = await import('../lib/api.js');
+    const api = makeApi({
+      getRun: vi
+        .fn()
+        .mockRejectedValue(
+          new ResponseContractError(
+            'Response from /api/v1/runs/run-a was not JSON',
+            '/api/v1/runs/run-a',
+            200,
+          ),
+        ),
+    });
+
+    const { result } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.error).toBeInstanceOf(ResponseContractError));
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.run).toBeNull();
+  });
+
+  it('surfaces a cancelled refresh as neither a run error nor missing evidence', async () => {
+    const run = makeRun({ id: 'run-a' });
+    const api = makeApi({
+      getRun: vi
+        .fn()
+        .mockResolvedValueOnce(run)
+        // A refresh whose request was cancelled before it answered — what a
+        // superseding poll or a navigation produces.
+        .mockRejectedValue(abortError()),
+      getRunArtifacts: vi.fn().mockResolvedValue([]),
+      getRunGate: vi.fn().mockResolvedValue(null),
+      getReleaseReadiness: vi.fn().mockResolvedValue(null),
+    });
+
+    const { result } = renderHook(() => useRunDetail('run-a', api));
+    await waitFor(() => expect(result.current.run?.id).toBe('run-a'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    // "Run unavailable" for a request the client itself cancelled is a false
+    // alarm, and so is "some evidence could not be loaded".
+    expect(result.current.error).toBeNull();
+    expect(result.current.evidenceError).toBeNull();
+    expect(result.current.run?.id).toBe('run-a');
   });
 });

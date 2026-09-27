@@ -70,35 +70,27 @@ export const serviceCredentials = pgTable(
   (table) => [uniqueIndex('service_credentials_hash_idx').on(table.credentialHash)],
 );
 
-export const runnerIdentities = pgTable('runner_identities', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  name: text('name').notNull(),
-  credentialHash: text('credential_hash'),
-  status: text('status', { enum: ['pending', 'active', 'revoked'] })
-    .notNull()
-    .default('pending'),
-  scopes: text('scopes').array().notNull().default([]),
-  capabilities: jsonb('capabilities').$type<Record<string, unknown>>().notNull().default({}),
-  enrollmentExpiresAt: timestamp('enrollment_expires_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-  revokedAt: timestamp('revoked_at', { withTimezone: true }),
-});
-
-export const runnerEnrollmentTokens = pgTable(
-  'runner_enrollment_tokens',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    runnerId: uuid('runner_id')
-      .notNull()
-      .references(() => runnerIdentities.id, { onDelete: 'cascade' }),
-    tokenHash: text('token_hash').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    consumedAt: timestamp('consumed_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [uniqueIndex('runner_enrollment_token_hash_idx').on(table.tokenHash)],
-);
+// `runner_identities` and `runner_enrollment_tokens` were removed in migration 0013.
+//
+// They were a second, parallel answer to "what is a runner", and they disagreed
+// with the one the product uses. `runners` is what `execution_jobs.lease_owner`
+// references, what carries the workspace scope, and what has a constrained `health`
+// column. `runner_identities` overlapped it by name and declared a *different*
+// status vocabulary (`pending | active | revoked`), with no workspace column and no
+// writer or reader anywhere in application code. `RunnerControlService` kept a
+// third, in-process vocabulary.
+//
+// The FK mismatch this was originally filed under cannot bite -- there is no row to
+// mismatch -- but an unused second answer can still be *read* as an answer, and a
+// future writer reaching for the obviously-intended table would populate a schema
+// the scheduler never consults. The migration fails loudly if either table holds
+// rows, because "there was nothing there" and "something was deleted" are different
+// outcomes and only one of them should be silent.
+//
+// `RunnerControlService`'s in-process identities are unchanged and still not
+// durable; `docs/migration/capability-register.md` records that for
+// `auth.service-credentials`. Making enrollment write `runners` is product work, not
+// consolidation.
 
 export const outboxEvents = pgTable(
   'outbox_events',
@@ -109,12 +101,13 @@ export const outboxEvents = pgTable(
     aggregateType: text('aggregate_type').notNull(),
     aggregateId: text('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
-    // `EVENT_VERSION` from `@automate/shared-contracts`, which defaults to 2
-    // here while the contract, the SSE frame and every writer use 1 — so a
-    // writer that omitted this field produced a row a consumer could never match
-    // against the frame. Migration 0008 aligns the column. The value is repeated
-    // rather than imported because `packages/db` is a leaf and must not depend
-    // on the contracts; `tests/integration` asserts the two agree.
+    // `EVENT_VERSION` from `@automate/shared-contracts`, repeated rather than
+    // imported because `packages/db` is a leaf and must not depend on the
+    // contracts. This column used to default to **2** while the contract, the SSE
+    // frame and every writer used **1**, so a writer that omitted the field
+    // produced a row no consumer could ever match; migration 0008 aligned the
+    // default and `tests/integration` reads the **live** column default to assert
+    // the two agree.
     eventVersion: integer('event_version').notNull().default(1),
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
     dedupeKey: text('dedupe_key').notNull(),

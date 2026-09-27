@@ -37,6 +37,7 @@
   --color-brand-700: var(--automate-accent);
   --color-success-500: var(--automate-success);
   --color-error-500: var(--automate-danger);
+  --color-on-fill: var(--automate-on-fill);
 }
 
 :root,
@@ -51,6 +52,16 @@
   --automate-warning: #f59e0b;
   --automate-danger: #ef4444;
   --automate-info: #3b82f6;
+  /*
+   * The foreground for text sitting *on* a saturated fill — the primary button,
+   * the destructive button, the filled badge. It is its own token because the
+   * dark palette's fills are light enough that white text on them measures
+   * 3.68:1 for accent and 2.13:1 for success, both short of the 4.5:1 that
+   * `text-sm` button and badge labels need. These fills are light in dark mode
+   * and dark in light mode, so no single `text-white` or `text-fg` can be right
+   * for both.
+   */
+  --automate-on-fill: #0a0a0a;
   color-scheme: dark;
 }
 
@@ -58,12 +69,25 @@
   --automate-surface: #ffffff;
   --automate-surface-muted: #f4f4f5;
   --automate-fg: #09090b;
-  --automate-fg-muted: #71717a;
+  /* Was #71717a: 4.40:1 on `--automate-surface-muted`, just short of AA. */
+  --automate-fg-muted: #6b6b74;
   --automate-border: #e4e4e7;
   --automate-accent: #2563eb;
-  --automate-success: #16a34a;
-  --automate-warning: #d97706;
-  --automate-danger: #dc2626;
+  /*
+   * The status colours moved from the 500/600 steps to the 700/800 steps.
+   *
+   * They are used as body text — `Alert` and `Toast` render `text-success` over
+   * `bg-success/10`, and `StatCard` renders the trend in `--automate-success` —
+   * so they owe 4.5:1, not the 3:1 that would apply to a swatch. The old values
+   * measured 3.30:1 for success and 3.19:1 for warning against white, and 2.96:1
+   * and 2.86:1 against their own 10% tint. Darkening them is what lets the
+   * tinted alert pass; the cost is that a filled badge needs the on-fill
+   * foreground above rather than `text-fg`.
+   */
+  --automate-success: #166534;
+  --automate-warning: #92400e;
+  --automate-danger: #b91c1c;
   --automate-info: #2563eb;
+  --automate-on-fill: #ffffff;
   color-scheme: light;
 }

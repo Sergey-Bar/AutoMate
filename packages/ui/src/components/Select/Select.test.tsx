@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, it, expect, vi } from 'vitest';
 import { Select } from './Select.js';
 
 const mockOptions = [
@@ -56,5 +57,63 @@ describe('Select', () => {
     expect(placeholder).toBeInTheDocument();
     expect(placeholder).toHaveAttribute('value', '');
     expect(placeholder).toBeDisabled();
+  });
+});
+
+describe('Select keyboard and labelling', () => {
+  it('is a real listbox that takes focus and reports a chosen value', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Select id="status" label="Run status" options={mockOptions} onChange={onChange} />);
+
+    const select = screen.getByLabelText('Run status');
+    await user.tab();
+    expect(select).toHaveFocus();
+    // A real `<select>`, not a div with a class. If this ever stops being a
+    // native control the platform's own keyboard handling goes with it, and
+    // nothing in the class-name assertions would notice.
+    expect(select.tagName).toBe('SELECT');
+    // A single-select `<select>` is a combobox, not a listbox.
+    expect(screen.getByRole('combobox')).toBe(select);
+
+    await user.selectOptions(select, '2');
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(select).toHaveValue('2');
+  });
+
+  it('skips a disabled select in the tab order', async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <button type="button" data-testid="before">
+          Before
+        </button>
+        <Select id="status" label="Run status" options={mockOptions} disabled />
+        <button type="button" data-testid="after">
+          After
+        </button>
+      </div>,
+    );
+
+    await user.tab();
+    expect(screen.getByTestId('before')).toHaveFocus();
+    await user.tab();
+    expect(screen.getByTestId('after')).toHaveFocus();
+  });
+
+  it('announces a validation error through the control, not only beside it', () => {
+    render(
+      <Select
+        id="status"
+        label="Run status"
+        error="Run status is not a real field"
+        options={mockOptions}
+      />,
+    );
+    const select = screen.getByLabelText('Run status');
+    const message = screen.getByText('Run status is not a real field');
+    expect(select).toHaveAttribute('aria-invalid', 'true');
+    expect(select).toHaveAccessibleDescription('Run status is not a real field');
+    expect(message).toHaveAttribute('id', 'status-error');
   });
 });

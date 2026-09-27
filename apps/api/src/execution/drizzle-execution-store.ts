@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import { and, asc, desc, eq, gt, inArray, isNotNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
@@ -16,6 +16,14 @@ import {
 } from '@automate/db';
 import { EVENT_VERSION } from '@automate/shared-contracts';
 import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
+// The one declaration of the byte-store port. This file used to declare its own
+// `ArtifactBytesStore` with two of the three methods, structurally compatible with
+// the one in `infrastructure/artifact-store.ts` and therefore assignable to it — so
+// the compensating `delete` could be added to one and not the other, and a store
+// satisfying the narrower declaration would typecheck while being unable to clean
+// up after itself.
+import type { ArtifactBytesStore } from '../infrastructure/artifact-store.js';
+export type { ArtifactBytesStore };
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import {
   ARTIFACT_BYTE_CAPACITY,
@@ -25,7 +33,7 @@ import {
 } from './bounded-map.js';
 import { deriveRunState, isRequestablePhase } from './phase-outcome.js';
 import { resolveSummary } from './summary.js';
-import { decodeRunCursor, normalizeRunLimit } from './run-paging.js';
+import { decodeRunCursor, normalizeEventLimit, normalizeRunLimit } from './run-paging.js';
 import type {
   ArtifactDescriptor,
   CreateRunInput,
@@ -50,6 +58,7 @@ import type {
   ReleaseReadiness,
   RegisteredRunner,
   RunPage,
+  EventPage,
   RunnerHealth,
   RunnerHeartbeat,
   RunnerManifest,
@@ -63,11 +72,6 @@ type AnyPgDb =
   | PgDatabase<PgliteQueryResultHKT, Record<string, unknown>>;
 
 type DbRow = Record<string, unknown>;
-
-export interface ArtifactBytesStore {
-  put(storageKey: string, bytes: Uint8Array): Promise<void>;
-  get(storageKey: string): Promise<Uint8Array | null>;
-}
 
 export interface DrizzleExecutionStoreOptions extends ExecutionStoreOptions {
   db: AnyPgDb;
@@ -904,16 +908,45 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return row ? mapRunner(rowValue(row)) : null;
   }
 
+  /**
+   * One indexed lookup, not a scan of the table.
+   *
+   * This read **every row in `runners`** and compared each token hash in JavaScript.
+   * That is finding 45, and it was still open: the plan recorded the finding as stale
+   * on the grounds that `runners.token_hash` is uniquely indexed — which is true, and
+   * irrelevant, because the query never used the index. Every authenticated request
+   * paid a full table read whose cost grew with the number of runners enrolled.
+   *
+   * The `WHERE` now names the column, so `runners_token_hash_unique` serves it, and the
+   * two remaining predicates move into SQL with it: a revoked runner and an expired
+   * token are both refusals, and filtering them in JavaScript meant transferring rows
+   * only to discard them.
+   *
+   * `token_hash` is not unique in the schema's intent — a rotation could leave two
+   * rows with the same hash for an instant — so the candidate set is `limit`-ed rather
+   * than assumed to be one row, and the comparison is still `timingSafeEqual` per
+   * candidate. The constant-time comparison is kept deliberately: pushing equality into
+   * SQL would be index-served and fast, and would also make the token's hash a timing
+   * oracle, which is the one thing hashing it was for.
+   */
   async authenticateRunner(token: string): Promise<RegisteredRunner | null> {
-    const rows = await this.db.select().from(runners);
+    const expected = digest(token);
+    const rows = await this.db
+      .select()
+      .from(runners)
+      .where(
+        and(
+          eq(runners.tokenHash, expected),
+          ne(runners.health, 'revoked' as never),
+          gt(runners.tokenExpiresAt, nowDate(this.options)),
+        ),
+      )
+      // Two, not one: the hash is unique in practice but the column does not say so,
+      // and a limit of 1 would silently pick a winner if it ever were not.
+      .limit(2);
     for (const row of rows) {
       const data = rowValue(row);
-      if (
-        tokenMatches(token, stringValue(data['tokenHash'])) &&
-        data['health'] !== 'revoked' &&
-        new Date(dateIso(data['tokenExpiresAt'])).getTime() > nowDate(this.options).getTime()
-      )
-        return mapRunner(data);
+      if (tokenMatches(token, stringValue(data['tokenHash']))) return mapRunner(data);
     }
     return null;
   }
@@ -1291,17 +1324,43 @@ export class DrizzleExecutionStore implements ExecutionStore {
     });
   }
 
-  async listEvents(runId: string): Promise<ExecutionEvent[]> {
+  async listEvents(
+    workspaceId: string,
+    runId: string,
+    page: { afterSequence?: number; limit?: number } = {},
+  ): Promise<EventPage> {
+    // The workspace is required and is part of the query, not a post-filter. The
+    // events table has no `workspace_id` column, so the constraint is the join
+    // through `runs` — which is exactly the join that was missing when this
+    // method took only a run id.
+    const limit = normalizeEventLimit(page.limit);
+    // `limit + 1` rows, then report `hasMore` and drop the extra. Asking for one more
+    // row than the caller wants is the only way to know whether there *is* another
+    // row without a second count query — and a `COUNT(*)` over a per-test table is
+    // the cost this endpoint is being fixed for.
+    // Joined through `runs` because `runEvents` carries no `workspace_id` of its
+    // own. Without the join, a run id from another workspace returned its whole
+    // event stream.
     const rows = await this.db
-      .select()
+      .select({ event: runEvents })
       .from(runEvents)
-      .where(eq(runEvents.runId, runId))
-      .orderBy(asc(runEvents.sequence));
-    return rows.map((row) => mapEvent(rowValue(row)));
-  }
-
-  async getRunEvents(runId: string): Promise<ExecutionEvent[]> {
-    return this.listEvents(runId);
+      .innerJoin(runs, eq(runs.id, runEvents.runId))
+      .where(
+        page.afterSequence === undefined
+          ? and(eq(runEvents.runId, runId), eq(runs.workspaceId, workspaceId))
+          : and(
+              eq(runEvents.runId, runId),
+              eq(runs.workspaceId, workspaceId),
+              gt(runEvents.sequence, page.afterSequence),
+            ),
+      )
+      .orderBy(asc(runEvents.sequence))
+      .limit(limit + 1);
+    const hasMore = rows.length > limit;
+    return {
+      events: rows.slice(0, limit).map((row) => mapEvent(rowValue(row.event))),
+      hasMore,
+    };
   }
 
   async completeJob(
@@ -1501,6 +1560,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
   ): Promise<ArtifactDescriptor> {
     const bytes = new Uint8Array(input.bytes);
     const checksum = digest(bytes);
+    // The bytes go first because the row needs the checksum and the size, which are
+    // only knowable once the bytes exist. That ordering is why a failure between the
+    // two needs undoing: the object would otherwise sit in the store with nothing
+    // referencing it, and the in-memory bound would charge it to the budget for the
+    // life of the process.
     if (this.options.artifactBytes) await this.options.artifactBytes.put(input.storageKey, bytes);
     else this.memoryBytes.set(input.storageKey, bytes);
     const row = {
@@ -1537,8 +1601,47 @@ export class DrizzleExecutionStore implements ExecutionStore {
       ? (row.kind as (typeof allowed)[number])
       : ('other' as const);
     const dbRow = { ...row, kind: normalizedKind };
-    await this.db.insert(artifacts).values({ ...dbRow, kind: normalizedKind });
+    try {
+      await this.db.insert(artifacts).values(dbRow);
+    } catch (failure) {
+      // Undo the half of the write that succeeded, then let the original failure
+      // through unchanged. Swallowing it here would report a successful artifact
+      // whose bytes nothing can reach.
+      //
+      // **Residual, stated rather than hidden:** this compensates for a *failed*
+      // insert. A process that dies between the `put` and the insert still leaves an
+      // object behind, and only a `pending → committed` status on the row would close
+      // that window — a migration plus a sweeper, which is the other option this item
+      // offered. The in-process failure was the common case and is now covered; the
+      // crash window is not, and the log line is the only record of it.
+      await this.discardBytes(input.storageKey);
+      throw failure;
+    }
     return mapArtifact(dbRow);
+  }
+
+  /**
+   * Removes bytes written for an artifact that never got a row, and never masks the
+   * failure that led here.
+   *
+   * The compensation is best-effort by design: the caller is already propagating a
+   * database error, and replacing it with "and the cleanup also failed" would report
+   * a storage fault as a database one. The cleanup failure is logged with the key, so
+   * the object is at least findable.
+   */
+  private async discardBytes(storageKey: string): Promise<void> {
+    try {
+      if (this.options.artifactBytes) {
+        await this.options.artifactBytes.delete(storageKey);
+      } else {
+        this.memoryBytes.delete(storageKey);
+      }
+    } catch (error) {
+      console.error('artifact cleanup failed after a failed insert', {
+        storageKey,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
@@ -1568,13 +1671,16 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return row ? mapArtifact(rowValue(row)) : null;
   }
 
-  async listArtifacts(runId: string): Promise<ArtifactDescriptor[]> {
+  async listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]> {
+    // `artifacts` has no `workspace_id`, so the constraint is the join through
+    // `runs`. Required, for the same reason as `listEvents`.
     const rows = await this.db
-      .select()
+      .select({ artifact: artifacts })
       .from(artifacts)
-      .where(eq(artifacts.runId, runId))
+      .innerJoin(runs, eq(runs.id, artifacts.runId))
+      .where(and(eq(artifacts.runId, runId), eq(runs.workspaceId, workspaceId)))
       .orderBy(asc(artifacts.createdAt));
-    return rows.map((row) => mapArtifact(rowValue(row)));
+    return rows.map((row) => mapArtifact(rowValue(row.artifact)));
   }
 
   async createPolicy(
@@ -1659,16 +1765,19 @@ export class DrizzleExecutionStore implements ExecutionStore {
     return mapGate(row);
   }
 
-  async getGate(runId: string): Promise<GateEvaluation | null> {
+  async getGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    // `gate_evaluations` has no `workspace_id`, so the constraint is the join
+    // through `runs`. Required, for the same reason as `listEvents`.
     const row = (
       await this.db
-        .select()
+        .select({ gate: gateEvaluations })
         .from(gateEvaluations)
-        .where(eq(gateEvaluations.runId, runId))
+        .innerJoin(runs, eq(runs.id, gateEvaluations.runId))
+        .where(and(eq(gateEvaluations.runId, runId), eq(runs.workspaceId, workspaceId)))
         .orderBy(desc(gateEvaluations.evaluatedAt))
         .limit(1)
     )[0];
-    return row ? mapGate(rowValue(row)) : null;
+    return row ? mapGate(rowValue(row.gate)) : null;
   }
 
   async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
@@ -1752,7 +1861,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         .limit(1)
     )[0];
     const mapped = run ? await this.mapRun(rowValue(run)) : null;
-    let gate = mapped ? await this.getGate(mapped.id) : null;
+    let gate = mapped ? await this.getGate(workspaceId, mapped.id) : null;
     if (mapped && !gate) {
       const policies = await this.listPolicies(workspaceId);
       const policy = policies[0] ?? (await this.createPolicy(defaultPolicy(workspaceId)));
@@ -1898,11 +2007,15 @@ export class DrizzleExecutionStore implements ExecutionStore {
       runner: unknown;
     },
   ): Promise<ExecutionRun> {
+    const runner =
+      children.runner === null || children.runner === undefined
+        ? null
+        : mapRunner(rowValue(children.runner));
     return this.buildRun(
       row,
       children.tests.map((test) => mapTest(test)),
       children.artifacts.map((artifact) => mapArtifact(artifact)),
-      (children.runner ?? null) as ReturnType<typeof mapRunner> | null,
+      runner,
     );
   }
 

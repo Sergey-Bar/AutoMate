@@ -1,0 +1,993 @@
+{
+  "$comment": [
+    "The findings ledger. Every confirmed defect has a severity, a disposition, and —",
+    "once it is closed — the path to the test that proves it.",
+    "",
+    "Seeded from `.kilo/plans/1790482134837-automate-merged-leftover-plan.md` §3 on",
+    "2026-09-27. Plan §1 is the policy: Blocker and Critical block the merge and the",
+    "release, and may never be carried as debt; Major, Minor and Nit are ratcheted.",
+    "Nothing closes without proof, and `pnpm findings:check` fails when a `fixed`",
+    "row's evidence path stops existing — so a deleted test reopens its finding.",
+    "",
+    "`provenance` is honest about how a row got here. `hand` means it was confirmed by",
+    "direct inspection. `sweep` means one of the planning sweeps produced it and nobody",
+    "has read it since. The difference is load-bearing: the rows a destructive",
+    "migration would act on are listed in `CONFIRMATION_REQUIRED` and cannot be closed",
+    "while they are still `sweep`.",
+    "",
+    "`wave` is the plan's wave that owns the row. A blocking-band row with no wave is a",
+    "defect nobody picked up, and the check refuses to let one sit there quietly."
+  ],
+  "schemaVersion": 1,
+  "reviewedOn": "2026-09-27",
+  "source": ".kilo/plans/1790482134837-automate-merged-leftover-plan.md",
+  "findings": [
+    {
+      "id": "P-18",
+      "title": "validateApiKey compares a presented value to the stored hash",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W1.1",
+      "summary": "`packages/auth/src/session.ts:21-23` compares the provided value directly against the stored hash, and a length-leaking early return precedes it at `:13-17`. `apps/api/src/middleware/auth.ts:123` calls it on the live fallback arm, so this is not dead code. `session.test.ts:5` currently asserts the insecure behaviour is correct and must be deleted with the function. The peppered-HMAC `verifyCredential` in `credentials.ts:7-15` is already the correct path."
+    },
+    {
+      "id": "P-71",
+      "title": "Runner registration is unauthenticated when the secret is unset",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W1.2",
+      "summary": "`routes/execution/shared.ts:182` treats an absent `RUNNER_REGISTRATION_SECRET` as \"not production\", so registration with no configured secret succeeds everywhere. `middleware/auth.ts:110` and `runs.routes.ts:43` also read `process.env['NODE_ENV']` directly instead of the injected config."
+    },
+    {
+      "id": "P-3",
+      "title": "The result digest is a constant, so the proof chain verifies nothing",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W1.3",
+      "summary": "`legacy-reporter.ts:53` emits `resultDigest: '0'.repeat(64)`. `DigestSchema` only regex-checks 64 hex characters, so 64 zeros pass it and two different runs produce the same digest end to end."
+    },
+    {
+      "id": "P-5",
+      "title": "runs.gateStatus actively rejects the values the contract defines",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W1.4",
+      "summary": "The column is `['passed','failed','skipped']` (`dashboard.ts:187`) and `0009_enum_constraints.sql:32-36` added a CHECK pinning the same three, so `warning`/`unknown`/`not_evaluated` are hard-rejected. There are zero producers and zero consumers, and `GATE_STATUSES` cannot be imported because `execution.ts:18` imports *from* `dashboard.ts`. Per plan §2 D2 the pre-audit must prove no existing row falls outside the contract's five values before the CHECK widens."
+    },
+    {
+      "id": "P-20",
+      "title": "The `schedules` cross-tenant trigger is live, and 8 of 10 tables are unscoped",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W1.5",
+      "summary": "`apps/worker/src/postgres-store.ts:378-388` selects enabled schedules with no workspace predicate and then digs the workspace out of untyped JSONB at `:408`, so a schedule in workspace B is handed to a workspace-A worker. `WORKSPACE_ID` is the only tenancy boundary in the system, and the unscoped tables are `vault_entries`, `connector_configs`, `conversations`, `messages`, `trends`, `quarantine`, `knownFailures`, `locatorSuggestions`, `generatedTestSuggestions`, `nlQueryHistory` and `roles` (`tenantId` only). Plan §8.3 recommends scoping them all rather than documenting single-tenancy."
+    },
+    {
+      "id": "P-6",
+      "title": "Three startup-policy authorities, and a committed cookie secret",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.11",
+      "summary": "`packages/config/src/config.ts:59-73`, `packages/auth/src/startup-policy.ts:8-12` and `apps/api/src/startup-policy.ts:45-116` each decide what production requires, and `apps/api/src/config.ts:104` passes `requireProductionSecrets: false`, deliberately disabling the first. The committed cookie-secret literal survives at two sites. `min(32)` covers 3 of 7 secrets; the rest get `min(16)`."
+    },
+    {
+      "id": "P-7",
+      "title": "Connector credentials are a global singleton, not per workspace",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.3",
+      "summary": "The real table is `vault_entries` (`vault.ts:25-44`, with `connectorName` `.unique()`); the roadmap's `connector_credentials` has zero matches. `connector_configs` (`automate.ts:75-84`) has the same defect. A single row per connector name, with no workspace column, is one credential for the whole installation."
+    },
+    {
+      "id": "P-8",
+      "title": "The vault binds no ciphertext to its row, and its KDF column is dead",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.2",
+      "summary": "`vault-crypto.ts:87,103` pass three arguments and there is no `setAAD` anywhere, so row A's ciphertext moves onto row B and verifies — returning GitHub's secret as Jira's. `iterations` is never read: the KDF hardcodes 100 000 at `vault-crypto.ts:27`, which is why constraining the column would measure nothing. `salt` has no length constraint. Fix the code path first, then constrain."
+    },
+    {
+      "id": "P-9",
+      "title": "The outbox silently drops events",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.1",
+      "summary": "`identity.ts:118` is a single-column unique index on `dedupeKey` and `outbox-repository.ts:57` conflicts on that column alone, so the same key in two workspaces suppresses the second event. `workspaceId` is nullable (`identity.ts:100`) and `readAfter` filters on it at `:67`, so a NULL row is invisible to delivery while still advancing the identity sequence and counting toward `getRetentionFloor`. There is no dedupe-hit counter: `append` returns `rows[0] ?? null` and the consumer returns silently. NULL rows must be repaired or deleted, not left undeliverable."
+    },
+    {
+      "id": "P-10",
+      "title": "ensureBootstrap is not atomic and returns revoked keys",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.4",
+      "summary": "`installation-key-repository.ts:11-31` is three independent statements: a SELECT then an INSERT with no `onConflictDoNothing` against the UNIQUE `(installationId, name)` index, so a second bootstrapping replica gets a raw unique violation and a 500. It selects only `keyHash` and never inspects `revokedAt` or `expiresAt`, which exist and are never read. No migration is needed; this is pure code."
+    },
+    {
+      "id": "P-11",
+      "title": "Every chat transcript is globally readable",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.3",
+      "summary": "`conversations` (`automate.ts:24-36`) and `messages` (`:40-57`) carry neither a workspace nor an owner column. Plan §8.2 records the open question of whether workspace scope is the intended boundary or whether a per-owner column is required; it blocks the backfill definition, so it is a decision and not a default."
+    },
+    {
+      "id": "P-12",
+      "title": "The connectors are non-functional",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.5",
+      "summary": "Jira targets a hardcoded `your-domain.atlassian.net` (`jira/src/index.ts:21`). GitHub takes `_secret` and never sends it (`github/src/index.ts:17,21`), so every call is unauthenticated. All three ignore `request.operation` and `request.input`. Slack treats HTTP 200 with `{\"ok\": false}` as delivered (`slack/src/index.ts:26-31`)."
+    },
+    {
+      "id": "P-13",
+      "title": "Connector retries ignore idempotency, so a 502 duplicates an issue",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.5",
+      "summary": "`connectors/sdk` `executeWithRetry` never reads `manifest.operations[op].idempotent` (`:54-77`) and treats 502 as retryable, so a 502 arriving after Jira created the issue produces three issues and reports one failure."
+    },
+    {
+      "id": "P-14",
+      "title": "One oversized event permanently bricks a spool file",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.1",
+      "summary": "`MAX_SEALED_BYTES` (4 MB) is enforced only at decode (`spool.ts:588`), never at enqueue (`:301-316`), so a ~5 MB event is accepted and then makes the whole file undecodable. `decodeFile` throws `SPOOL_FORMAT` unconditionally, and `tornTail: 'drop'` covers only a partial tail, not a mid-file throw."
+    },
+    {
+      "id": "P-16",
+      "title": "Spool appends are not durable and the repair guard reads a cached value",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.1",
+      "summary": "`appendFile` at `spool.ts:311` opens no handle, calls no `datasync()` and checks no `bytesWritten`. The repair guard at `:310` reads a cached `fileBytes`, so a failed append leaves the guard false and the next append lands after a hole."
+    },
+    {
+      "id": "P-17",
+      "title": "The spool directory is world-writable and predictable",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.2",
+      "summary": "`spool.ts:273` calls `mkdir` with no mode, and `DEFAULT_DIRECTORY` is `resolve(tmpdir(), 'automate-runner-spool')` — a name anyone can predict. Only the files get `0o600`; there is no `chmod`, no `getuid`, no ownership check and no refusal of a foreign directory, repo-wide."
+    },
+    {
+      "id": "P-19",
+      "title": "Every deployment derives the same spool key",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.3",
+      "summary": "`scryptSync(secret, purpose, 32)` at `spool.ts:69-72` uses the constant string `'automate-runner-spool'` as its salt, with N, r, p and maxmem unpinned and no `kdfVersion` anywhere. A Node default-cost change surfaces as `SPOOL_WRONG_KEY` rather than as a migration."
+    },
+    {
+      "id": "P-21",
+      "title": "spPrivateKey is stored in plaintext",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.2",
+      "summary": "The service-account private key column is not sealed, while the rest of the vault is. The plan lists P-21 in the security band without naming a wave; it is assigned here to the vault hardening wave because that is the subsystem that owns it. A database dump yields the key directly."
+    },
+    {
+      "id": "P-23",
+      "title": "A locale-dependent hash is persisted and load-bearing",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W7.5",
+      "summary": "`policy.ts:72` sorts with `localeCompare`, and `fingerprint()` at `:83` writes the result to a `notNull` column that `drizzle-reporter-ingestion.ts:25,28,47` reads back to choose `duplicate` versus `conflict`. A sort-order change across Node builds or a `LANG` change turns a legitimate duplicate into a conflict. The pre-audit must recompute every stored fingerprint under code-unit ordering and prove no row's classification flips; if one does, that is a data repair, not a code change."
+    },
+    {
+      "id": "P-24",
+      "title": "The AI gateway retries statuses that are fatal by definition",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.10",
+      "summary": "`kilo-gateway.ts:30` opens the try block and the fatal throw at `:45-47` is inside it, so the blanket catch at `:48-50` swallows it on attempts 0 and 1. A 401 is attempted three times."
+    },
+    {
+      "id": "P-70",
+      "title": "Five lease, transition and subscription defects on the execution path",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.4",
+      "summary": "`runner-control.ts:55` takes `_leaseId` and discards the caller's lease id; `:72-73` hashes `JSON.stringify` directly, so duplicate detection is key-order dependent; `orchestration-service.ts:47-49` lets an illegal `canTransition` fall through and returns a 200-shaped job with `cancelRequested` set; `events.ts:197` discards a `writeSSE` promise with no rejection handler; `events.ts:86,93,107` registers `onAbort(finish)` before assigning `unsubscribe`, so an abort in that window calls a no-op and the real subscription leaks."
+    },
+    {
+      "id": "P-72",
+      "title": "Every deployment records a dev installation key",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.12",
+      "summary": "`index.ts:246` passes `displayPrefix: 'dev'` unconditionally to `ensureBootstrap`, `:71` hardcodes the installation UUID `00000000-0000-4000-8000-000000000001`, and `:231` declares `let sessionBackend;` with no type."
+    },
+    {
+      "id": "P-55",
+      "title": "A failing outbox retention sweep is indistinguishable from a quiet one",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.6",
+      "summary": "`outbox-retention.ts:13-18` swallows every error with `.catch(() => undefined)`, so the operator sees the same output whether the sweep ran and found nothing or the sweep never ran at all."
+    },
+    {
+      "id": "P-56",
+      "title": "An unscoped KPI request answers with a confident all-zero 200",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W12.2",
+      "summary": "`routes/reporting.ts:12-17` returns every metric as 0 when no `runId` is given. The body is shaped exactly like a real measurement, so a caller cannot tell an absence from a zero."
+    },
+    {
+      "id": "P-57",
+      "title": "The canonical utilities are triplicated",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.6",
+      "summary": "`stable()` is byte-identical at `quality-gate.ts:42-51` and `drizzle-execution-store.ts:130-139`, with a third copy named `canonical()` at `in-memory-execution-store.ts:53-62`. `tokenMatches` and `normalizeArtifactKind` are each duplicated, the eight-element terminal array is inlined twice in the Drizzle store despite `isTerminalPhase` existing, and `isTerminalPhase` is itself duplicated at `phase-outcome.ts:66` and `types.ts:550`."
+    },
+    {
+      "id": "P-60",
+      "title": "collectSuite has no depth cap",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W4.8",
+      "summary": "`routes/reporter.ts:400-452` recurses into `suite['suites']` at `:446-451`, so a self-nested `suites` array on an untrusted ingestion boundary overflows the stack. The reporter payload is attacker-controlled by construction."
+    },
+    {
+      "id": "P-62",
+      "title": "The event allowlist is now three hand-maintained copies",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.7",
+      "summary": "The laundering fix landed, but the allowlist is hand-duplicated at `shared-contracts/schemas/execution.ts:459-470`, `apps/api/src/realtime/realtime-bus.ts:46-56` and `routes/execution/schemas.ts:194-205` — three places to forget an event name."
+    },
+    {
+      "id": "P-63",
+      "title": "Duplicated error bodies on the health and agent routes",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W8.3",
+      "summary": "`/health` and `/api/v1/health` are two near-identical literals (`health.ts:18-24` versus `:26-33`), and three near-identical agent 404/501 bodies have no shared builder."
+    },
+    {
+      "id": "O-1",
+      "title": "The job state machine takes no fencing token",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.5",
+      "summary": "`orchestration/src/state-machine.ts:24,30` take `(from, to)` only, so `running → succeeded` is legal for any caller that asks. A worker holding a lapsed lease can still finish the job it no longer owns."
+    },
+    {
+      "id": "O-2",
+      "title": "A tenancy finding the plan names but does not describe",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W7.3",
+      "summary": "The plan lists O-2 alongside P-20's eight unscoped tables and requires it to be spot-confirmed before a destructive tenancy migration, but it never states what the defect is. Recorded as open and undescribed on purpose: a row that names an ID without naming a claim cannot be closed, and cannot be quietly forgotten either. It is assigned to the tenancy wave because that is where the plan groups it."
+    },
+    {
+      "id": "O-3",
+      "title": "A tenancy finding the plan names but does not describe",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W7.3",
+      "summary": "As O-2: named by the plan, grouped with the tenancy work, described nowhere. Left open and undescribed so that W7's pre-audit surfaces it rather than inheriting it."
+    },
+    {
+      "id": "S-1",
+      "title": "InMemorySessionService scans every session on every request",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "`packages/auth/src/credentials.ts` verifies a presented session by HMAC-ing it and scanning the whole collection, so cost is O(n) in live sessions. Production uses the indexed `DrizzleSessionStore`, which is why the cost is invisible."
+    },
+    {
+      "id": "S-2",
+      "title": "Revoked sessions are never removed",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "`revoke` only stamps `revokedAt`; there is no TTL sweep, so the collection grows without bound and the scan grows with it."
+    },
+    {
+      "id": "S-3",
+      "title": "issue returns the live internal record, so a caller can mutate a session",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "`InMemorySessionService.issue` hands back the object it stores, so a caller can set `expiresAt` or clear `revokedAt` in place after the fact. The durable store returns a mapped copy, so the two disagree."
+    },
+    {
+      "id": "S-4",
+      "title": "An empty secret and a non-positive TTL are accepted",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "`InMemorySessionService` accepts a zero-length secret and a `ttlMs <= 0`, producing a session that is either trivially verifiable or already expired."
+    },
+    {
+      "id": "S-5",
+      "title": "lastUsedAt is a dead column",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "`lastUsedAt` is declared and never written or read, so a session's idleness cannot be observed."
+    },
+    {
+      "id": "S-6",
+      "title": "SESSION_RETENTION_DAYS is parsed and mapped with no consumer",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "The setting is read from the environment and carried through a map, and nothing downstream uses the result."
+    },
+    {
+      "id": "S-7",
+      "title": "There is no deleteExpired",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.3",
+      "summary": "The interface has no expiry sweep at all, which is the missing half of S-2."
+    },
+    {
+      "id": "F-4",
+      "title": "Two reporter adapters build test ids from different key pairs",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.9",
+      "summary": "`junit-xml.ts:121` builds `testId` from `classname:name` and `playwright-json.ts:115` from `file:title`. The contract only requires `z.string().min(1)`, so two same-named tests in one ingestion collide into one row."
+    },
+    {
+      "id": "F-5",
+      "title": "The spec index is written where the test index belongs",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.9",
+      "summary": "`playwright-json.ts:105` passes the spec's index, so two tests in one spec with an identically-named attachment resolve to the same evidence URI and one overwrites the other."
+    },
+    {
+      "id": "F-6",
+      "title": "Reporter text accumulation has no cap",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.9",
+      "summary": "`junit-xml.ts:92-97` accumulates failure text with no bound, on an untrusted boundary."
+    },
+    {
+      "id": "F-7",
+      "title": "An unguarded JSON.parse on an untrusted body",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.9",
+      "summary": "`playwright-json.ts:99` parses the uploaded document without a guard, so a malformed body throws a `SyntaxError` rather than yielding a classified ingestion error."
+    },
+    {
+      "id": "F-8",
+      "title": "An attachment name is interpolated unencoded",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W4.9",
+      "summary": "`playwright-json.ts:71` interpolates the attachment name into the evidence URI without encoding it, so a name containing `?` or `#` changes the URI that is recorded."
+    },
+    {
+      "id": "R-1",
+      "title": "close() never unsubscribes",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "`packages/realtime/src/bus.ts` drops the unsubscribe handle on close, so every subscriber outlives the bus that owns it. Production wires `DurableRealtimeBus`, whose per-subscriber isolation is already fixed."
+    },
+    {
+      "id": "R-3",
+      "title": "The cursor guard accepts Number('') and Number('0x10')",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "`bus.ts` coerces the cursor with `Number`, so an empty string becomes 0 and `'0x10'` becomes 16 — both pass the guard, and both are nonsense as a cursor."
+    },
+    {
+      "id": "R-4",
+      "title": "Subscribing with no cursor reports \"caught up\" while missing everything",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "A subscriber with no cursor is told it is up to date, which is a false statement about a stream it has not read a single event of."
+    },
+    {
+      "id": "R-5",
+      "title": "The buffer drops by count, not by bytes",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "The O(n) `shift()` eviction is bounded by an event count, so N large events exceed the memory bound the count was chosen to enforce."
+    },
+    {
+      "id": "R-6",
+      "title": "A per-process cursor is minted beside the durable outbox sequence",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "`bus.ts` numbers cursors `1..n` per process while the durable store numbers them from the outbox sequence, so the two numbering schemes are unrelated and neither is authoritative."
+    },
+    {
+      "id": "R-7",
+      "title": "computeBackoff accepts NaN",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W3.1",
+      "summary": "`NaN` propagates to `setTimeout(connect, NaN)`, which fires immediately — a reconnect storm instead of a backoff."
+    },
+    {
+      "id": "G-1",
+      "title": "The last SSE event is dropped when the stream has no trailing newline",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.2",
+      "summary": "`kilo-gateway.ts:80-81,110` breaks on the blank line without processing the tail, and `ollama-gateway.ts:46-47,80` does the same. The most recent token of a completion is the one that disappears."
+    },
+    {
+      "id": "G-2",
+      "title": "The reader is never cancelled on [DONE]",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.2",
+      "summary": "`kilo-gateway.ts:86` returns without cancelling the reader, so the connection stays open after the stream has ended."
+    },
+    {
+      "id": "G-3",
+      "title": "Tool-call fragments are flat-appended with no merge on index",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.4",
+      "summary": "`kilo-gateway.ts:94-95` concatenates fragments without grouping by `index`, so one streamed tool call arrives as several malformed calls."
+    },
+    {
+      "id": "G-4",
+      "title": "Token accounting is silently zero on every chunk",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.3",
+      "summary": "`kilo-gateway.ts:96-102` casts OpenAI-shaped `usage` keys straight to `{inputTokens, outputTokens, totalTokens}`, so no key ever matches and all three are `undefined` on every chunk. Ollama's mapping is correct, which is why an Ollama-based test cannot see it."
+    },
+    {
+      "id": "G-5",
+      "title": "Ollama ignores input.tools",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.4",
+      "summary": "The Ollama adapter never forwards the caller's tool list, so a tool-using request silently runs with no tools."
+    },
+    {
+      "id": "G-6",
+      "title": "listModels drops the AbortSignal",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.4",
+      "summary": "`ollama-gateway.ts:22` accepts a signal and does not pass it, so a cancelled request keeps running."
+    },
+    {
+      "id": "G-7",
+      "title": "A malformed SSE line aborts the whole stream",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.2",
+      "summary": "One unparseable line ends a stream that had already delivered events, discarding the rest of a completion."
+    },
+    {
+      "id": "G-8",
+      "title": "No default timeout anywhere in the gateway",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.4",
+      "summary": "A hung provider holds the request open indefinitely; nothing bounds it."
+    },
+    {
+      "id": "Q-47",
+      "title": "The dashboard aggregation is an N+1 over runs",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W5.6",
+      "summary": "`modules/dashboard/tests.ts:26-34` lists runs and then awaits `listTests(run.id)` per run, and does the same for suites at `:38-80`. `listTests` (`run-repository.ts:235`) is single-run and no `= ANY(...)` form exists. The analytics half is already in SQL with a parity test; this half is not."
+    },
+    {
+      "id": "Q-49",
+      "title": "Two UPDATE runs round trips per event inside one transaction",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W5.2",
+      "summary": "`drizzle-execution-store.ts:1268-1271,1280-1290` issues the statement inside the event loop, so the round-trip count grows with batch size. Set the sequence once after the loop."
+    },
+    {
+      "id": "Q-50",
+      "title": "Unbounded list endpoints, and a legacy unbounded list merged into a paged one",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W5.3",
+      "summary": "`listJobs` (`:848-855`), `listArtifacts` (`:1674-1684`) and `listPolicies` (`:1709-1716`) are unbounded and exposed on GET routes, and `runs.routes.ts:78` calls the legacy unbounded `listRuns()` and merges it into the paginated page."
+    },
+    {
+      "id": "Q-51",
+      "title": "No jobsByRun or jobsByLeaseOwner index, and ~9 O(n) scans",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W5.4",
+      "summary": "Neither index exists, and the in-memory store has roughly nine linear scan sites standing in for the lookups a durable index would serve."
+    },
+    {
+      "id": "Q-52",
+      "title": "readAt is a bare readFile on the live path",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W5.5",
+      "summary": "`artifact-store.ts:76-78` is the live reader (`:160`) and enforces no size cap and verifies no digest. The verification landed on `read` (`:115-120`), which is test-only — the check and the shipped method were inverted. Plan §3 records this as one of six source claims that did not survive checking."
+    },
+    {
+      "id": "Q-53",
+      "title": "PBKDF2 is synchronous on the request path and sealing always misses the cache",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W12.1",
+      "summary": "The LRU cache exists at `vault-crypto.ts:21-62` but `pbkdf2Sync` still runs per request (`:1,27`), and `sealSecret:87` mints a fresh random salt per envelope, so the cache key is always new and a seal never hits."
+    },
+    {
+      "id": "Q-55",
+      "title": "Outbox retention failures are swallowed",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.6",
+      "summary": "The duplicate of P-55 at the metric level: a failing sweep changes no counter and no readiness field, so the outbox grows without limit and nothing says so."
+    },
+    {
+      "id": "Q-56",
+      "title": "An unscoped KPI request answers all-zero",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W12.2",
+      "summary": "The duplicate of P-56 recorded against the resource/query band so that band is not silently missing a KPI row."
+    },
+    {
+      "id": "X-1",
+      "title": "The worker production composition passes no JobHandler",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W2.1",
+      "summary": "`worker.ts:60` gates claiming on `this.options.handler`, and the production composition at `main.ts:90-104` passes none. The worker reaps leases, polls schedules, and can never execute a job. Both cases in `worker.test.ts` inject a literal `handler: { execute: async () => 'completed' }`, which is exactly why the suite is green. The largest single gap in the repository."
+    },
+    {
+      "id": "X-2",
+      "title": "PATCH /dashboard/runs/:id/status is unaudited and accepts any transition",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W9.1",
+      "summary": "`modules/dashboard/runs.ts:38-79` writes no audit row, allows any transition including out of a terminal phase, and can return 200 with a literal `null`. `audit-sink.ts` sits in the same module, unreferenced, and a rationale comment is duplicated verbatim at `:46-59`."
+    },
+    {
+      "id": "X-3",
+      "title": "/api/v1/features returns an empty object and the agent routes return 501 for all 15 pairs",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W9.2",
+      "summary": "`routes/health.ts:60-65` answers `{ features: {} }` and `agents.ts:31-41` answers 501 for every domain/action pair. The in-memory fallback chosen at `index.ts:87,96,101` is never logged anywhere in `index.ts:1-399`."
+    },
+    {
+      "id": "X-4",
+      "title": "packages/automation is a declared dependency imported by nothing",
+      "band": "Critical",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W10.1",
+      "summary": "`AiGateway`, `KiloGateway` and `OllamaGateway` have zero consumers, so G-1 through G-8 are defects in code the product never runs. Plan D7 says delete-or-wire; the brief is everything, so this is wire."
+    },
+    {
+      "id": "X-5",
+      "title": "A refusal reason names no rule id and no threshold value",
+      "band": "Critical",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W9.3",
+      "summary": "`quality-gate.ts:155,186,141` emits lossy strings, and the failure-classification tables carrying `matchedRuleId`, `confidence` and `rationale` (`dashboard.ts:578-600`) are referenced by zero routes and zero web files. \"Why did this verdict?\" has no answer anywhere in the product."
+    },
+    {
+      "id": "W-1",
+      "title": "No error boundary in the web app",
+      "band": "Critical",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.1",
+      "summary": "Zero matches for `ErrorBoundary`, `componentDidCatch`, `getDerivedStateFromError` or `errorComponent`, so a render throw blanks the SPA with no recovery path."
+    },
+    {
+      "id": "W-2",
+      "title": "AuthGuard redirects from a useEffect, after the protected route has mounted",
+      "band": "Critical",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.2",
+      "summary": "`AuthGuard.tsx:16-21` redirects from an effect, and `__root.tsx:16-27` wraps the outlet inside the guard, so protected components mount and open their subscriptions before the redirect fires. There is no `beforeLoad` in the tree."
+    },
+    {
+      "id": "W-3",
+      "title": "Auth state is module-level mutable global state",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.3",
+      "summary": "`useAuth.ts:6-8,19` holds the session in module scope and exports a `resetAuthState()` that orphans live components, so two concurrent sessions cannot hold independent state."
+    },
+    {
+      "id": "W-4",
+      "title": "useCommandActions.register can loop infinitely",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.4",
+      "summary": "`:93` depends on the raw `actions` array and `:13` compares by object reference, so a caller passing fresh literals each render produces `changed` → `notify()` → `useSyncExternalStore` re-render → a new array. The only production caller escapes via `useMemo`, so the next caller detonates."
+    },
+    {
+      "id": "W-5",
+      "title": "Each page holds two EventSource connections and two pollers",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.5",
+      "summary": "`routes/dashboard.tsx:338` calls `useRuns` before the `:341` early return, so every dashboard child opens its own pair. Per plan D8 the layout is restructured rather than a dependency added."
+    },
+    {
+      "id": "W-6",
+      "title": "A missing run renders null and a 404 is detected by string-matching an error message",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.8",
+      "summary": "`run-detail.tsx:193` renders `null`, `:179` matches on `error.message` while the API returns a distinct `code` (`boundary.ts:159`), and `lib/api.ts:104` uses `schema.parse`, so a `ZodError` reaches the user verbatim."
+    },
+    {
+      "id": "W-7",
+      "title": "Three formatDate definitions, none of them locale- or time-zone-aware",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.9",
+      "summary": "Defined at `dashboard.tsx:36`, `dashboard/index.tsx:43` and `run-detail.tsx:42`, all bare `toLocaleString()`, with zero uses of `Intl.DateTimeFormat` in either tree. Unacceptable in an evidence UI, where a timestamp is the claim."
+    },
+    {
+      "id": "W-8",
+      "title": "/dashboard/quarantine is registered but absent from the route manifest",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.11",
+      "summary": "`router.ts:9,16` registers it, `route-manifest.ts:1-7` does not list it, so `Sidebar.tsx:4,39` never links it: a finished screen with a 24-case suite, reachable only by URL. `route-manifest.test.ts` validates the manifest against itself and therefore cannot see this."
+    },
+    {
+      "id": "W-9",
+      "title": "An OS theme change never propagates",
+      "band": "Minor",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W13.12",
+      "summary": "`ThemeProvider.tsx:37` samples `matchMedia(...).matches` once with no `change` listener, `index.html` has no pre-hydration script, and `localStorage` access is not wrapped in try/catch."
+    },
+    {
+      "id": "O-1b",
+      "title": "A per-process cursor is minted beside the durable outbox sequence",
+      "band": "Blocker",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.1",
+      "summary": "The observability half of R-6: a request id is re-derived from the header at six sites and surfaces only in the JSON error body. There is no `AsyncLocalStorage` anywhere in `apps/api/src`, so one execution cannot be traced by one id from the log line to the event row to the artifact metadata."
+    },
+    {
+      "id": "O-2b",
+      "title": "x-request-id is advertised to CORS but never set on a response",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.2",
+      "summary": "The header is only ever read, while `security-headers.ts:57` lists it in `DEFAULT_EXPOSED_HEADERS`. The CORS layer advertises a header the server never sets."
+    },
+    {
+      "id": "O-3b",
+      "title": "The error boundary's log seam is never supplied a logger",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.3",
+      "summary": "`ErrorBoundaryOptions.log` exists and `boundary.ts:57` defaults to `console.error`, but `index.ts:115-120` passes only `requestId` and `reportError`, so production never gets a logger. Ten further bare `console.error` sites remain in product code."
+    },
+    {
+      "id": "O-4b",
+      "title": "No /metrics endpoint and no metrics library",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.4",
+      "summary": "Zero occurrences of a metrics route and no metrics dependency in any package, so run outcomes, gate verdicts, event freshness, queue latency, runner health, cancellation counts, artifact bytes and AI token cost are all unobservable."
+    },
+    {
+      "id": "O-5b",
+      "title": "Readiness cannot report a failed store",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W11.5",
+      "summary": "`lastSweepError` has zero occurrences repo-wide, and the realtime `lastError` is a local variable at `durable-realtime-bus.ts:108` that is never surfaced. Plan §3 records the source claim that \"readiness reports degraded stores\" as one of six that did not survive checking."
+    },
+    {
+      "id": "D-1",
+      "title": "Six scripts exist and are wired nowhere",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.10",
+      "summary": "`migrate:plan`, `migrate:validate`, `smoke:local`, `smoke:rehearsal`, `compose:config` and `quality:baseline` were in no workflow, not in `verify`, and not in `verify:release`, so the migration gate had never run in CI. Tiered per plan D6 and referenced by named jobs; `gate-tooling.json` records the tool each needs so a forgotten install is a failing test.",
+      "evidence": [
+        {
+          "path": "scripts/gate-tooling.json",
+          "asserts": "Every newly wired script has a row naming the binary it needs, so the test that audits workflows has a table to audit against."
+        },
+        {
+          "path": "scripts/lib/gate-tooling.test.mjs",
+          "asserts": "`the committed workflows are wired correctly` runs `auditRepository()` and asserts zero findings, which is what makes an unwired script a failure rather than an omission."
+        },
+        {
+          "path": ".github/workflows/unified-ci.yml",
+          "asserts": "The reporting job names `migrate:plan`, `migrate:validate` and `compose:config`; the nightly names `smoke:local`, `smoke:rehearsal` and `quality:baseline`."
+        }
+      ]
+    },
+    {
+      "id": "D-2",
+      "title": "playwright.config.ts used __dirname in an ES module",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.5",
+      "summary": "The root package.json declares `\"type\": \"module\"`, so Playwright loaded the config as an ES module and `__dirname` at `:41` and `:110` threw `ReferenceError: __dirname is not defined in ES module scope` before a single test was collected. A committed `playwright.config.local.ts` had grown around the crash and is deleted. `import.meta.dirname` is now used, as `eslint.config.js` already did.",
+      "evidence": [
+        {
+          "path": "playwright.config.ts",
+          "asserts": "`const configDir = import.meta.dirname` replaces both `__dirname` uses, and the config loads: `playwright test --list` collects 18 tests across 6 files in 2 projects."
+        }
+      ]
+    },
+    {
+      "id": "D-3",
+      "title": "An unidentified full-suite flake",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.3",
+      "summary": "The plan recorded a full suite reporting `1 failed / 1495 passed` once in nine runs with no identifiable test. It is `tests/contract/capability-register.test.mjs`, case `reports a real commit as the baseline, and refuses one that is not`: the file takes 1.14 s alone and 15.13 s under `pnpm test`, where thirty-odd packages run in parallel, and that case crossed the 5 000 ms default per-test timeout at 6 668 ms with `Test timed out in 5000ms`. Every assertion had passed; the harness ran out of budget. The case also spawned the script twice for one assertion, which doubled the cost of the slowest test in the file for no added evidence. One spawn, and an explicit budget with the reason recorded.",
+      "evidence": [
+        {
+          "path": "tests/contract/capability-register.test.mjs",
+          "asserts": "`SPAWNING_TIMEOUT_MS` is passed to every case in the file, and the forged-baseline case calls `check(file)` once into `forged` instead of twice."
+        }
+      ]
+    },
+    {
+      "id": "D-4",
+      "title": "node --test interference between the scripts/lib suites",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W0.3",
+      "summary": "Recorded as not reproducible, monitoring, which plan §W0's gate accepts in place of a named test. Measured on the current tree: 39/39 pass with `--test-concurrency=1` and 39/39 pass without it, in 686 ms and 311 ms. The same measurement on the CI baseline branch is 46/46 either way, in 1 177 ms serial and 5 028 ms concurrent — so concurrency costs a 4x wall-clock penalty on this machine without changing a single verdict. The contention is not reproducible because the contending writer is not in this tree: on the CI baseline branch `scripts/lib/oci-build-integration.test.mjs` copies the whole `scripts/` tree into a temp directory per case and spawns Node subprocesses against a stub runtime, which is what saturated the runner. Every suite in this tree is read-only over the repository, so there is nothing to contend for. `--test-concurrency=1` stays, and the reason is recorded here rather than left as a bare flag."
+    },
+    {
+      "id": "D-5",
+      "title": "Turbo had no global dependency on its own gate inputs",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.6",
+      "summary": "`globalDependencies` named the lockfile, the tsconfigs and the lint config, and nothing else. Editing `coverage-baseline.json`, `.semgrep.yml`, `.gitleaks.toml`, `playwright.config.ts`, `commitlint.config.js`, `vitest.config.ts`, `vitest.shared.ts` or `scripts/gate-tooling.json` left the `test` task's cache key untouched, so `pnpm test` could replay a result produced against the previous contents of a file the gate reads.",
+      "evidence": [
+        {
+          "path": "turbo.json",
+          "asserts": "`globalDependencies` lists `vitest.config.ts`, `vitest.shared.ts`, `playwright.config.ts`, `commitlint.config.js`, `coverage-baseline.json`, `docs/quality/complexity-baseline.json`, `scripts/gate-tooling.json`, `.semgrep.yml`, `.gitleaks.toml` and `.jscpd.json`; `tsconfig*.json` already covers `tsconfig.scripts.json`."
+        }
+      ]
+    },
+    {
+      "id": "D-6",
+      "title": "Three cross-references pointed at things that do not exist",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.7",
+      "summary": "`eslint.config.js:98` cited a nonexistent `docs/quality/debt-baseline.json` where the real ratchet is `docs/quality/complexity-baseline.json`; `review-rules/rules.json:128` named `pnpm secret:scan` where the script is `pnpm security:secrets`; and `docs/quality/coverage-exclusions.md:29` claimed nothing asserts a successful production composition, which `index-production-composition.test.ts:275-337` now does in eight cases including one that composes and exports a fetchable app.",
+      "evidence": [
+        {
+          "path": "eslint.config.js",
+          "asserts": "The `cognitive-complexity` comment names `docs/quality/complexity-baseline.json`, the file the ratchet actually writes."
+        },
+        {
+          "path": ".github/review-rules/rules.json",
+          "asserts": "The `secret.detected` rule's `fix` names `pnpm security:secrets`, a script that exists in the root package.json."
+        },
+        {
+          "path": "apps/api/src/index-production-composition.test.ts",
+          "asserts": "`describe('a valid production configuration')` asserts a composition that succeeds, which is what the coverage exclusion now says it does."
+        }
+      ]
+    },
+    {
+      "id": "D-7",
+      "title": "The secret history scan was not in the umbrella gate, and commitlint was not in CI",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.8",
+      "summary": "`security:secrets` scans the working tree, which cannot see a credential that was committed and later removed — the ordinary shape of an `git rm` or an edit that strips a secret. `security:secrets:history` existed and was in no gate, so `pnpm verify` passed over the history. It is now in `security:verify`, and commitlint runs as a named CI job.",
+      "evidence": [
+        {
+          "path": "scripts/secret-scan.mjs",
+          "asserts": "`--history` is a supported mode that scans every commit rather than the working tree."
+        },
+        {
+          "path": ".github/workflows/unified-ci.yml",
+          "asserts": "A named `commit-message` job runs `pnpm exec commitlint --from --to` over the push range."
+        }
+      ]
+    },
+    {
+      "id": "D-8",
+      "title": "The coverage ratchet was reachable only from a dispatch-only workflow",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.1",
+      "summary": "The ratchet was the only gate that could prove a coverage floor had not been lowered, and it ran in `release-gate.yml:50`, which is dispatch-only. A PR could lower a floor and merge. It is now a required job in `unified-ci.yml` with a per-package table in the job summary. The job reads the coverage artifacts the test job produced and re-verifies each summary against the `provenance.json` stamp beside it, so a stale or restored-from-cache summary is rejected rather than believed.",
+      "evidence": [
+        {
+          "path": ".github/workflows/unified-ci.yml",
+          "asserts": "A `coverage-ratchet` job needs `unit-and-coverage`, downloads the coverage artifacts and runs `pnpm coverage:ratchet`."
+        },
+        {
+          "path": "scripts/coverage-ratchet.mjs",
+          "asserts": "The per-package table is written to `$GITHUB_STEP_SUMMARY`, and `staleCoverageFinding` still rejects a summary whose stamp does not match the current inputs."
+        }
+      ]
+    },
+    {
+      "id": "D-9",
+      "title": "No rule caught a fail-open default or a double assertion at a contract",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0.9",
+      "summary": "`new Date(0) as unknown as Date` and `requireProductionSecrets: false` are the two shapes the plan names, and nothing in the tree rejects either: the first silences the compiler at a schema boundary, the second disables a security check. `no-fail-open-default` is now a review rule, and `as unknown as` is a lint error under `packages/db/src/schema/**` and `packages/shared-contracts/**`.",
+      "evidence": [
+        {
+          "path": "eslint.config.js",
+          "asserts": "`@typescript-eslint/no-unnecessary-type-assertion` and a `no-restricted-syntax` selector banning `TSAsExpression` inside a chain of two `as` operators apply to the two contract trees."
+        },
+        {
+          "path": ".github/review-rules/rules.json",
+          "asserts": "`no-fail-open-default` is declared with a severity, a category and a fix, and `review-rules-check.mjs` validates the declaration."
+        }
+      ]
+    },
+    {
+      "id": "C-1",
+      "title": "The plan's verified-fixed list carries no evidence for thirteen of its seventeen rows",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W0.4",
+      "summary": "Plan §3 lists P-1, P-2, P-4, P-15, P-27, 45, 46, 48, 54, 58, F-1, F-2, F-3, R-2, the `makeApi()` typed defaults, the `Table.tsx` keyboard sort and the unknown-`NODE_ENV` rejection as verified fixed, and instructs that they not be redone. Two carry a path a reader can check today — R-2 at `durable-realtime-bus.test.ts` and the keyboard sort at `Table.test.tsx` — and the other fifteen name no evidence at all. A claim with no path cannot be machine-checked, which is the whole point of the ledger, so the claim itself is the open row. Closing it means adding one `fixed` row per finding with the test that proves it."
+    },
+    {
+      "id": "C-2",
+      "title": "The capability register contradicts itself and two of its real rows cite dead evidence",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W16.4",
+      "summary": "`tool.playwright` is `mock` at `:37` while `quality.browser` is `real` at `:39` for the same execution. Of 39 rows, 15 are real, 14 mock, 6 deferred, 2 missing and 2 obsolete; there is no `quality.mobile` row; and two `real` rows cite dead code (`RunExplorer`) or a CI file. The Evidence column cites paths, not executable commands, so the register's own rule is unmet."
+    },
+    {
+      "id": "C-3",
+      "title": "Forty-two hand-rolled error call sites and twenty-five bodies with no code",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W8.1",
+      "summary": "There are 42 `error(c, status, code, message)` call sites and 0 have been migrated to `DomainError` — `execution/jobs.routes.ts` 22, `runs.routes.ts` 9, `runners.routes.ts` 6, `artifacts.routes.ts` 2, `policies.routes.ts` 1, `shared.ts` 1, `execution.ts` 1. Separately 25 bodies use a bare `{ error: string }` with no `code` field, which `AGENTS.md` itself forbids. The error surface was larger than when the wave was scoped."
+    },
+    {
+      "id": "C-4",
+      "title": "The execution store is 2 166 lines and holds two of the top complexity offenders",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W5.1",
+      "summary": "`apps/api/src/execution/drizzle-execution-store.ts` grew 148 lines past the point the previous plan scheduled the split, and six tasks target it. `docs/quality/complexity-baseline.json` records per-function offenders (`ceiling: 15`, `count: 31`) and has no file-length notion, so the correct gate is the offender count plus the two named functions: `:1357` at complexity 65 and `:1098` at complexity 39, the latter being exactly the finding-49 transaction."
+    },
+    {
+      "id": "C-5",
+      "title": "The canonical production compose cannot boot the API",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W1.8",
+      "summary": "`docs/deployment.md:20` documents that the API refuses to start without an S3 store and the enforcement is real at `startup-policy.ts:90-97`, yet no compose file sets `OBJECT_STORE_*`. `docker-compose.unified.yml:33-44` starts `NODE_ENV: production` with none, and `compose.dev.yml:49-60` runs a MinIO service that is never wired in. There are zero `OBJECT_STORE` matches in `infra/`."
+    },
+    {
+      "id": "C-6",
+      "title": "A third of the dashboard schema is dormant",
+      "band": "Major",
+      "provenance": "sweep",
+      "status": "open",
+      "wave": "W9.4",
+      "summary": "Roughly 35 tables in `schema/dashboard.ts` have no reader and no writer, so they are neither exercised nor served. `locator_suggestions` has no `updatedAt` column at all. Each needs a reader, writer, route, UI and test, or a written justification in `docs/quality/capability-justification.md`."
+    }
+  ]
+}

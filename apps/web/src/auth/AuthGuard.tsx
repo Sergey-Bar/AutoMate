@@ -20,7 +20,19 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
   }, [isAuthenticated, isChecking, isLoginPage, navigate, location.pathname]);
 
-  if (isChecking && !isLoginPage) return <div data-testid="auth-loading">Loading</div>;
+  /*
+   * `role="status"` with an `aria-live` region, because this state change is
+   * otherwise completely silent: a screen-reader user who triggers the guard gets
+   * no announcement that the app is working, and none either that it has given
+   * up and sent them to the login page. The visible text is unchanged.
+   */
+  if (isChecking && !isLoginPage) {
+    return (
+      <div role="status" aria-live="polite" data-testid="auth-loading">
+        Loading
+      </div>
+    );
+  }
   if (!isAuthenticated && !isLoginPage) return null;
   return <>{children}</>;
 }

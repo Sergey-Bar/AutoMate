@@ -254,6 +254,98 @@ describe('MemorySpool', () => {
   });
 });
 
+describe('SpoolEntryDisposition', () => {
+  it('takes a dead-lettered entry out of the deliverable head but keeps it readable', async () => {
+    const root = await directory();
+    const spool = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    await spool.enqueue(entry('a', 1));
+    await spool.enqueue(entry('b', 2, 'job-2'));
+
+    await spool.deadLetter(['a'], { attempts: 8, reason: 'Error' });
+
+    expect((await spool.peek()).map((item) => item.id)).toEqual(['b']);
+    expect((await spool.deadLetters()).map((item) => item.id)).toEqual(['a']);
+    expect((await spool.deadLetters())[0]).toMatchObject({
+      id: 'a',
+      disposition: 'dead_letter',
+      attempts: 8,
+      lastError: 'Error',
+    });
+    expect(spool.pending()).toBe(2);
+
+    const restarted = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    expect((await restarted.peek()).map((item) => item.id)).toEqual(['b']);
+    expect((await restarted.deadLetters())[0]).toMatchObject({
+      id: 'a',
+      disposition: 'dead_letter',
+      attempts: 8,
+      lastError: 'Error',
+    });
+    expect(restarted.pending()).toBe(2);
+    expect(restarted.lastSequence('job-1')).toBe(1);
+  });
+
+  it('keeps the first disposition written and ignores ids that are not queued', async () => {
+    const memory = new MemorySpool();
+    await memory.enqueue(entry('a', 1));
+    await memory.deadLetter(['a'], { attempts: 3, reason: 'first' });
+    await memory.deadLetter(['a'], { attempts: 9, reason: 'second' });
+    await memory.deadLetter(['missing'], { attempts: 1, reason: 'ignored' });
+    await memory.deadLetter([], { attempts: 1, reason: 'empty' });
+    expect((await memory.deadLetters())[0]).toMatchObject({ attempts: 3, lastError: 'first' });
+    expect(await memory.peek()).toEqual([]);
+    expect(memory.pending()).toBe(1);
+
+    const root = await directory();
+    const durable = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    await durable.enqueue(entry('a', 1));
+    await durable.deadLetter(['a'], { attempts: 3, reason: 'first' });
+    await durable.deadLetter(['a'], { attempts: 9, reason: 'second' });
+    await durable.deadLetter(['missing'], { attempts: 1, reason: 'ignored' });
+    await durable.deadLetter([], { attempts: 1, reason: 'empty' });
+    expect((await durable.deadLetters())[0]).toMatchObject({ attempts: 3, lastError: 'first' });
+  });
+
+  it('fails closed on a frame whose attempt record is not a queue entry', async () => {
+    for (const record of [
+      { ...entry('a', 1), disposition: 'retry-twice' },
+      { ...entry('a', 1), attempts: -1 },
+      { ...entry('a', 1), lastError: 7 },
+    ]) {
+      const root = await directory();
+      await writeFile(join(root, 'events.spool'), frame(record));
+      const failure = await DurableSpool.open({ directory: root, key: 'stable-runner-key' }).catch(
+        (error: unknown) => error,
+      );
+      expect((failure as SpoolIntegrityError).code).toBe('SPOOL_FORMAT');
+    }
+  });
+
+  it('round-trips an explicit retry disposition and a zero attempt count', async () => {
+    const root = await directory();
+    await writeFile(
+      join(root, 'events.spool'),
+      frame({ ...entry('a', 1), disposition: 'retry', attempts: 0, lastError: '' }),
+    );
+    const spool = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    expect((await spool.peek())[0]).toMatchObject({ id: 'a', disposition: 'retry', attempts: 0 });
+    expect(await spool.deadLetters()).toEqual([]);
+  });
+});
+
+function frame(record: unknown): Buffer {
+  const codec = new EncryptedSpool('stable-runner-key');
+  const sealed = codec.seal(record);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(sealed.length);
+  return Buffer.concat([
+    Buffer.from('automate-runner-spool/v1\n', 'utf8'),
+    Buffer.from(codec.keyId(), 'utf8'),
+    length,
+    sealed,
+  ]);
+}
+
 describe('readOrCreateSpoolKey', () => {
   it('creates a private key once and reuses it on later calls', async () => {
     const root = await directory();

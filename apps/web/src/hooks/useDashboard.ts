@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   defaultApiClient,
+  isAbortError,
   type AnalyticsSummary,
   type ArtifactDescriptor,
   type GateEvaluation,
@@ -9,33 +10,36 @@ import {
   type Run,
   type RunEvent,
 } from '../lib/api.js';
+import { useRequestLifecycle } from './use-request-lifecycle.js';
 import { projectRunEvent } from './useRuns.js';
 
 export function useAnalytics(api = defaultApiClient) {
   const [data, setData] = useState<AnalyticsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const { begin, cancelAll } = useRequestLifecycle();
 
   useEffect(() => {
-    let mounted = true;
+    const signal = begin();
     void api
-      .getAnalyticsSummary()
+      .getAnalyticsSummary({ signal })
       .then((result) => {
-        if (!mounted) return;
         setData(result);
         setError(null);
       })
       .catch((caught: unknown) => {
-        if (mounted)
-          setError(caught instanceof Error ? caught : new Error('Analytics unavailable'));
+        // A request cancelled by unmount is not an analytics failure, and
+        // reporting it would replace a rendered summary with an error.
+        if (isAbortError(caught)) return;
+        setError(caught instanceof Error ? caught : new Error('Analytics unavailable'));
       })
       .finally(() => {
-        if (mounted) setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       });
     return () => {
-      mounted = false;
+      cancelAll();
     };
-  }, [api]);
+  }, [api, begin, cancelAll]);
 
   return { data, isLoading, error };
 }
@@ -65,27 +69,40 @@ export function useRunDetail(id: string, api = defaultApiClient) {
   const [isLive, setIsLive] = useState(false);
   const mountedRef = useRef(true);
   const seenEvents = useRef(new Set<string>());
+  const { begin: beginLoad, cancelAll: cancelLoads } = useRequestLifecycle();
 
   const refresh = useCallback(
     async (showLoading = false) => {
       if (!mountedRef.current) return;
       if (showLoading) setIsLoading(true);
+      // One signal for the whole refresh: the run and its three evidence
+      // requests are a single snapshot, so a superseding refresh has to cancel
+      // all four together rather than leave a gate from the previous one to
+      // land on its own.
+      const signal = beginLoad();
       try {
-        const run = await api.getRun(id);
+        const run = await api.getRun(id, { signal });
         if (!mountedRef.current) return;
         setData((current) => ({ ...current, run }));
         setError(null);
 
         const [artifactsResult, gateResult, readinessResult] = await Promise.allSettled([
-          api.getRunArtifacts(id),
-          api.getRunGate(id),
-          run.releaseId ? api.getReleaseReadiness(run.releaseId) : Promise.resolve(null),
+          api.getRunArtifacts(id, { signal }),
+          api.getRunGate(id, { signal }),
+          run.releaseId
+            ? api.getReleaseReadiness(run.releaseId, { signal })
+            : Promise.resolve(null),
         ]);
         if (!mountedRef.current) return;
 
         const failures = [artifactsResult, gateResult, readinessResult].filter(
           (result): result is PromiseRejectedResult => result.status === 'rejected',
         );
+        // A cancellation is not a partial-evidence failure: nothing is missing,
+        // the answers are simply no longer wanted.
+        if (failures.length > 0 && failures.every((failure) => isAbortError(failure.reason))) {
+          return;
+        }
         setData((current) => ({
           ...current,
           run,
@@ -99,6 +116,7 @@ export function useRunDetail(id: string, api = defaultApiClient) {
             failures.length > 0 ? new Error('Some run evidence could not be loaded') : null,
         }));
       } catch (caught) {
+        if (isAbortError(caught)) return;
         if (mountedRef.current) {
           setError(caught instanceof Error ? caught : new Error('Failed to fetch run'));
         }
@@ -106,7 +124,7 @@ export function useRunDetail(id: string, api = defaultApiClient) {
         if (showLoading && mountedRef.current) setIsLoading(false);
       }
     },
-    [api, id],
+    [api, id, beginLoad],
   );
 
   useEffect(() => {
@@ -150,21 +168,34 @@ export function useRunDetail(id: string, api = defaultApiClient) {
     });
     return () => {
       mountedRef.current = false;
+      cancelLoads();
       unsubscribe();
     };
-  }, [api, id, refresh]);
+  }, [api, id, refresh, cancelLoads]);
 
+  /**
+   * `cancelRun` and `retryRun` are deliberately called without a signal.
+   *
+   * They are user-initiated, they are not superseded by a later poll, and the
+   * observable half of the unmount defect — a result written into a component
+   * that no longer exists — is closed by the `mountedRef` guards below. Adding
+   * the argument would change the call arity that `routes/dashboard/run-detail`
+   * asserts on, and that file is owned elsewhere; the argument can be threaded
+   * in the same commit that owns those tests.
+   */
   const cancel = useCallback(async () => {
     setIsActing(true);
     setActionError(null);
     try {
       const run = await api.cancelRun(id);
+      if (!mountedRef.current) return run;
       setData((current) => ({ ...current, run }));
       await refresh();
       return run;
     } catch (caught) {
+      if (isAbortError(caught)) throw caught;
       const actionFailure = caught instanceof Error ? caught : new Error('Failed to cancel run');
-      setActionError(actionFailure);
+      if (mountedRef.current) setActionError(actionFailure);
       throw actionFailure;
     } finally {
       if (mountedRef.current) setIsActing(false);
@@ -176,11 +207,13 @@ export function useRunDetail(id: string, api = defaultApiClient) {
     setActionError(null);
     try {
       const run = await api.retryRun(id);
+      if (!mountedRef.current) return run;
       setData((current) => ({ ...current, run, events: [], artifacts: [], gate: null }));
       return run;
     } catch (caught) {
+      if (isAbortError(caught)) throw caught;
       const actionFailure = caught instanceof Error ? caught : new Error('Failed to retry run');
-      setActionError(actionFailure);
+      if (mountedRef.current) setActionError(actionFailure);
       throw actionFailure;
     } finally {
       if (mountedRef.current) setIsActing(false);
@@ -204,36 +237,35 @@ export function useReleaseReadiness(releaseId: string | null, api = defaultApiCl
   const [data, setData] = useState<ReleaseReadiness | null>(null);
   const [isLoading, setIsLoading] = useState(Boolean(releaseId));
   const [error, setError] = useState<Error | null>(null);
+  const { begin, cancelAll } = useRequestLifecycle();
 
   useEffect(() => {
-    let mounted = true;
     if (!releaseId) {
       setData(null);
       setIsLoading(false);
       return () => {
-        mounted = false;
+        cancelAll();
       };
     }
     setIsLoading(true);
+    const signal = begin();
     void api
-      .getReleaseReadiness(releaseId)
+      .getReleaseReadiness(releaseId, { signal })
       .then((result) => {
-        if (!mounted) return;
         setData(result);
         setError(null);
       })
       .catch((caught: unknown) => {
-        if (mounted) {
-          setError(caught instanceof Error ? caught : new Error('Release readiness unavailable'));
-        }
+        if (isAbortError(caught)) return;
+        setError(caught instanceof Error ? caught : new Error('Release readiness unavailable'));
       })
       .finally(() => {
-        if (mounted) setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       });
     return () => {
-      mounted = false;
+      cancelAll();
     };
-  }, [api, releaseId]);
+  }, [api, releaseId, begin, cancelAll]);
 
   return { data, isLoading, error };
 }
@@ -242,28 +274,27 @@ export function useQuarantine(api = defaultApiClient) {
   const [data, setData] = useState<QuarantineEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
+  const { begin, cancelAll } = useRequestLifecycle();
 
   useEffect(() => {
-    let mounted = true;
+    const signal = begin();
     void api
-      .getQuarantine()
+      .getQuarantine({ signal })
       .then((result) => {
-        if (!mounted) return;
         setData(result);
         setError(null);
       })
       .catch((caught: unknown) => {
-        if (mounted) {
-          setError(caught instanceof Error ? caught : new Error('Quarantine unavailable'));
-        }
+        if (isAbortError(caught)) return;
+        setError(caught instanceof Error ? caught : new Error('Quarantine unavailable'));
       })
       .finally(() => {
-        if (mounted) setIsLoading(false);
+        if (!signal.aborted) setIsLoading(false);
       });
     return () => {
-      mounted = false;
+      cancelAll();
     };
-  }, [api]);
+  }, [api, begin, cancelAll]);
 
   const addQuarantine = async (entry: { testTitle: string; testFile: string; reason?: string }) => {
     const created = await api.addQuarantine(entry);

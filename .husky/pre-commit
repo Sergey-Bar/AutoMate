@@ -1,2 +1,46 @@
-# Pre-commit: full lint, typecheck, and test gates run via `pnpm verify` and CI.
-# (Per-file lint-staged wiring is intentionally deferred; see AGENTS.md.)
+# Pre-commit: the two checks a commit can be stopped for, and only those.
+#
+# This file was a single comment saying the full gates run in CI, which meant
+# there was no pre-commit gate at all — and `husky` was not a dependency, so the
+# hook was never installed either. A hook that is not installed is worse than no
+# hook: `ls .husky` shows a gate, and a reviewer trusts the directory rather than
+# the contents.
+#
+# Deliberately small, and deliberately not `pnpm verify`:
+#
+#   - `security:secrets` — the working tree only, and it is fast. A commit that
+#     adds a credential is the one thing a commit hook is uniquely placed to stop,
+#     because it is the last moment before the value is in history, where removing
+#     it is a rewrite rather than a delete.
+#   - `format:check` on the staged files only. Formatting the whole repository on
+#     every commit is slow enough that people reach for `--no-verify`, and a gate
+#     that gets bypassed is not a gate.
+#
+# NOT here, on purpose:
+#
+#   - the history scan (`pnpm security:secrets:history`). It is proportional to the
+#     commit count, which is the wrong cost for an interactive hook. CI runs it.
+#   - `lint`, `typecheck`, `test`, `build`. They run in CI on every push, and
+#     putting them here only buys a slower commit.
+#
+# To skip once, deliberately: `git commit --no-verify`. If that becomes routine,
+# delete this file rather than debugging it.
+
+pnpm security:secrets
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -n "$staged" ]; then
+  # Batched, because the whole list in one argv overflows the Windows command
+  # line at around 8k characters. A 200-file commit is an ordinary size, and a
+  # hook that cannot run on Windows is a gate that gets --no-verify'd.
+  #
+  # --ignore-unknown, because an explicit file list bypasses the globs in
+  # `format:check`: without it prettier errors on every .sql migration and
+  # every extensionless dotfile in the commit, and the gate fails on a tree
+  # that is correctly formatted.
+  printf '%s\n' "$staged" | xargs -d '\n' -n 40 pnpm exec prettier --check --ignore-unknown || {
+    echo ""
+    echo "Staged files are not formatted. Run \`pnpm format\` and stage the result."
+    exit 1
+  }
+fi

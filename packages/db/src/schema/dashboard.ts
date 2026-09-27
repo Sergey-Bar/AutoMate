@@ -200,6 +200,14 @@ export const runs = pgTable(
     index('runs_started_at_idx').on(t.startedAt),
     index('runs_finished_at_idx').on(t.finishedAt),
     index('runs_workspace_id_idx').on(t.workspaceId),
+    // Added in migration 0014. `runs_workspace_id_idx` alone made the dashboard's
+    // listing — `WHERE workspace_id = $1 ORDER BY created_at ASC, id ASC LIMIT n` —
+    // locate the workspace's rows by index and then **sort** them, so taking 25 rows
+    // cost a sort of the workspace's entire history. This composite is in the query's
+    // own order, so the page is an ordered index scan with no sort, and the `id`
+    // tiebreak needs no re-sort either. That is the cost the pagination was added to
+    // remove; the EXPLAIN fixture found that it had not.
+    index('runs_workspace_created_idx').on(t.workspaceId, t.createdAt, t.id),
     index('runs_branch_idx').on(t.branch),
     index('runs_status_idx').on(t.status),
     index('runs_phase_outcome_idx').on(t.workspaceId, t.phase, t.outcome),
@@ -439,6 +447,12 @@ export const quarantine = pgTable(
       'quarantine_ttf_resolution_check',
       sql`${table.ttfMs} is null or ${table.resolvedAt} is not null`,
     ),
+    // Added in migration 0014. `quarantine` had **no** index, so
+    // `GET /api/v1/dashboard/quarantine` — which is `ORDER BY quarantined_at` —
+    // sorted the whole table on every dashboard load, and the cost grew with every
+    // entry ever quarantined. Found by `tests/integration`'s EXPLAIN fixture, which
+    // states for each hot query the index it is served by.
+    index('quarantine_quarantined_idx').on(table.quarantinedAt),
   ],
 );
 
@@ -474,6 +488,11 @@ export const schedules = pgTable('schedules', {
 export const qualityGateConfig = pgTable('quality_gate_config', {
   id: text('id').primaryKey().default('global'),
   workspaceId: text('workspace_id'),
+  // The gate's own display name. It used to be stored in `workspace_id` and read
+  // back out of it, which scoped every created gate to a workspace that did not
+  // exist and made the scoping column carry a free-text label. Migration 0012
+  // moved it here and recovered the names it had swallowed.
+  name: text('name').notNull().default('Unnamed gate'),
   // SQLite: real('pass_rate_threshold').notNull().default(100)
   passRateThreshold: real('pass_rate_threshold').notNull().default(100),
   maxDurationMs: integer('max_duration_ms'),

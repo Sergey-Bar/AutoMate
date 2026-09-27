@@ -118,7 +118,7 @@ describe('runner lease credentials are required, never inferred', () => {
     expect(response.status).toBe(409);
     const body = (await response.json()) as { error: { code: string } };
     expect(body.error.code).toBe('JOB_LEASE_REQUIRED');
-    expect(await store.listEvents(runId)).toEqual([]);
+    expect((await store.listEvents('lease-workspace', runId)).events).toEqual([]);
   });
 
   it('rejects a batch that presents only one of the two credentials', async () => {

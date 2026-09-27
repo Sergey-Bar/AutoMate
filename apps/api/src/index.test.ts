@@ -528,3 +528,70 @@ describe('Shared repository — reporter and runs routes see same state', () => 
     expect(ids).toContain('shared-repo-run-001');
   });
 });
+
+/**
+ * The cross-cutting middleware is actually mounted.
+ *
+ * `security-headers.test.ts` and `request-deadline.test.ts` prove the two
+ * middlewares behave. Neither can prove the *composed app* uses them, and a
+ * middleware that works perfectly and is never registered is a real shape of dead
+ * code � it reads as a security control in a code search and protects nothing.
+ *
+ * This asserts the effect on a live response from `{ app }`, which is the only
+ * thing a client ever sees.
+ */
+describe('cross-cutting middleware on the composed app', () => {
+  it('sets the security headers the middleware owns', async () => {
+    const res = await app.request('/api/v1/health');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(res.headers.get('content-security-policy')).toContain("default-src 'self'");
+  });
+
+  it('echoes the request deadline that applied', async () => {
+    const res = await app.request('/api/v1/health');
+    // Present and numeric. Absent would mean the deadline middleware is not
+    // mounted; non-numeric would mean the header name drifted out of sync.
+    const header = res.headers.get('x-request-deadline-ms');
+    expect(header).not.toBeNull();
+    expect(Number(header)).toBeGreaterThan(0);
+    expect(Number.isInteger(Number(header))).toBe(true);
+  });
+
+  it('grants CORS only to the configured public origin', async () => {
+    // `PUBLIC_APP_URL` is the web client. An origin outside the list gets no
+    // `Access-Control-Allow-Origin`, so the browser refuses to hand the response
+    // to the page.
+    const allowed = process.env['PUBLIC_APP_URL'] ?? 'http://localhost:5173';
+    const allowedOrigin = new URL(allowed).origin;
+    const granted = await app.request('/api/v1/health', {
+      headers: { origin: allowedOrigin },
+    });
+    expect(granted.headers.get('access-control-allow-origin')).toBe(allowedOrigin);
+
+    const refused = await app.request('/api/v1/health', {
+      headers: { origin: 'https://not-the-configured-origin.example.test' },
+    });
+    expect(refused.status).toBe(200);
+    expect(refused.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('never answers with a wildcard origin', async () => {
+    for (const origin of ['https://a.example.test', 'null', 'http://localhost:4173']) {
+      const res = await app.request('/api/v1/health', { headers: { origin } });
+      expect(res.headers.get('access-control-allow-origin'), origin).not.toBe('*');
+    }
+  });
+
+  it('exempts the SSE stream from the deadline, and nothing else by accident', async () => {
+    const stream = await app.request('/api/v1/events');
+    // A long-lived stream must not be refused halfway through, so it is the one
+    // exempt path. This asserts the exemption is not wider than that.
+    if (stream.status === 200) {
+      expect(stream.headers.get('x-request-deadline-ms')).toBeNull();
+    }
+    const ordinary = await app.request('/api/v1/features');
+    expect(ordinary.headers.get('x-request-deadline-ms')).not.toBeNull();
+  });
+});

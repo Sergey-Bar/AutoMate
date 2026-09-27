@@ -77,6 +77,20 @@ export class LocalArtifactStore {
     return new Uint8Array(await readFile(resolveArtifactPath(this.root, key)));
   }
 
+  /**
+   * Removes the bytes at a key, tolerating an absent one.
+   *
+   * Idempotent on purpose: this is the compensating half of an artifact write, so it
+   * runs on a path where "already gone" is a success and an `ENOENT` surfacing as a
+   * failure would turn a cleaned-up write into a 500.
+   */
+  async removeAt(key: string): Promise<void> {
+    await unlink(resolveArtifactPath(this.root, key)).catch((failure: unknown) => {
+      const code = (failure as NodeJS.ErrnoException | null)?.code;
+      if (code !== 'ENOENT') throw failure;
+    });
+  }
+
   async put(input: {
     key: string;
     bytes: Uint8Array;
@@ -117,6 +131,21 @@ export interface ArtifactBytesStore {
    * the caller to stop asking and tells nobody to go and look.
    */
   get(storageKey: string): Promise<Uint8Array | null>;
+  /**
+   * Removes the bytes, and resolves when the key is already gone.
+   *
+   * This exists for the compensating half of `addArtifact`. The bytes are written
+   * before the row that references them, because the row needs the checksum and the
+   * size — which are only knowable once the bytes exist. So a failure between the
+   * two left an object nothing pointed at and nothing could remove, and the store's
+   * memory bound counted it against the budget for the life of the process. A
+   * `delete` the port cannot express is a compensation that cannot be written, so
+   * the port grew the method.
+   *
+   * It must be idempotent: compensation runs on the failure path, where a second
+   * attempt has to be safe.
+   */
+  delete(storageKey: string): Promise<void>;
 }
 
 export class LocalArtifactBytesStore implements ArtifactBytesStore {
@@ -137,6 +166,10 @@ export class LocalArtifactBytesStore implements ArtifactBytesStore {
       throw failure;
     }
   }
+
+  async delete(storageKey: string): Promise<void> {
+    await this.store.removeAt(storageKey);
+  }
 }
 
 export class FallbackArtifactBytesStore implements ArtifactBytesStore {
@@ -155,5 +188,18 @@ export class FallbackArtifactBytesStore implements ArtifactBytesStore {
     if (primary !== null) return primary;
     this.onFallback?.(storageKey);
     return this.fallback.get(storageKey);
+  }
+
+  /**
+   * Deletes from **both**.
+   *
+   * `put` only writes the primary, so deleting only the primary would be correct
+   * today. Deleting both is what makes the compensating call safe if a future write
+   * falls back to the secondary: a cleanup that silently misses the tier holding
+   * the bytes is a cleanup that leaves the orphan in place.
+   */
+  async delete(storageKey: string): Promise<void> {
+    await this.primary.delete(storageKey);
+    await this.fallback.delete(storageKey);
   }
 }

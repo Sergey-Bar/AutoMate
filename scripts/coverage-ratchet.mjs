@@ -16,11 +16,17 @@
  * no measured coverage is declared `not_configured` — reported, never silently
  * treated as passing.
  */
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { staleCoverageFinding, hashInputs } from './lib/coverage-freshness.mjs';
 import { collectCoverageInputs } from './write-coverage-provenance.mjs';
+import {
+  baseBaseline,
+  defaultBaseRef,
+  loweredFloors,
+  readFileAtRef,
+} from './lib/coverage-floor-ratchet.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const baselinePath = path.join(root, 'coverage-baseline.json');
@@ -40,6 +46,13 @@ const IGNORED_DIRECTORIES = new Set([
   'test-results',
   'var',
 ]);
+
+/**
+ * The four metrics, in the order `AGENTS.md` and `coverage-baseline.json` both
+ * spell them, so the job-summary table reads in the same order as the file a
+ * reader would otherwise have to open.
+ */
+const METRIC_ORDER = ['statements', 'branches', 'functions', 'lines'];
 
 /**
  * Workspace members, derived from the tree rather than from a hand-kept list.
@@ -94,6 +107,8 @@ const failures = [];
 const notConfigured = [];
 /** @type {string[]} */
 const checked = [];
+/** One row per ratcheted package, for the job summary. @type {Array<{ name: string, floor: string, actual: string }>} */
+const table = [];
 
 /** The gate fails when either side names something the other does not. */
 const missingFromBaseline = workspacePackages.filter((relativePath) => !(relativePath in baseline));
@@ -202,11 +217,21 @@ for (const relativePath of workspacePackages) {
     }
   }
   checked.push(relativePath);
+  table.push({
+    name: relativePath,
+    floor: METRIC_ORDER.filter((metric) => metric in entry)
+      .map((metric) => `${metric} ${entry[metric]}`)
+      .join(' · '),
+    actual: METRIC_ORDER.filter((metric) => metric in entry)
+      .map((metric) => `${metric} ${summary[metric]?.pct ?? '—'}`)
+      .join(' · '),
+  });
 }
 
 if (failures.length > 0) {
   console.error('Coverage ratchet failed');
   for (const failure of failures) console.error(`- ${failure}`);
+  writeSummary('failed', failures);
   process.exit(1);
 }
 
@@ -232,12 +257,100 @@ if (workspacePackages.length === 0 || checked.length === 0) {
   process.exit(1);
 }
 
+// The floor ratchet: a floor may go up, never down.
+//
+// Everything above answers "is the measured coverage at or above the recorded
+// floor". That question cannot notice the floor being edited first — with
+// `packages/shared-contracts` at 99% statements and its floor changed from `99` to
+// `1`, every check above still passed, because `1` really is below `99.27`.
+// Lowering the floor and lowering the coverage produce the same verdict, and only
+// one of them is a defect.
+//
+// The base is the merge base, named by `COVERAGE_FLOOR_BASE` in CI and `HEAD~1`
+// locally. There is no second file to compare against: a second record in the tree
+// is editable in the same commit that lowers the first, and would be lowered in the
+// same keystroke.
+const base = defaultBaseRef(root);
+const { baseline: baseFloors, reason: baseReason } = baseBaseline({
+  ref: base.ref,
+  read: (ref) => readFileAtRef(root, ref, 'coverage-baseline.json'),
+});
+const floorFindings = loweredFloors(baseFloors, baseline);
+
+if (floorFindings.length > 0) {
+  console.error('Coverage ratchet failed: a recorded floor was weakened');
+  for (const finding of floorFindings) console.error(`- ${finding}`);
+  writeSummary('failed', floorFindings);
+  process.exit(1);
+}
+
 console.log('Coverage ratchet passed');
 console.log(`  ratcheted:  ${checked.length} package(s)`);
 console.log(`  derived from the workspace: ${workspacePackages.length} package(s) with tests`);
+console.log(`  floors:     ${baseReason}${floorFindings.length === 0 ? ', none weakened' : ''}`);
+if (baseFloors === null) {
+  // Printed as a line, not swallowed. A check that could not compare says so, so a
+  // green run is never mistaken for a run where the comparison happened.
+  console.log(
+    '  note:        there was no base commit to compare floors against, so the ' +
+      'floor comparison did not run. Set COVERAGE_FLOOR_BASE to the merge base to ' +
+      'enforce it.',
+  );
+}
 if (notConfigured.length > 0) {
   // Reported, never folded into the pass count: these packages have no
   // measured floor, so "passed" must not imply they were measured.
   console.log(`  not_configured (no measured floor yet): ${notConfigured.length}`);
   for (const name of notConfigured) console.log(`    - ${name}`);
+}
+writeSummary('passed', []);
+
+/**
+ * The per-package table, into the job summary when there is one.
+ *
+ * The ratchet is the only gate that can prove a floor was not lowered, and until
+ * this existed its verdict was one line of console output on a job whose result
+ * nobody reads afterwards. A table showing every package's floor beside its
+ * measured value is the difference between "the gate passed" and "here is what
+ * was measured".
+ *
+ * `not_configured` packages are listed as themselves, in their own section and
+ * never as a blank or a zero. A package with no floor shown next to packages
+ * with floors would read as a package at 0%.
+ *
+ * @param {'passed' | 'failed'} verdict
+ * @param {string[]} failureList
+ */
+function writeSummary(verdict, failureList) {
+  const summaryPath = process.env['GITHUB_STEP_SUMMARY'];
+  if (!summaryPath) return;
+  const lines = [
+    '### Coverage ratchet',
+    '',
+    `\`pnpm coverage:ratchet\` **${verdict}** — ${checked.length} of ${workspacePackages.length} package(s) with tests carry a measured floor.`,
+    '',
+    '| Package | Floor (s / b / f / l) | Measured |',
+    '| --- | --- | --- |',
+    ...table.map((row) => `| \`${row.name}\` | ${row.floor} | ${row.actual} |`),
+  ];
+  if (notConfigured.length > 0) {
+    lines.push(
+      '',
+      `#### not_configured (${notConfigured.length})`,
+      '',
+      '| Package | Why there is no floor |',
+      '| --- | --- |',
+      // Each entry is `${relativePath} — ${reason}`; split on the first separator so a
+      // reason containing an em dash survives intact.
+      ...notConfigured.map((line) => {
+        const at = line.indexOf(' — ');
+        return `| \`${line.slice(0, at)}\` | ${line.slice(at + 3)} |`;
+      }),
+    );
+  }
+  if (failureList.length > 0) {
+    lines.push('', '#### Failures', '', ...failureList.map((failure) => `- ${failure}`));
+  }
+  lines.push('');
+  writeFileSync(summaryPath, lines.join('\n'), { flag: 'a' });
 }

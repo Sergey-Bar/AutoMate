@@ -6,6 +6,7 @@
  * outside this app.
  */
 @import '../../../packages/ui/src/tokens/theme.css';
+@import '../../../packages/ui/src/tokens/motion.css';
 @source "../../../packages/ui/src";
 
 @layer base {

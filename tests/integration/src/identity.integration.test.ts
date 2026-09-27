@@ -84,3 +84,52 @@ describe('identity persistence', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('the duplicate runner tables are gone from the database, not just the schema', () => {
+  async function tableExists(name: string): Promise<boolean> {
+    const result = await client.query<{ present: boolean | null }>(
+      'SELECT to_regclass($1) IS NOT NULL AS present',
+      [`public.${name}`],
+    );
+    return result.rows[0]?.present === true;
+  }
+
+  it('dropped runner_identities and runner_enrollment_tokens', async () => {
+    // The schema module and the database are two different claims. A Drizzle export
+    // removed without a migration leaves the table live, and a migration without the
+    // export leaves code that cannot reach a table that still exists — so this asks
+    // the catalogue, not the module. `migrations.test.ts` already compares the two in
+    // the other direction; this is the "is the row really deleted" half.
+    expect(await tableExists('runner_identities'), 'runner_identities still exists').toBe(false);
+    expect(
+      await tableExists('runner_enrollment_tokens'),
+      'runner_enrollment_tokens still exists',
+    ).toBe(false);
+  });
+
+  it('left execution_jobs pointing at the one live runners table', async () => {
+    // The dropped tables were the *other* side of this relationship. After the drop,
+    // `lease_owner` must still resolve — a job leased to a runner that the scheduler
+    // never consults is the failure this consolidation was filed under, and the
+    // foreign key is what prevents it.
+    const result = await client.query<{ table_name: string; column_name: string }>(
+      `SELECT tc.table_name, kcu.column_name
+         FROM information_schema.table_constraints tc
+         JOIN information_schema.key_column_usage kcu
+           ON kcu.constraint_name = tc.constraint_name
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_name = 'execution_jobs'
+          AND kcu.column_name = 'lease_owner'`,
+    );
+    expect(result.rows).toHaveLength(1);
+    const foreignKey = await client.query<{ referenced: string | null }>(`
+      SELECT ccu.table_name AS referenced
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+       WHERE tc.constraint_type = 'FOREIGN KEY'
+         AND tc.table_name = 'execution_jobs'
+         AND tc.constraint_name LIKE '%lease_owner%'`);
+    expect(foreignKey.rows[0]?.referenced).toBe('runners');
+  });
+});

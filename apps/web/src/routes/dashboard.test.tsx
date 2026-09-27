@@ -156,6 +156,61 @@ describe('dashboard routes', () => {
     expect(screen.queryByTestId('launch-run-created')).not.toBeInTheDocument();
   });
 
+  it('announces a run status change from a live region', async () => {
+    const runs = [makeRun({ id: 'live-run', projectId: 'registered-project', phase: 'queued' })];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
+        if (url.endsWith('/api/v1/runs'))
+          return new Response(JSON.stringify(runs), { status: 200 });
+        if (url.endsWith('/api/v1/releases/release-1/readiness')) {
+          return new Response(JSON.stringify({ releaseId: 'release-1', decision: 'ready' }), {
+            status: 200,
+          });
+        }
+        return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+      }),
+    );
+    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    await waitFor(() => expect(screen.getByTestId('run-status-live-run')).toBeInTheDocument());
+
+    // The badge is a polite live region, so the status flip is spoken. Without
+    // it the only signal that a run finished is a colour and a word changing
+    // under a user who was not told to look.
+    const status = screen.getByTestId('run-status-live-run');
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toHaveTextContent('queued');
+  });
+
+  it('confines the live region to the status badge, not the whole run card', async () => {
+    const runs = [makeRun({ id: 'live-run', projectId: 'registered-project', phase: 'queued' })];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
+        if (url.endsWith('/api/v1/runs'))
+          return new Response(JSON.stringify(runs), { status: 200 });
+        return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+      }),
+    );
+    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    await waitFor(() => expect(screen.getByTestId('run-status-live-run')).toBeInTheDocument());
+
+    const status = screen.getByTestId('run-status-live-run');
+    const card = screen.getByTestId('run-item-live-run');
+    // A live region on the card would re-announce the run id, the project and the
+    // timestamp along with the one thing that changed.
+    expect(status.closest('[aria-live]')).toBe(status);
+    expect(card).not.toHaveAttribute('aria-live');
+    expect(card).not.toHaveAttribute('role', 'status');
+    // And the phase badge, which is not the status, is not a live region either.
+    expect(card.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });

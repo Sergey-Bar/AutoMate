@@ -114,6 +114,23 @@ beforeAll(async () => {
     const run = await executionStore.createRun(body);
     return c.json(run, 202);
   });
+
+  // The run counters, written directly. The counters are assigned whole from the
+  // derived summary on the completion path rather than incremented per event, so
+  // there is no increment to race — but `runs_summary_check` still requires all
+  // seven to be non-negative, and a negative one must reach the caller as a 422
+  // rather than as the bare 500 this suite exists to prevent.
+  app.post('/api/v1/run-counters', async (c) => {
+    const body = (await c.req.json()) as Record<string, unknown>;
+    await db.insert(schema.runs).values({
+      id: String(body['id']),
+      externalId: String(body['id']),
+      startedAt: new Date(),
+      total: Number(body['total'] ?? 0),
+      passed: Number(body['passed'] ?? 0),
+    } as never);
+    return c.json({ inserted: true }, 201);
+  });
 });
 
 afterAll(async () => {
@@ -170,6 +187,35 @@ describe('a database constraint reaches the caller as a classified 4xx', () => {
         ttfMs: 60_000,
       }),
     });
+    expect(response.status).toBe(201);
+  });
+
+  it('answers a negative run counter with 422, not 500', async () => {
+    // `runs_summary_check` requires all seven counters to be non-negative. A
+    // negative one used to be the store's problem and reached the caller as an
+    // unclassified 500, indistinguishable from a database outage. It is a bad
+    // number the caller sent, so it is a 422.
+    const response = await app.request('/api/v1/run-counters', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: '00000000-0000-4000-8000-0000000000c1', total: -1, passed: 3 }),
+    });
+
+    expect(response.status).toBe(422);
+    const body = (await response.json()) as { error: { code: string } };
+    expect(body.error.code).toBe(ErrorCode.CHECK_CONSTRAINT_VIOLATED);
+    // The constraint name names the column set, which is a schema detail rather than
+    // the caller's mistake, so it stays in the log.
+    expect(JSON.stringify(body)).not.toContain('runs_summary_check');
+  });
+
+  it('accepts non-negative counters, so the 422 above is about the sign and not the write', async () => {
+    const response = await app.request('/api/v1/run-counters', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: '00000000-0000-4000-8000-0000000000c2', total: 10, passed: 8 }),
+    });
+
     expect(response.status).toBe(201);
   });
 

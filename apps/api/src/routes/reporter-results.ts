@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
 import { CanonicalRunResultSchema } from '@automate/shared-contracts';
 import type { ReporterResultStore } from '../services/reporter-ingestion.js';
+import { bearerToken } from '../http/bearer-token.js';
 
 export interface ReporterResultsRouteOptions {
   /**
@@ -47,8 +48,12 @@ export function createReporterResultsRoute(
           503,
         );
     } else {
-      const presented = context.req.header('authorization') ?? '';
-      const token = presented.startsWith('Bearer ') ? presented.slice(7).trim() : '';
+      // `bearerToken` rather than a second `startsWith('Bearer ')` slice: the five
+      // copies disagreed about whitespace and about scheme casing, so the same
+      // credential was accepted on some routes and not others. An absent credential
+      // compares as `''` and fails the check below, which is the same 401 every
+      // other route gives for "no credential" and for "wrong credential".
+      const token = bearerToken(context.req.header('authorization')) ?? '';
       if (!safeCompare(token, reporterSecret))
         return context.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
     }

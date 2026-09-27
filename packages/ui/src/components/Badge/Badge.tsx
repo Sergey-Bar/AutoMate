@@ -7,11 +7,14 @@ export const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default: 'border-transparent bg-accent text-fg hover:opacity-80',
+        // `text-on-fill` rather than `text-fg`: these variants paint the token
+        // across the whole badge, so the label needs a foreground chosen for that
+        // fill, and `text-fg` is the foreground for a *surface*.
+        default: 'border-transparent bg-accent text-on-fill hover:opacity-80',
         secondary: 'border-transparent bg-surface-muted text-fg hover:opacity-80',
-        danger: 'border-transparent bg-danger text-fg hover:opacity-80',
-        success: 'border-transparent bg-success text-fg hover:opacity-80',
-        warning: 'border-transparent bg-warning text-fg hover:opacity-80',
+        danger: 'border-transparent bg-danger text-on-fill hover:opacity-80',
+        success: 'border-transparent bg-success text-on-fill hover:opacity-80',
+        warning: 'border-transparent bg-warning text-on-fill hover:opacity-80',
         outline: 'text-fg border-border',
       },
     },

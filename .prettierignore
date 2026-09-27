@@ -22,3 +22,17 @@ node_modules/
 !.env.example
 !.env.production.example
 pnpm-lock.yaml
+
+# Drizzle's own metadata: `_journal.json` and the per-migration `*_snapshot.json`
+# files are **generated**. Formatting them produces a diff against whatever drizzle
+# last wrote, so `db:generate` would then show a change nobody made and no longer
+# round-trip. They were the reason the hand-maintained format glob list looked
+# adequate: it omitted `packages/db/drizzle/**` entirely, so nothing ever told us
+# they were being skipped — they simply were not in scope. Now that the format
+# scripts use real globs, the exclusion has to be explicit, and it is.
+packages/db/drizzle/meta/
+
+# Agent definitions in `.github/agents` are **not** excluded: they are prose a person
+# edits, and the twenty-entry glob list that predated real globs never mentioned that
+# directory, so twelve of them had never been formatted or checked. Listed here only
+# to record that they were once invisible and deliberately are not any more.

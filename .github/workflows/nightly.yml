@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# Without this, a manual run started while a scheduled run is in flight produces
+# two overlapping runs, and whichever finishes last overwrites the conclusion
+# read as the current one. `unified-ci.yml` had a concurrency block; this and
+# `release-gate.yml` did not.
+concurrency:
+  group: nightly-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   NODE_VERSION: 24.x
   PNPM_VERSION: 10.30.2
@@ -17,6 +25,79 @@ jobs:
     name: Security and license audit
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    steps:
+      - name: Check out source
+        # Full history: the secret scan walks every commit.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      # `pnpm security:verify` runs `pnpm security:static`, which exits
+      # not_configured — non-zero — when a scanner is missing. This job used to
+      # have no install step, so it failed on its first step and never reached
+      # the secret scan, licence check, duplication, complexity, or
+      # capability-register steps behind it.
+      - name: Install static-analysis scanners
+        uses: ./.github/actions/install-scanners
+      - name: Security and license verification
+        run: pnpm security:verify
+
+  smoke:
+    name: Smoke and local-target guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # `smoke:local` and `smoke:rehearsal` existed and were wired into no workflow, no
+    # `verify` and no `verify:release`. Tier `nightly` per plan D6.
+    #
+    # Two honest notes about what these two scripts are, because the names invite
+    # more than they deliver:
+    #
+    #  - `smoke:rehearsal` runs `scripts/migration-rehearsal.mjs`, which is a
+    #    **local-target guard**, not a rehearsal. It checks that the target is a
+    #    loopback database and refuses to authorize a cutover; its own report says
+    #    `rehearsalPerformed: false` and lists the phases as `plannedPhases`. The
+    #    rehearsal harness the plan's W6 gate needs does not exist yet. The job is
+    #    named for the guard, because a job called "Migration rehearsal" over a
+    #    guard is a claim the report contradicts.
+    #  - `smoke:local` needs a running stack, so this job brings one up against real
+    #    PostgreSQL rather than asserting readiness of nothing.
+    #
+    # `continue-on-error` because this job has never run in CI and a first run that
+    # turns the whole nightly red is how a gate gets switched off. It reports; the
+    # # next review decides whether it blocks.
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # `trust`, not a password. The service port is bound to the runner only.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
+      # The guard's own precondition. It refuses anything that is not loopback, which
+      # is why it can run in CI at all: the service is published on 127.0.0.1.
+      REHEARSAL_MODE: local
+      PERF_READY_FILE: var/smoke-api.ready
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -32,5 +113,179 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      - name: Security and license verification
-        run: pnpm security:verify
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Build the workspace
+        run: pnpm build
+      # The same supervisor the performance gate uses: it applies the real migration
+      # graph, starts the API on the Drizzle path, and reports readiness through a
+      # file so "still migrating" is distinguishable from "failed to migrate".
+      - name: Start the API against PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ./scripts/performance-server.mjs &
+          for attempt in $(seq 1 120); do
+            if [ -f var/smoke-api.ready ]; then
+              cat var/smoke-api.ready
+              if grep -q '^ready ' var/smoke-api.ready; then exit 0; fi
+              echo "the API reported a failure while starting" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "the API never reported readiness in 120s" >&2
+          exit 1
+      - name: Start the web client
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm --filter @automate/unified-web exec vite --host 127.0.0.1 --port 5173 &
+          for attempt in $(seq 1 120); do
+            if curl --silent --fail --max-time 2 http://127.0.0.1:5173/ > /dev/null; then
+              echo "web ready after ${attempt}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the web client never came up in 120s" >&2
+          exit 1
+      - name: Local smoke
+        run: pnpm smoke:local --json | tee var/smoke-local.json
+      - name: Local-target guard
+        run: pnpm smoke:rehearsal
+      - name: Stop the stack
+        if: always()
+        shell: bash
+        run: pkill -f "scripts/performance-server.mjs" || true
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: smoke-evidence
+          path: |
+            var/smoke-local.json
+            var/smoke-api.ready
+            var/migration-rehearsal/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  quality-baseline:
+    name: Quality baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # `quality:baseline` existed and was wired nowhere. It is the aggregate the
+    # weekly numbers in `docs/quality/` come from, so running it nightly is what
+    # makes those numbers a measurement rather than a transcription. Tier `nightly`
+    # per plan D6 — it reports, it does not block.
+    continue-on-error: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install static-analysis scanners
+        uses: ./.github/actions/install-scanners
+      - name: Quality baseline
+        run: pnpm quality:baseline
+      - name: Upload the quality report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: quality-report
+          path: var/quality-*
+          if-no-files-found: ignore
+          retention-days: 30
+
+  performance:
+    name: Performance thresholds
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Tier 2 by design. `pnpm test:performance` was wired into no workflow, no
+    # `verify`, and no `verify:release`, so the published thresholds had never
+    # been executed by anything. Nightly is where a measurement belongs until
+    # the baseline in performance/thresholds.json is recorded and the numbers
+    # are trustworthy enough to block a pull request.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # `trust`, not a password. The service port is bound to the runner
+          # only, and a password here would be a credential committed to the
+          # repository — which `pnpm security:secrets` refuses, correctly.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install k6
+        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1
+      - name: Build the workspace
+        run: pnpm build
+      - name: Migrate and start the API against PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          node ./scripts/performance-server.mjs &
+          # The script reports readiness in a file rather than a log line, so a
+          # migration failure is distinguishable from a slow start instead of
+          # both looking like a 60-second timeout.
+          for attempt in $(seq 1 120); do
+            if [ -f var/performance-api.ready ]; then
+              cat var/performance-api.ready
+              if grep -q '^ready ' var/performance-api.ready; then exit 0; fi
+              echo "the API never became ready" >&2
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "the API never reported readiness in 120s" >&2
+          exit 1
+      - name: Performance thresholds
+        run: pnpm test:performance
+        env:
+          PERF_BASE_URL: http://127.0.0.1:3000
+      - name: Upload performance summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: performance-summary
+          path: var/performance-summary.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Stop the API
+        if: always()
+        shell: bash
+        run: pkill -f "scripts/performance-server.mjs" || true

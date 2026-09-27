@@ -1,6 +1,6 @@
 import { getTableColumns, getTableName, isTable } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { PGlite } from '@electric-sql/pglite';
+import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@automate/db';
 import { canonicalRunResults, quarantine, runs, workspaces, apiKeys } from '@automate/db';
@@ -25,9 +25,9 @@ import {
  * deployment.
  */
 describe('migration graph', () => {
-  // One migrated database shared by every read-only assertion below. Applying
-  // seven migrations costs a couple of seconds, and doing it per test made this
-  // file the slowest in the workspace for no extra signal.
+  // One migrated database shared by every read-only assertion below. Applying the
+  // whole graph costs seconds of CPU in a Postgres WASM build, and doing it per test
+  // made this file the slowest in the workspace for no extra signal.
   let shared: Awaited<ReturnType<typeof createMigratedDatabase>>;
   beforeAll(async () => {
     // `@automate/db` resolves to `dist/`. If the build is stale, every assertion
@@ -153,6 +153,9 @@ describe('migration graph', () => {
       '0009_enum_constraints',
       '0010_drop_duplicate_audit',
       '0011_bound_event_append_queries',
+      '0012_gate_config_name',
+      '0013_drop_duplicate_runner_identities',
+      '0014_query_path_indexes',
     ]);
   });
 
@@ -180,16 +183,97 @@ describe('migration graph', () => {
 });
 
 /**
+ * A migration that drops a table must refuse to drop rows it did not create.
+ *
+ * Migration 0013 removes `runner_identities` and `runner_enrollment_tokens`, which
+ * no application code has ever written. "No writer in this repository" is not the
+ * same as "no rows": a self-hosted install could hold rows from a version not here,
+ * or written by hand. A bare `DROP TABLE` would delete them silently, and the
+ * difference between "there was nothing there" and "something was deleted" is
+ * exactly the thing a person has to be told about.
+ *
+ * So the migration counts first and raises. This applies the graph *up to* 0012,
+ * puts a row in, and applies 0013 — the real statements, read from the same files a
+ * deploy would run.
+ */
+describe('a dropping migration refuses to discard rows it did not create', () => {
+  async function applyThrough(tag: string): Promise<PGlite> {
+    const client = new PGlite();
+    for (const migration of readMigrations()) {
+      if (migration.tag === tag) break;
+      for (const statement of migration.sql
+        .split('--> statement-breakpoint')
+        .map((part) => part.trim())
+        .filter(Boolean)) {
+        await client.exec(statement);
+      }
+    }
+    return client;
+  }
+
+  const dropRunnerIdentities = readMigrations().find(
+    (migration) => migration.tag === '0013_drop_duplicate_runner_identities',
+  );
+
+  it('halts with the row count, and leaves the table in place', async () => {
+    if (!dropRunnerIdentities) throw new Error('migration 0013 is missing from the graph');
+    const before = await applyThrough('0013_drop_duplicate_runner_identities');
+    try {
+      await before.exec(
+        "INSERT INTO runner_identities (name, credential_hash) VALUES ('hand-written', 'deadbeef')",
+      );
+
+      await expect(
+        before.exec(
+          dropRunnerIdentities.sql
+            .split('--> statement-breakpoint')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .join(';\n'),
+        ),
+      ).rejects.toThrow(/runner_identities holds 1 row/);
+
+      // Still there, still holding the row: the migration stopped rather than
+      // proceeding.
+      const rows = await before.query<{ name: string }>('SELECT name FROM runner_identities');
+      expect(rows.rows).toEqual([{ name: 'hand-written' }]);
+    } finally {
+      await before.close();
+    }
+  });
+
+  it('proceeds on an empty table, which is the case a fresh install is in', async () => {
+    if (!dropRunnerIdentities) throw new Error('migration 0013 is missing from the graph');
+    const before = await applyThrough('0013_drop_duplicate_runner_identities');
+    try {
+      await before.exec(
+        dropRunnerIdentities.sql
+          .split('--> statement-breakpoint')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .join(';\n'),
+      );
+      const present = await before.query<{ present: boolean | null }>(
+        "SELECT to_regclass('public.runner_identities') IS NOT NULL AS present",
+      );
+      expect(present.rows[0]?.present).toBe(false);
+    } finally {
+      await before.close();
+    }
+  });
+});
+
+/**
  * The 0006 constraints, asserted through the database rather than through the
  * Drizzle schema — the whole point is that the *database* refuses.
  */
 describe('fail-closed constraints from migration 0006', () => {
   // One migrated database for the whole describe.
   //
-  // Each test used to build its own, which meant applying all nine migrations
-  // *per test* — slow by construction, and slow enough to exceed Vitest's 5s
-  // per-test timeout on a loaded machine, so this suite failed intermittently
-  // for a reason that had nothing to do with the constraints it checks.
+  // Each test used to build its own, which meant applying the whole graph *per
+  // test* — slow by construction, and slow enough to exceed the setup timeout on a
+  // loaded machine, so this suite failed intermittently for a reason that had
+  // nothing to do with the constraints it checks.
   let client: PGlite;
   let db: ReturnType<typeof drizzle<typeof schema>>;
   beforeAll(async () => {

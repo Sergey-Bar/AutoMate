@@ -17,6 +17,7 @@
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { validateApiKey, verifyCredential } from '@automate/auth';
+import { bearerToken } from '../http/bearer-token.js';
 
 /** Paths that do not require API key authentication. */
 const PUBLIC_PATHS = new Set([
@@ -112,11 +113,10 @@ export function createAuthMiddleware(
       await next();
       return;
     }
-    const authHeader = c.req.header('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const provided = bearerToken(c.req.header('Authorization'));
+    if (provided === undefined) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    const provided = authHeader.slice(7);
     if (
       !(expectedKeyHash && credentialSecret
         ? verifyCredential(credentialSecret ?? '', provided, expectedKeyHash)

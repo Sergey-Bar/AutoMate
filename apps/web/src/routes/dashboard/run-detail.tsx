@@ -64,7 +64,7 @@ function PhaseTimeline({ phase }: { phase: RunPhase }) {
             data-testid={`phase-${item}`}
             className={`rounded-full border px-3 py-1 text-xs ${
               item === phase
-                ? 'border-accent bg-accent text-white'
+                ? 'border-accent bg-accent text-on-fill'
                 : complete
                   ? 'border-success text-success'
                   : 'border-border-default text-fg-muted'
@@ -77,7 +77,7 @@ function PhaseTimeline({ phase }: { phase: RunPhase }) {
       {!active && !PHASES.includes(phase) ? (
         <li
           data-testid={`phase-${phase}`}
-          className="rounded-full border border-danger bg-danger px-3 py-1 text-xs text-white"
+          className="rounded-full border border-danger bg-danger px-3 py-1 text-xs text-on-fill"
         >
           {phase.replace('_', ' ')}
         </li>
@@ -132,7 +132,7 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
                     <span className="uppercase">{attempt.status}</span>
                   </div>
                   <div className="mt-1 text-xs text-fg-muted">
-                    {formatDate(attempt.startedAt)} → {formatDate(attempt.finishedAt)}
+                    {formatDate(attempt.startedAt)} â†’ {formatDate(attempt.finishedAt)}
                   </div>
                   {attempt.error ? (
                     <div className="mt-2 text-danger">{attempt.error.message}</div>
@@ -214,7 +214,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <a href="/dashboard/runs" className="text-sm text-accent no-underline hover:underline">
-            ← Runs
+            â† Runs
           </a>
           <h1 className="mt-2 text-2xl font-bold">Run detail</h1>
           <div data-testid="run-id" className="mt-1 break-all font-mono text-sm text-fg-muted">
@@ -300,7 +300,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                       {artifact.name ?? artifact.kind}
                     </a>
                     <div className="mt-1 text-xs text-fg-muted">
-                      {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
+                      {artifact.kind} Â· {artifact.sizeBytes} bytes Â· SHA-256{' '}
                       {artifact.checksum.slice(0, 12)}...
                     </div>
                   </li>
@@ -413,7 +413,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
               </>
             ) : (
               <p className="mt-3 text-sm text-fg-muted">
-                UNKNOWN — no persisted gate evaluation is available.
+                UNKNOWN â€” no persisted gate evaluation is available.
               </p>
             )}
           </Card>

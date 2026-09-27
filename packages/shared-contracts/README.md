@@ -6,11 +6,11 @@ Shared contract types and validation schemas for the Automate unified platform.
 
 This package exports:
 
-| Export | Purpose |
-|---|---|
+| Export                                                   | Purpose                                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `TriggerRunRequestSchema`, `TriggerRunResponseSchema`, … | **Zod v4 schemas** — canonical validation source for TypeScript services |
-| `TriggerRunRequest`, `TriggerRunResponse`, … | **TypeScript types** inferred directly from schemas (not handwritten) |
-| `triggerRunRequestSchema`, `runResultCallbackSchema`, … | **JSON Schema objects** for AJV consumers |
+| `TriggerRunRequest`, `TriggerRunResponse`, …             | **TypeScript types** inferred directly from schemas (not handwritten)    |
+| `triggerRunRequestSchema`, `runResultCallbackSchema`, …  | **JSON Schema objects** for AJV consumers                                |
 
 ## Usage
 
@@ -54,16 +54,17 @@ The `*.schema.json` files in `src/schemas/` are **preserved for backward compati
 
 ### Why both?
 
-| Need | Solution |
-|---|---|
-| Runtime validation in TypeScript | Zod v4 (`safeParse`) |
+| Need                                            | Solution                                        |
+| ----------------------------------------------- | ----------------------------------------------- |
+| Runtime validation in TypeScript                | Zod v4 (`safeParse`)                            |
 | Fastify schema validation / serialisation (AJV) | JSON Schema objects (`triggerRunRequestSchema`) |
-| OpenAPI doc generation | JSON Schema objects |
-| Test data generation / mocking | Either |
+| OpenAPI doc generation                          | JSON Schema objects                             |
+| Test data generation / mocking                  | Either                                          |
 
 ### Keeping them in sync
 
 When a contract changes:
+
 1. **Update `src/schemas/zod.ts`** — this is the source of truth.
 2. **Update the corresponding `*.schema.json`** to match (they must stay structurally identical).
 3. The contract tests in `src/schemas/zod.test.ts` will catch invalid payloads.
@@ -75,13 +76,13 @@ When a contract changes:
 
 ## Contracts
 
-| Contract | Required fields | Optional fields |
-|---|---|---|
-| `TriggerRunRequest` | `specCode`, `specFileName` | `baseUrl`, `browser`, `metadata` |
-| `TriggerRunResponse` | `runId`, `status` | — |
-| `RunResultCallback` | `runId`, `status`, `duration`, `total`, `passed`, `failed`, `skipped`, `triggeredBy`, `triggeredAt`, `completedAt` | `errors` |
-| `ServiceHealthStatus` | `status` | `version`, `uptime`, `checks` |
-| `UnifiedAuthToken` | `valid` | `userId`, `expiresAt` |
+| Contract              | Required fields                                                                                                    | Optional fields                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `TriggerRunRequest`   | `specCode`, `specFileName`                                                                                         | `baseUrl`, `browser`, `metadata` |
+| `TriggerRunResponse`  | `runId`, `status`                                                                                                  | —                                |
+| `RunResultCallback`   | `runId`, `status`, `duration`, `total`, `passed`, `failed`, `skipped`, `triggeredBy`, `triggeredAt`, `completedAt` | `errors`                         |
+| `ServiceHealthStatus` | `status`                                                                                                           | `version`, `uptime`, `checks`    |
+| `UnifiedAuthToken`    | `valid`                                                                                                            | `userId`, `expiresAt`            |
 
 ---
 

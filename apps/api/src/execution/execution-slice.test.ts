@@ -341,7 +341,7 @@ describe('canonical execution store and routes', () => {
       (await store.appendEvents(claim!.jobId, claim!.leaseId, claim!.fencingToken, [event]))[0]
         ?.status,
     ).toBe('accepted');
-    expect((await store.listEvents(created.run.id)).length).toBe(1);
+    expect((await store.listEvents('workspace-direct', created.run.id)).events).toHaveLength(1);
     expect(
       (await store.appendEvents(claim!.jobId, claim!.leaseId, claim!.fencingToken, [event]))[0]
         ?.status,
@@ -370,7 +370,7 @@ describe('canonical execution store and routes', () => {
       '44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a',
     );
     expect((await store.getArtifact(artifact.id))?.bytes.byteLength).toBe(2);
-    expect((await store.listArtifacts(created.run.id)).length).toBe(1);
+    expect((await store.listArtifacts('workspace-direct', created.run.id)).length).toBe(1);
     const completion = await store.completeJob(claim!.jobId, {
       leaseId: claim!.leaseId,
       fencingToken: claim!.fencingToken,

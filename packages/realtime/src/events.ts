@@ -22,7 +22,11 @@
 import { z } from 'zod/v4';
 import {
   ReporterEventSchema as ContractReporterEventSchema,
+  RUN_COMPLETED_EVENT_TYPE,
+  RUN_STARTED_EVENT_TYPE,
+  RUN_UPDATED_EVENT_TYPE,
   RunEventEnvelopeSchema,
+  TEST_COMPLETED_EVENT_TYPE,
   type RunEventEnvelope,
 } from '@automate/shared-contracts';
 
@@ -46,7 +50,7 @@ export type ReporterContractEvent = z.infer<typeof ContractReporterEventSchema>;
 // ---------------------------------------------------------------------------
 
 export const RunStartedEventSchema = z.object({
-  type: z.literal('run:started'),
+  type: z.literal(RUN_STARTED_EVENT_TYPE),
   version: z.literal('1'),
   runId: z.string(),
   projectName: z.string(),
@@ -54,7 +58,7 @@ export const RunStartedEventSchema = z.object({
 });
 
 export const RunCompletedEventSchema = z.object({
-  type: z.literal('run:completed'),
+  type: z.literal(RUN_COMPLETED_EVENT_TYPE),
   version: z.literal('1'),
   runId: z.string(),
   status: z.string(),
@@ -66,7 +70,7 @@ export const RunCompletedEventSchema = z.object({
 
 /** Live status update — broadcast while a run is in progress */
 export const RunUpdatedEventSchema = z.object({
-  type: z.literal('run:updated'),
+  type: z.literal(RUN_UPDATED_EVENT_TYPE),
   version: z.literal('1'),
   runId: z.string(),
   status: z.string(),
@@ -74,7 +78,7 @@ export const RunUpdatedEventSchema = z.object({
 });
 
 export const TestCompletedEventSchema = z.object({
-  type: z.literal('test:completed'),
+  type: z.literal(TEST_COMPLETED_EVENT_TYPE),
   version: z.literal('1'),
   runId: z.string(),
   testId: z.string(),
@@ -83,14 +87,13 @@ export const TestCompletedEventSchema = z.object({
   duration: z.number(),
 });
 
-export const AIToolEventSchema = z.object({
-  type: z.literal('ai:tool'),
-  version: z.literal('1'),
-  conversationId: z.string(),
-  toolName: z.string(),
-  status: z.string(),
-  timestamp: z.string(),
-});
+// `AIToolEventSchema` and the `ai:tool` type were removed. Nothing emitted this
+// event and nothing consumed it: the only references in the repository were this
+// declaration and this package's own test for it. It was a third answer to "what is
+// a broadcast event type" — the first two being the reporter contract's colon
+// vocabulary and this file's flat shapes — and a reader could reasonably have
+// written a client against it. A dead declaration of a canonical-looking thing is
+// worse than no declaration, because it is the one a person will trust.
 
 // ---------------------------------------------------------------------------
 // Discriminated unions
@@ -107,7 +110,6 @@ export const FlatReporterEventSchema = z.discriminatedUnion('type', [
 export const FlatRealtimeEventSchema = z.discriminatedUnion('type', [
   RunUpdatedEventSchema,
   TestCompletedEventSchema,
-  AIToolEventSchema,
 ]);
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,5 @@ export type RunStartedEvent = z.infer<typeof RunStartedEventSchema>;
 export type RunCompletedEvent = z.infer<typeof RunCompletedEventSchema>;
 export type RunUpdatedEvent = z.infer<typeof RunUpdatedEventSchema>;
 export type TestCompletedEvent = z.infer<typeof TestCompletedEventSchema>;
-export type AIToolEvent = z.infer<typeof AIToolEventSchema>;
 export type FlatReporterEvent = z.infer<typeof FlatReporterEventSchema>;
 export type FlatRealtimeEvent = z.infer<typeof FlatRealtimeEventSchema>;

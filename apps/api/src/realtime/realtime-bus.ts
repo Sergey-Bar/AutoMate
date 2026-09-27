@@ -4,10 +4,12 @@
  * Defines the RealtimeBus publication interface and a test-only
  * InMemoryRealtimeBus implementation.
  *
- * RunUpdatedPayload mirrors RunUpdatedEventSchema from
- * packages/realtime/src/events.ts — both define a
- *   { type: 'run:updated', version: '1', runId, status, timestamp }
- * shape, so they are structurally compatible.
+ * RunUpdatedPayload mirrors the flat RunUpdatedEventSchema in
+ * packages/realtime/src/events.ts — a
+ *   { type, version, runId, status, timestamp } shape. The `type` is
+ *   `typeof RUN_UPDATED_EVENT_TYPE`, the contract's own constant, so this
+ *   interface cannot drift from the event a reader matches on: it was written as a
+ *   bare string here and the two were only ever agreeing by hand.
  *
  * Only fields from that schema are included in the broadcast;
  * user-supplied payload data (which may contain secrets or credentials)
@@ -18,8 +20,10 @@
 // Event payload type (mirrors RunUpdatedEventSchema from @automate/realtime)
 // ---------------------------------------------------------------------------
 
+import { RUN_UPDATED_EVENT_TYPE } from '@automate/shared-contracts';
+
 export interface RunUpdatedPayload {
-  type: 'run:updated';
+  type: typeof RUN_UPDATED_EVENT_TYPE;
   version: '1';
   runId: string;
   /** Current run status at the time of broadcast */
@@ -82,7 +86,7 @@ export class InMemoryRealtimeBus implements RealtimeBus {
   private readonly _subscribers: Array<(event: RealtimeBusEvent) => void> = [];
 
   publish(event: RealtimeBusEvent): void {
-    if (event.type === 'run:updated') this.published.push(event);
+    if (event.type === RUN_UPDATED_EVENT_TYPE) this.published.push(event);
     else this.canonicalPublished.push(event);
     for (const cb of this._subscribers) {
       cb(event);
@@ -95,7 +99,8 @@ export class InMemoryRealtimeBus implements RealtimeBus {
     callback: ((event: RunUpdatedPayload) => void) | ((event: RealtimeBusEvent) => void),
   ): () => void {
     const subscriber = (event: RealtimeBusEvent): void => {
-      if (event.type === 'run:updated') (callback as (value: RunUpdatedPayload) => void)(event);
+      if (event.type === RUN_UPDATED_EVENT_TYPE)
+        (callback as (value: RunUpdatedPayload) => void)(event);
       else (callback as (value: RealtimeBusEvent) => void)(event);
     };
     this._subscribers.push(subscriber);

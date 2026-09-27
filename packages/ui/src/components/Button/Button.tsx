@@ -8,11 +8,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'font-medium text-white bg-primary hover:brightness-110',
-        default: 'font-medium text-white bg-primary hover:brightness-110',
+        primary: 'font-medium text-on-fill bg-primary hover:brightness-110',
+        default: 'font-medium text-on-fill bg-primary hover:brightness-110',
         secondary:
           'font-medium border bg-bg-elevated border-border-default text-text-primary hover:brightness-110',
-        destructive: 'font-medium text-white bg-error hover:brightness-110',
+        destructive: 'font-medium text-on-fill bg-error hover:brightness-110',
         outline:
           'font-medium border bg-transparent border-border-default text-text-primary hover:brightness-110',
         ghost: 'font-medium bg-transparent text-text-secondary hover:brightness-110',
@@ -66,7 +66,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         disabled={isDisabled}
         aria-disabled={isDisabled}
-        role="button"
         data-testid={testId}
         className={cn(
           buttonVariants({ variant, size }),

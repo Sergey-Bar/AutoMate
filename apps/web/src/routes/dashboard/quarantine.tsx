@@ -62,7 +62,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
         <h2 className="text-2xl font-bold text-text-primary">Quarantine Management</h2>
         <button
           data-testid="add-quarantine-btn"
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700"
           onClick={() => setIsAdding(!isAdding)}
         >
           {isAdding ? 'Cancel' : 'Add to Quarantine'}
@@ -129,7 +129,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
           <button
             data-testid="submit-quarantine-btn"
             type="submit"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700"
           >
             Submit
           </button>
@@ -153,8 +153,28 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
               <div className="font-medium text-text-primary">{entry.testTitle}</div>
               <div className="text-sm text-text-secondary">{entry.testFile}</div>
               {entry.reason && (
-                <div className="text-sm text-yellow-600 mt-2">Reason: {entry.reason}</div>
+                <div className="text-sm text-warning mt-2">Reason: {entry.reason}</div>
               )}
+              {/*
+                The status is the point of the list. `pending` means the test is
+                quarantined but nobody has decided yet, so it still counts in the
+                pass rate; `approved` is the decision that removes it. Showing the
+                file without that is how a reader concludes every entry listed here
+                is already excluded, which is false for every entry until somebody
+                acts on it.
+              */}
+              <div
+                data-testid={`quarantine-status-${entry.id}`}
+                className={`text-sm mt-2 ${
+                  entry.status === 'approved'
+                    ? 'text-error'
+                    : entry.status === 'rejected'
+                      ? 'text-success'
+                      : 'text-warning'
+                }`}
+              >
+                Status: {entry.status}
+              </div>
             </div>
           ))}
         </div>

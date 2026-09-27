@@ -16,7 +16,7 @@
  *
  * Plain JavaScript with no dependencies — every script here is `.mjs`.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -146,6 +146,173 @@ for (const literal of allowlistLiterals(gitleaksSource)) {
 
 if (!/useDefault\s*=\s*true/.test(gitleaksSource))
   fail(gitleaksFile, 'the default ruleset is not enabled, so provider token rules are absent');
+
+/**
+ * Every significant line of a TOML file: a table header, an array-of-tables
+ * header, or a key assignment, each with its fully-qualified path.
+ *
+ * @param {string} source
+ * @returns {Array<{ kind: 'table' | 'array-of-tables' | 'key', path: string }>}
+ */
+function tomlStatements(source) {
+  /** @type {Array<{ kind: 'table' | 'array-of-tables' | 'key', path: string }>} */
+  const statements = [];
+  /** @type {string[]} */
+  let tablePath = [];
+  let inArray = false;
+
+  /** @param {string} part */
+  const unquote = (part) => part.trim().replace(/^["']|["']$/g, '');
+
+  for (const raw of source.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line === '' || line.startsWith('#')) continue;
+
+    const header = /^\[\[?([^\]]+)\]\]?$/.exec(line);
+    if (header !== null) {
+      tablePath = (header[1] ?? '').split('.').map(unquote);
+      // An array-of-tables re-opens its own namespace on every element, so it
+      // never collides with an earlier value of the same path.
+      statements.push({
+        kind: line.startsWith('[[') ? 'array-of-tables' : 'table',
+        path: tablePath.join('.'),
+      });
+      inArray = false;
+      continue;
+    }
+
+    // Inside a multi-line array the entries are values, not keys.
+    if (inArray) {
+      if (line === ']') inArray = false;
+      continue;
+    }
+    if (line.startsWith('[') && !line.endsWith(']')) inArray = true;
+
+    const separator = line.indexOf('=');
+    if (separator === -1) continue;
+    const key = unquote(line.slice(0, separator));
+    if (key === '') continue;
+    statements.push({ kind: 'key', path: [...tablePath, key].join('.') });
+  }
+  return statements;
+}
+
+/**
+ * A TOML key may not be both a value and a table.
+ *
+ * `.gitleaks.toml` had `paths = [...]` and then `[allowlist.paths]` with bare keys
+ * beneath it. TOML rejects that combination outright, so **gitleaks could never
+ * load the file**: the gitleaks half of `pnpm security:static` failed on its own
+ * configuration before scanning a line, on every host that had the binary
+ * installed. Two things hid it. `scripts/secret-scan.mjs` is dependency-free and
+ * kept passing, so a reader saw a working secret scan. And this script only
+ * checked the *shape* of the rules below the header — it never asked gitleaks to
+ * load anything, and could not, because gitleaks is not installed everywhere.
+ *
+ * So the invariant is checked here, where it runs everywhere.
+ *
+ * @param {string} source
+ * @returns {string[]}
+ */
+function tomlValueTableCollisions(source) {
+  /** @type {Map<string, 'key' | 'table'>} */
+  const kinds = new Map();
+
+  for (const statement of tomlStatements(source)) {
+    const previous = kinds.get(statement.path);
+    if (previous === undefined) {
+      kinds.set(statement.path, statement.kind === 'key' ? 'key' : 'table');
+      continue;
+    }
+    // The same key twice under one table is gitleaks' own duplicate-key error, not
+    // this one. A *table* after a *value* is the defect above.
+    if (previous === 'key' && statement.kind === 'table')
+      return [`[${statement.path}] was already assigned a value above, so TOML cannot read it`];
+  }
+
+  return [];
+}
+
+for (const problem of tomlValueTableCollisions(gitleaksSource)) {
+  fail(
+    gitleaksFile,
+    `${problem}. gitleaks would refuse to load its own configuration, so the ` +
+      'gitleaks half of this gate would fail before scanning anything.',
+  );
+}
+
+/**
+ * The semgrep scope must cover every workspace package.
+ *
+ * The scope was `apps/api/src packages tools scripts e2e` for as long as the
+ * ruleset existed, so `apps/web`, `apps/runner` and `apps/worker` were never
+ * examined — the three applications most reachable from a browser or a
+ * subprocess. Nothing failed when that was true, because a scope that omits a
+ * directory reports the same clean result as one that includes it.
+ *
+ * So the scope is read out of `scripts/static-analysis.mjs` and compared against
+ * the real workspace layout. A new package that is not in the scope is a finding,
+ * which makes "we widened the scope" a property of the file rather than a claim
+ * in a commit message.
+ */
+const staticAnalysisFile = 'scripts/static-analysis.mjs';
+const staticAnalysisSource = readFileSync(path.join(root, staticAnalysisFile), 'utf8');
+const semgrepInvocation = staticAnalysisSource.slice(staticAnalysisSource.indexOf("run('semgrep'"));
+if (semgrepInvocation === '') {
+  fail(staticAnalysisFile, 'no semgrep invocation found; the scope cannot be checked');
+} else {
+  /** Directories the invocation names, ignoring flags and their arguments. */
+  const ignored = new Set(['[', ']', 'scan', '--config', '.semgrep.yml', '--error', '--exclude']);
+  const scanned = new Set(
+    semgrepInvocation
+      .split('\n')
+      .map((line) =>
+        line
+          .trim()
+          .replace(/,$/, '')
+          .replace(/^'(.*)'$/, '$1')
+          .replace(/^"(.*)"$/, '$1'),
+      )
+      .filter((token) => token !== '' && !token.startsWith('--') && !ignored.has(token)),
+  );
+
+  /** Every directory `pnpm-workspace.yaml` says is a package root. */
+  const workspacePackages = [];
+  for (const group of ['apps', 'packages', 'tools']) {
+    const groupDir = path.join(root, group);
+    let entries;
+    try {
+      entries = readdirSync(groupDir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!existsSync(path.join(groupDir, entry.name, 'package.json'))) continue;
+      if (!existsSync(path.join(groupDir, entry.name, 'src'))) continue;
+      workspacePackages.push(`${group}/${entry.name}/src`);
+    }
+  }
+
+  for (const target of workspacePackages) {
+    // A scanned ancestor covers its descendants, because semgrep recurses. Naming
+    // `packages` once is therefore enough for every package under it; the finding
+    // is about a whole subtree being absent, not about the spelling of a path.
+    const covered = [...scanned].some(
+      (scannedPath) =>
+        scannedPath === target ||
+        scannedPath === path.posix.dirname(target) ||
+        target.startsWith(`${scannedPath}/`),
+    );
+    if (covered) continue;
+    fail(
+      staticAnalysisFile,
+      `the semgrep scope omits ${target}, so that package is not examined by the ` +
+        'security gate. A scope that omits a directory reports the same clean result as ' +
+        'one that includes it, so this cannot be left to a reviewer to notice.',
+    );
+  }
+}
 
 if (failures.length > 0) {
   console.error('Static-analysis config check failed');

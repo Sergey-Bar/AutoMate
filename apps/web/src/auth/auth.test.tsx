@@ -102,4 +102,30 @@ describe('AuthGuard', () => {
     await waitFor(() => expect(screen.getByTestId('login-page')).toBeInTheDocument());
     expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
   });
+
+  it('announces the auth check in a live region instead of swapping the page silently', async () => {
+    // The session request never resolves, so the guard stays in its checking
+    // state: this is what a screen-reader user lands in and previously got
+    // nothing for, so they could not tell an app that was working from one that
+    // had hung.
+    const router = buildRouter('/protected', true);
+    globalThis.fetch = vi.fn(() => new Promise<Response>(() => undefined));
+    render(<RouterProvider router={router} />);
+
+    const loading = await screen.findByTestId('auth-loading');
+    expect(loading).toHaveAttribute('role', 'status');
+    expect(loading).toHaveAttribute('aria-live', 'polite');
+  });
+
+  it('does not render the protected content alongside the live region', async () => {
+    const router = buildRouter('/protected', true);
+    globalThis.fetch = vi.fn(() => new Promise<Response>(() => undefined));
+    render(<RouterProvider router={router} />);
+
+    // The loading state is a *replacement* for the page, not an addition to it.
+    // Both present at once would mean the transition is announced as a change
+    // rather than as the thing the user is now looking at.
+    await screen.findByTestId('auth-loading');
+    expect(screen.queryByTestId('protected-content')).not.toBeInTheDocument();
+  });
 });

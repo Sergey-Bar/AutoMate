@@ -296,15 +296,15 @@ collectArtifacts()
 
 Use logical schemas to make ownership explicit:
 
-| Schema          | Owner         | Core tables                                                                                                                  |
-| --------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `identity`      | auth          | `installation_keys`, `sessions`, `service_credentials`, `runner_identities`                                                  |
-| `orchestration` | orchestration | `automation_inventory`, `schedules`, `jobs`, `job_leases`, `runner_instances`, `runner_capabilities`                         |
-| `reporting`     | reporting     | `workspaces`, `runs`, `checks`, `attempts`, `steps`, `evidence`, `artifacts`, `quarantine`, `quality_gates`, KPI/read models |
-| `automation`    | automation    | `conversations`, `messages`, `model_profiles`, `flow_templates`, `tool_runs`                                                 |
-| `integrations`  | connectors    | `connectors`, `connector_configs`, `vault_entries`                                                                           |
-| `audit`         | auth/audit    | `audit_events`                                                                                                               |
-| `system`        | platform      | `outbox_events`, `legacy_id_map`, `migration_runs`, `schema_migrations`                                                      |
+| Schema          | Owner         | Core tables                                                                                                                                              |
+| --------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity`      | auth          | `installation_keys`, `sessions`, `service_credentials` (`runner_identities` was a second answer to "what is a runner" and was removed in migration 0013) |
+| `orchestration` | orchestration | `automation_inventory`, `schedules`, `jobs`, `job_leases`, `runner_instances`, `runner_capabilities`                                                     |
+| `reporting`     | reporting     | `workspaces`, `runs`, `checks`, `attempts`, `steps`, `evidence`, `artifacts`, `quarantine`, `quality_gates`, KPI/read models                             |
+| `automation`    | automation    | `conversations`, `messages`, `model_profiles`, `flow_templates`, `tool_runs`                                                                             |
+| `integrations`  | connectors    | `connectors`, `connector_configs`, `vault_entries`                                                                                                       |
+| `audit`         | auth/audit    | `audit_events`                                                                                                                                           |
+| `system`        | platform      | `outbox_events`, `legacy_id_map`, `migration_runs`, `schema_migrations`                                                                                  |
 
 Apply the existing PostgreSQL baseline first; move or recreate tables with new forward migrations. Never edit already-applied migration history.
 

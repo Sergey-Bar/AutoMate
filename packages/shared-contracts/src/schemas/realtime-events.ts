@@ -5,6 +5,9 @@
  * All events carry an explicit `version` field for schema evolution.
  */
 import { z } from 'zod/v4';
+// The event *types* are owned by the reporter-event module, so there is one set of
+// strings rather than a reporter set and a realtime set that can disagree.
+import { RUN_UPDATED_EVENT_TYPE, TEST_UPDATED_EVENT_TYPE } from './reporter-events.js';
 
 // ---------------------------------------------------------------------------
 // Base RealtimeEvent
@@ -24,7 +27,7 @@ export type RealtimeEvent = z.infer<typeof RealtimeEventSchema>;
 // ---------------------------------------------------------------------------
 
 export const RunUpdatedSchema = RealtimeEventSchema.extend({
-  type: z.literal('run:updated'),
+  type: z.literal(RUN_UPDATED_EVENT_TYPE),
   payload: z.object({
     runId: z.string(),
     status: z.enum(['running', 'passed', 'failed', 'interrupted', 'queued']),
@@ -43,7 +46,7 @@ export type RunUpdated = z.infer<typeof RunUpdatedSchema>;
 // ---------------------------------------------------------------------------
 
 export const TestUpdatedSchema = RealtimeEventSchema.extend({
-  type: z.literal('test:updated'),
+  type: z.literal(TEST_UPDATED_EVENT_TYPE),
   payload: z.object({
     testId: z.string(),
     runId: z.string(),

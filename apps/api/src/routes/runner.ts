@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod/v4';
 import { RunnerControlService } from '../services/runner-control.js';
+import { bearerToken } from '../http/bearer-token.js';
 
 const EnrollmentSchema = z.object({
   enrollmentToken: z.string().min(1),
@@ -84,5 +85,5 @@ export function createRunnerRoutes(service: RunnerControlService) {
 }
 
 function bearer(header: string | undefined): string {
-  return header?.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  return bearerToken(header) ?? '';
 }

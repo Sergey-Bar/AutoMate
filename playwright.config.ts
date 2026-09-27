@@ -31,6 +31,22 @@ if (databaseUrl === '' && !allowInMemory) {
 }
 
 /**
+ * The root of this config file's own directory.
+ *
+ * The root `package.json` declares `"type": "module"`, so Playwright loads this
+ * file as an ES module — confirmed by the stack frame reading
+ * `file:///…/playwright.config.ts`. `__dirname` does not exist in that scope, and
+ * it was used in two places, so `pnpm test:e2e` died at config load with
+ * `ReferenceError: __dirname is not defined in ES module scope` before collecting
+ * a single test. A committed `playwright.config.local.ts` had grown around that
+ * crash; it is deleted, and this is the one spelling.
+ *
+ * `import.meta.dirname` rather than `fileURLToPath(import.meta.url)`: the repo
+ * already requires Node 24, and `eslint.config.js` uses the same property.
+ */
+const configDir = import.meta.dirname;
+
+/**
  * A Playwright project that matches no test file still appears as a passing
  * CI job. The `product` project matched every spec except the vertical slice,
  * and the vertical slice was the only spec in the tree, so it ran zero tests.
@@ -38,7 +54,7 @@ if (databaseUrl === '' && !allowInMemory) {
  * empty set is a hard error.
  */
 function listSpecFiles(relativeRoot: string): string[] {
-  const base = path.join(__dirname, relativeRoot);
+  const base = path.join(configDir, relativeRoot);
   const found: string[] = [];
   const stack = [base];
   while (stack.length > 0) {
@@ -107,7 +123,7 @@ export default defineConfig({
       name: 'product',
       testMatch: specFiles
         .filter((file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'))
-        .map((file) => path.relative(path.join(__dirname, 'e2e'), file).replaceAll('\\', '/')),
+        .map((file) => path.relative(path.join(configDir, 'e2e'), file).replaceAll('\\', '/')),
       use: { ...devices['Desktop Chrome'] },
     },
   ],

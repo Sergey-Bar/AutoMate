@@ -11,6 +11,30 @@
 # files, and every entry states what it covers and why.
 # `scripts/static-analysis-config-check.mjs` fails if a future entry is broad
 # enough to disable the scanner.
+#
+# ---------------------------------------------------------------------------
+# OUTSTANDING: 27 findings in git history, so `pnpm security:static` is red.
+# ---------------------------------------------------------------------------
+# Once gitleaks could actually load this file, it scanned all 295 commits and
+# reported 27 credential-shaped values that are still in the history:
+#
+#   - 4 in files that still exist, all of them test fixtures now assembled at
+#     runtime in the working tree: `apps/api/src/routes/auth.test.ts` (2) and
+#     `apps/api/src/index-production-composition.test.ts` (2). The current
+#     `gitleaks dir .` working-tree scan reports zero, so only the commits
+#     carry them.
+#   - 23 in `apps/server/`, `dashboard/` and `Automate-Dashboard/` — trees
+#     deleted long before the unification. History only; 25 are
+#     `generic-api-key`, one is a `stripe-access-token` and one a
+#     `private-key`, both in `Automate-Dashboard/`.
+#
+# Nothing is allowlisted for these, deliberately. Suppressing them means
+# asserting they were never live credentials, which is a judgement for whoever
+# owns the repository, not something a config file should decide silently.
+# gitleaks' `allowlist.commits` is the narrow tool for it — a specific commit
+# hash, not a path or a pattern — and it is the right instrument *once someone has
+# confirmed the value*. Until then the gate stays red, which is the correct state
+# for an unresolved secret finding.
 
 title = "Automate Gitleaks Config"
 
@@ -21,6 +45,18 @@ useDefault = true
 [allowlist]
 description = "Repository-owned fixtures, example files, and the migration directory."
 
+# One array, deliberately. These used to be two blocks — an `paths` list above and
+# a `[allowlist.paths]` table of individual keys below — which TOML rejects
+# outright: a key cannot be both a value and a table. gitleaks therefore could
+# never load this file, so the gitleaks half of `pnpm security:static` failed on
+# its own configuration before it scanned a line. `scripts/secret-scan.mjs`, the
+# dependency-free floor, kept working and hid that, and
+# `scripts/static-analysis-config-check.mjs` only checked rule *shape* — it never
+# asked gitleaks to load anything.
+#
+# Path-scoped, and each is a specific file this repository owns. A blanket
+# "ignore all test files" entry would disable secret detection exactly where a
+# leaked fixture is most likely to live.
 paths = [
   '''node_modules/''',
   '''dist/''',
@@ -33,19 +69,37 @@ paths = [
   '''pnpm-lock\.yaml''',
   '''.*\.lock$''',
   '''.*\.snap$''',
+  '''(^|/)\.env\.example$''',
+  '''(^|/)\.env\.compose\.example$''',
+  '''^packages/db/drizzle/''',
 ]
 
-# Path-scoped, and each is a specific file this repository owns. A blanket
-# "ignore all test files" entry would disable secret detection exactly where a
-# leaked fixture is most likely to live.
-[allowlist.paths]
-'''(^|/)\.env\.example$'''
-'''(^|/)\.env\.compose\.example$'''
-'''^packages/db/drizzle/'''
+# `secret`, not `match`.
+#
+# `match` applies each regex below to the whole `KEY=value` text, so a pattern
+# anchored `^replace-with` can never fire — the line starts with the variable
+# name. Every entry in `regexes` was therefore dead, and the project's own
+# documented placeholder convention (`replace-with-…`, `.env.example` values,
+# the `postgresql://user:pass@…` form) was reported as a leak. Matching the
+# extracted secret instead is what makes the anchored patterns mean what they say.
+regexTarget = "secret"
 
-regexTarget = "match"
-
-[allowlist.regexes]
+# A plain string array, directly under `[allowlist]`. Two wrong shapes preceded
+# this one, and the file was never loadable by gitleaks in either:
+#
+#   `[allowlist.paths]` with bare keys, while `paths` was already a value above —
+#     TOML rejects a key being both a value and a table.
+#   `[allowlist.regexes]` with `regexes = [...]` beneath it — gitleaks reads
+#     `AllowList` as a table of one entry and reports "'AllowList.Regexes[0]'
+#     expected type 'string', got map[string]interface{}".
+#
+# `Regexes` is `[]string` in gitleaks 8.x, not an array of tables, so a
+# `[[allowlist.regexes]]` block per entry fails the same way.
+#
+# None of this was visible because the binary was not installed anywhere, which is
+# what `scripts/gate-tooling.json` and `.github/actions/install-scanners` now fix:
+# a config the tool cannot read fails the gate on its own configuration.
+#
 # Placeholders that are explicitly not credentials. Matched against the whole
 # match, so a real secret embedded in one of these shapes is still reported.
 regexes = [

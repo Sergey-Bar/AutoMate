@@ -79,7 +79,8 @@ export function handleSummary(data) {
   // `scripts/performance-gate.mjs` writes `--summary-export`; this keeps the
   // human-readable output on stdout without adding a reporter dependency.
   return {
-    stdout: `\nrequests: ${data.metrics.http_reqs?.values?.count ?? 0}\n` +
+    stdout:
+      `\nrequests: ${data.metrics.http_reqs?.values?.count ?? 0}\n` +
       `p95: ${data.metrics.http_req_duration?.values?.['p(95)'] ?? 'n/a'} ms\n` +
       `p99: ${data.metrics.http_req_duration?.values?.['p(99)'] ?? 'n/a'} ms\n` +
       `failed: ${data.metrics.http_req_failed?.values?.rate ?? 'n/a'}\n` +

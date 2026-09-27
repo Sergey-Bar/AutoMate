@@ -12,6 +12,7 @@ describe('QuarantinePage', () => {
       testFile: 'flaky.test.ts',
       reason: 'timeout issues',
       quarantinedAt: '2026-05-05T10:00:00.000Z',
+      status: 'pending',
     },
   ];
 
@@ -65,6 +66,35 @@ describe('QuarantinePage', () => {
     expect(screen.getByText('Reason: timeout issues')).toBeInTheDocument();
   });
 
+  it('shows each entry\u2019s status, because a pending entry is not yet excluded', async () => {
+    // `pending` is the fail-closed default: the test is quarantined but nobody has
+    // decided, so it still counts in the pass rate. A list that showed the file
+    // without the status reads as "already excluded" for every row, which is false
+    // for every row until somebody acts.
+    const entries: QuarantineEntry[] = [
+      { ...mockEntries[0]!, id: 'q-pending', status: 'pending' },
+      { ...mockEntries[0]!, id: 'q-approved', status: 'approved' },
+      { ...mockEntries[0]!, id: 'q-rejected', status: 'rejected' },
+    ];
+    const mockApi = {
+      getQuarantine: vi.fn(() => Promise.resolve(entries)),
+    } as unknown as ApiClient;
+
+    render(<QuarantinePage api={mockApi} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('quarantine-list')).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId('quarantine-status-q-pending')).toHaveTextContent('Status: pending');
+    expect(screen.getByTestId('quarantine-status-q-approved')).toHaveTextContent(
+      'Status: approved',
+    );
+    expect(screen.getByTestId('quarantine-status-q-rejected')).toHaveTextContent(
+      'Status: rejected',
+    );
+  });
+
   it('allows adding a new quarantine entry', async () => {
     const newEntry: QuarantineEntry = {
       id: 'q-2',
@@ -72,6 +102,7 @@ describe('QuarantinePage', () => {
       testFile: 'new.test.ts',
       reason: null,
       quarantinedAt: '2026-05-05T10:01:00.000Z',
+      status: 'pending',
     };
 
     const mockApi = {

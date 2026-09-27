@@ -100,7 +100,7 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
           action={
             <a
               href="/dashboard"
-              className="rounded-md bg-primary px-4 py-2 text-sm text-white no-underline"
+              className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline"
             >
               Open Command Center
             </a>

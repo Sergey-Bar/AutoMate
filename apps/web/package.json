@@ -27,16 +27,19 @@
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "^14.6.7",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "^4.3.0",
     "@vitest/coverage-v8": "catalog:",
+    "axe-core": "^4.13.0",
     "eslint": "catalog:",
     "jsdom": "catalog:",
     "tailwindcss": "^4.3.3",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
     "vite": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "vitest-axe": "^0.1.0"
   }
 }

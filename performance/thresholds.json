@@ -1,11 +1,18 @@
 {
   "$comment": [
     "Thresholds for the committed k6 scenario in performance/smoke.js.",
-    "`scripts/performance-gate.mjs` compares nothing itself: k6's own `thresholds`",
-    "block is the authority, and k6 exits 99 when one is breached. This file",
-    "records the numbers the scenario carries, plus the floor the gate script",
-    "refuses to go below, so a future edit cannot quietly relax a published",
-    "performance claim without the change showing up here.",
+    "",
+    "`release` holds the k6 threshold expressions verbatim. That is deliberately",
+    "not a set of numbers with a separate operator field: the previous shape",
+    "recorded bare numbers and `scripts/performance-gate.mjs` reconstructed the",
+    "expression from them, so only p95, p99 and the failure rate were ever",
+    "cross-checked. `checks.rate` sat in the record at 1 while the scenario said",
+    "`rate>0.99` and nothing compared them — a threshold that had drifted and a",
+    "gate that could not see it, which is the same defect as no gate.",
+    "",
+    "With the expressions recorded, the cross-check is a substring test over the",
+    "whole set: a scenario that relaxes or tightens any threshold without the",
+    "record changing fails the gate, and so does a record edited alone.",
     "",
     "These are the floors for a self-hosted single-node install on the reference",
     "hardware, not a service-level agreement. They exist to catch a regression",
@@ -13,28 +20,19 @@
     "gate can make."
   ],
   "release": {
-    "http_req_duration": {
-      "p(95)": 500,
-      "p(99)": 1500
-    },
-    "http_req_failed": {
-      "rate": 0.01
-    },
-    "checks": {
-      "rate": 1
-    }
+    "http_req_duration": ["p(95)<500", "p(99)<1500"],
+    "http_req_failed": ["rate<0.01"],
+    "checks": ["rate>0.99"]
   },
   "observed_on_reference_hardware": {
     "$comment": "Recorded by `pnpm test:performance` on the reference container. Not a gate.",
+    "recorded": false,
+    "reason": "Never measured. The three metrics below are null because no run has populated them, so every number in `release` is an unvalidated estimate. Promote this block to a real observation before treating the thresholds as a regression signal rather than an intent.",
     "http_req_duration_p95": null,
     "http_req_duration_p99": null,
     "http_req_failed_rate": null
   },
-  "endpoints_covered": [
-    "/api/v1/health",
-    "/api/v1/features",
-    "/api/v1/runs"
-  ],
+  "endpoints_covered": ["/api/v1/health", "/api/v1/features", "/api/v1/runs"],
   "endpoints_deliberately_not_covered": [
     "/api/v1/events (SSE — a long-lived stream, not a latency budget)",
     "/api/v1/reporter/upload (multipart, covered by a body-size limit instead)"

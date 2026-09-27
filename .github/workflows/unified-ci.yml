@@ -45,8 +45,12 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Boundary preflight
         run: pnpm unify:preflight
+      # `pnpm compose:config` rather than the raw `docker compose … config` line this
+      # step used to spell. The script existed and was in no workflow, which meant the
+      # compose file was being validated by a command that could be edited without
+      # anyone noticing a second copy had drifted.
       - name: Unified Compose config
-        run: docker compose -f docker-compose.unified.yml config
+        run: pnpm compose:config
       - name: Formatting
         run: pnpm format:check
       - name: Lint
@@ -84,12 +88,165 @@ jobs:
         run: pnpm test
       - name: Workspace build
         run: pnpm build
+      # The coverage artifacts the ratchet job reads. Uploaded here because this is
+      # the job that produced them; the `provenance.json` beside each summary records
+      # the content hash of the inputs that run measured, which is what makes it
+      # sound for a *different* job to judge them — see `coverage-ratchet` below.
+      - name: Upload coverage summaries
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-summaries
+          path: |
+            **/coverage/coverage-summary.json
+            **/coverage/provenance.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coverage-ratchet:
+    name: Coverage ratchet
+    needs: unit-and-coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Its own required job, because the ratchet is the only gate that can prove a
+    # floor was not lowered — and until now it was reachable only from
+    # `release-gate.yml`, which is `workflow_dispatch` only. A PR could lower a
+    # coverage floor and merge, and the release run would be the first thing to
+    # notice.
+    #
+    # Running it here rather than inside `unit-and-coverage` is sound because of the
+    # provenance stamp: each `provenance.json` carries the content hash of the inputs
+    # the coverage run measured, and `staleCoverageFinding` rejects any summary whose
+    # stamp no longer matches the checked-out source. A summary restored from a cache,
+    # or produced against different code, fails the ratchet instead of being believed.
+    # The job summary carries a per-package table of floor against measured.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # History, not a shallow clone. The floor ratchet reads the base commit's
+          # `coverage-baseline.json` — a floor may go up, never down, and the only
+          # record that survives the pull request is history.
+          fetch-depth: 0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download coverage summaries
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          name: coverage-summaries
+          path: .
+      - name: Coverage ratchet
+        env:
+          # The base is named explicitly rather than inferred from `HEAD~1`, so the
+          # comparison does not depend on how the checkout was ref'd for this event.
+          COVERAGE_FLOOR_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: pnpm coverage:ratchet
+
+  commit-message:
+    name: Commit message
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # No checkout and no install: `commitlint` reads commit *messages*, and the range
+    # comes from the event payload. A missing checkout here is deliberate — this job
+    # has no reason to touch the working tree.
+    steps:
+      - name: Lint commit messages
+        if: github.event_name != 'pull_request'
+        uses: wagoid/commitlint-github-action@5173410a5350372d0c3c5e0d9b1bd0e8e8b8c1b1
+        with:
+          configFile: commitlint.config.js
+      - name: Lint the PR's commits
+        if: github.event_name == 'pull_request'
+        uses: wagoid/commitlint-github-action@5173410a5350372d0c3c5e0d9b1bd0e8e8b8c1b1
+        with:
+          configFile: commitlint.config.js
+          # From the last commit on the base branch, so the messages checked are the
+          # ones this PR introduced rather than every message in the history.
+          from: ${{ github.event.pull_request.base.sha }}
+          to: ${{ github.event.pull_request.head.sha }}
+          verbose: true
+
+  migration-report:
+    name: Migration report
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Tier `pr-reporting`, per plan D6: the report appears on every PR and blocks
+    # nothing. `migrate:plan` and `migrate:validate` existed and were wired into no
+    # workflow, no `verify` and no `verify:release`, so the migration gate had never
+    # run in CI at all.
+    #
+    # `migrate:apply` is deliberately absent and must stay absent. CI has no
+    # persistent database, so applying a migration there proves nothing about the
+    # migration and only produces a throwaway schema.
+    continue-on-error: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Migration plan
+        run: pnpm migrate:plan
+      - name: Validate the migration graph
+        run: pnpm migrate:validate
+      - name: Upload the migration report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: migration-report
+          path: var/migration-*
+          if-no-files-found: ignore
+          retention-days: 30
 
   api-e2e:
     name: API vertical slice
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    # `playwright.config.ts` throws without DATABASE_URL, so an E2E job with no
+    # PostgreSQL is a configuration error rather than a silently in-memory pass.
+    # `E2E_ALLOW_IN_MEMORY` is deliberately not set here: that switch is for a
+    # deliberate local run and proves nothing about the durable product.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # 	rust, not a password. The service port is bound to the runner
+          # only, and a password here would be a credential committed to the
+          # repository — which pnpm security:secrets refuses, correctly. The
+          # database is destroyed with the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -109,6 +266,14 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: API E2E tests
         run: pnpm test:e2e:api
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: api-e2e-evidence
+          path: test-results/evidence
+          if-no-files-found: ignore
+          retention-days: 14
 
   contract:
     name: Contract tests
@@ -140,7 +305,12 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out source
+        # Full history: `pnpm security:secrets` scans every commit, and
+        # `gitleaks detect` follows. A shallow clone makes a history scan
+        # silently pass over the commits it never received.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
       - name: Set up pnpm
         uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
         with:
@@ -153,6 +323,16 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      - name: Install static-analysis scanners
+        uses: ./.github/actions/install-scanners
+      - name: Secret scan (working tree)
+        run: pnpm security:secrets
+      # Proportional to the commit count, so it is a CI step and not a pre-commit
+      # hook. The tree scan above cannot see a value that was committed and then
+      # removed, which is what an ordinary `git rm` or an edit that strips a
+      # credential leaves behind.
+      - name: Secret scan (git history)
+        run: pnpm security:secrets:history
       - name: Security and license verification
         run: pnpm security:verify
 
@@ -161,6 +341,26 @@ jobs:
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # 	rust, not a password. The service port is bound to the runner
+          # only, and a password here would be a credential committed to the
+          # repository — which pnpm security:secrets refuses, correctly. The
+          # database is destroyed with the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -180,6 +380,14 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Full current E2E
         run: pnpm test:e2e
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: product-e2e-evidence
+          path: test-results/evidence
+          if-no-files-found: ignore
+          retention-days: 14
 
   integration:
     name: Local integration gates
@@ -209,6 +417,26 @@ jobs:
     needs: [quality, unit-and-coverage]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # 	rust, not a password. The service port is bound to the runner
+          # only, and a password here would be a credential committed to the
+          # repository — which pnpm security:secrets refuses, correctly. The
+          # database is destroyed with the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -226,10 +454,16 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
-      - name: Validate execution Compose
-        run: docker compose -f docker-compose.unified.yml config
       - name: Run vertical slice E2E
         run: pnpm test:e2e:vertical
+      - name: Upload vertical-slice evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vertical-slice-evidence
+          path: test-results/evidence
+          if-no-files-found: ignore
+          retention-days: 14
 
   runner:
     name: Runner protocol

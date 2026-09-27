@@ -56,6 +56,12 @@ describe('JUnit adapter', () => {
     expect(result.attempts[0]?.status).toBe('flaky');
     expect(result.attempts[0]?.flakiness).toBe('observed');
     expect(result.attempts[1]?.flakiness).toBe('unknown');
+    // The **run** is flaky too, and this is the assertion that was missing. The
+    // attempt was already recorded as flaky — the adapter read `<rerunFailure>`
+    // correctly — but the run status came from a ladder with no `flaky` rung, so the
+    // run was serialised `passed`. A release gate reads the run status: a green run
+    // that contains a flaky test, decided by which producer wrote the file.
+    expect(result.status).toBe('flaky');
   });
 
   it('keeps a run with only undeclared testcases out of the passed column', () => {

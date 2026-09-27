@@ -25,6 +25,7 @@
     "pg": "catalog:"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "catalog:",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",

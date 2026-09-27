@@ -59,6 +59,21 @@ const API_BASE = 'http://127.0.0.1:3000';
 const WEB_BASE = 'http://localhost:5173';
 const API_AUTH_HEADERS = { Authorization: 'Bearer e2e-installation-key' };
 
+/**
+ * A run id the API will actually accept.
+ *
+ * The reporter route validates `runId` as any non-empty string, but `runs.id` is a
+ * `uuid` column. The readable ids this spec used to use — `e2e_slice_run_001`,
+ * `e2e-prod-ready-run-001` — are therefore refused by PostgreSQL with `22P02`,
+ * which the error boundary reports as a 400 "invalid text representation for a
+ * column type". Every seed in this file failed for that reason and none of the
+ * assertions below were ever reached. Until the route narrows its own contract,
+ * the ids have to be uuids.
+ */
+function seededRunId(): string {
+  return crypto.randomUUID();
+}
+
 async function waitForRunInApi(
   request: APIRequestContext,
   runId: string,
@@ -97,7 +112,7 @@ async function authenticateBrowser(page: Page): Promise<void> {
 // ---------------------------------------------------------------------------
 
 test('vertical slice — reporter event reaches run list (API)', async ({ request }) => {
-  const RUN_ID = 'e2e_slice_run_001';
+  const RUN_ID = seededRunId();
 
   // Step 1: POST a run:start event
   const postRes = await request.post(`${API_BASE}/api/v1/reporter/events`, {
@@ -165,46 +180,36 @@ test('vertical slice — invalid event rejected, no run created (API negative)',
 // 3. SSE endpoint responds with correct content-type
 // ---------------------------------------------------------------------------
 
-test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', async ({ request }) => {
+test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', async () => {
   // A streaming endpoint never ends, so a plain `request.get` can only observe
-  // the response *headers*. The previous version called `.catch(() => null)` and
-  // then wrapped its only assertions in `if (res !== null)`, so a deleted
-  // `/api/v1/events` route and a working one produced the same green test: the
-  // timeout was described as "expected for a streaming endpoint", which is
-  // indistinguishable from the route not existing.
+  // the response *headers* — and it observes them by throwing on timeout. The
+  // previous version caught that timeout, probed `/api/v1/health`, and then threw
+  // unconditionally in the catch, so a working route and a deleted one produced
+  // the same red: a timeout was described as "expected for a streaming endpoint",
+  // which is indistinguishable from the route not existing.
   //
-  // `failOnStatusCode: false` stops Playwright throwing on the 200, and the
-  // request is bounded by an AbortController rather than by swallowing the
-  // error — so a 404, a 401, or a connection refusal all fail here.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 2000);
-  try {
-    const res = await request.get(`${API_BASE}/api/v1/events`, {
-      headers: API_AUTH_HEADERS,
-      failOnStatusCode: false,
-      timeout: 2000,
-    });
-    expect(res.status(), 'SSE endpoint must answer 200').toBe(200);
-    expect(res.headers()['content-type']).toContain('text/event-stream');
-  } catch (error) {
-    // A timeout is only acceptable if the response headers were already seen.
-    // Playwright's request API does not surface partial responses, so we assert
-    // reachability with a bounded probe instead of guessing.
-    const probe = await fetch(`${API_BASE}/api/v1/health`, {
-      headers: API_AUTH_HEADERS,
-      signal: AbortSignal.timeout(2000),
-    }).catch(() => null);
-    expect(
-      probe,
-      `SSE endpoint was unreachable: ${error instanceof Error ? error.message : String(error)}`,
-    ).not.toBeNull();
-    throw new Error(
-      'SSE endpoint could not be inspected for headers. The endpoint must be ' +
-        'verifiable: a timeout is not proof the route exists.',
-    );
-  } finally {
-    clearTimeout(timer);
-  }
+  // `fetch` resolves as soon as the response *head* arrives, even when the body
+  // is an open stream, so the status and content-type are readable without ever
+  // waiting for a body. The `AbortSignal` is what stops the connection afterwards
+  // rather than what bounds the observation.
+  const response = await fetch(`${API_BASE}/api/v1/events`, {
+    headers: API_AUTH_HEADERS,
+    signal: AbortSignal.timeout(10_000),
+  });
+
+  expect(response.status, 'SSE endpoint must answer 200 to an authenticated caller').toBe(200);
+  expect(response.headers.get('content-type')).toContain('text/event-stream');
+
+  // A refused stream is still 401, not 200: the endpoint is reachable, and it is
+  // not open.
+  const refused = await fetch(`${API_BASE}/api/v1/events`, {
+    signal: AbortSignal.timeout(10_000),
+  });
+  expect(refused.status, 'SSE must not be open to an anonymous caller').toBe(401);
+
+  // Both are left dangling by design; the abort above already fired.
+  await response.body?.cancel();
+  await refused.body?.cancel();
 });
 
 // ---------------------------------------------------------------------------
@@ -212,7 +217,7 @@ test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', asyn
 // ---------------------------------------------------------------------------
 
 test('vertical slice — browser shows exact seeded run-item (T29)', async ({ page, request }) => {
-  const RUN_ID = 'e2e-prod-ready-run-001';
+  const RUN_ID = seededRunId();
 
   // Seed the run via Node.js fetch (not browser fetch)
   const seedRes = await fetch(`${API_BASE}/api/v1/reporter/events`, {
@@ -255,7 +260,7 @@ test('vertical slice — SSE live update: run:end changes status to passed witho
   page,
   request,
 }) => {
-  const RUN_ID = 'e2e-sse-run-001';
+  const RUN_ID = seededRunId();
 
   // Step 1: Seed run as running
   const seedRes = await fetch(`${API_BASE}/api/v1/reporter/events`, {

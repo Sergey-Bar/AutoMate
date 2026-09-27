@@ -30,7 +30,16 @@ export interface AuthRouteOptions {
   secureCookies: boolean;
   now?: () => Date;
   sessionBackend?: AuthSessionBackend;
-  loginRateLimit?: { limit: number; windowMs: number };
+  /**
+   * Login limiter budget.
+   *
+   * `now` is a seam, not a convenience: the limiter counts windows in process
+   * memory against `Date.now()`, so without this the only way to assert that the
+   * window *rolls over* is to sleep for it. Without the seam, "a correct password
+   * is not locked out forever" is an unassertable property, and the lockout
+   * behaviour nobody tests is the behaviour nobody verifies.
+   */
+  loginRateLimit?: { limit: number; windowMs: number; now?: () => number };
   /** Injected in tests; defaults to the request's forwarded/client address. */
   clientKey?: (context: Context) => string;
 }
@@ -61,6 +70,7 @@ export function createAuthRoutes(options: AuthRouteOptions) {
   const loginLimiter = createRateLimiter({
     limit: options.loginRateLimit?.limit ?? DEFAULT_LOGIN_LIMIT,
     windowMs: options.loginRateLimit?.windowMs ?? DEFAULT_LOGIN_WINDOW_MS,
+    ...(options.loginRateLimit?.now === undefined ? {} : { now: options.loginRateLimit.now }),
   });
   const clientKey =
     options.clientKey ??

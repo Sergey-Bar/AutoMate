@@ -3,7 +3,7 @@ import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
 import { countTests, resolveSummary } from './summary.js';
 import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
-import { pageRuns } from './run-paging.js';
+import { normalizeEventLimit, pageRuns } from './run-paging.js';
 import {
   isTerminalPhase,
   type ArtifactDescriptor,
@@ -23,6 +23,7 @@ import {
   type GateEvaluation,
   type JobClaim,
   type RunPage,
+  type EventPage,
   type JobCompletionInput,
   type JobCompletionResult,
   type LeaseReapResult,
@@ -695,18 +696,27 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return results;
   }
 
-  async listEvents(runId: string): Promise<ExecutionEvent[]> {
-    const result: ExecutionEvent[] = [];
+  async listEvents(
+    workspaceId: string,
+    runId: string,
+    page: { afterSequence?: number; limit?: number } = {},
+  ): Promise<EventPage> {
+    // The workspace is required, not optional, so a caller cannot ask for a run
+    // it has not proven it owns. An empty page is the answer for a run in another
+    // workspace, which is what `GET /api/v1/runs/:runId/events` turns into a 404.
+    if (this.runs.get(runId)?.workspaceId !== workspaceId) {
+      return { events: [], hasMore: false };
+    }
+    const limit = normalizeEventLimit(page.limit);
+    const all: ExecutionEvent[] = [];
     for (const [key, events] of this.events) {
       const job = this.jobs.get(key);
-      if (key === runId || job?.runId === runId)
-        result.push(...events.map((event) => clone(event)));
+      if (key === runId || job?.runId === runId) all.push(...events.map((event) => clone(event)));
     }
-    return result.sort((a, b) => a.sequence - b.sequence);
-  }
-
-  async getRunEvents(runId: string): Promise<ExecutionEvent[]> {
-    return this.listEvents(runId);
+    all.sort((a, b) => a.sequence - b.sequence);
+    const after = page.afterSequence ?? 0;
+    const remaining = all.filter((event) => event.sequence > after);
+    return { events: remaining.slice(0, limit), hasMore: remaining.length > limit };
   }
 
   async completeJob(
@@ -867,7 +877,9 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return descriptor;
   }
 
-  async listArtifacts(runId: string): Promise<ArtifactDescriptor[]> {
+  async listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]> {
+    // Required workspace, for the same reason as `listEvents`.
+    if (this.runs.get(runId)?.workspaceId !== workspaceId) return [];
     return [...this.artifacts.values()]
       .filter((artifact) => artifact.runId === runId)
       .map((artifact) => {
@@ -913,14 +925,15 @@ export class InMemoryExecutionStore implements ExecutionStore {
     return clone(evaluation);
   }
 
-  async getGate(runId: string): Promise<GateEvaluation | null> {
+  async getGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    // Required workspace, for the same reason as `listEvents`.
+    if (this.runs.get(runId)?.workspaceId !== workspaceId) return null;
     const gate = this.gates.get(runId);
     return gate ? clone(gate) : null;
   }
 
   async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
-    if (this.runs.get(runId)?.workspaceId !== workspaceId) return null;
-    return this.getGate(runId);
+    return this.getGate(workspaceId, runId);
   }
 
   async reapExpiredLeases(now = this.now()): Promise<LeaseReapResult[]> {
@@ -988,7 +1001,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
     });
     const ordered = [...runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
     const latest = ordered[0];
-    let gate = latest ? await this.getGate(latest.id) : null;
+    let gate = latest ? await this.getGate(workspaceId, latest.id) : null;
     if (latest && !gate) {
       const policies = await this.listPolicies(workspaceId);
       const policy = policies[0] ?? (await this.createPolicy(defaultPolicy(workspaceId)));

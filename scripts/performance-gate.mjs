@@ -55,24 +55,33 @@ if (missing.length > 0) {
 /**
  * The scenario's own `thresholds` block is the authority, because k6 is what
  * evaluates it and exits 99 on a breach. `thresholds.json` records the same
- * numbers for review. If they ever disagree, the scenario is what ran, so the
- * disagreement is reported rather than silently resolved.
+ * expressions for review. If they ever disagree, the scenario is what ran, so
+ * the disagreement is reported rather than silently resolved.
  *
- * This check runs before the k6 probe, so it also runs on a host with no k6 —
- * a threshold that drifted apart from its record is worth reporting even when
+ * Every recorded expression is cross-checked, and none is reconstructed from a
+ * bare number. The previous version rebuilt `p(95)<${n}`, `p(99)<${n}` and
+ * `rate<${n}` from three numeric fields and never looked at `checks` at all —
+ * so `checks.rate` had drifted from 1 to `rate>0.99` in the scenario and the gate
+ * reported the thresholds as agreeing. A cross-check that only covers the fields
+ * someone remembered to wire up is indistinguishable from no cross-check.
+ *
+ * This runs before the k6 probe, so it also runs on a host with no k6 — a
+ * threshold that drifted apart from its record is worth reporting even when
  * nothing can execute it.
  */
 const scenario = readFileSync(SCENARIO, 'utf8');
 const recorded = JSON.parse(readFileSync(THRESHOLDS, 'utf8'));
-const expected = [
-  `p(95)<${recorded.release.http_req_duration['p(95)']}`,
-  `p(99)<${recorded.release.http_req_duration['p(99)']}`,
-  `rate<${recorded.release.http_req_failed.rate}`,
-];
+const expected = Object.values(recorded.release ?? {}).flatMap((group) =>
+  Array.isArray(group) ? group : [],
+);
+if (expected.length === 0) {
+  console.error('Performance gate failed: performance/thresholds.json records no thresholds.');
+  process.exit(1);
+}
 const missingThresholds = expected.filter((threshold) => !scenario.includes(threshold));
 if (missingThresholds.length > 0) {
   console.error(
-    'Performance gate failed: performance/smoke.js does not carry the thresholds recorded ' +
+    'Performance gate failed: performance/smoke.js does not carry every threshold recorded ' +
       'in performance/thresholds.json.',
   );
   for (const threshold of missingThresholds) console.error(`  not in the scenario: ${threshold}`);
@@ -80,7 +89,8 @@ if (missingThresholds.length > 0) {
   process.exit(1);
 }
 console.info(
-  `Thresholds agree between performance/smoke.js and performance/thresholds.json: ${expected.join(', ')}`,
+  `All ${String(expected.length)} recorded thresholds are present in performance/smoke.js: ` +
+    `${expected.join(', ')}`,
 );
 
 const version = k6Version();

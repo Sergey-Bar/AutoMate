@@ -55,6 +55,16 @@ const missing = [];
 let failed = false;
 
 if (have('semgrep')) {
+  /**
+   * Every workspace surface, listed one per line.
+   *
+   * `apps/api/src` alone was the previous scope, so `apps/web`, `apps/runner` and
+   * `apps/worker` — the three applications most reachable from a browser or a
+   * subprocess — were never examined by the security gate. The scope is written
+   * out rather than as a bare `apps/` so that a new workspace package has to be
+   * added here, and so a reviewer can see what is and is not covered without
+   * reading the ruleset.
+   */
   const result = run('semgrep', [
     'scan',
     '--config',
@@ -62,11 +72,23 @@ if (have('semgrep')) {
     '--error',
     // Findings are errors for the gate. The rule severities still decide what a
     // human sees in CI.
+    '--exclude',
+    '**/node_modules',
+    '--exclude',
+    '**/dist',
+    '--exclude',
+    '**/coverage',
+    // Test files are scanned. A finding in a test is still a finding, and a
+    // blanket test exclusion is how a real secret in a fixture goes unnoticed.
     'apps/api/src',
+    'apps/web/src',
+    'apps/runner/src',
+    'apps/worker/src',
     'packages',
     'tools',
     'scripts',
     'e2e',
+    'tests',
   ]);
   if (result.status !== 0) failed = true;
 } else {

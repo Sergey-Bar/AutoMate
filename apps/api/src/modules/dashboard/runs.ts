@@ -6,11 +6,8 @@
  */
 import { Hono } from 'hono';
 import { PERSISTED_RUN_STATUS_VALUES } from '@automate/shared-contracts';
-import {
-  toPersistedStatus,
-  type RunRepository,
-  type RunStatus,
-} from '../../repositories/run-repository.js';
+import type { RunRepository } from '../../repositories/run-repository.js';
+import { PatchRunStatusBodySchema } from './schemas.js';
 
 // ---------------------------------------------------------------------------
 // Options
@@ -23,10 +20,6 @@ export interface DashboardRunsOptions {
 // ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
-
-// Derived from the contract, so a status cannot be accepted here and then
-// rejected by `runs_status_check` — the two lists differed by `queued` until now.
-const VALID_STATUSES: RunStatus[] = [...PERSISTED_RUN_STATUS_VALUES];
 
 export function createDashboardRunsRoutes(options: DashboardRunsOptions): Hono {
   const app = new Hono();
@@ -50,17 +43,37 @@ export function createDashboardRunsRoutes(options: DashboardRunsOptions): Hono {
       return c.json({ error: 'Run not found' }, 404);
     }
 
-    const body = (await c.req.json()) as Record<string, unknown>;
-    const { status } = body;
-
-    if (typeof status !== 'string' || !VALID_STATUSES.includes(status as RunStatus)) {
-      return c.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` }, 400);
+    // `.catch(() => null)` and a schema, not `(await c.req.json()) as
+    // Record<string, unknown>` with a hand-rolled field check. `req.json()`
+    // **throws** on an empty or malformed body, and the throw used to escape the
+    // handler — so `PATCH` with no body at all was a 500 the error boundary could
+    // not tell from a real fault, with the validation below it never having run.
+    // That is the defect `schemas.ts` was written to undo for the two write
+    // routes beside this one; this was the one it missed.
+    // `.catch(() => null)` and a schema, not `(await c.req.json()) as
+    // Record<string, unknown>` with a hand-rolled field check. `req.json()`
+    // **throws** on an empty or malformed body, and the throw used to escape the
+    // handler — so `PATCH` with no body at all was a 500 the error boundary could
+    // not tell from a real fault, with the validation below it never having run.
+    // That is the defect `schemas.ts` was written to undo for the two write
+    // routes beside this one; this was the one it missed.
+    const parsed = PatchRunStatusBodySchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json(
+        {
+          error: `Invalid status. Must be one of: ${PERSISTED_RUN_STATUS_VALUES.join(', ')}`,
+          issues: parsed.error.issues,
+        },
+        400,
+      );
     }
 
-    // Narrowed rather than cast: `VALID_STATUSES` is the persisted subset, and
-    // the cast is what previously let a wider status reach a column that refuses
-    // it. `toPersistedStatus` reports anything the column will not store.
-    await options.repository.patchRun(id, { status: toPersistedStatus(status as RunStatus) });
+    // `parsed.data.status` is already the persisted subset, because the schema is
+    // built from `PERSISTED_RUN_STATUS_VALUES`. That is what `toPersistedStatus`
+    // used to be called for here, and the assertion it needed is now the schema's
+    // — so no cast can widen a status past the column between the check and the
+    // write.
+    await options.repository.patchRun(id, { status: parsed.data.status });
     const updated = await options.repository.getRun(id);
     return c.json(updated);
   });

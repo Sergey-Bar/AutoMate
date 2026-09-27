@@ -66,6 +66,13 @@ export interface RunnerServiceOptions {
   spool: SpoolQueue;
   retryPolicy?: SpoolRetryPolicy;
   now?: () => Date;
+  /**
+   * Backoff seam. Injected so the retry schedule is an observable list of
+   * requested delays rather than a property of how fast the machine is.
+   */
+  sleep?: (milliseconds: number) => Promise<void>;
+  /** Jitter seam. Injected so the delay bounds can be asserted, not sampled. */
+  random?: () => number;
   onError?: (error: unknown) => void;
 }
 
@@ -78,10 +85,9 @@ interface ActiveJob {
   promise: Promise<void>;
 }
 
-interface DeliveryOutcome {
-  settled: boolean;
-  conflict?: SpoolConflictReason;
-}
+type DeliveryOutcome =
+  | { settled: true }
+  | { settled: false; conflict?: SpoolConflictReason; unsettled: readonly string[] };
 
 const TERMINAL_SPOOL_CONFLICTS = new Set<SpoolConflictReason>([
   'stale_lease',
@@ -118,6 +124,12 @@ type EventDraft = {
 };
 
 const MAX_EVENT_BATCH = 100;
+
+function timer(milliseconds: number): Promise<void> {
+  return new Promise((resolveSleep) => {
+    setTimeout(resolveSleep, milliseconds);
+  });
+}
 
 type TerminalStatus =
   | 'passed'
@@ -186,6 +198,8 @@ export class RunnerService {
   private readonly active = new Map<string, ActiveJob>();
   private readonly lifecycle = new AbortController();
   private readonly now: () => Date;
+  private readonly sleep: (milliseconds: number) => Promise<void>;
+  private readonly random: () => number;
   private readonly onError: (error: unknown) => void;
   private readonly retryPolicy: SpoolRetryPolicy;
   private running = false;
@@ -194,10 +208,13 @@ export class RunnerService {
   private lastHeartbeatAt = 0;
   private flushPromise: Promise<void> | null = null;
   private flushAgain = false;
-  private flushNotBefore = 0;
+  private pendingDelayMs = 0;
+  private retryAttempts = 0;
 
   constructor(private readonly options: RunnerServiceOptions) {
     this.now = options.now ?? (() => new Date());
+    this.sleep = options.sleep ?? timer;
+    this.random = options.random ?? (() => Math.random());
     this.retryPolicy = options.retryPolicy ?? {
       maxAttempts: 8,
       baseDelayMs: 250,
@@ -544,8 +561,7 @@ export class RunnerService {
     const run = async (): Promise<void> => {
       do {
         this.flushAgain = false;
-        const waitMs = this.flushNotBefore - Date.now();
-        if (waitMs > 0) await new Promise<void>((resolve) => setTimeout(resolve, waitMs));
+        await this.throttle();
         await this.flush();
       } while (this.flushAgain && !this.stopping && !this.lifecycle.signal.aborted);
     };
@@ -556,6 +572,47 @@ export class RunnerService {
         if (this.flushAgain) void this.scheduleFlush();
       });
     return this.flushPromise;
+  }
+
+  private async throttle(): Promise<void> {
+    const delayMs = this.pendingDelayMs;
+    this.pendingDelayMs = 0;
+    if (delayMs > 0) await this.sleep(delayMs);
+  }
+
+  /**
+   * Exponential backoff from `baseDelayMs` toward `maxDelayMs`, with half the
+   * window randomised so a fleet that lost the API together does not return in
+   * lockstep. Reads `retryAttempts`, so it is called after the increment.
+   */
+  private backoffDelayMs(): number {
+    const ceiling = Math.min(
+      this.retryPolicy.maxDelayMs,
+      this.retryPolicy.baseDelayMs * 2 ** Math.max(0, this.retryAttempts - 1),
+    );
+    return Math.max(1, Math.round(ceiling / 2 + this.random() * (ceiling / 2)));
+  }
+
+  /**
+   * Spends one attempt from the delivery budget. A failure that still has budget
+   * schedules the next attempt behind a backed-off delay; the one that spends
+   * the last attempt stops retrying the entry entirely and dead-letters it, so
+   * an unreachable API drains a fixed budget instead of looping forever.
+   */
+  private async retryOrDeadLetter(ids: readonly string[], reason: string): Promise<void> {
+    this.retryAttempts += 1;
+    if (this.retryAttempts < this.retryPolicy.maxAttempts) {
+      this.pendingDelayMs = this.backoffDelayMs();
+      return;
+    }
+    this.retryAttempts = 0;
+    this.pendingDelayMs = 0;
+    await this.options.spool.deadLetter(ids, { attempts: this.retryPolicy.maxAttempts, reason });
+    this.onError(
+      new Error(
+        `Runner spool entry dead-lettered after ${String(this.retryPolicy.maxAttempts)} attempts (${reason})`,
+      ),
+    );
   }
 
   private async flush(): Promise<void> {
@@ -569,30 +626,36 @@ export class RunnerService {
         outcome = await this.deliver(batch);
       } catch (error) {
         this.onError(error);
-        this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+        await this.retryOrDeadLetter(
+          batch.map((entry) => entry.id),
+          error instanceof Error ? error.name : 'DELIVERY_FAILED',
+        );
         return;
       }
       if (!outcome.settled) {
         if (outcome.conflict && TERMINAL_SPOOL_CONFLICTS.has(outcome.conflict)) {
+          this.retryAttempts = 0;
           settledIds.push(...batch.map((entry) => entry.id));
           index += batch.length;
           this.onError(new Error(`Runner spool entry permanently rejected (${outcome.conflict})`));
           continue;
         }
         this.onError(new Error('Runner spool entries are not acknowledged and stay queued'));
-        this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+        await this.retryOrDeadLetter(outcome.unsettled, 'EVENT_NOT_ACCEPTED');
         return;
       }
+      this.retryAttempts = 0;
       settledIds.push(...batch.map((entry) => entry.id));
       index += batch.length;
     }
     if (settledIds.length === 0) return;
     try {
       await this.options.spool.ack(settledIds);
-      this.flushNotBefore = 0;
+      this.pendingDelayMs = 0;
     } catch (error) {
       this.onError(error);
-      this.flushNotBefore = Date.now() + this.retryPolicy.baseDelayMs;
+      this.retryAttempts += 1;
+      this.pendingDelayMs = this.backoffDelayMs();
     }
   }
 
@@ -623,7 +686,7 @@ export class RunnerService {
         return { settled: true };
       } catch (error) {
         const conflict = conflictFromError(error);
-        if (conflict) return { settled: false, conflict };
+        if (conflict) return { settled: false, conflict, unsettled: [head.id] };
         throw error;
       }
     }
@@ -645,7 +708,11 @@ export class RunnerService {
     const status = response.results.find(
       (result) => result.eventId === (failed.payload as ExecutionEventInput).eventId,
     )?.status;
-    return { settled: false, conflict: conflictFromStatus(status) };
+    return {
+      settled: false,
+      conflict: conflictFromStatus(status),
+      unsettled: [failed.id],
+    };
   }
 
   private wait(milliseconds: number): Promise<void> {

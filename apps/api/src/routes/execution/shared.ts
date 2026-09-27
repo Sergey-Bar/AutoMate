@@ -1,0 +1,362 @@
+/**
+ * shared.ts — the helpers every execution route group uses.
+ *
+ * These sat in the middle of `routes/execution.ts`, between the schemas and the
+ * handlers, so nothing could reach one without importing all of the others. Three
+ * groups and four private copies of the same idea — "the effective workspace", "an
+ * error body in the standard shape", "a parsed body or a 400" — is how a request
+ * starts answering 401 on one path and 400 on another.
+ *
+ * They are exported here, and the route groups import them, so the *shape* of a
+ * response is decided in one file. `createExecutionRoutes` in the parent directory
+ * composes the groups in the same order it has always registered them.
+ */
+
+import { randomUUID, timingSafeEqual } from 'node:crypto';
+import path from 'node:path';
+import type { Context } from 'hono';
+import { z } from 'zod/v4';
+import type { RunRecord } from '../../repositories/run-repository.js';
+import type { CanonicalRealtimeEvent, RealtimeBus } from '../../realtime/realtime-bus.js';
+import { defaultPolicy } from '../../execution/quality-gate.js';
+import { bearerToken } from '../../http/bearer-token.js';
+import type {
+  DomainName,
+  ExecutionRun,
+  ExecutionStore,
+  QualityPolicy,
+  RunPhase,
+} from '../../execution/types.js';
+import type { ExecutionRoutesOptions } from './schemas.js';
+
+/**
+ * Whether the lease a request presents is still the job's own.
+ *
+ * Two fields, one question, and the two failures have **different codes**: a stale
+ * `leaseId` means the runner lost the job, a stale `fencingToken` means it held the job
+ * and has since been superseded. Collapsing them into a boolean threw the distinction
+ * away, and returning a reason keeps it — `JOB_LEASE_INVALID` and `JOB_FENCING_STALE`
+ * are the two codes a runner uses to decide whether to re-claim or to give up.
+ *
+ * A field the request omits is not checked: the runner that sends neither is relying on
+ * the token in the `Authorization` header, and the header's runner is the one already
+ * compared against `leaseOwner` above.
+ *
+ * @param {{ leaseId: string | null; fencingToken: number }} job
+ * @param {{ leaseId?: string; fencingToken?: number }} presented
+ * @returns {{ ok: true } | { ok: false; code: 'JOB_LEASE_INVALID' | 'JOB_FENCING_STALE' }}
+ */
+export function jobLeaseIsCurrent(
+  job: { leaseId: string | null; fencingToken: number },
+  presented: { leaseId?: string; fencingToken?: number },
+): { ok: true } | { ok: false; code: 'JOB_LEASE_INVALID' | 'JOB_FENCING_STALE' } {
+  if (presented.leaseId !== undefined && presented.leaseId !== job.leaseId) {
+    return { ok: false, code: 'JOB_LEASE_INVALID' };
+  }
+  if (presented.fencingToken !== undefined && presented.fencingToken !== job.fencingToken) {
+    return { ok: false, code: 'JOB_FENCING_STALE' };
+  }
+  return { ok: true };
+}
+
+/** The closure state every route group needs, built once by `createExecutionRoutes`. */
+export interface ExecutionRouteContext {
+  options: ExecutionRoutesOptions;
+  /** The effective workspace, resolved once. */
+  ws: string;
+  /**
+   * Per-run event sequence allocator, shared across groups.
+   *
+   * Shared deliberately: a sequence is a property of the *run*, not of the endpoint
+   * that happens to be appending. Two allocators would let `/runs/:id/events` and
+   * `/jobs/:id/events` hand out the same number, and the replay cursor is built from
+   * it.
+   */
+  eventSequences: Map<string, number>;
+  maxArtifactBytes: number;
+}
+
+export function workspace(options: ExecutionRoutesOptions): string {
+  return options.workspaceId ?? 'default-workspace';
+}
+
+export function requestId(c: Context): string {
+  return c.req.header('x-request-id') ?? randomUUID();
+}
+
+/** The most runs one page will ever return. */
+export const MAX_RUNS_PER_PAGE = 100;
+export const DEFAULT_RUNS_PER_PAGE = 25;
+
+/**
+ * Parses `?limit` and `?cursor` for a list endpoint.
+ *
+ * A missing or nonsensical value falls back to the default rather than erroring:
+ * a dashboard should never fail to render because someone hand-edited a query
+ * string. The cap is what matters — without one, `GET /api/v1/runs` returned
+ * every run in the install's history with its tests and artifacts, so the first
+ * page load grew with the size of the workspace rather than the size of the page.
+ */
+export function parsePageQuery(
+  rawLimit: string | undefined,
+  rawCursor: string | undefined,
+): { limit: number; cursor?: string } {
+  const parsed = rawLimit === undefined ? Number.NaN : Number.parseInt(rawLimit, 10);
+  const limit = Number.isFinite(parsed)
+    ? Math.min(Math.max(parsed, 1), MAX_RUNS_PER_PAGE)
+    : DEFAULT_RUNS_PER_PAGE;
+  return rawCursor === undefined || rawCursor.trim() === ''
+    ? { limit }
+    : { limit, cursor: rawCursor.trim() };
+}
+
+/**
+ * The cursor for a run: its creation time and id.
+ *
+ * Both halves matter. The time alone is not unique — a batch of runs can share
+ * a timestamp to the millisecond — and paging on a non-unique key silently skips
+ * or repeats rows, which is worse than not paging at all.
+ */
+export function pageCursor(run: ExecutionRun): string {
+  return Buffer.from(`${run.createdAt}|${run.id}`, 'utf8').toString('base64url');
+}
+
+/**
+ * A sequence cursor: a number, or `'invalid'`.
+ *
+ * The sentinel rather than a silent fallback, because a cursor is a *claim* about
+ * where to resume. A caller that sent `after=nonsense` and got the first page back
+ * would treat it as an empty stream and stop polling; a caller that sent it after a
+ * real page would silently re-read from the start. `'invalid'` lets the route answer
+ * 400 and tell the client its cursor is wrong, which is the only response that lets
+ * it recover.
+ */
+export function parseAfterSequence(raw: string | undefined): number | 'invalid' | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 0) return 'invalid';
+  return parsed;
+}
+
+/**
+ * A requested event page size, or the store's default.
+ *
+ * Clamped in the store rather than here, so both implementations agree on what a
+ * page is; this only rejects a value that is not a number at all, which the store's
+ * clamp would otherwise treat as its default.
+ */
+export function pageSize(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function error(
+  c: Context,
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503,
+  code: string,
+  message: string,
+  details?: Record<string, unknown>,
+): Response {
+  return c.json(
+    { error: { code, message, requestId: requestId(c), details: details ?? {} } },
+    status,
+  );
+}
+
+export function parseBody<T>(c: Context, schema: z.ZodType<T>): Promise<T | null> {
+  return c.req
+    .json()
+    .then((body) => schema.safeParse(body))
+    .then((result) => (result.success ? result.data : null))
+    .catch(() => null);
+}
+
+export function safeEqual(left: string, right: string): boolean {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function registrationAuthorized(c: Context, secret: string | undefined): boolean {
+  if (secret === undefined) return process.env['NODE_ENV'] !== 'production';
+  const provided =
+    c.req.header('x-runner-registration-secret') ?? bearerToken(c.req.header('authorization'));
+  return provided !== undefined && safeEqual(provided, secret);
+}
+
+export async function authenticate(c: Context, store: ExecutionStore) {
+  const token = bearerToken(c.req.header('authorization'));
+  if (!token) return null;
+  return store.authenticateRunner(token);
+}
+
+export function legacyRun(record: RunRecord): ExecutionRun {
+  const now = new Date().toISOString();
+  const phase: RunPhase =
+    record.status === 'passed' || record.status === 'failed'
+      ? 'complete'
+      : record.status === 'interrupted'
+        ? 'partial'
+        : 'running';
+  const outcome =
+    record.status === 'passed'
+      ? 'passed'
+      : record.status === 'failed'
+        ? 'failed'
+        : record.status === 'interrupted'
+          ? 'partial'
+          : null;
+  return {
+    id: record.id,
+    externalId: record.id,
+    source: 'legacy-reporter',
+    framework: 'unknown',
+    adapterVersion: 'legacy-1',
+    testType: 'unknown',
+    projectId: null,
+    environmentId: null,
+    releaseId: null,
+    branch: record.branch,
+    commit: record.commitSha,
+    suite: null,
+    selection: [],
+    timeoutMs: 30 * 60_000,
+    priority: 0,
+    requiredCapabilities: [],
+    labels: [],
+    configuration: {},
+    metadata: {},
+    policyId: null,
+    idempotencyKey: `legacy:${record.id}`,
+    workspaceId: 'default-workspace',
+    attempt: 1,
+    retryOfRunId: null,
+    phase,
+    outcome,
+    createdAt: record.startedAt,
+    updatedAt: record.finishedAt ?? record.startedAt ?? now,
+    startedAt: record.startedAt,
+    completedAt: record.finishedAt,
+    runner: null,
+    tests: [],
+    summary: {
+      total: record.total,
+      passed: record.passed,
+      failed: record.failed,
+      flaky: record.flaky,
+      skipped: record.skipped,
+      blocked: 0,
+      unknown: Math.max(
+        0,
+        record.total - record.passed - record.failed - record.flaky - record.skipped,
+      ),
+      durationMs: record.durationMs,
+    },
+    error: null,
+    rawEvidenceRefs: [],
+    artifacts: [],
+    policyEvaluation: null,
+    status: record.status,
+  };
+}
+
+export async function ensurePolicy(
+  store: ExecutionStore,
+  workspaceId: string,
+): Promise<QualityPolicy> {
+  const policies = await store.listPolicies(workspaceId);
+  if (policies[0]) return policies[0];
+  const input = defaultPolicy(workspaceId);
+  return store.createPolicy(input);
+}
+
+export function safeName(value: string): string {
+  const base = path.basename(value.replaceAll('\\', '/'));
+  return base.replace(/[^a-zA-Z0-9._-]/g, '_') || 'artifact';
+}
+
+/**
+ * `getArtifact` returns null both when the artifact row is gone and when its
+ * bytes cannot be read. Reporting the second case as 404 turns a storage
+ * failure into "this evidence never existed"; answer 503 instead so a missing
+ * row and unreadable evidence stay distinguishable. Stores without the
+ * optional descriptor lookup fall back to 404.
+ */
+export async function missingArtifact(
+  c: Context,
+  store: ExecutionStore,
+  artifactId: string,
+  runId?: string,
+  workspaceId?: string,
+): Promise<Response> {
+  const descriptor = await store.getArtifactDescriptor?.(artifactId, workspaceId);
+  if (descriptor && (!runId || descriptor.runId === runId)) {
+    return error(
+      c,
+      503,
+      'ARTIFACT_BYTES_UNAVAILABLE',
+      'Artifact metadata exists but its bytes are unavailable',
+      {
+        artifactId: descriptor.id,
+        runId: descriptor.runId,
+        storageKey: descriptor.storageKey,
+        expectedSizeBytes: descriptor.sizeBytes,
+        checksum: descriptor.checksum,
+      },
+    );
+  }
+  return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+}
+
+export function artifactKind(value: string): string {
+  const normalized = value.toLowerCase();
+  if (normalized === 'raw_report' || normalized === 'report') return 'report';
+  if (normalized === 'playwright-json' || normalized === 'json') return 'json';
+  if (normalized === 'junit') return 'junit';
+  if (normalized === 'stdout') return 'stdout';
+  if (normalized === 'stderr') return 'stderr';
+  if (normalized === 'screenshot') return 'screenshot';
+  if (normalized === 'video') return 'video';
+  if (normalized === 'trace') return 'trace';
+  if (normalized === 'html' || normalized === 'html-report') return 'html';
+  if (normalized === 'log' || normalized === 'event-log') return 'log';
+  return 'other';
+}
+
+export function domainStatusesFromRun(
+  run: ExecutionRun,
+): Partial<
+  Record<
+    DomainName,
+    'passed' | 'failed' | 'warning' | 'unknown' | 'not_configured' | 'not_implemented'
+  >
+> {
+  if (run.outcome === 'passed') return { browser: 'passed' };
+  if (run.outcome === 'failed') return { browser: 'failed' };
+  if (run.outcome === 'partial') return { browser: 'warning' };
+  return { browser: 'unknown' };
+}
+
+export function publishCanonical(
+  bus: RealtimeBus | undefined,
+  event: Omit<CanonicalRealtimeEvent, 'version' | 'sequence'>,
+  sequences: Map<string, number>,
+): void {
+  const sequence = (sequences.get(event.runId) ?? 0) + 1;
+  sequences.set(event.runId, sequence);
+  // Publishing to the realtime bus is fire-and-forget: the durable bus contract is
+  // non-rejecting (it logs and resolves), so there is nothing here to await. Marked
+  // `void` rather than left bare so the intent is visible and a future bus that
+  // *can* reject has to make a decision here instead of becoming an unhandled
+  // rejection.
+  void bus?.publish({ version: '1', sequence, ...event });
+}
+
+/**
+ * Upper bound on any single request body reaching the execution boundary.
+ * Base64 inflates by 4/3, so this is the ceiling before the decoded-size check
+ * in the artifact handler. Without it a single runner-token request could
+ * allocate an arbitrary amount of memory.
+ */
+export const MAX_EXECUTION_BODY_BYTES = 96 * 1024 * 1024;

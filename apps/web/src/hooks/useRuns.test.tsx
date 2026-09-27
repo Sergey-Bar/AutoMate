@@ -2,8 +2,8 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunEventEnvelope } from '@automate/shared-contracts';
 import { isRunActive, useRuns } from './useRuns.js';
-import { makeApi, makePhaseEvent, makeRun } from '../test-utils.js';
-import type { RunEventSubscription } from '../lib/api.js';
+import { deferred, fetchAborting, makeApi, makePhaseEvent, makeRun } from '../test-utils.js';
+import type { ApiClient, RunEventSubscription } from '../lib/api.js';
 
 describe('useRuns', () => {
   it('loads runs and patches canonical phase events without an extra fetch', async () => {
@@ -252,5 +252,222 @@ describe('useRuns', () => {
     });
     expect(result.current.error?.message).toBe('refresh failed');
     expect(result.current.isLoading).toBe(false);
+  });
+});
+
+/**
+ * What happens to a request that is still open when the component stops needing
+ * it. Without a signal it holds its connection until the server answers, and the
+ * answer then arrives at a component that no longer exists.
+ */
+describe('useRuns cancellation', () => {
+  it('aborts the in-flight request on unmount', async () => {
+    const signals: AbortSignal[] = [];
+    const api = makeApi({
+      getRuns: vi.fn((options) => {
+        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        if (signal) signals.push(signal);
+        return fetchAborting(signal);
+      }),
+    });
+
+    const { unmount } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(signals).toHaveLength(1));
+    expect(signals[0]?.aborted).toBe(false);
+
+    unmount();
+
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  it('aborts the superseded request when a refresh overtakes it', async () => {
+    const signals: AbortSignal[] = [];
+    const api = makeApi({
+      getRuns: vi.fn((options) => {
+        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        if (signal) signals.push(signal);
+        return fetchAborting(signal);
+      }),
+    });
+
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(signals).toHaveLength(1));
+
+    // Not awaited: the replacement request only settles when something aborts it,
+    // which is what this test is about.
+    await act(async () => {
+      void result.current.refresh();
+      await Promise.resolve();
+    });
+
+    // Two requests, one live: the first is not merely superseded, it is cancelled,
+    // so it cannot write over the answer the second one is still waiting for.
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+  });
+
+  it('cancels a superseded poll the same way it cancels a manual refresh', async () => {
+    const signals: AbortSignal[] = [];
+    const api = makeApi({
+      getRuns: vi.fn((options) => {
+        const signal = (options as { signal?: AbortSignal } | undefined)?.signal;
+        if (signal) signals.push(signal);
+        return fetchAborting(signal);
+      }),
+    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { unmount } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(signals).toHaveLength(1));
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+      await Promise.resolve();
+    });
+
+    expect(signals).toHaveLength(2);
+    expect(signals[0]?.aborted).toBe(true);
+    unmount();
+    expect(signals[1]?.aborted).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('does not turn a cancellation into an error state', async () => {
+    const api = makeApi({
+      // Exactly the transport behaviour of an aborted request: rejects with a
+      // DOMException named AbortError and never resolves with data.
+      getRuns: vi.fn((options) =>
+        fetchAborting((options as { signal?: AbortSignal } | undefined)?.signal),
+      ),
+    });
+
+    const { result, unmount } = renderHook(() => useRuns(api));
+    expect(result.current.isLoading).toBe(true);
+    unmount();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // "Runs unavailable" for a request the hook itself cancelled is a lie: the
+    // list it was replacing was never wrong.
+    expect(result.current.error).toBeNull();
+    expect(result.current.runs).toEqual([]);
+  });
+
+  it('leaves an earlier failure reported when a newer request supersedes it', async () => {
+    const first = deferred<ReturnType<typeof makeRun>[]>();
+    const second = deferred<ReturnType<typeof makeRun>[]>();
+    const api = makeApi({
+      getRuns: vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise),
+    });
+
+    const { result } = renderHook(() => useRuns(api));
+    const firstSignal = (vi.mocked(api.getRuns).mock.calls[0]?.[0] as { signal: AbortSignal })
+      .signal;
+    await act(async () => {
+      void result.current.refresh();
+    });
+    expect(firstSignal.aborted).toBe(true);
+
+    await act(async () => {
+      first.reject(new TypeError('Failed to fetch'));
+      second.resolve([makeRun({ id: 'run-new' })]);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.runs[0]?.id).toBe('run-new'));
+    // The superseded request's failure is not the answer to the question the
+    // newer request is still answering, so it must not become the error state.
+    expect(result.current.error).toBeNull();
+  });
+});
+
+describe('useRuns failure and emptiness', () => {
+  it('keeps the last good list when a later refresh fails', async () => {
+    const good = [makeRun({ id: 'run-1' }), makeRun({ id: 'run-2' })];
+    const api = makeApi({
+      getRuns: vi
+        .fn()
+        .mockResolvedValueOnce(good)
+        .mockRejectedValue(new TypeError('Failed to fetch')),
+    });
+
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(result.current.runs).toHaveLength(2));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.error?.message).toBe('Failed to fetch');
+    // Rendering the failure as an empty list would tell the user their two runs
+    // do not exist. The error is visible alongside the evidence that is still
+    // known to be good.
+    expect(result.current.runs).toEqual(good);
+  });
+
+  it('recovers the error state once a refresh succeeds again', async () => {
+    const api = makeApi({
+      getRuns: vi
+        .fn()
+        .mockResolvedValueOnce([makeRun({ id: 'run-1' })])
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce([makeRun({ id: 'run-1' }), makeRun({ id: 'run-2' })]),
+    });
+
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(result.current.runs).toHaveLength(1));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).not.toBeNull();
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).toBeNull();
+    expect(result.current.runs).toHaveLength(2);
+  });
+
+  it('distinguishes an empty-but-successful response from a failure', async () => {
+    const api = makeApi({ getRuns: vi.fn().mockResolvedValue([]) });
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    // The dashboard branches on exactly this: `runs-list-empty` is rendered when
+    // there is no error and no runs, and `runs-list-error` when there is one.
+    // Collapsing them would show "no execution evidence" for a network failure.
+    expect(result.current.runs).toEqual([]);
+    expect(result.current.error).toBeNull();
+    expect(result.current.isLoading).toBe(false);
+  });
+
+  it('reports a contract failure with the path rather than as a transport error', async () => {
+    const { ResponseContractError } = await import('../lib/api.js');
+    const api = makeApi({
+      getRuns: vi
+        .fn()
+        .mockRejectedValue(
+          new ResponseContractError(
+            'Response from /api/v1/runs did not match the expected shape: 0.phase: Invalid input',
+            '/api/v1/runs',
+            200,
+          ),
+        ),
+    });
+
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(result.current.error).toBeInstanceOf(ResponseContractError));
+    expect(result.current.error?.message).toContain('/api/v1/runs');
+    expect(result.current.runs).toEqual([]);
+  });
+
+  it('does not throw past the hook for a non-Error rejection', async () => {
+    const api: ApiClient = makeApi({
+      getRuns: vi.fn().mockRejectedValue('the network said no'),
+    });
+    const { result } = renderHook(() => useRuns(api));
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(result.current.error?.message).toBe('Failed to fetch runs');
   });
 });

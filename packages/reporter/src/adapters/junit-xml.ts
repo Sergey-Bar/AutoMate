@@ -1,13 +1,18 @@
 import { SaxesParser } from 'saxes';
-import { CanonicalRunResultSchema, type CanonicalRunResult } from '@automate/shared-contracts';
+import type { CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
+import { canonicalRunResult, type CanonicalStatus } from '../canonical-run-result.js';
 
 interface TestCase {
   name: string;
   classname?: string;
   file?: string;
   time?: number;
-  status: string;
+  // Typed as the canonical union, not `string`. It was `string`, so every consumer of
+  // `testCase.status` had to be re-widened by hand — and the run-status ladder below
+  // was reading a `string[]` and comparing it against literals, which is the shape
+  // where a status the contract does not declare slips through unnoticed.
+  status: CanonicalStatus;
   flakiness: 'unknown' | 'observed';
   declaredStatus?: string;
   message?: string;
@@ -126,45 +131,24 @@ export const junitXmlAdapter: ProducerAdapter = {
       evidence: [],
       flakiness: testCase.flakiness,
     }));
-    const hasFailure = attempts.some(
-      (attempt) => attempt.status === 'failed' || attempt.status === 'timedOut',
-    );
-    const hasUnknown = attempts.some((attempt) => attempt.status === 'unknown');
-    const allSkipped = attempts.every((attempt) => attempt.status === 'skipped');
-    const status = hasFailure
-      ? 'failed'
-      : hasUnknown
-        ? 'unknown'
-        : allSkipped
-          ? 'skipped'
-          : 'passed';
-    return CanonicalRunResultSchema.parse({
-      contractVersion: '2',
-      identity: {
-        runId: context.runId,
-        workspaceId: context.workspaceId,
-        projectId: context.projectId,
-      },
-      status,
-      startedAt: context.startedAt,
-      finishedAt: context.finishedAt,
-      attempts,
-      evidence: [],
-      provenance: {
+    // One attempt per `<testcase>`, so the per-test outcome and the per-attempt
+    // outcome are the same list. Passed explicitly rather than left to the serialiser
+    // to infer, so a future change that gives JUnit several attempts per testcase
+    // cannot quietly start deriving the run status from attempts instead of tests.
+    //
+    // This list is where the JUnit/Playwright disagreement showed up: `statusFrom`
+    // returns `flaky` for a `<rerunFailure>`, and this adapter's own ladder had no
+    // `flaky` rung, so a report whose only interesting property was a retry was
+    // serialised as `status: 'passed'` — a green run with a flaky test in it, which
+    // is the one thing a release gate reads.
+    return canonicalRunResult(
+      {
+        outcomes: testCases.map((testCase) => testCase.status),
+        attempts,
         producer: 'junit',
-        producerVersion: context.producerVersion,
-        adapterVersion: context.adapterVersion,
-        sourceDigest: context.sourceDigest,
-        sourceUri: context.sourceUri,
+        verifier: 'junit-adapter',
       },
-      retention: { class: 'standard' },
-      proof: { state: 'unverified', digest: context.sourceDigest, verifier: 'junit-adapter' },
-      completeness: {
-        state: hasUnknown ? 'unknown' : 'complete',
-        missingShards: [],
-        duplicateShards: [],
-      },
-      raw: {},
-    });
+      context,
+    );
   },
 };

@@ -61,6 +61,13 @@ export const ErrorCode = {
   // 503 — a dependency is unavailable.
   DEPENDENCY_UNAVAILABLE: 'DEPENDENCY_UNAVAILABLE',
   NOT_CONFIGURED: 'NOT_CONFIGURED',
+  /**
+   * The request exceeded the server-side deadline. Distinct from
+   * `DEPENDENCY_UNAVAILABLE` for the same reason `RUN_SERIALIZATION_FAILED` is
+   * distinct from `INTERNAL`: a slow operation is a capacity signal, and alerting
+   * on it as a generic 503 hides which one grew.
+   */
+  REQUEST_TIMEOUT: 'REQUEST_TIMEOUT',
 
   // 500 — a defect. The response says nothing about the cause.
   INTERNAL: 'INTERNAL',
@@ -109,6 +116,7 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
 
   DEPENDENCY_UNAVAILABLE: 503,
   NOT_CONFIGURED: 503,
+  REQUEST_TIMEOUT: 503,
 
   INTERNAL: 500,
   RUN_SERIALIZATION_FAILED: 500,

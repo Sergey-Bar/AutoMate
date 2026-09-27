@@ -321,7 +321,16 @@ function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>
+              {/*
+               * `role="status"` is a polite live region, so a screen-reader user
+               * hears "run-42 passed" the moment the status flips. Without it the
+               * badge silently changes colour and text under a user who is
+               * watching something else, and the only sign a run finished is a
+               * change they were not told about.
+               */}
               <Badge
+                role="status"
+                aria-live="polite"
                 data-testid={`run-status-${run.id}`}
                 variant={
                   run.outcome === 'passed'

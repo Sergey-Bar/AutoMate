@@ -44,6 +44,8 @@ import {
 } from './modules/dashboard/drizzle-stores.js';
 // Auth middleware — guards all non-public routes with AUTOMATE_API_KEY
 import { createAuthMiddleware } from './middleware/auth.js';
+import { createRequestDeadline } from './middleware/request-deadline.js';
+import { createSecurityHeaders } from './middleware/security-headers.js';
 import { getConfig } from './config.js';
 import { createSentryErrorReporter } from './observability/sentry.js';
 import {
@@ -265,6 +267,61 @@ const authRoutes = createAuthRoutes({
   secureCookies: resolveSecureCookies(),
   sessionBackend,
 });
+
+/**
+ * Origins allowed to make credentialed cross-origin requests.
+ *
+ * `PUBLIC_APP_URL` is the web client, which is where almost every install puts
+ * its only browser origin. `CORS_ALLOWED_ORIGINS` adds more, for the split
+ * deployment where the client is served from a different host.
+ *
+ * Default-deny rather than a wildcard, because the session cookie is the
+ * credential: `*` would be rejected by the browser for a credentialed request
+ * anyway, and the workarounds people reach for instead — reflecting the request's
+ * origin, or allowing `null` — hand the session to any site the user visits.
+ * A same-origin client sends no `Origin` at all and is unaffected.
+ */
+function resolveAllowedOrigins(): string[] {
+  const origins = new Set<string>();
+  const publicAppUrl = runtimeConfig.publicAppUrl?.trim();
+  if (publicAppUrl !== undefined && publicAppUrl !== '' && publicAppUrl !== 'null') {
+    origins.add(new URL(publicAppUrl).origin);
+  }
+  for (const extra of (process.env['CORS_ALLOWED_ORIGINS'] ?? '').split(',')) {
+    const trimmed = extra.trim();
+    if (trimmed === '') continue;
+    // Normalised through `URL` so `https://a.test:443/` and `https://a.test` are
+    // one origin. An unparseable value is dropped rather than passed through: a
+    // string that never matches an `Origin` header is a typo that would otherwise
+    // look like a working configuration.
+    try {
+      origins.add(new URL(trimmed).origin);
+    } catch {
+      console.error(`CORS_ALLOWED_ORIGINS: ignoring "${trimmed}", which is not an origin.`);
+    }
+  }
+  return [...origins];
+}
+
+app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }));
+
+/**
+ * A server-side deadline on every request that is not a long-lived stream.
+ *
+ * `GET /api/v1/events` is an SSE stream: refusing it halfway through would close a
+ * working subscription, which is a different failure from a slow request. It is
+ * the one exemption, and it is here rather than inside the middleware so the
+ * decision of what to exempt is made where the routes are known.
+ */
+app.use(
+  '*',
+  createRequestDeadline({
+    budgetMs: Number(process.env['REQUEST_DEADLINE_MS'] ?? 30_000),
+    exemptPaths: ['/api/v1/events'],
+    onTimeout: ({ path, method, budgetMs }) =>
+      console.error(`request exceeded its ${String(budgetMs)}ms deadline: ${method} ${path}`),
+  }),
+);
 
 // Apply auth middleware globally. Auth, health, and feature routes are public by policy.
 // The default getter reads the typed runtime configuration at request time.

@@ -1,4 +1,12 @@
-import { forwardRef, useEffect, useState, useRef, type HTMLAttributes } from 'react';
+import {
+  forwardRef,
+  useEffect,
+  useId,
+  useState,
+  useRef,
+  type HTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import { Search } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 
@@ -25,10 +33,27 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
     const [selectedIndex, setSelectedIndex] = useState(0);
     const [recentIds, setRecentIds] = useState<string[]>([]);
     const inputRef = useRef<HTMLInputElement>(null);
+    const listboxId = useId();
+    /**
+     * Focus has to come back wherever the user was when they hit Ctrl+K.
+     * `setIsOpen(false)` unmounts the panel in the same commit, so by the time a
+     * plain `focus()` ran there would be nothing to focus and the user would be
+     * dropped at the top of the document.
+     */
+    const returnFocusTo = useRef<HTMLElement | null>(null);
 
     const setIsOpen = (v: boolean) => {
+      if (v) {
+        returnFocusTo.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      }
       if (onOpenChange) onOpenChange(v);
       if (controlledOpen === undefined) setUncontrolledOpen(v);
+      if (!v) {
+        const target = returnFocusTo.current;
+        returnFocusTo.current = null;
+        if (target && document.contains(target)) target.focus();
+      }
     };
 
     useEffect(() => {
@@ -88,7 +113,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
       setIsOpen(false);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
+    const handleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelectedIndex((i) => Math.min(i + 1, filteredActions.length - 1));
@@ -101,15 +126,27 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
         if (action) {
           handleSelect(action);
         }
+      } else if (e.key === 'Tab') {
+        // The panel holds exactly one tab stop — the input. Letting Tab escape to
+        // the page behind a full-screen overlay strands the user in content they
+        // cannot see, and Shift+Tab does the same in reverse.
+        e.preventDefault();
+        inputRef.current?.focus();
       }
     };
 
     if (!isOpen) return null;
 
+    const activeId =
+      filteredActions.length > 0 ? `${listboxId}-option-${selectedIndex}` : undefined;
+
     return (
       <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-start justify-center pt-[20vh] p-4 animate-in fade-in duration-200">
         <div
           ref={ref}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Command palette"
           className={cn(
             'w-full max-w-xl overflow-hidden rounded-xl border border-border-default bg-bg-elevated shadow-2xl animate-in zoom-in-95 duration-200',
             className,
@@ -117,10 +154,23 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
           {...props}
         >
           <div className="flex items-center border-b border-border-default px-3">
-            <Search className="h-5 w-5 text-text-muted shrink-0" />
+            <Search className="h-5 w-5 text-text-muted shrink-0" aria-hidden="true" />
             <input
               ref={inputRef}
               type="text"
+              /*
+               * The combobox pattern. Without `role="combobox"` the input is just
+               * a text field: nothing tells a screen-reader user that a list of
+               * options exists below it, that it is filtered as they type, or
+               * which option Enter will run — even though all three are true.
+               * `aria-activedescendant` is what makes the arrow keys audible,
+               * because focus never leaves the input.
+               */
+              role="combobox"
+              aria-expanded={true}
+              aria-controls={listboxId}
+              aria-autocomplete="list"
+              aria-activedescendant={activeId}
               className="flex h-12 w-full bg-transparent py-3 pl-3 pr-2 text-sm outline-none placeholder:text-text-muted text-text-primary"
               placeholder="Type a command or search..."
               value={query}
@@ -131,7 +181,12 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
               onKeyDown={handleKeyDown}
             />
           </div>
-          <div className="max-h-[300px] overflow-y-auto p-2">
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label="Commands"
+            className="max-h-[300px] overflow-y-auto p-2"
+          >
             {filteredActions.length === 0 ? (
               <div className="py-6 text-center text-sm text-text-secondary">No results found.</div>
             ) : (
@@ -139,19 +194,30 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
                 {filteredActions.map((action, index) => {
                   const isSelected = index === selectedIndex;
                   return (
-                    <button
+                    <div
                       key={action.id}
-                      onClick={() => handleSelect(action)}
+                      id={`${listboxId}-option-${index}`}
+                      role="option"
+                      aria-selected={isSelected}
+                      // Not a tab stop: in a combobox the DOM focus belongs to the
+                      // input and the active option is conveyed by
+                      // `aria-activedescendant`, so a second tab stop here would
+                      // put the user out of step with what is announced.
+                      tabIndex={-1}
                       onMouseEnter={() => setSelectedIndex(index)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSelect(action);
+                      }}
                       className={cn(
-                        'flex w-full items-center rounded-md px-3 py-2 text-sm text-left transition-colors',
+                        'flex w-full cursor-pointer items-center rounded-md px-3 py-2 text-sm text-left transition-colors',
                         isSelected
                           ? 'bg-brand-50 text-brand-700 font-medium'
                           : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary',
                       )}
                     >
                       {action.label}
-                    </button>
+                    </div>
                   );
                 })}
               </div>

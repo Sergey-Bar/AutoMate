@@ -7,8 +7,6 @@ import {
   installations,
   legacyIdMap,
   outboxEvents,
-  runnerEnrollmentTokens,
-  runnerIdentities,
   serviceCredentials,
   sessions,
 } from './index.js';
@@ -22,10 +20,24 @@ describe('identity and system schema', () => {
     expect(getTableColumns(sessions)).toHaveProperty('revokedAt');
   });
 
-  it('exports runner identity and enrollment tables', () => {
-    expect(getTableName(runnerIdentities)).toBe('runner_identities');
-    expect(getTableName(runnerEnrollmentTokens)).toBe('runner_enrollment_tokens');
+  it('exports service credentials, and no second answer to "what is a runner"', () => {
     expect(getTableName(serviceCredentials)).toBe('service_credentials');
+
+    // `runner_identities` overlapped `runners` by name, declared a different status
+    // vocabulary, had no workspace column and no writer, and
+    // `runner_enrollment_tokens` existed only to reference it. Migration 0013 dropped
+    // both. If either reappears, this is the assertion that says so — and it reads
+    // the live schema module rather than a list, so a *new* second runner table is
+    // caught as readily as the old one.
+    //
+    // `isTable` rather than duck-typing `name`: a Drizzle table's `name` is its
+    // symbol name, not its SQL table name, and several exports share one.
+    const runnerTables = Object.values(schema as Record<string, unknown>)
+      .filter((value): value is Table => isTable(value))
+      .map((table) => getTableName(table))
+      .filter((tableName) => tableName.includes('runner'))
+      .sort();
+    expect(runnerTables).toEqual(['runners']);
   });
 
   it('exports outbox and legacy map tables', () => {

@@ -46,6 +46,28 @@ export function normalizeRunLimit(limit: number | undefined): number {
   return Math.min(Math.max(Math.trunc(limit), 1), MAX_LIMIT);
 }
 
+const DEFAULT_EVENT_LIMIT = 100;
+const MAX_EVENT_LIMIT = 500;
+
+/**
+ * Clamps an event page size.
+ *
+ * A separate range from the run listing, deliberately: events grow with the number
+ * of **tests**, so a page of 100 runs' worth of events is a different quantity from
+ * a page of 100 runs. Events are also mostly read as a *stream* — the dashboard polls
+ * forward from the last sequence it saw — so the default is generous and the cap
+ * exists for a caller that asks for the whole run.
+ *
+ * It lives here rather than in each store because the two stores must clamp
+ * identically: a limit that means 500 in the Drizzle store and 100 in the in-memory
+ * one would make the two disagree about what a page is, which is the drift the
+ * shared scenario suite exists to catch and should not have to.
+ */
+export function normalizeEventLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) return DEFAULT_EVENT_LIMIT;
+  return Math.min(Math.max(Math.trunc(limit), 1), MAX_EVENT_LIMIT);
+}
+
 /**
  * Applies a window to an already-ordered array of runs.
  *

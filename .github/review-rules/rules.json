@@ -1,0 +1,221 @@
+{
+  "$comment": [
+    "The review ruleset as DATA (Q2.3). Every rule the automated reviewer can emit is",
+    "declared here: its id, the category it belongs to, the severity it carries, the",
+    "path globs it applies to, why it exists, and what to do about it.",
+    "",
+    "Why data and not code. A rule family written as code is discoverable only by",
+    "reading the emitter, and a rule nobody knows about is a rule nobody trusts. Here",
+    "the whole surface is one file that a reviewer can read, and `scripts/review/`",
+    "refuses to run if an emitter produces a finding whose rule id is not in this file —",
+    "so a rule cannot be added to an emitter without being declared, justified and",
+    "severitied here, and cannot be deleted here while an emitter still emits it.",
+    "",
+    "The severities are the plan's (Q2.4): Blocker (security, data loss, a wrong",
+    "release decision), Critical (a bug on a product path), Major (a smell with real",
+    "cost), Minor, Nit. Only Blocker and Critical fail the merge gate; Majors are",
+    "counted and ratcheted, because a solo maintainer cannot absorb a wall of them.",
+    "",
+    "The categories are the plan's thirteen, and each maps to one of the reviewer",
+    "personas in .github/agents/ so the human review and the automated review speak the",
+    "same vocabulary."
+  ],
+  "schemaVersion": 1,
+  "severities": {
+    "Blocker": {
+      "rank": 0,
+      "blocksMerge": true,
+      "meaning": "A security hole, data loss, or a wrong release decision."
+    },
+    "Critical": {
+      "rank": 1,
+      "blocksMerge": true,
+      "meaning": "A bug on a path a user takes."
+    },
+    "Major": {
+      "rank": 2,
+      "blocksMerge": false,
+      "meaning": "A smell with a real maintenance or performance cost."
+    },
+    "Minor": {
+      "rank": 3,
+      "blocksMerge": false,
+      "meaning": "Worth fixing when the file is next opened."
+    },
+    "Nit": {
+      "rank": 4,
+      "blocksMerge": false,
+      "meaning": "Optional. Recorded so it is a choice rather than an omission."
+    }
+  },
+  "categories": {
+    "Bug": "code-reviewer",
+    "Vulnerability": "security-auditor",
+    "Security Hotspot": "security-auditor",
+    "Reliability": "backend-engineer",
+    "Performance": "performance-engineer",
+    "Concurrency": "principal-architect",
+    "Error handling": "backend-engineer",
+    "Complexity": "principal-architect",
+    "Duplication": "principal-architect",
+    "Testability": "qa-test-engineer",
+    "Dead code": "backend-engineer",
+    "Boundary design": "principal-architect",
+    "Observability": "devops-engineer"
+  },
+  "rules": [
+    {
+      "id": "eslint.error",
+      "category": "Bug",
+      "severity": "Critical",
+      "source": "eslint",
+      "pathGlobs": ["**/*.ts", "**/*.tsx", "**/*.mjs", "**/*.js"],
+      "rationale": "A lint error is either a real defect or a rule nobody agreed with. The tree passes with zero errors, so a new one is a decision that has not been made.",
+      "fix": "Fix it, or change the rule in eslint.config.js with a reason — never disable the line."
+    },
+    {
+      "id": "eslint.no-explicit-any",
+      "category": "Bug",
+      "severity": "Critical",
+      "source": "eslint",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "`any` disables the check that would have caught the wrong type at the boundary. A wrong type at a contract is a bug that surfaces somewhere else, later, as something that looks unrelated.",
+      "fix": "Narrow the type, or declare the shape. An `unknown` plus a guard is nearly always the honest answer."
+    },
+    {
+      "id": "eslint.no-floating-promises",
+      "category": "Error handling",
+      "severity": "Critical",
+      "source": "eslint",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "A floating promise is a rejection nobody handles. This is how a store write becomes an unhandled rejection the process logs and moves past, with the caller's state half-updated.",
+      "fix": "`await` it, or attach a `.catch` that reports. If it genuinely cannot fail, say so in a comment."
+    },
+    {
+      "id": "tsc.error",
+      "category": "Bug",
+      "severity": "Blocker",
+      "source": "tsc",
+      "pathGlobs": ["**/*.ts", "**/*.tsx", "**/*.mjs"],
+      "rationale": "The build does not typecheck. Everything else in this report is a comment on a program that does not compile.",
+      "fix": "Fix the diagnostic. `tsc --noEmit` must be clean before a review is worth reading."
+    },
+    {
+      "id": "complexity.regression",
+      "category": "Complexity",
+      "severity": "Major",
+      "source": "complexity",
+      "pathGlobs": ["**/*.ts", "**/*.tsx", "**/*.mjs"],
+      "rationale": "A function over the recorded cognitive-complexity budget. It is a Major rather than a Critical because the code works — the cost is that the next reader cannot hold it, and the third reader will not try.",
+      "fix": "Split it. The recorded baseline is a ratchet, not a target: this fires only when the count grows."
+    },
+    {
+      "id": "duplication.regression",
+      "category": "Duplication",
+      "severity": "Major",
+      "source": "duplication",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "New copy-paste above the recorded jscpd floor. Two copies of a rule is one rule and one place it is out of date.",
+      "fix": "Extract the shared function, or record why the duplication is deliberate — two table-driven suites asserting one rule from opposite sides is a feature."
+    },
+    {
+      "id": "secret.detected",
+      "category": "Security Hotspot",
+      "severity": "Blocker",
+      "source": "secret-scan",
+      "pathGlobs": ["**/*"],
+      "rationale": "A credential-shaped string in the repository. It is in the history whether or not it is in the working tree, so the fix is rotation first and removal second.",
+      "fix": "Rotate the credential, then remove the string. `pnpm security:secrets` is the gate; a `--self-test` failure means the scanner itself is broken and is not a pass."
+    },
+    {
+      "id": "dependency.license",
+      "category": "Vulnerability",
+      "severity": "Blocker",
+      "source": "license-check",
+      "pathGlobs": ["**/package.json"],
+      "rationale": "A GPL, AGPL or SSPL dependency makes the whole product's licence a question, and that question is answered by a lawyer, not by a merge.",
+      "fix": "Replace the dependency, or record a licence review in the register. `--failOn UNLICENSED;UNKNOWN` is deliberate: an undetectable licence is an unknown one."
+    },
+    {
+      "id": "coverage.regression",
+      "category": "Testability",
+      "severity": "Major",
+      "source": "coverage-ratchet",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "Coverage fell below a recorded floor. The floor is a ratchet against debt, not a quality score — a fall means something stopped being exercised, whatever the absolute number is.",
+      "fix": "Add a test for the code that changed, or record why the new code is not measurable in `docs/quality/coverage-exclusions.md`."
+    },
+    {
+      "id": "test.disabled",
+      "category": "Testability",
+      "severity": "Critical",
+      "source": "disabled-tests",
+      "pathGlobs": ["**/*.test.ts", "**/*.test.tsx", "**/*.test.mjs", "**/*.spec.ts"],
+      "rationale": "A test that does not run is indistinguishable from a test that passes, and it still counts towards the number of tests. `test.skipIf` and `xdescribe` are the spellings the old rule missed.",
+      "fix": "Delete it, or make it fail. An ignored assertion is a claim nobody checked."
+    },
+    {
+      "id": "performance.threshold",
+      "category": "Performance",
+      "severity": "Critical",
+      "source": "performance",
+      "pathGlobs": ["performance/**", "**/routes/**", "**/execution/**"],
+      "rationale": "A measured threshold was breached, or the scenario and the recorded thresholds disagree. The second case is the worse one: a gate whose inputs have drifted apart measures nothing and reports success.",
+      "fix": "Fix the regression, or move the threshold with a reason in `performance/thresholds.json` — and update the scenario in the same change, so the two cannot disagree again."
+    },
+    {
+      "id": "container.image",
+      "category": "Reliability",
+      "severity": "Major",
+      "source": "oci",
+      "pathGlobs": ["**/Dockerfile*", "**/*.image.json", "docker-compose*.yml"],
+      "rationale": "The image does not build, has no digest, or runs as root. A `null` digest means the image cannot be reproduced, and an image that cannot be reproduced is a release nobody can roll back.",
+      "fix": "Build it, record the digest, and keep `USER`, `read_only` and the capability drops. `scripts/oci-verify.mjs` cross-checks the recorded digest against the runtime's."
+    },
+    {
+      "id": "dead-export",
+      "category": "Dead code",
+      "severity": "Minor",
+      "source": "custom",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "An exported symbol nothing imports. A Minor because it is not a defect, and a Major because the next reader will look for a caller that does not exist.",
+      "fix": "Delete it, or export it from the package index if it is public API."
+    },
+    {
+      "id": "boundary.leak",
+      "category": "Boundary design",
+      "severity": "Major",
+      "source": "custom",
+      "pathGlobs": ["**/routes/**", "**/modules/**", "**/packages/**"],
+      "rationale": "A value written into, or read out of, a column or field that means something else. Three of this plan's Major findings were exactly this, and none of them was visible in review because the type was satisfied.",
+      "fix": "Give it its own field, or use the one that means it. A value in the wrong column is invisible to every tool that reads the type."
+    },
+    {
+      "id": "unobservable-failure",
+      "category": "Observability",
+      "severity": "Major",
+      "source": "custom",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "A caught error that is discarded without being logged. The result is a system that fails quietly and is diagnosed by re-running with more logging, which nobody does.",
+      "fix": "Log it with enough context to find the cause, and rethrow when the caller cannot act on the failure."
+    },
+    {
+      "id": "no-fail-open-default",
+      "category": "Vulnerability",
+      "severity": "Blocker",
+      "source": "custom",
+      "pathGlobs": ["**/*.ts", "**/*.tsx"],
+      "rationale": "A default that permits the insecure path where refusing is possible. `apps/api/src/config.ts:104` passes `requireProductionSecrets: false`, which disables the very policy the function exists to enforce — and it compiles, because a boolean that means \"off\" is the same shape as a boolean that means \"on\". The failure this prevents is a deployment that starts with a placeholder secret and reports itself healthy.",
+      "fix": "Default to refusing. Where an escape hatch is genuinely needed, make it an explicit named constant with a comment saying which environment uses it, so the switch is a line a reviewer can find — not a default buried in a call."
+    },
+    {
+      "id": "double-assertion",
+      "category": "Boundary design",
+      "severity": "Major",
+      "source": "eslint",
+      "pathGlobs": ["packages/db/src/schema/**", "packages/shared-contracts/**"],
+      "rationale": "`new Date(0) as unknown as Date` asserts twice to get past a type the compiler already objected to. Under a schema or a contract that is the one place where a wrong type becomes durable data or a wrong runtime shape for every consumer, and the cast is precisely what stops the compiler from naming the mismatch.",
+      "fix": "Make the value actually have the type: narrow the input, declare the shape, or parse it at the boundary. If the boundary genuinely cannot be typed yet, record it in `docs/quality/debt-baseline.json` with the wave that removes it."
+    }
+  ]
+}

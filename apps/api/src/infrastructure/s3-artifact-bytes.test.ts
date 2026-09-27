@@ -98,6 +98,19 @@ function createFakeS3(behavior: 'store' | 'silent' = 'store'): {
         response.end();
         return;
       }
+      if (request.method === 'DELETE') {
+        // A real S3 answers 204 for a delete and 404 for a key that was never there.
+        // Both are exercised: `delete` must treat the second as success, because
+        // that is the compensating path's own race.
+        if (!objects.delete(key)) {
+          response.writeHead(404, { 'content-type': 'text/plain' });
+          response.end('<Error><Code>NoSuchKey</Code></Error>');
+          return;
+        }
+        response.writeHead(204);
+        response.end();
+        return;
+      }
       const stored = objects.get(key);
       if (!stored) {
         response.writeHead(404, { 'content-type': 'text/plain' });
@@ -443,6 +456,13 @@ describe('S3ArtifactBytesStore response handling', () => {
 });
 
 describe('S3ArtifactBytesStore against an S3-compatible server', () => {
+  function storeReturning(response: () => Response) {
+    return new S3ArtifactBytesStore(SETTINGS, {
+      now: () => FIXED_DATE,
+      fetch: (() => Promise.resolve(response())) as unknown as typeof fetch,
+    });
+  }
+
   it('round trips authenticated bytes and reports a missing key as null', async () => {
     const fake = createFakeS3();
     const port = await listen(fake.server);
@@ -489,6 +509,40 @@ describe('S3ArtifactBytesStore against an S3-compatible server', () => {
       { now: () => FIXED_DATE },
     );
     await expect(store.get('runs/run-1/file')).rejects.toThrow();
+  });
+
+  it('removes an object, and treats an absent key as already gone', async () => {
+    const fake = createFakeS3();
+    const port = await listen(fake.server);
+    openServers.push(fake.server);
+    const store = new S3ArtifactBytesStore(
+      { ...SETTINGS, endpoint: `http://127.0.0.1:${port}`, forcePathStyle: true },
+      { now: () => FIXED_DATE },
+    );
+    const key = 'runs/run-1/trace.zip';
+    await store.put(key, bytes('evidence'));
+    expect(fake.objects.size).toBe(1);
+
+    await expect(store.delete(key)).resolves.toBeUndefined();
+    expect(fake.objects.size).toBe(0);
+    await expect(store.get(key)).resolves.toBeNull();
+
+    // Twice: the compensating path runs on a failure, where "already gone" is the
+    // outcome the caller wanted. Reporting it as an error would turn a cleaned-up
+    // write into a 500.
+    await expect(store.delete(key)).resolves.toBeUndefined();
+  });
+
+  it('surfaces a denied delete rather than claiming the object is gone', async () => {
+    const store = storeReturning(() => new Response('AccessDenied', { status: 403 }));
+    await expect(store.delete('runs/run-1/file')).rejects.toThrow(
+      'Object store delete for runs/run-1/file failed with 403',
+    );
+  });
+
+  it('validates the storage key before issuing a delete', async () => {
+    const store = storeReturning(() => new Response('', { status: 204 }));
+    await expect(store.delete('../../etc/passwd')).rejects.toThrow(/storage key/i);
   });
 });
 

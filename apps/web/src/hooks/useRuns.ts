@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { defaultApiClient, type Run, type RunEvent } from '../lib/api.js';
+import { defaultApiClient, isAbortError, type Run, type RunEvent } from '../lib/api.js';
+import { useRequestLifecycle } from './use-request-lifecycle.js';
 
 const ACTIVE_PHASES = new Set<Run['phase']>([
   'queued',
@@ -34,6 +35,15 @@ export function projectRunEvent(run: Run, event: RunEvent): Run {
   }
 }
 
+/**
+ * Take ownership of the next request, cancelling whatever is still in flight.
+ *
+ * The 5-second poll, an SSE-driven refetch and the initial load can all be
+ * in flight at once, and the last one started is the only one whose answer is
+ * still wanted — the earlier ones hold their sockets open and then write over the
+ * newer result. One controller at a time makes "superseded" a fact rather than a
+ * race.
+ */
 export function useRuns(api = defaultApiClient) {
   const [runs, setRuns] = useState<Run[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,18 +51,23 @@ export function useRuns(api = defaultApiClient) {
   const [isLive, setIsLive] = useState(false);
   const runsRef = useRef<Run[]>([]);
   const mountedRef = useRef(true);
+  const { begin: beginLoad, cancelAll: cancelLoads } = useRequestLifecycle();
 
   const refresh = useCallback(
     async (showLoading = false) => {
       if (!mountedRef.current) return;
       if (showLoading) setIsLoading(true);
+      const signal = beginLoad();
       try {
-        const data = await api.getRuns();
+        const data = await api.getRuns({ signal });
         if (!mountedRef.current) return;
         runsRef.current = data;
         setRuns(data);
         setError(null);
       } catch (caught) {
+        // A cancellation is something this hook asked for, so it is not a
+        // failure and must not replace a rendered list with an error.
+        if (isAbortError(caught)) return;
         if (mountedRef.current) {
           setError(caught instanceof Error ? caught : new Error('Failed to fetch runs'));
         }
@@ -60,27 +75,12 @@ export function useRuns(api = defaultApiClient) {
         if (showLoading && mountedRef.current) setIsLoading(false);
       }
     },
-    [api],
+    [api, beginLoad],
   );
 
   useEffect(() => {
     mountedRef.current = true;
-    void api
-      .getRuns()
-      .then((data) => {
-        if (!mountedRef.current) return;
-        runsRef.current = data;
-        setRuns(data);
-        setError(null);
-      })
-      .catch((caught: unknown) => {
-        if (mountedRef.current) {
-          setError(caught instanceof Error ? caught : new Error('Failed to fetch runs'));
-        }
-      })
-      .finally(() => {
-        if (mountedRef.current) setIsLoading(false);
-      });
+    void refresh(true);
 
     const unsubscribe = api.subscribeToRunEvents({
       onEvent: (event) => {
@@ -107,10 +107,11 @@ export function useRuns(api = defaultApiClient) {
     const poll = window.setInterval(() => void refresh(), 5000);
     return () => {
       mountedRef.current = false;
+      cancelLoads();
       unsubscribe();
       window.clearInterval(poll);
     };
-  }, [api, refresh]);
+  }, [api, refresh, cancelLoads]);
 
   return { runs, isLoading, error, isLive, refresh };
 }

@@ -1,0 +1,41 @@
+/*
+ * Motion tokens, and the single rule that honours `prefers-reduced-motion`.
+ *
+ * Imported by `apps/web/src/index.css` next to `theme.css`, so the shipped
+ * stylesheet is the only place motion is defined. `tokens/motion.ts` owns the
+ * duration values and `tokens/motion.test.ts` fails if the two drift.
+ *
+ * Durations are published as `calc(<value> * var(--automate-motion-scale))`
+ * rather than as literal times, so the media query below has exactly one
+ * declaration to change and reaches every duration, including any added later.
+ */
+:root {
+  --automate-motion-scale: 1;
+  --automate-duration-75: calc(75ms * var(--automate-motion-scale));
+  --automate-duration-100: calc(100ms * var(--automate-motion-scale));
+  --automate-duration-150: calc(150ms * var(--automate-motion-scale));
+  --automate-duration-200: calc(200ms * var(--automate-motion-scale));
+  --automate-duration-300: calc(300ms * var(--automate-motion-scale));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --automate-motion-scale: 0.01;
+  }
+
+  /*
+   * The components set their durations with Tailwind's own `duration-*` and
+   * `animate-*` utilities, which compile to literal times and cannot be reached
+   * by the scale above. This is what actually stops the drawer sliding, the
+   * palette fading and the spinner spinning. `0.01ms` rather than `0s`: a zero
+   * duration can suppress the `animationend` event a component is waiting on.
+   */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

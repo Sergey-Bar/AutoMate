@@ -192,6 +192,27 @@ describe('dashboard schema — qualityGateConfig', () => {
   it('has passRateThreshold column', () => {
     expect(cols(qualityGateConfig)).toContain('passRateThreshold');
   });
+
+  it('carries a gate name in `name`, and keeps `workspaceId` for scoping only', () => {
+    // A gate's display name used to be written into, and read back out of,
+    // `workspace_id`. That scoped every created gate to a workspace that does not
+    // exist and made the column that decides visibility carry a free-text label;
+    // migration 0012 added `name` and recovered the names the mapping had
+    // swallowed.
+    const c = cols(qualityGateConfig);
+    expect(c).toContain('name');
+    expect(c).toContain('workspaceId');
+    // The name is required, with a default, because a nameless gate cannot be
+    // listed meaningfully — and a caller that omits it must still be able to insert.
+    const name = getTableColumns(qualityGateConfig)['name'] as {
+      notNull: boolean;
+      hasDefault: boolean;
+      default?: unknown;
+    };
+    expect(name.notNull).toBe(true);
+    expect(name.hasDefault).toBe(true);
+    expect(name.default).toBe('Unnamed gate');
+  });
 });
 
 describe('dashboard schema — defectCategories', () => {

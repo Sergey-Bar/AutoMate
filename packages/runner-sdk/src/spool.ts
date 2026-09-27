@@ -145,13 +145,28 @@ export interface SpoolEntry {
   payload: unknown;
   attempts?: number;
   lastError?: string;
+  disposition?: SpoolEntryDisposition;
+}
+
+export interface SpoolDeadLetter {
+  attempts: number;
+  reason: string;
 }
 
 export interface SpoolQueue {
   enqueue(entry: SpoolEntry): Promise<void>;
+  /**
+   * The deliverable head of the queue. Entries whose retry budget was spent are
+   * excluded: they are retained, not redelivered, so `peek` can never surface an
+   * entry the caller is not allowed to send.
+   */
   peek(limit?: number): Promise<SpoolEntry[]>;
+  /** Entries retained for recovery after their retry budget was exhausted. */
+  deadLetters(limit?: number): Promise<SpoolEntry[]>;
   ack(ids: readonly string[]): Promise<void>;
+  deadLetter(ids: readonly string[], failure: SpoolDeadLetter): Promise<void>;
   compact(): Promise<void>;
+  /** Retained entries, dead-lettered ones included — they still occupy the file. */
   pending(): number;
   lastSequence(jobId: string): number;
 }
@@ -181,12 +196,21 @@ export class MemorySpool implements SpoolQueue {
   }
 
   async peek(limit = DEFAULT_PEEK_LIMIT): Promise<SpoolEntry[]> {
-    return this.entries.slice(0, limit);
+    return deliverable(this.entries, limit);
+  }
+
+  async deadLetters(limit = DEFAULT_PEEK_LIMIT): Promise<SpoolEntry[]> {
+    return retained(this.entries, limit);
   }
 
   async ack(ids: readonly string[]): Promise<void> {
     const settled = new Set(ids);
     this.entries = this.entries.filter((entry) => !settled.has(entry.id));
+  }
+
+  async deadLetter(ids: readonly string[], failure: SpoolDeadLetter): Promise<void> {
+    const marked = markDeadLetters(this.entries, ids, failure);
+    if (marked) this.entries = marked;
   }
 
   async compact(): Promise<void> {}
@@ -292,7 +316,11 @@ export class DurableSpool implements SpoolQueue {
   }
 
   async peek(limit = DEFAULT_PEEK_LIMIT): Promise<SpoolEntry[]> {
-    return this.entries.slice(0, limit);
+    return deliverable(this.entries, limit);
+  }
+
+  async deadLetters(limit = DEFAULT_PEEK_LIMIT): Promise<SpoolEntry[]> {
+    return retained(this.entries, limit);
   }
 
   async ack(ids: readonly string[]): Promise<void> {
@@ -307,6 +335,15 @@ export class DurableSpool implements SpoolQueue {
     if (this.entries.length === 0 || this.committedBytes > this.compactThresholdBytes) {
       await this.compact();
     }
+  }
+
+  async deadLetter(ids: readonly string[], failure: SpoolDeadLetter): Promise<void> {
+    const marked = markDeadLetters(this.entries, ids, failure);
+    if (!marked) return;
+    this.entries = marked;
+    // The disposition travels inside the sealed frame, so rewriting the log is
+    // what makes a dead letter survive a restart instead of being retried again.
+    await this.compact();
   }
 
   async compact(): Promise<void> {
@@ -461,6 +498,48 @@ function highestSequence(entries: readonly SpoolEntry[], jobId: string): number 
   return highest;
 }
 
+function isDeliverable(entry: SpoolEntry): boolean {
+  return entry.disposition !== 'dead_letter';
+}
+
+function isDeadLettered(entry: SpoolEntry): boolean {
+  return entry.disposition === 'dead_letter';
+}
+
+function deliverable(entries: readonly SpoolEntry[], limit: number): SpoolEntry[] {
+  return entries.filter(isDeliverable).slice(0, limit);
+}
+
+function retained(entries: readonly SpoolEntry[], limit: number): SpoolEntry[] {
+  return entries.filter(isDeadLettered).slice(0, limit);
+}
+
+/**
+ * Returns the rewritten entries, or `null` when nothing moved: an id that is not
+ * queued, an empty id list, and an entry already dead-lettered all leave the
+ * queue exactly as it was.
+ */
+function markDeadLetters(
+  entries: readonly SpoolEntry[],
+  ids: readonly string[],
+  failure: SpoolDeadLetter,
+): SpoolEntry[] | null {
+  const exhausted = new Set(ids);
+  if (exhausted.size === 0) return null;
+  let marked = false;
+  const updated: SpoolEntry[] = entries.map((entry) => {
+    if (!exhausted.has(entry.id) || !isDeliverable(entry)) return entry;
+    marked = true;
+    return {
+      ...entry,
+      disposition: 'dead_letter',
+      attempts: failure.attempts,
+      lastError: failure.reason,
+    };
+  });
+  return marked ? updated : null;
+}
+
 function isSpoolEntry(value: unknown): value is SpoolEntry {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<SpoolEntry>;
@@ -473,7 +552,13 @@ function isSpoolEntry(value: unknown): value is SpoolEntry {
     Number.isInteger(candidate.sequence) &&
     typeof candidate.leaseId === 'string' &&
     Number.isInteger(candidate.fencingToken) &&
-    candidate.payload !== undefined
+    candidate.payload !== undefined &&
+    (candidate.disposition === undefined ||
+      candidate.disposition === 'retry' ||
+      candidate.disposition === 'dead_letter') &&
+    (candidate.attempts === undefined ||
+      (Number.isInteger(candidate.attempts) && candidate.attempts >= 0)) &&
+    (candidate.lastError === undefined || typeof candidate.lastError === 'string')
   );
 }
 

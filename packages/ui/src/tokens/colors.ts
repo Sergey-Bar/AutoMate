@@ -125,6 +125,13 @@ export const semanticColorTokens = {
   'brand-700': '--automate-accent',
   'success-500': '--automate-success',
   'error-500': '--automate-danger',
+  /**
+   * The foreground for text on a saturated fill, which is why it is a token and
+   * not `text-white`. The dark palette's fills are light and the light palette's
+   * are dark, so the correct label colour inverts between themes; one hardcoded
+   * value fails 4.5:1 in one of them. `Button` and `Badge` both use it.
+   */
+  'on-fill': '--automate-on-fill',
 } as const satisfies Record<string, string>;
 
 /** Colour names Tailwind resolves without a theme entry. */
