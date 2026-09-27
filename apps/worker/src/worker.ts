@@ -57,6 +57,11 @@ export class ExecutionWorker {
       this.options.scheduleBatchSize ?? 100,
     );
     const claimed: JobClaim[] = [];
+    // Claiming is opt-in, and the production composition opts out. Execution belongs
+    // to `apps/runner`, which claims over the API and runs the job in the execution
+    // boundary. This path queries the same `runners` and `jobs` tables, so a worker
+    // with a handler would take jobs away from the runners that can actually run them.
+    // See the note at the `ExecutionWorker` construction in `main.ts`.
     if (this.options.handler) {
       while (!this.lifecycle.signal.aborted && this.active.size < this.options.slots) {
         const claim = await this.options.store.claimJob(

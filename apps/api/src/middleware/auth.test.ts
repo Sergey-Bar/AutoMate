@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
+import { hashCredential } from '@automate/auth';
 import { createAuthMiddleware } from './auth.js';
 
 function buildTestApp(apiKey: string | undefined): Hono {
@@ -197,6 +198,63 @@ describe('createAuthMiddleware', () => {
           errorLog.mockRestore();
         }
       });
+    });
+  });
+
+  /**
+   * Which comparison runs is a property of the deployment, not a fallback chain, and
+   * the previous implementation got that wrong in a way its own tests could not see:
+   * the plaintext arm called `validateApiKey(provided, apiKey)`, whose second
+   * parameter was named `storedHash`. Given a plaintext key it worked, so every test
+   * on the working path passed and the misleading name went unread.
+   */
+  describe('which credential the middleware verifies against', () => {
+    const KEY = 'k'.repeat(43);
+    const PEPPER = 'a-pepper-that-is-not-guessable';
+
+    function app(key: string | undefined, hash?: string, pepper?: string): Hono {
+      const built = new Hono();
+      built.use('/*', createAuthMiddleware(key, undefined, hash, pepper));
+      built.get('/api/v1/runs', (c) => c.json({ runs: [] }));
+      return built;
+    }
+
+    const withBearer = (token: string) => ({
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    it('uses the peppered HMAC when a hash and a pepper are both configured', async () => {
+      const stored = hashCredential(PEPPER, KEY);
+      const deployment = app(undefined, stored, PEPPER);
+      expect((await deployment.request('/api/v1/runs', withBearer(KEY))).status).toBe(200);
+      // The *stored form* is not a credential. This is the case that mattered: a
+      // plaintext arm would have compared the presented secret against the stored
+      // hash and, by luck, returned 401 — but for the wrong reason, and the signature
+      // promised a check it never did.
+      expect((await deployment.request('/api/v1/runs', withBearer(stored))).status).toBe(401);
+    });
+
+    it('falls back to the plaintext secret only when there is no hash to check', async () => {
+      const deployment = app(KEY);
+      expect((await deployment.request('/api/v1/runs', withBearer(KEY))).status).toBe(200);
+      expect((await deployment.request('/api/v1/runs', withBearer('x'.repeat(43)))).status).toBe(
+        401,
+      );
+    });
+
+    it('does not use the plaintext arm when a hash is configured without a pepper', async () => {
+      // A hash with no pepper cannot be verified: there is nothing to recompute the HMAC
+      // with. The honest answer is to reject, not to quietly start comparing the
+      // presented value against the hash.
+      const deployment = app(undefined, hashCredential(PEPPER, KEY), undefined);
+      expect((await deployment.request('/api/v1/runs', withBearer(KEY))).status).toBe(401);
+    });
+
+    it('refuses an empty configured secret rather than authenticating an empty token', async () => {
+      // `validateApiKey('', '')` returned `true`. An unset API key plus an empty
+      // bearer token was a valid credential pair.
+      const deployment = app('');
+      expect((await deployment.request('/api/v1/runs', withBearer(''))).status).toBe(401);
     });
   });
 });

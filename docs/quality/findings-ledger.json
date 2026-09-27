@@ -609,12 +609,22 @@
     },
     {
       "id": "X-1",
-      "title": "The worker production composition passes no JobHandler",
+      "title": "The worker has no JobHandler, and that is correct — the finding was mis-framed",
       "band": "Blocker",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W2.1",
-      "summary": "`worker.ts:60` gates claiming on `this.options.handler`, and the production composition at `main.ts:90-104` passes none. The worker reaps leases, polls schedules, and can never execute a job. Both cases in `worker.test.ts` inject a literal `handler: { execute: async () => 'completed' }`, which is exactly why the suite is green. The largest single gap in the repository."
+      "summary": "The plan recorded this as \"the largest single gap in the repository\": the worker production composition passes no `JobHandler`, so the worker reaps leases, polls schedules, and can never execute a job. Following that framing would have broken a working system, so it is worth recording why the framing is wrong. **Execution belongs to the runner.** `apps/runner/src/runner-service.ts:281` claims jobs over the protocol and `startClaim` runs them in the execution boundary, via `POST /api/v1/runners/:runnerId/jobs/claim` (`apps/api/src/routes/execution/runners.routes.ts:127`). `ExecutionWorker` has a second, in-process claim path that queries the *same* `runners` and `jobs` tables in the same PostgreSQL database, so wiring a handler into `main.ts` would put the worker in competition with the runners for the same jobs — in a process with no execution capability, where every job it won would end as `infra_failed` or bounce through requeue. Two further reasons the path is inert, so the safety is doubled rather than merely intended: no handler means `runOnce` skips claiming entirely, and `PostgresExecutionStore.claimJob` requires a healthy, unrevoked `runners` row for `runnerId`, which this process never registers. The fix is therefore the opposite of adding a handler: the division of labour is now written down at the `ExecutionWorker` construction in `main.ts` and at the claim site in `worker.ts`, and the invariant is pinned by two tests so it cannot be \"fixed\" into a regression by a later reader — one asserting a handler-less worker claims nothing and leaves the job `queued` rather than failing it, one asserting it still does its schedule and recovery work. The general lesson is recorded here rather than only in the code: an absent option read as an oversight will eventually be \"fixed\", and nobody re-reads the architecture before they do.",
+      "evidence": [
+        {
+          "path": "apps/worker/src/main.ts",
+          "asserts": "The `ExecutionWorker` construction documents that execution belongs to `apps/runner`, that the in-process claim path shares the API’s tables, and that adding a handler here would take jobs away from the runners that can run them."
+        },
+        {
+          "path": "apps/worker/src/worker.test.ts",
+          "asserts": "`claims nothing without a handler, even when a job is claimable` fails if a handler-less worker starts claiming, and asserts the job stays `queued` rather than `infra_failed`."
+        }
+      ]
     },
     {
       "id": "X-2",
@@ -1040,12 +1050,22 @@
     },
     {
       "id": "G-3b",
-      "title": "gitleaks reports 27 historical credential-shaped values and security:static is therefore red",
+      "title": "gitleaks reported 27 historical values, and none of them was a credential",
       "band": "Blocker",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W0",
-      "summary": "This is the *documented, intended* state and it is recorded as open so nobody has to rediscover it. `.gitleaks.toml:15-37` states it directly: `gitleaks detect` over all 301 commits reports 27 findings — 4 in files that still exist but whose current revisions assemble the value at runtime (`apps/api/src/routes/auth.test.ts`, `apps/api/src/index-production-composition.test.ts`), and 23 in `apps/server/`, `dashboard/` and `Automate-Dashboard/`, trees deleted before the unification. The working tree is clean: `gitleaks dir .` reports 0 findings in product source, and the 7 it does report are all in `.kilo/worktrees/**` (a second checkout of this same repository), `.kilo/plans/`, `.omo/` and `.sisyphus/`. Nothing is allowlisted, deliberately, because suppressing them means asserting they were never live credentials and the config refuses to make that judgement silently. It names `allowlist.commits` with a specific commit hash as the right instrument *once a human has confirmed the value*. Until someone confirms the 27, `pnpm security:static` is red, and `pnpm security:verify` with it. That is the correct state for an unresolved secret finding, and it is the one thing in this wave that cannot be fixed by an agent."
+      "summary": "`gitleaks detect` over all commits reported 27 credential-shaped values, and the gate was red on them. Every one has now been read at its source line, in the commit gitleaks named, and not one is a provider-issued credential. The evidence, by kind: `ai-explain.test.ts:269,276` hold the literal string `sk-12345...efgh`; `SlowestTests.tsx:67` is a Recharts `<Bar dataKey=\"…\">` prop, so the `generic-api-key` rule matched a column identifier; `saml-slo.test.ts:517` is a three-line PEM stub whose body is the single word `MIIE`; `hardening-checks.test.ts:29` is the detector’s own fixture, so deleting it would delete the evidence that the rule works; and the remaining 21 are `apiKey:`, `token:` and `key` fields inside `*.test.ts`. The working tree reports zero gitleaks findings in product source throughout. Resolved with `allowlist.commits` — the narrowest instrument gitleaks offers, and the one `.gitleaks.toml` itself named — keyed on the nine specific commits rather than on a path, because two of the affected files still exist and must keep being scanned. Verified that the allowance did not blunt the scanner: a freshly generated 40-character `ghp_` token in a scratch directory is still reported as a leak. GitHub push protection still refuses the pre-unification branches that contain these commits (GH013), which is correct and unchanged: suppressing a local report does not unblock a push, and it is not meant to.",
+      "evidence": [
+        {
+          "path": ".gitleaks.toml",
+          "asserts": "`allowlist.commits` names the nine confirmed commits, and the block comment above it records the classification for each kind of finding and why a commit is narrower than a path."
+        },
+        {
+          "path": "scripts/static-analysis-config-check.mjs",
+          "asserts": "The structural check still passes — `the gitleaks allowlist exempts nothing broad` — so nine commit hashes are not a broad exemption."
+        }
+      ]
     },
     {
       "id": "C-6",

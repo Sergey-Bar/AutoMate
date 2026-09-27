@@ -72,7 +72,7 @@
     "Q-53": "open",
     "Q-55": "open",
     "Q-56": "open",
-    "X-1": "open",
+    "X-1": "fixed",
     "X-2": "open",
     "X-3": "open",
     "X-4": "open",
@@ -109,7 +109,7 @@
     "G-2b": "fixed",
     "D-4b": "fixed",
     "G-4b": "open",
-    "G-3b": "open",
+    "G-3b": "fixed",
     "C-6": "open"
   }
 }

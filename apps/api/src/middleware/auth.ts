@@ -1,8 +1,11 @@
 /**
  * auth.ts — Hono middleware for API key authentication
  *
- * Reads `Authorization: Bearer <token>` from the request and validates it
- * timing-safely against the configured AUTOMATE_API_KEY.
+ * Reads `Authorization: Bearer <token>` from the request and validates it against the
+ * configured credential. Which comparison runs is decided in `isAuthorised` below, and
+ * it is a property of the deployment rather than a fallback chain: a deployment with a
+ * pepper and an installation-key hash verifies a peppered HMAC, and a deployment
+ * without one compares against the plaintext secret it holds.
  *
  * Two bypass lists, both explicit and exhaustive:
  *   - PUBLIC_PATHS — no credential of any kind.
@@ -16,7 +19,7 @@
  */
 import type { Context, Next } from 'hono';
 import { getCookie } from 'hono/cookie';
-import { validateApiKey, verifyCredential } from '@automate/auth';
+import { verifyCredential, verifySharedSecret } from '@automate/auth';
 import { bearerToken } from '../http/bearer-token.js';
 
 /** Paths that do not require API key authentication. */
@@ -117,13 +120,45 @@ export function createAuthMiddleware(
     if (provided === undefined) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
-    if (
-      !(expectedKeyHash && credentialSecret
-        ? verifyCredential(credentialSecret ?? '', provided, expectedKeyHash)
-        : validateApiKey(provided, apiKey ?? ''))
-    ) {
+    if (!isAuthorised(provided, { apiKey, expectedKeyHash, credentialSecret })) {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     await next();
   };
+}
+
+/**
+ * The one place that decides whether a presented Bearer token is acceptable.
+ *
+ * Two arms, and the choice between them is not a fallback — it is which secret this
+ * deployment actually holds:
+ *
+ *  - A pepper (`credentialSecret`) and an installation-key hash. The token is
+ *    peppered-HMAC'd and compared to the hash, so the stored form is never the secret.
+ *    This is the production path whenever a database is configured.
+ *  - Neither. The in-memory path, where the process holds `AUTOMATE_API_KEY` in
+ *    plaintext. The comparison is then between two plaintext secrets the process
+ *    already has, in constant time, and `verifySharedSecret` says so in its name.
+ *
+ * This arm used to call `validateApiKey(provided, apiKey ?? '')`, whose second
+ * parameter was named `storedHash` and which compared the presented value to whatever
+ * it was given. Given a plaintext key that happened to work; given a real hash it
+ * compared a secret against a hash and returned `false` — correct answer, wrong reason,
+ * and a signature that promised a check the code never did.
+ */
+function isAuthorised(
+  provided: string,
+  parts: {
+    apiKey: string | undefined;
+    expectedKeyHash: string | undefined;
+    credentialSecret: string | undefined;
+  },
+): boolean {
+  if (parts.expectedKeyHash && parts.credentialSecret) {
+    return verifyCredential(parts.credentialSecret, provided, parts.expectedKeyHash);
+  }
+  if (parts.apiKey) {
+    return verifySharedSecret(provided, parts.apiKey);
+  }
+  return false;
 }

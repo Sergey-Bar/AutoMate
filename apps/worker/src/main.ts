@@ -97,6 +97,30 @@ async function runWorker(env: Record<string, string | undefined>): Promise<void>
     leaseDurationMs: config.leaseDurationMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
     scheduleBatchSize: config.scheduleBatchSize,
+    // No `handler`, on purpose, and the absence is load-bearing.
+    //
+    // The worker is the scheduler and the lease-recovery loop: it reaps expired
+    // leases and polls schedules. **Execution belongs to the runner.** `apps/runner`
+    // claims jobs over `POST /api/v1/runners/:runnerId/jobs/claim`
+    // (`apps/api/src/routes/execution/runners.routes.ts:127`) and runs them in the
+    // execution boundary.
+    //
+    // `ExecutionWorker` has a second, in-process claim path that queries the same
+    // `runners` and `jobs` tables as the API. Wiring a handler here would put the
+    // worker in competition with the runners for the same jobs, in a process that has
+    // no execution capability — so every job it won would end as `infra_failed` or
+    // bounce through requeue. That is why this composition passes no handler, and it
+    // has been read as an oversight before: the planning audit recorded "the worker
+    // production composition passes no JobHandler" as the largest single gap in the
+    // repository, on the reading that the product could not execute jobs at all. It
+    // can, and does, through the runner.
+    //
+    // Two further reasons the path is inert, so the failure is doubly safe rather
+    // than merely intended: no handler means `runOnce` skips claiming entirely, and
+    // `PostgresExecutionStore.claimJob` requires a healthy, unrevoked `runners` row
+    // for `runnerId`, which this process never registers. The invariant is pinned by
+    // `claims nothing in production composition, because the runner executes` in
+    // `worker.test.ts`, so it cannot be "fixed" into a regression by a later reader.
     onError: (error) => {
       const code = error instanceof Error ? error.name : 'WORKER_POLL_FAILED';
       console.error(`automate-worker poll failed (${code})`);

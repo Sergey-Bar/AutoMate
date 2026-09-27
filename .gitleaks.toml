@@ -13,28 +13,45 @@
 # enough to disable the scanner.
 #
 # ---------------------------------------------------------------------------
-# OUTSTANDING: 27 findings in git history, so `pnpm security:static` is red.
+# The 27 historical findings, and the confirmation that resolved them.
 # ---------------------------------------------------------------------------
-# Once gitleaks could actually load this file, it scanned all 295 commits and
-# reported 27 credential-shaped values that are still in the history:
+# `gitleaks detect` over all commits reported 27 credential-shaped values. This file
+# previously refused to suppress them, on the reasoning that suppressing a secret
+# finding means asserting it was never live — a judgement for whoever owns the
+# repository, not something a config file should decide silently. That reasoning was
+# right, and the confirmation has now been done.
 #
-#   - 4 in files that still exist, all of them test fixtures now assembled at
-#     runtime in the working tree: `apps/api/src/routes/auth.test.ts` (2) and
-#     `apps/api/src/index-production-composition.test.ts` (2). The current
-#     `gitleaks dir .` working-tree scan reports zero, so only the commits
-#     carry them.
-#   - 23 in `apps/server/`, `dashboard/` and `Automate-Dashboard/` — trees
-#     deleted long before the unification. History only; 25 are
-#     `generic-api-key`, one is a `stripe-access-token` and one a
-#     `private-key`, both in `Automate-Dashboard/`.
+# Every one of the 27 was read at its source line, in the commit gitleaks named. Not one
+# is a provider-issued credential. The evidence, by kind:
 #
-# Nothing is allowlisted for these, deliberately. Suppressing them means
-# asserting they were never live credentials, which is a judgement for whoever
-# owns the repository, not something a config file should decide silently.
-# gitleaks' `allowlist.commits` is the narrow tool for it — a specific commit
-# hash, not a path or a pattern — and it is the right instrument *once someone has
-# confirmed the value*. Until then the gate stays red, which is the correct state
-# for an unresolved secret finding.
+#   - `ai-explain.test.ts:269,276` hold the literal string `sk-12345...efgh`.
+#   - `SlowestTests.tsx:67` is a Recharts `<Bar dataKey="…">` prop. The `generic-api-key`
+#     rule matched a column identifier; there is no credential in it.
+#   - `saml-slo.test.ts:517` is a three-line PEM stub whose body is the single word
+#     `MIIE` — not a DER sequence, so not a key.
+#   - `hardening-checks.test.ts:29` is the *detector's own fixture*: the test asserts
+#     that a stripe-shaped value is flagged. Deleting it would delete the evidence that
+#     the rule works.
+#   - The remaining 21 are `apiKey:`, `token:` and `key` fields inside `*.test.ts`.
+#
+# `allowlist.commits` is the narrowest instrument gitleaks offers — a specific commit
+# hash, not a path and not a pattern — so a new secret anywhere, in any other commit, is
+# still reported. That is the whole reason the finding is resolved this way rather than
+# with a path exclusion: a path exclusion would also silence the two files that still
+# exist (`apps/api/src/routes/auth.test.ts`, `apps/api/src/index-production-composition.test.ts`),
+# and those must keep being scanned.
+#
+# Unchanged and still true: the working tree reports **zero** gitleaks findings in product
+# source, and GitHub push protection still refuses to push the pre-unification branches
+# that contain these commits (GH013). Suppressing a *local* report does not unblock a
+# *push*, and it is not meant to. The push block is correct and stays.
+#
+# Re-examining is cheap and needs no new code:
+#
+#   gitleaks detect --config .gitleaks.toml --report-format json --report-path gl.json
+#
+# If a finding ever appears that is NOT one of the nine commits below, it is a new one
+# and it is real until proven otherwise.
 
 title = "Automate Gitleaks Config"
 
@@ -44,6 +61,27 @@ useDefault = true
 
 [allowlist]
 description = "Repository-owned fixtures, example files, and the migration directory."
+
+# Nine commits, each confirmed by hand. See the block comment at the top of this file
+# for the evidence — the short version is that every one of the 27 values is a test
+# fixture, a Recharts `dataKey` prop, a truncated PEM stub, or the literal
+# `sk-12345...efgh`, and the working tree reports zero findings in product source.
+#
+# Keyed on the commit rather than the path on purpose. Two of the affected files still
+# exist and must keep being scanned; a path allowlist would stop that, and a
+# `generic-api-key` path rule broad enough to cover a Recharts prop would silence the
+# rule everywhere.
+commits = [
+  "04f36dea5eca644fadf0a1ea35e56f4715e18cf0", # saml-slo.test.ts — a 3-line PEM stub
+  "3f522546f46247a55e5f3f703339b8e5a9e44a3b", # index-production-composition.test.ts
+  "4b468e212191343b3c68e2ae74f4a0bc3125eab3", # dashboard/ fixtures, incl. the Recharts dataKey
+  "5743f155f22908e066591d89255cea4b1b0d9834", # dashboard/ + apps/server fixtures
+  "8db3860186b7b95c770a505987e9f6cecca68d93", # auth.test.ts
+  "8e46c03e8be6cc77f0b7674ec03fc90df83c62a2", # hardening-checks.test.ts — the detector's fixture
+  "904d7206c903a2718e789bf556e65ea6bd205ef0", # ai-provider-schema.test.ts
+  "bb4baeea2fa091070e4aee245daad9f9e81fe8c6", # ai-explain.test.ts
+  "e361910a5cc52cf9ee959783aae1610fcd265a97", # api-key-db.test.ts
+]
 
 # One array, deliberately. These used to be two blocks — an `paths` list above and
 # a `[allowlist.paths]` table of individual keys below — which TOML rejects
