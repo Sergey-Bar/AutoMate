@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
 import type { RealtimeBus, RealtimeBusEvent, RunUpdatedPayload } from '../realtime/realtime-bus.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { createEventsRoutes, type DurableRealtimeFeed, type EventsRouteOptions } from './events.js';
 
 class TrackingBus implements RealtimeBus {
@@ -21,7 +22,7 @@ class TrackingBus implements RealtimeBus {
 }
 
 function createApp(options: Partial<EventsRouteOptions> = {}) {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   app.route(
     '/',
     createEventsRoutes({

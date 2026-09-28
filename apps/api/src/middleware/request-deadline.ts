@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { ErrorCode } from '../errors/domain-error.js';
+import { requireRequestId } from '../observability/request-context.js';
 
 /**
  * A server-side deadline on every request.
@@ -58,7 +59,7 @@ function refused(c: Context, budgetMs: number) {
       error: {
         code: ErrorCode.REQUEST_TIMEOUT,
         message: 'request exceeded the server deadline',
-        requestId: c.req.header('x-request-id') ?? 'unknown',
+        requestId: requireRequestId(),
         details: { budgetMs },
       },
     },

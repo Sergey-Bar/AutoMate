@@ -9,14 +9,20 @@
   // argument count stayed invisible.
   //
   // `checkJs` costs nothing for `.mjs` (it is not part of the build) and turns
-  // those scripts into checked code. The allowlist is explicit so a new script is
-  // opted in deliberately rather than silently unchecked.
+  // those scripts into checked code. The glob is deliberately broad rather than an
+  // allowlist: a gate script that is excluded from type checking is a gate script
+  // whose wrong argument count nothing catches, and the previous note here described
+  // an allowlist that did not exist.
   "allowJs": true,
   "checkJs": true,
 
-  // Only the scripts. Everything else in the repo is TypeScript, already
-  // typechecked through its package tsconfig.
-  "include": ["scripts/**/*.mjs", "vitest.shared.ts", "vitest.config.ts"],
+  // The scripts, plus the ambient declarations they need. `*.d.mts` is listed
+  // explicitly because it matches neither `*.mjs` nor `*.ts`, and
+  // `scripts/types/eslint-plugins.d.mts` declares the two untyped ESLint plugins that
+  // `eslint.config.js` imports — which entered this program when
+  // `scripts/complexity-eslint.config.mjs` began importing that config, so the gate's
+  // own configuration is checked rather than trusted.
+  "include": ["scripts/**/*.mjs", "scripts/**/*.d.mts", "vitest.shared.ts", "vitest.config.ts"],
 
   "compilerOptions": {
     // `.mjs` scripts run directly under Node, not through a bundler, so the

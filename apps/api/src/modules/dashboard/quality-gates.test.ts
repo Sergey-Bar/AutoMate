@@ -13,6 +13,28 @@
  * workspace through the body" is not a style preference here.
  */
 import { describe, expect, it } from 'vitest';
+/**
+ * The boundary's body, named.
+ *
+ * A cast to `Record<string, unknown>` can read any shape and so checks none, which is
+ * how `body.error` stayed a bare string in this suite after the migration: the
+ * assertion was satisfied by a field that no longer exists.
+ */
+interface BoundaryBody {
+  /** The success shapes these same files read: `id`, `status`, `allowed`, `runs`. */
+  [key: string]: unknown;
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: {
+      issues: Array<{ path: unknown[]; message?: string }>;
+      fieldErrors?: Record<string, unknown>;
+    };
+  };
+}
+
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import {
   createDashboardQualityGatesRoutes,
@@ -60,7 +82,7 @@ const FOREIGN_GATE: QualityGate = {
 };
 
 function mount(store: QualityGateStore): Hono {
-  return new Hono().route('/', createDashboardQualityGatesRoutes({ store }));
+  return withErrorBoundary(createDashboardQualityGatesRoutes({ store }));
 }
 
 function build(): { app: Hono; store: InMemoryQualityGateStore } {
@@ -227,13 +249,15 @@ describe('POST /api/v1/dashboard/quality-gates', () => {
   it('names the field that was wrong, rather than only that something was', async () => {
     const { app } = build();
 
-    const body = (await (await post(app, { name: 'Gate', passRateThreshold: 101 })).json()) as {
-      error: string;
-      issues: Array<{ path: unknown[] }>;
-    };
+    const body = (await (
+      await post(app, { name: 'Gate', passRateThreshold: 101 })
+    ).json()) as BoundaryBody;
 
-    expect(body.error).toBe('Invalid quality gate');
-    expect(body.issues.map((issue) => issue.path[0])).toContain('passRateThreshold');
+    expect(body.error.code).toBe('INVALID_QUALITY_GATE');
+    expect(body.error.message).toBe('Invalid quality gate');
+    expect(
+      body.error.details.issues.map((issue) => String((issue as { path: unknown[] }).path[0])),
+    ).toContain('passRateThreshold');
   });
 
   it('attributes the creation to the request id it was given', async () => {
@@ -280,7 +304,9 @@ describe('GET /api/v1/dashboard/quality-gates/:id', () => {
     const response = await app.request('/api/v1/dashboard/quality-gates/no-such-gate');
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Quality gate not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'QUALITY_GATE_NOT_FOUND', message: 'Quality gate not found' },
+    });
   });
 
   it('answers 404 for an id that could not exist, without a stack trace', async () => {
@@ -301,7 +327,9 @@ describe('GET /api/v1/dashboard/quality-gates/:id', () => {
 
     // 404, not 403: a 403 would confirm the id exists here.
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Quality gate not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'QUALITY_GATE_NOT_FOUND', message: 'Quality gate not found' },
+    });
     expect(store.askedFor).toEqual(['theirs']);
   });
 });

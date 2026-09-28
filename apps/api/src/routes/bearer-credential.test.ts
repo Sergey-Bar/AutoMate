@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { ReporterIngestionService } from '../services/reporter-ingestion.js';
 import { createReporterResultsRoute } from './reporter-results.js';
@@ -55,8 +56,7 @@ const result = {
 };
 
 function app(): Hono {
-  return new Hono().route(
-    '/',
+  return withErrorBoundary(
     createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
       reporterSecret: SECRET,
     }),

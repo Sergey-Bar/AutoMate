@@ -56,6 +56,7 @@ import {
   // vault
   vaultEntries,
 } from './index.js';
+import { GATE_STATUSES } from './vocabularies.js';
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -175,6 +176,44 @@ describe('dashboard schema — schedules', () => {
 
   it('has cronExpr column', () => {
     expect(cols(schedules)).toContain('cronExpr');
+  });
+
+  it('has a NOT NULL workspaceId column', () => {
+    // Added by `0015_schedule_workspace_scope.sql`, and `NOT NULL` is the load-bearing
+    // part: an optional workspace column would leave the worker falling back to the
+    // untyped JSONB it was built to stop trusting, which is the defect P-20 records.
+    expect(cols(schedules)).toContain('workspaceId');
+    expect(schedules.workspaceId.notNull).toBe(true);
+  });
+
+  it('carries the same gateStatus vocabulary as gate_evaluations, not a second copy', () => {
+    // P-5. `runs.gate_status` was `['passed','failed','skipped']` while
+    // `gate_evaluations.status` — and the contract in `@automate/shared-contracts` —
+    // is `['passed','failed','warning','unknown','not_evaluated']`. The two disagreed in
+    // both directions: three contract values were rejected by the database and one
+    // non-contract value was accepted.
+    //
+    // The drift survived because `execution.ts` imports `runs` from `dashboard.ts`, so
+    // the shared constant could not be imported back and the column held a hand-written
+    // second copy. That is now `schema/vocabularies.ts`, and this assertion is what
+    // makes the cycle-avoidance worth anything: both columns read the one constant, so a
+    // future widening cannot land on one and miss the other.
+    const runsStatuses = (
+      getTableColumns(runs).gateStatus as { enumValues?: readonly string[] } | undefined
+    )?.enumValues;
+    expect(runsStatuses).toBeDefined();
+    expect([...(runsStatuses ?? [])]).toEqual([...GATE_STATUSES]);
+  });
+
+  it('no longer accepts `skipped`, which the contract does not define', () => {
+    // The narrowing half, and the reason the migration needed a pre-audit: aligning to
+    // the contract means a value the database used to accept becomes unwritable. This
+    // asserts it stayed narrowed, so a later "fix" that quietly re-adds it fails.
+    const runsStatuses = (
+      getTableColumns(runs).gateStatus as { enumValues?: readonly string[] } | undefined
+    )?.enumValues;
+    expect([...(runsStatuses ?? [])]).not.toContain('skipped');
+    expect([...(runsStatuses ?? [])]).toContain('not_evaluated');
   });
 });
 

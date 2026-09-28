@@ -1,4 +1,6 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { digestOf, tokenMatches } from './digest.js';
+import { normalizeArtifactKind } from './artifact-kind.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
 import { countTests, resolveSummary } from './summary.js';
@@ -50,21 +52,8 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-function canonical(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => canonical(item)).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .filter((key) => object[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonical(object[key])}`)
-    .join(',')}}`;
-}
-
 function digest(value: unknown): string {
-  return createHash('sha256')
-    .update(value instanceof Uint8Array ? value : canonical(value))
-    .digest('hex');
+  return digestOf(value);
 }
 
 function emptySummary(): ExecutionSummary {
@@ -147,27 +136,6 @@ function normalizeOutcome(value: unknown): RunOutcome {
   )
     return value;
   return null;
-}
-
-function tokenMatches(token: string, expectedHash: string): boolean {
-  const actual = Buffer.from(digest(token), 'hex');
-  const expected = Buffer.from(expectedHash, 'hex');
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-
-function normalizeArtifactKind(value: string): string {
-  const normalized = value.toLowerCase();
-  if (normalized === 'raw_report' || normalized === 'report') return 'report';
-  if (normalized === 'playwright-json' || normalized === 'json') return 'json';
-  if (normalized === 'junit') return 'junit';
-  if (normalized === 'stdout') return 'stdout';
-  if (normalized === 'stderr') return 'stderr';
-  if (normalized === 'screenshot') return 'screenshot';
-  if (normalized === 'video') return 'video';
-  if (normalized === 'trace') return 'trace';
-  if (normalized === 'html' || normalized === 'html-report') return 'html';
-  if (normalized === 'log' || normalized === 'event-log') return 'log';
-  return 'other';
 }
 
 function defaultBrowserStatus(run: ExecutionRun | undefined): DomainStatus {

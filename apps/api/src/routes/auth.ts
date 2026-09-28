@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { DomainError } from '../errors/domain-error.js';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod/v4';
 import {
@@ -81,7 +82,7 @@ export function createAuthRoutes(options: AuthRouteOptions) {
 
   app.post('/api/v1/auth/login', async (context) => {
     const parsed = LoginSchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return context.json({ error: 'Invalid login request' }, 400);
+    if (!parsed.success) throw new DomainError('INVALID_LOGIN_REQUEST', 'Invalid login request');
     // Per-IP budget, plus a per-key budget so one address cannot exhaust the
     // limiter while guessing a single key.
     const perIp = loginLimiter.consume(`ip:${clientKey(context)}`);
@@ -91,17 +92,12 @@ export function createAuthRoutes(options: AuthRouteOptions) {
     if (!perIp.allowed || !perKey.allowed) {
       const retryAfter = Math.max(perIp.retryAfterSeconds, perKey.retryAfterSeconds);
       context.header('retry-after', String(retryAfter));
-      return context.json(
-        {
-          error: 'Too many login attempts',
-          code: 'LOGIN_RATE_LIMITED',
-          retryAfterSeconds: retryAfter,
-        },
-        429,
-      );
+      throw new DomainError('LOGIN_RATE_LIMITED', 'Too many login attempts', {
+        details: { retryAfterSeconds: retryAfter },
+      });
     }
     if (!verifyCredential(options.cookieSecret, parsed.data.apiKey, options.installationKeyHash)) {
-      return context.json({ error: 'Invalid credentials' }, 401);
+      throw new DomainError('INVALID_CREDENTIALS', 'Invalid credentials');
     }
     const issued = await sessions.issue(options.installationId);
     setCookie(context, SESSION_COOKIE, issued.token, {
@@ -116,7 +112,7 @@ export function createAuthRoutes(options: AuthRouteOptions) {
 
   app.get('/api/v1/auth/session', async (context) => {
     const record = await readSession(context, sessions);
-    if (!record) return context.json({ error: 'Unauthorized' }, 401);
+    if (!record) throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
     return context.json(sessionResponse(record));
   });
 

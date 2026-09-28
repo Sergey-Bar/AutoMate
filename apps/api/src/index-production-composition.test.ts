@@ -9,6 +9,9 @@ import {
   syntheticApiKey,
   syntheticAwsKeyId,
   syntheticConnectionString,
+  syntheticCookieSecret,
+  syntheticReporterSecret,
+  syntheticRunnerRegistrationSecret,
   syntheticVaultSecret,
 } from './test-support/synthetic-credentials.js';
 
@@ -70,14 +73,19 @@ beforeAll(() => {
 });
 
 const VALID_SECRETS = {
-  COOKIE_SECRET: 'cookie-secret-long-enough-for-production-1',
-  REPORTER_SECRET: 'reporter-secret-long-enough',
-  // Assembled, not written. gitleaks's `generic-api-key` rule matches these two
-  // names regardless of the value, and a literal here is a credential-shaped
-  // string committed to the repository for a secret scanner to find.
+  // All assembled, and all audited in `test-support/synthetic-credentials.test.ts`.
+  // Two of these were hand-written at 22 and 27 characters, which is under the floor
+  // every secret now has — so the composition test was asserting a startup a
+  // deployment cannot have, and it passed only because nothing compared it to the
+  // policy it was standing in for.
+  COOKIE_SECRET: syntheticCookieSecret(),
+  REPORTER_SECRET: syntheticReporterSecret(),
+  // gitleaks's `generic-api-key` rule matches these two names regardless of the
+  // value, and a literal here is a credential-shaped string committed to the
+  // repository for a secret scanner to find.
   AUTOMATE_API_KEY: syntheticApiKey(),
   VAULT_SECRET: syntheticVaultSecret(),
-  RUNNER_REGISTRATION_SECRET: 'runner-registration-secret-1',
+  RUNNER_REGISTRATION_SECRET: syntheticRunnerRegistrationSecret(),
 };
 
 const OBJECT_STORE = {

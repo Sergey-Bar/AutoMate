@@ -12,7 +12,8 @@
  * composes the groups in the same order it has always registered them.
  */
 
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
+import { DomainError } from '../../errors/domain-error.js';
 import path from 'node:path';
 import type { Context } from 'hono';
 import { z } from 'zod/v4';
@@ -28,6 +29,7 @@ import type {
   RunPhase,
 } from '../../execution/types.js';
 import type { ExecutionRoutesOptions } from './schemas.js';
+import { requireRequestId } from '../../observability/request-context.js';
 
 /**
  * Whether the lease a request presents is still the job's own.
@@ -80,8 +82,8 @@ export function workspace(options: ExecutionRoutesOptions): string {
   return options.workspaceId ?? 'default-workspace';
 }
 
-export function requestId(c: Context): string {
-  return c.req.header('x-request-id') ?? randomUUID();
+export function requestId(_c: Context): string {
+  return requireRequestId();
 }
 
 /** The most runs one page will ever return. */
@@ -151,18 +153,26 @@ export function pageSize(raw: string | undefined): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-export function error(
-  c: Context,
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 500 | 503,
-  code: string,
-  message: string,
-  details?: Record<string, unknown>,
-): Response {
-  return c.json(
-    { error: { code, message, requestId: requestId(c), details: details ?? {} } },
-    status,
-  );
-}
+/**
+ * No error helper. This one is gone.
+ *
+ * `error(c, status, code, message, details)` built a response by hand at the call site,
+ * which is three separate things in one function. It rendered a second copy of the body
+ * the error boundary already renders, so the two could disagree about `requestId` and
+ * about which fields a 5xx is allowed to carry. It took the status as a literal beside
+ * the code, so nothing checked the pair — and two of the forty-two sites did not type a
+ * status at all, passing one in from elsewhere, which is how a status ends up decided in
+ * a second place. And it took the code as a bare `string`, so a code the taxonomy had
+ * never heard of compiled without complaint.
+ *
+ * All three are now impossible rather than discouraged: `throw new DomainError(code,
+ * message)` names a code from `errors/domain-error.ts`, the status comes from the one
+ * table behind it, and the body is rendered once by the boundary.
+ *
+ * The response shape is unchanged, which is why the route tests did not need rewriting —
+ * only the harness, so that a thrown `DomainError` meets the boundary the way it does in
+ * production instead of Hono's default handler.
+ */
 
 export function parseBody<T>(c: Context, schema: z.ZodType<T>): Promise<T | null> {
   return c.req
@@ -308,36 +318,46 @@ export function safeName(value: string): string {
 }
 
 /**
- * `getArtifact` returns null both when the artifact row is gone and when its
- * bytes cannot be read. Reporting the second case as 404 turns a storage
- * failure into "this evidence never existed"; answer 503 instead so a missing
- * row and unreadable evidence stay distinguishable. Stores without the
- * optional descriptor lookup fall back to 404.
+ * The two ways an artifact download can fail to produce bytes, as two answers.
+ *
+ * `getArtifact` returns null both when the artifact row is gone and when its bytes
+ * cannot be read. Reporting the second case as 404 turns a storage failure into "this
+ * evidence never existed" — the one response that tells the caller to stop asking and
+ * tells nobody to go and look. So this throws `ARTIFACT_BYTES_UNAVAILABLE` (503) when the
+ * metadata row is there and the bytes are not, and `ARTIFACT_NOT_FOUND` when the row is
+ * not there at all. Stores without the optional descriptor lookup fall back to the 404.
+ *
+ * The 503 carries `callerSafe` because its details are about a resource the caller
+ * named: the artifact id it just asked for, the run that owns it, and the checksum that
+ * was recorded. Without that flag the boundary would blank them and answer
+ * `internal error`, and the caller would have to re-derive what its own request already
+ * said. `storageKey` is the one field here that is a server-side path, and it is the
+ * reason the flag is a deliberate per-error decision rather than a rule for 503s.
  */
 export async function missingArtifact(
-  c: Context,
+  _c: Context,
   store: ExecutionStore,
   artifactId: string,
   runId?: string,
   workspaceId?: string,
-): Promise<Response> {
+): Promise<never> {
   const descriptor = await store.getArtifactDescriptor?.(artifactId, workspaceId);
   if (descriptor && (!runId || descriptor.runId === runId)) {
-    return error(
-      c,
-      503,
+    throw new DomainError(
       'ARTIFACT_BYTES_UNAVAILABLE',
       'Artifact metadata exists but its bytes are unavailable',
       {
-        artifactId: descriptor.id,
-        runId: descriptor.runId,
-        storageKey: descriptor.storageKey,
-        expectedSizeBytes: descriptor.sizeBytes,
-        checksum: descriptor.checksum,
+        callerSafe: true,
+        details: {
+          artifactId: descriptor.id,
+          runId: descriptor.runId,
+          expectedSizeBytes: descriptor.sizeBytes,
+          checksum: descriptor.checksum,
+        },
       },
     );
   }
-  return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+  throw new DomainError('ARTIFACT_NOT_FOUND', 'Artifact not found');
 }
 
 export function artifactKind(value: string): string {

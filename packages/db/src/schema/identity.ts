@@ -97,7 +97,11 @@ export const outboxEvents = pgTable(
   {
     sequence: integer('sequence').primaryKey().generatedAlwaysAsIdentity(),
     eventId: uuid('event_id').notNull().defaultRandom(),
-    workspaceId: text('workspace_id'),
+    // NOT NULL since `0017_outbox_workspace_scope.sql`, and load-bearing rather than
+    // tidy: `readAfter` matches on `workspace_id`, so a NULL row was invisible to every
+    // consumer while still consuming a sequence number and counting toward the
+    // retention floor. The gap was permanent and it moved the watermark.
+    workspaceId: text('workspace_id').notNull(),
     aggregateType: text('aggregate_type').notNull(),
     aggregateId: text('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),
@@ -115,7 +119,10 @@ export const outboxEvents = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
   },
   (table) => [
-    uniqueIndex('outbox_events_dedupe_idx').on(table.dedupeKey),
+    // Scoped to the workspace by `0017_outbox_workspace_scope.sql`. A dedupe key on its
+    // own was global, so the same key in two workspaces suppressed the second event and
+    // the append reported nothing — a tenant's event that simply never existed.
+    uniqueIndex('outbox_events_workspace_dedupe_idx').on(table.workspaceId, table.dedupeKey),
     index('outbox_events_sequence_idx').on(table.sequence),
     index('outbox_events_expiry_idx').on(table.expiresAt),
     index('outbox_events_workspace_sequence_idx').on(table.workspaceId, table.sequence),

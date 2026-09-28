@@ -8,7 +8,15 @@ export type OutboxDatabase = PgDatabase<PgQueryResultHKT, typeof schema>;
 export type OutboxEvent = typeof outboxEvents.$inferSelect;
 
 export interface AppendOutboxEvent {
-  workspaceId?: string | null;
+  /**
+   * Required, and not nullable.
+   *
+   * Optional-and-nullable is what permitted a row that `readAfter` could never return:
+   * the event was written, consumed a sequence number, counted toward the retention
+   * floor, and was invisible to every consumer (ledger P-9). Enforced here as well as by
+   * `NOT NULL` so the mistake is a compile error rather than a runtime one.
+   */
+  workspaceId: string;
   aggregateType: string;
   aggregateId: string;
   eventType: string;
@@ -44,6 +52,9 @@ export class DrizzleOutboxRepository {
   async appendMany(events: AppendOutboxEvent[]): Promise<OutboxEvent[]> {
     if (events.length === 0) return [];
     for (const event of events) {
+      if (!event.workspaceId || event.workspaceId.trim() === '') {
+        throw new Error('An outbox event must name the workspace it belongs to');
+      }
       if (!event.dedupeKey || event.dedupeKey.length > 512) {
         throw new Error('Outbox dedupe key must be between 1 and 512 characters');
       }
@@ -51,11 +62,20 @@ export class DrizzleOutboxRepository {
         throw new Error('Outbox aggregate and event identifiers are required');
       }
     }
-    return this.db
-      .insert(outboxEvents)
-      .values(events.map((event) => ({ ...event, eventId: randomUUID() })))
-      .onConflictDoNothing({ target: outboxEvents.dedupeKey })
-      .returning();
+    return (
+      this.db
+        .insert(outboxEvents)
+        .values(events.map((event) => ({ ...event, eventId: randomUUID() })))
+        // Both columns, because that is what the index is on.
+        //
+        // `onConflictDoNothing({ target: dedupeKey })` named a single column against a
+        // single-column unique index. Once the index became `(workspace_id, dedupe_key)`
+        // that target no longer matched it, and the two drifting apart is precisely the
+        // failure this fixes — so the target and the index are named in one place and the
+        // comment says why they must move together.
+        .onConflictDoNothing({ target: [outboxEvents.workspaceId, outboxEvents.dedupeKey] })
+        .returning()
+    );
   }
 
   async readAfter({ workspaceId, afterSequence, limit }: OutboxReadPage): Promise<OutboxEvent[]> {

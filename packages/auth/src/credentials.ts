@@ -79,7 +79,28 @@ export class InMemorySessionService {
     private readonly secret: string,
     private readonly ttlMs: number,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) {
+    // Ledger S-4. A zero or negative TTL produced `expiresAt === issuedAt`, so
+    // `issue` returned a token that `validate` rejected on the very next line — a
+    // service that appears to work and hands back a session that is already dead.
+    // Refused here rather than discovered by a caller.
+    if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+      throw new Error('InMemorySessionService requires a positive, finite ttlMs');
+    }
+    // **A correction to the row, deliberately weaker than the row claims.** The row
+    // calls an empty secret "trivially verifiable"; it is not. An empty key still
+    // produces a keyed HMAC over a 32-byte random token, so knowing the secret does
+    // not let anyone mint a valid token without the preimage. The real cost of an
+    // empty secret is that `hashCredential` stops being a secret operation at all —
+    // it becomes a plain digest of a value in the spool. So this is a hardening
+    // refusal, not a forgery hole, and is recorded as one.
+    //
+    // Production cannot reach either case: `resolveAuthSecrets` refuses a missing
+    // `COOKIE_SECRET` and floors it at 32 characters.
+    if (secret.length === 0) {
+      throw new Error('InMemorySessionService requires a non-empty secret');
+    }
+  }
 
   issue(installationId: string): { token: string; record: SessionRecord } {
     const token = createOpaqueToken();
@@ -92,7 +113,14 @@ export class InMemorySessionService {
       expiresAt: new Date(issuedAt.getTime() + this.ttlMs),
     };
     this.sessions.set(record.id, record);
-    return { token, record };
+    // Ledger S-3. This used to hand back the stored object itself, so a caller could
+    // write `record.expiresAt = <the far future>` or `delete record.revokedAt` and
+    // change the service's own state — extending a session, or un-revoking one,
+    // through a value it was only given to read. The durable backend already builds
+    // its record locally, writes a field-by-field copy, and returns the literal, so
+    // the two implementations disagreed on whether the return value *is* the store.
+    // They do not now: the caller gets a copy and the store keeps the original.
+    return { token, record: { ...record } };
   }
 
   validate(token: string): SessionRecord | undefined {

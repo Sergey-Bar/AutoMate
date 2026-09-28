@@ -76,6 +76,30 @@ if (specFiles.length === 0) {
   );
 }
 
+const RENDER_BUDGET_SPEC = 'rendering-budget.spec.ts';
+
+/**
+ * The specs that belong to a project of their own rather than to `product`.
+ *
+ * `product` is "every product spec", derived from the tree so it cannot become a green
+ * no-op — which means a spec added for a *gate* would otherwise be swept into every
+ * ordinary E2E run. The rendering budget is exactly that: it needs a settled page per
+ * route, so it would add a fixed wait to every PR's product run for a measurement only
+ * `pnpm test:render` reads. Naming the exceptions here keeps the derivation honest
+ * rather than special-casing it at each project.
+ */
+const DEDICATED_SPECS = ['vertical-slice.spec.ts', RENDER_BUDGET_SPEC];
+
+/** Normalized so the comparison is a suffix match on any platform's separator. */
+const baseNameOf = (file: string): string => file.replaceAll('\\', '/');
+
+const isDedicated = (file: string): boolean => {
+  const normalized = baseNameOf(file);
+  return DEDICATED_SPECS.some((name) => normalized.endsWith(name));
+};
+
+const productSpecFiles = specFiles.filter((file) => !isDedicated(file));
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
@@ -98,7 +122,7 @@ export default defineConfig({
         NODE_ENV: 'development',
         DATABASE_URL: databaseUrl,
         COOKIE_SECRET: 'e2e-cookie-secret-32-characters-long',
-        AUTOMATE_API_KEY: 'e2e-installation-key',
+        AUTOMATE_API_KEY: 'e2e-installation-key-32-characters-long',
         PUBLIC_APP_URL: webUrl,
       },
       reuseExistingServer: !process.env['CI'],
@@ -121,21 +145,53 @@ export default defineConfig({
       // Scoped to the specs that exist, and asserted non-empty below, so this
       // job cannot become a green no-op.
       name: 'product',
-      testMatch: specFiles
-        .filter((file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'))
-        .map((file) => path.relative(path.join(configDir, 'e2e'), file).replaceAll('\\', '/')),
+      // `path.relative` runs on the **original** path and the result is normalized
+      // after it, not before. Handing it an already-forward-slashed absolute path on
+      // Windows makes it return a nonsense relative path, `product` then matches no
+      // spec, and the suite quietly drops from 19 tests to 6 while still reporting
+      // success — which is precisely the green no-op the derivation exists to prevent.
+      testMatch: productSpecFiles.map((file) =>
+        path.relative(path.join(configDir, 'e2e'), file).replaceAll('\\', '/'),
+      ),
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // The rendering budget is a gate with its own command (`pnpm test:render`), not
+      // part of `pnpm test:e2e`. It settles four routes on a timer, so folding it into
+      // the product run would slow every PR to buy a number nothing there reads. Its
+      // assertions still run in CI, as their own job.
+      name: 'rendering-budget',
+      testMatch: '**/performance/rendering-budget.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
   ],
 });
 
 // Reading a spec list at config time is only useful if the list is not empty.
-const productProject = specFiles.filter(
-  (file) => !file.replaceAll('\\', '/').endsWith('vertical-slice.spec.ts'),
-);
-if (productProject.length === 0 && process.env['CI']) {
+//
+// Unconditionally, and matching the budget project's assertion below rather than
+// gating on `process.env['CI']` as this used to. The failure it catches is identical
+// either way: a configuration where `product` matches no spec is a green job that ran
+// nothing, on a developer machine exactly as much as on a runner. Detecting it only in
+// CI means a local `pnpm test:e2e` reports success having executed five vertical-slice
+// tests and no product test at all, which is the more misleading of the two reports
+// because the developer is the one who can fix it.
+if (productSpecFiles.length === 0) {
   throw new Error(
-    'The `product` Playwright project matches no spec files. In CI that is a ' +
-      'green job that ran nothing, so it is treated as a configuration error.',
+    'The `product` Playwright project matches no spec files, so a run would report ' +
+      'success without executing a product test. That is treated as a configuration ' +
+      'error rather than an empty suite.',
+  );
+}
+
+// The same argument for the budget project, and the more important of the two: a
+// rendering gate whose project matches nothing is a green job that measured nothing,
+// which is the one outcome this whole gate exists to make impossible. Checked against
+// the file list rather than by running a project, because the claim is about the tree.
+if (!specFiles.some((file) => baseNameOf(file).endsWith(RENDER_BUDGET_SPEC))) {
+  throw new Error(
+    'The `rendering-budget` Playwright project matches no spec file, so ' +
+      '`pnpm test:render` would report success without measuring a single route. ' +
+      'A rendering budget that measured nothing is not a budget.',
   );
 }

@@ -1,21 +1,11 @@
 /**
- * safe-path.ts — the one sanitiser for a caller-supplied path.
+ * The one sanitiser for a caller-supplied path that is being *persisted*.
  *
- * `routes/reporter.ts` and `services/reporter-persistence.ts` each had their own
- * copy, and the two were **byte-identical** apart from the function name. Nothing
- * tied them together, so a fix to either was invisible to the other, and the two
- * sit on different sides of the route boundary — the route sanitises a `test.file`
- * from an upload, and the persistence layer sanitises the same field again on the
- * way to disk. A divergence would have been a path that passed one check and failed
- * the other, which is the kind of thing that only shows up on Windows, or with a
- * Unicode separator, or after a refactor.
- *
- * A third, *different* rule lives in `infrastructure/artifact-store.ts`
- * (`resolveArtifactPath`) and deliberately stays separate: it **throws** rather
- * than reducing, because an artifact key names a file about to be written and
- * silently substituting a basename would write the wrong artifact under a key
- * nothing matches. Two rules, two names, one reason each — the mistake being avoided
- * is one function pretending to be both.
+ * A different rule lives in `infrastructure/artifact-store.ts` (`resolveArtifactPath`)
+ * and deliberately stays separate: it throws rather than reducing, because an artifact
+ * key names a file about to be written, and silently substituting a basename would
+ * write the wrong artifact under a key nothing matches. Two rules, two names, one
+ * reason each.
  */
 
 import path from 'node:path';

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import {
   auditRepository,
@@ -10,6 +12,10 @@ import {
   readRootScripts,
   referencedScripts,
 } from './gate-tooling.mjs';
+import { phaseFor, tierProblems } from './render-gate-phase.mjs';
+
+/** The repository root, for the one committed data file this suite also reads. */
+const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
 // Three imports this file did not use — `readFileSync`, `path`, `fileURLToPath`, plus
 // the `root` they computed and `WORKFLOW_DIR` from the module. They were invisible
@@ -344,6 +350,38 @@ test('every root script carries a tier, and every tier is one of the four', () =
   assert.ok(
     !steps.some((step) => step.includes('migrate:apply')),
     'migrate:apply must never enter verify: CI has no persistent database',
+  );
+});
+
+test("the rendering gate's tier follows its baseline, in both directions", () => {
+  // The two-phase rollout, enforced. `performance/rendering-budget.json` has no
+  // recorded measurement, so the job measures and reports and must not be a required
+  // check; once someone records a real run, the comparison becomes a real gate and
+  // the tier has to rise with it in the same commit.
+  //
+  // This lives here rather than in the rendering budget's own test because it is a
+  // claim about the *repository* — a manifest tier and a data file have to agree — and
+  // this suite is the only one that reads both. Declared in a comment it would be a
+  // convention; declared here it is a gate, which is the difference between the state
+  // the repository shipped (a `pr-blocking` job that could never pass) and the state
+  // it is in now.
+  //
+  // The direction that matters most is the second one. `recorded: true` beside
+  // invented numbers with a `pr-reporting` tier would be a gate that is permanently
+  // green *and* not required — and nothing else in the repository would notice.
+  const manifest = readManifest();
+  const declared = (manifest.tiers ?? {})['test:render'];
+  assert.equal(typeof declared, 'string', 'test:render needs a tier in gate-tooling.json');
+
+  const baseline = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, 'performance', 'rendering-budget.json'), 'utf8'),
+  );
+
+  assert.deepEqual(
+    tierProblems(baseline, declared),
+    [],
+    `test:render is ${phaseFor(baseline)} but is tiered "${declared}". ` +
+      'See scripts/lib/render-gate-phase.mjs.',
   );
 });
 

@@ -3,6 +3,27 @@ import { Hono } from 'hono';
 import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.js';
 import { createExecutionRoutes } from './execution.js';
 import type { ExecutionStore, StoredArtifact } from '../execution/types.js';
+import { createErrorBoundary } from '../errors/boundary.js';
+
+/**
+ * The routes, mounted the way the application mounts them.
+ *
+ * The error boundary is not decoration here: since finding C-3 a handler refuses by
+ * `throw`ing a `DomainError`, and this boundary is what renders it into the response
+ * body. A bare `Hono` would answer 500 and the suite would be asserting the wrong thing
+ * — and a body only the removed `error(c, …)` helper could produce would stop being
+ * testable, which is the point.
+ */
+function mounted(routes: Hono): Hono {
+  const { onError } = createErrorBoundary({
+    log: () => undefined,
+    reportError: () => undefined,
+    // Outside a request there is no id, and the boundary is told so rather than being
+    // handed a fabricated one. The production middleware supplies the real value.
+    requestId: () => 'NO_REQUEST',
+  });
+  return new Hono().onError(onError).route('/', routes);
+}
 
 /**
  * A byte store that cannot be read (unmounted volume, failed fetch, artifact
@@ -18,8 +39,7 @@ class UnreadableBytesStore extends InMemoryExecutionStore {
 const REGISTRATION_SECRET = 'runner-registration-secret';
 
 async function seedArtifact(store: InMemoryExecutionStore) {
-  const app = new Hono().route(
-    '/',
+  const app = mounted(
     createExecutionRoutes({ store, runnerRegistrationSecret: REGISTRATION_SECRET }),
   );
   const run = await app.request('/api/v1/runs', {
@@ -109,8 +129,7 @@ describe('artifact download truthfulness', () => {
         return typeof value === 'function' ? value.bind(target) : value;
       },
     }) as ExecutionStore;
-    const app = new Hono().route(
-      '/',
+    const app = mounted(
       createExecutionRoutes({
         store: descriptorless,
         runnerRegistrationSecret: REGISTRATION_SECRET,

@@ -4,6 +4,7 @@
  * GET /api/v1/dashboard/runs/:runId/tests — list all test records for a run
  */
 import { Hono } from 'hono';
+import { DomainError } from '../../errors/domain-error.js';
 import type { RunRepository } from '../../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
@@ -98,7 +99,7 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
     // Verify parent run exists first
     const run = await options.repository.getRun(runId);
     if (!run) {
-      return c.json({ error: 'Run not found' }, 404);
+      throw new DomainError('RUN_NOT_FOUND', 'Run not found');
     }
 
     const tests = await options.repository.listTests(runId);

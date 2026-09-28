@@ -1,4 +1,25 @@
 import { Hono } from 'hono';
+/**
+ * The boundary's body, named.
+ *
+ * A rate-limited client has to be able to branch: the correct response is to stop and
+ * wait, not to try another key. The body used to carry `code` and `retryAfterSeconds`
+ * as siblings of a prose `error`, which was branchable only if the client knew to look
+ * in three places.
+ */
+interface BoundaryBody {
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: {
+      /** How long to wait, rather than a sentence saying to try again. */
+      retryAfterSeconds: number;
+    };
+  };
+}
+
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { describe, expect, it } from 'vitest';
 import { hashCredential, verifyCredential } from '@automate/auth';
 import { createAuthRoutes } from './auth.js';
@@ -56,19 +77,23 @@ function harness(options: { now?: () => Date; secureCookies?: boolean } = {}) {
     secureCookies: options.secureCookies ?? false,
     now,
   });
+  // The boundary, because `GET /api/v1/auth/session` refuses by `throw`ing a
+  // `DomainError` since finding C-3. Without it every case below would be asserting a
+  // 500 and calling it a session lifecycle test.
+  const app = withErrorBoundary(routes.app);
   return {
-    app: routes.app,
+    app,
     sessions: routes.sessions,
     login: (apiKey = API_KEY) =>
-      routes.app.request('/api/v1/auth/login', {
+      app.request('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ apiKey }),
       }),
     session: (from: Response) =>
-      routes.app.request('/api/v1/auth/session', { headers: cookieHeader(from) }),
+      app.request('/api/v1/auth/session', { headers: cookieHeader(from) }),
     logout: (from: Response) =>
-      routes.app.request('/api/v1/auth/logout', { method: 'POST', headers: cookieHeader(from) }),
+      app.request('/api/v1/auth/logout', { method: 'POST', headers: cookieHeader(from) }),
   };
 }
 
@@ -319,20 +344,22 @@ describe('the session cookie', () => {
 
 describe('the login limiter', () => {
   const harnessLimited = (limit: number) =>
-    createAuthRoutes({
-      cookieSecret: COOKIE_SECRET,
-      installationId: INSTALLATION_ID,
-      installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
-      sessionTtlMs: SESSION_TTL_MS,
-      secureCookies: false,
-      loginRateLimit: { limit, windowMs: 60_000 },
-      clientKey: () => 'a-single-client',
-    });
+    withErrorBoundary(
+      createAuthRoutes({
+        cookieSecret: COOKIE_SECRET,
+        installationId: INSTALLATION_ID,
+        installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
+        sessionTtlMs: SESSION_TTL_MS,
+        secureCookies: false,
+        loginRateLimit: { limit, windowMs: 60_000 },
+        clientKey: () => 'a-single-client',
+      }),
+    );
 
   it('refuses the attempt past the budget and says when to come back', async () => {
     const routes = harnessLimited(3);
     const attempt = (apiKey: string) =>
-      routes.app.request('/api/v1/auth/login', {
+      routes.request('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ apiKey }),
@@ -343,18 +370,18 @@ describe('the login limiter', () => {
     }
     const limited = await attempt('a-wrong-key');
     expect(limited.status).toBe(429);
-    const body = (await limited.json()) as { code: string; retryAfterSeconds: number };
-    expect(body.code).toBe('LOGIN_RATE_LIMITED');
-    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    const body = (await limited.json()) as BoundaryBody;
+    expect(body.error.code).toBe('LOGIN_RATE_LIMITED');
+    expect(body.error.details.retryAfterSeconds).toBeGreaterThan(0);
     // Without `Retry-After` a client either retries immediately — and is refused
     // again — or gives up on a credential it may simply have mistyped.
-    expect(limited.headers.get('retry-after')).toBe(String(body.retryAfterSeconds));
+    expect(limited.headers.get('retry-after')).toBe(String(body.error.details.retryAfterSeconds));
   });
 
   it('budgets per key as well as per address, so guessing one key is capped', async () => {
     const routes = harnessLimited(3);
     const attempt = (apiKey: string) =>
-      routes.app.request('/api/v1/auth/login', {
+      routes.request('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ apiKey }),
@@ -372,18 +399,20 @@ describe('the login limiter', () => {
 
   it('does not let a rejected attempt spend nothing, and a correct one is not locked out forever', async () => {
     let clock = 0;
-    const routes = createAuthRoutes({
-      cookieSecret: COOKIE_SECRET,
-      installationId: INSTALLATION_ID,
-      installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
-      sessionTtlMs: SESSION_TTL_MS,
-      secureCookies: false,
-      loginRateLimit: { limit: 2, windowMs: 1_000, now: () => clock },
-      clientKey: () => 'a-single-client',
-      now: () => new Date(clock),
-    });
+    const routes = withErrorBoundary(
+      createAuthRoutes({
+        cookieSecret: COOKIE_SECRET,
+        installationId: INSTALLATION_ID,
+        installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
+        sessionTtlMs: SESSION_TTL_MS,
+        secureCookies: false,
+        loginRateLimit: { limit: 2, windowMs: 1_000, now: () => clock },
+        clientKey: () => 'a-single-client',
+        now: () => new Date(clock),
+      }),
+    );
     const attempt = (apiKey: string) =>
-      routes.app.request('/api/v1/auth/login', {
+      routes.request('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ apiKey }),
@@ -406,7 +435,7 @@ describe('the login limiter', () => {
   it('does not spend the budget on a malformed login request', async () => {
     const routes = harnessLimited(2);
     const malformed = () =>
-      routes.app.request('/api/v1/auth/login', {
+      routes.request('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ apiKey: '' }),
@@ -416,7 +445,7 @@ describe('the login limiter', () => {
     }
     // A 400 is a bug in the client, not a credential guess. If it spent the
     // budget, six malformed requests would lock out the next legitimate login.
-    const good = await routes.app.request('/api/v1/auth/login', {
+    const good = await routes.request('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ apiKey: API_KEY }),
@@ -443,7 +472,7 @@ describe('the composed auth app', () => {
     // the route's own test and break in the real composition. The composed-app
     // case is the only one that can catch it.
     const h = harness();
-    const mounted = new Hono().route('/api', h.app);
+    const mounted = withErrorBoundary(new Hono()).route('/api', h.app);
     const login = await mounted.request('/api/api/v1/auth/login', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

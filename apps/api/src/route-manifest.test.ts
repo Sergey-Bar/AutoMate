@@ -11,6 +11,7 @@ import { createEventsRoutes } from './routes/events.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createDashboardModule } from './modules/dashboard/index.js';
+import { createErrorBoundary } from './errors/boundary.js';
 import { InMemoryExecutionStore } from './execution/in-memory-execution-store.js';
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { ReporterIngestionService } from './services/reporter-ingestion.js';
@@ -47,7 +48,16 @@ import { OrchestrationService } from './services/orchestration-service.js';
  * is how a route ends up unlisted, unreviewed, and untested.
  */
 function mountedApp(): Hono {
-  const app = new Hono();
+  // The error boundary, because since finding C-3 a handler refuses by `throw`ing a
+  // `DomainError` and this is what renders it. Without it the one case below that asks
+  // for a missing run would answer Hono's default 500, and the assertion would be
+  // measuring the harness rather than the routes.
+  const { onError } = createErrorBoundary({
+    log: () => undefined,
+    reportError: () => undefined,
+    requestId: () => 'NO_REQUEST',
+  });
+  const app = new Hono().onError(onError);
   const repository = new InMemoryRunRepository();
   const bus = new InMemoryRealtimeBus();
   // The same order as `index.ts`, so "first match wins" means the same thing here.

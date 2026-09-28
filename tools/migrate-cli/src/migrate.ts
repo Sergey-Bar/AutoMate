@@ -269,6 +269,9 @@ const TABLES: readonly TableMapping[] = [
     column('enabled', 'boolean'),
     column('last_run_at'),
     column('created_at'),
+    // Added by 0015. The planner reads this list to know a table's shape, so a column
+    // missing here is a column the plan builder believes does not exist.
+    column('workspace_id'),
   ]),
   table('quality_gate_config', [
     column('id'),

@@ -8,13 +8,13 @@
  *
  * Three things fail:
  *
- *  1. A `fixed` row's evidence path no longer exists. The proof was deleted, so
- *     the claim is open again.
+ *  1. A `fixed` row's evidence path no longer exists. The proof was deleted, so the
+ *     claim is open again.
  *  2. A status regressed, or a row disappeared, against
  *     `docs/quality/findings-status.json`. Regressions fail; debt does not grow.
  *  3. A blocking-band row is unowned, a debt row has no owner or no removal
- *     condition, a `sweep` row a destructive migration depends on is closed
- *     without hand-confirmation, or the ledger is empty.
+ *     condition, a `sweep` row is closed without hand-confirmation, a
+ *     `false-positive` row does not say what refuted it, or the ledger is empty.
  *
  * `pnpm findings:baseline` rewrites the recorded statuses. It is the only thing
  * that may move a status backwards, and it does so by being run on purpose.
@@ -39,9 +39,9 @@ function readRecordedStatuses() {
 }
 
 const ledger = readLedger(LEDGER);
-/** @type {Array<{ id: string, status: string, band: string, owner?: string }>} */
+/** @type {Array<{ id: string, status: string, band: string, owner?: string, refutedBy?: string }>} */
 const rows = Array.isArray(/** @type {{ findings?: unknown }} */ (ledger).findings)
-  ? /** @type {{ findings: Array<{ id: string, status: string, band: string, owner?: string }> }} */ (
+  ? /** @type {{ findings: Array<{ id: string, status: string, band: string, owner?: string, refutedBy?: string }> }} */ (
       ledger
     ).findings
   : [];
@@ -100,13 +100,20 @@ const counts = Object.entries(byBand)
 const fixed = rows.filter((row) => row.status === 'fixed').length;
 const debt = rows.filter((row) => row.status === 'debt').length;
 const open = rows.filter((row) => row.status === 'open').length;
+const refuted = rows.filter((row) => row.status === 'false-positive').length;
 
 console.log('Findings ledger verified');
 console.log(`  rows: ${rows.length}  (${counts})`);
-console.log(`  open: ${open}  fixed: ${fixed}  debt: ${debt}`);
+console.log(`  open: ${open}  fixed: ${fixed}  debt: ${debt}  refuted: ${refuted}`);
 for (const row of rows) {
   if (row.status === 'debt') {
     console.log(`  debt  ${row.id}  owner=${row.owner ?? '(none)'}`);
+  }
+  // Refutations are listed, not just counted. A count says how many findings were
+  // dismissed; the row says which, and `refutedBy` is the only reason a dismissal is
+  // allowed — so it is the line a reader needs in order to trust the count.
+  if (row.status === 'false-positive') {
+    console.log(`  refuted  ${row.id}  refutedBy=${row.refutedBy ?? '(none)'}`);
   }
 }
 
@@ -123,7 +130,8 @@ if (summaryPath) {
     ...BANDS_ORDERED.map((band) => `| ${band} | ${countOpen(band)} |`),
     '',
     `Closed with evidence: **${fixed}**. Carried as debt with an owner and a removal ` +
-      `condition: **${debt}**. Open: **${open}**.`,
+      `condition: **${debt}**. Refuted against the code, each with a \`refutedBy\` ` +
+      `pointer: **${refuted}**. Open: **${open}**.`,
     '',
   ].join('\n');
   writeFileSync(summaryPath, body, { flag: 'a' });

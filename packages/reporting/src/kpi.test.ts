@@ -122,6 +122,41 @@ describe('KPI and quality gate policies', () => {
     expect(calculateKpis([]).every((kpi) => kpi.value === null)).toBe(true);
   });
 
+  it('claims nothing about an empty population', () => {
+    // Ledger P-56, and Q-56 which is the same defect under a second band. The route
+    // serves an unscoped `GET /api/v1/reporting/kpis`, which calls `calculateKpis([])`
+    // and returns a five-entry body shaped exactly like a real reading. The *values*
+    // were already honest — `null`, not `0` — but the two claims attached to them
+    // were not:
+    //
+    //   `results.every(...)` over `[]` is `true`, so `confidence` came out `'high'`;
+    //   `candidates.length === 0` returned `'verified'`, so nothing at all was
+    //   reported as verified evidence.
+    //
+    // That is the dangerous shape. A null rate reads as "no data" to anyone who
+    // looks at the number, and a reader who trusts `confidence` and `proofCeiling`
+    // instead is told the empty set is the best possible reading of it. An empty
+    // population is an absence of evidence, and it has to be labelled as one.
+    const empty = calculateKpis([]);
+    expect(empty).toHaveLength(5);
+    for (const kpi of empty) {
+      expect(kpi.value).toBeNull();
+      expect(kpi.denominator).toBe(0);
+      expect(kpi.confidence, `${kpi.metric} must not claim high confidence`).toBe('low');
+      expect(kpi.proofCeiling, `${kpi.metric} must not claim verified evidence`).toBe('unknown');
+    }
+  });
+
+  it('still reports high confidence for a genuinely complete population', () => {
+    // The counterweight. Lowering `confidence` unconditionally would satisfy the case
+    // above by making the field meaningless, so a real reading must still be allowed
+    // to claim what it has actually earned.
+    const honest = calculateKpis([result('passed')])[0];
+    expect(honest?.confidence).toBe('high');
+    expect(honest?.proofCeiling).toBe('verified');
+    expect(honest?.value).toBe(1);
+  });
+
   it('excludes non-product statuses from product rates and reports them explicitly', () => {
     const attempts = [
       { ...result('passed').attempts[0], status: 'passed' as const, durationMs: 10 },

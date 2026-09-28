@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { canTransition } from '@automate/orchestration';
+import { decideTransition, unownedFence } from '@automate/orchestration';
 import type { AutomationDefinition, JobEnvelope, Schedule } from '@automate/shared-contracts';
+import { DomainError, ErrorCode } from '../errors/domain-error.js';
 
 export class OrchestrationService {
   private readonly automations = new Map<string, AutomationDefinition>();
@@ -41,10 +42,34 @@ export class OrchestrationService {
     return job;
   }
 
+  /**
+   * Requests cancellation, and refuses it when the job cannot be cancelled.
+   *
+   * This used to be `if (canTransition(state, 'cancelled')) state = 'cancelled'` and
+   * then return the job either way, so cancelling something already finished
+   * answered 200 with a well-formed envelope whose state had not moved — a caller
+   * could not tell a job that was cancelled from one that never could be. The
+   * decision now comes from the state machine, which distinguishes a legal edge from
+   * an illegal one, and an illegal one is a 409 the caller can branch on.
+   *
+   * The fence is `unownedFence` because cancelling is a control-plane action, not
+   * something a lease holder does: there is no token to be fenced out of, and
+   * inventing one would be a second claim about the job.
+   */
   cancel(executionId: string): JobEnvelope {
     const job = this.jobs.get(executionId);
     if (!job) throw new Error('Job not found');
-    if (canTransition(job.state, 'cancelled')) job.state = 'cancelled';
+    const decision = decideTransition(unownedFence(job.state), 'cancelled');
+    if (!decision.allowed) {
+      // Only an illegal edge can reach here — an unowned fence is never fenced out —
+      // so the refusal names the edge rather than branching on the reason.
+      throw new DomainError(
+        ErrorCode.INVALID_STATE_TRANSITION,
+        `Job in state ${job.state} cannot be cancelled`,
+        { details: { from: job.state, to: 'cancelled' } },
+      );
+    }
+    job.state = decision.state;
     job.cancelRequested = true;
     return job;
   }

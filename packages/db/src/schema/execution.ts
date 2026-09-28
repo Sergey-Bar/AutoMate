@@ -17,65 +17,42 @@ import {
 
 import { results, runs, runners, workspaces } from './dashboard.js';
 
-export const EXECUTION_JOB_STATES = [
-  'queued',
-  'leased',
-  'completed',
-  'failed',
-  'cancelled',
-  'requeued',
-] as const;
-export type ExecutionJobState = (typeof EXECUTION_JOB_STATES)[number];
+// The controlled vocabularies live in `./vocabularies.js` rather than here, because
+// `dashboard.ts` needs `GATE_STATUSES` and importing it from this module would be a
+// cycle — this module imports `dashboard.ts`. `execution.ts` re-exports every name, so
+// `export * from './execution.js'` in the package index and every existing
+// `import { GATE_STATUSES } from '@automate/db'` keep working unchanged.
+export {
+  ARTIFACT_KINDS,
+  DOMAIN_STATUSES,
+  EXECUTION_JOB_STATES,
+  GATE_STATUSES,
+  QUALITY_DOMAINS,
+  RELEASE_DECISIONS,
+} from './vocabularies.js';
+export type {
+  ArtifactKind,
+  DomainStatus,
+  ExecutionJobState,
+  GateStatus,
+  QualityDomain,
+  QualityPolicyRule,
+  ReleaseDecision,
+} from './vocabularies.js';
 
-export const ARTIFACT_KINDS = [
-  'report',
-  'junit',
-  'json',
-  'log',
-  'stdout',
-  'stderr',
-  'screenshot',
-  'video',
-  'trace',
-  'html',
-  'attachment',
-  'other',
-] as const;
-export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
-
-export const GATE_STATUSES = ['passed', 'failed', 'warning', 'unknown', 'not_evaluated'] as const;
-export type GateStatus = (typeof GATE_STATUSES)[number];
-
-export const RELEASE_DECISIONS = ['ready', 'ready_with_warnings', 'blocked', 'unknown'] as const;
-export type ReleaseDecision = (typeof RELEASE_DECISIONS)[number];
-
-export const QUALITY_DOMAINS = [
-  'browser',
-  'api',
-  'mobile',
-  'performance',
-  'security',
-  'accessibility',
-  'other',
-] as const;
-export type QualityDomain = (typeof QUALITY_DOMAINS)[number];
-
-export const DOMAIN_STATUSES = [
-  'passed',
-  'failed',
-  'warning',
-  'unknown',
-  'not_configured',
-  'not_implemented',
-] as const;
-export type DomainStatus = (typeof DOMAIN_STATUSES)[number];
-
-export type QualityPolicyRule = {
-  domain: QualityDomain;
-  required: boolean;
-  minimumPassRate?: number;
-  requiredArtifactKinds: ArtifactKind[];
-};
+// Only the names this file uses *locally*. The re-exports above are a separate
+// `export ... from` statement and do not create local bindings, so importing the whole
+// set here as well would leave most of them unused — and an unused import here is a lint
+// error, not a no-op.
+import {
+  ARTIFACT_KINDS,
+  EXECUTION_JOB_STATES,
+  GATE_STATUSES,
+  RELEASE_DECISIONS,
+  type DomainStatus,
+  type QualityDomain,
+  type QualityPolicyRule,
+} from './vocabularies.js';
 
 export const projects = pgTable(
   'projects',

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { requestContext, requireRequestId } from './observability/request-context.js';
 import { sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { createErrorBoundary } from './errors/boundary.js';
@@ -113,7 +113,12 @@ const app = new Hono();
  * stable `code`; see `apps/api/src/errors/`.
  */
 const errorBoundary = createErrorBoundary({
-  requestId: (c) => c.req.header('x-request-id')?.trim() || randomUUID(),
+  // From the request context, not from the header: six sites re-derived this
+  // independently with different fallbacks — some generated a UUID, one stored
+  // `null`, one stored `'unknown'` — so one execution could not be traced by one id
+  // from the log line to the event row. See `observability/request-context.ts`
+  // (ledger O-1b).
+  requestId: () => requireRequestId(),
   // The boundary is the only place that knows whether a throw was a defect or a
   // refusal, so it is also the only place that decides what gets reported.
   reportError: createSentryErrorReporter(),
@@ -303,6 +308,11 @@ function resolveAllowedOrigins(): string[] {
   return [...origins];
 }
 
+// First, so every later middleware and every handler — and every error the
+// boundary reports — runs with a request id already in scope. A context
+// established after the first thing that can fail is a context the first thing
+// that can fail does not have (ledger O-1b).
+app.use(requestContext);
 app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }));
 
 /**

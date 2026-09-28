@@ -51,7 +51,12 @@ function resolveProofCeiling(results: CanonicalRunResult[]): ProofCeiling {
   if (results.some((result) => result.completeness.state === 'rejected')) {
     candidates.push('rejected');
   }
-  if (candidates.length === 0) return 'verified';
+  // No results is an absence of evidence, not evidence. This returned `'verified'`,
+  // which is the strongest possible claim and the one most expensive to be wrong
+  // about: an unscoped `GET /api/v1/reporting/kpis` reaches here with an empty array
+  // and was reported as verified (ledger P-56, Q-56). `unknown` is the ceiling that
+  // says "nothing has been shown", which is what zero results actually means.
+  if (candidates.length === 0) return 'unknown';
   return candidates.reduce(weakerCeiling);
 }
 
@@ -89,9 +94,15 @@ export function calculateKpis(results: CanonicalRunResult[], now = new Date()): 
       { reason: 'non-product-status', count: nonProduct },
     ],
     proofCeiling,
-    confidence: results.every((result) => result.completeness.state === 'complete')
-      ? 'high'
-      : 'low',
+    // `results.every(...)` over an empty array is `true`, so an unscoped request
+    // reported `confidence: 'high'` over no data at all (ledger P-56, Q-56). The
+    // `length > 0` guard is the whole fix: `[].every()` is a statement about the
+    // absence of counter-examples, which is vacuously true, and vacuous truth is not
+    // evidence. A population that was never measured cannot be measured confidently.
+    confidence:
+      results.length > 0 && results.every((result) => result.completeness.state === 'complete')
+        ? 'high'
+        : 'low',
     freshness: now.toISOString(),
   };
   // These three rates deliberately do not sum to 1: a product attempt can be

@@ -1,4 +1,8 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it, afterEach } from 'vitest';
+import { SECRET_MIN_LENGTH, isSecretPlaceholder, type SecretVariable } from '@automate/config';
 import { getConfig, readObjectStoreSettings } from './config.js';
 import { checkProductionPolicy } from './startup-policy.js';
 
@@ -21,19 +25,19 @@ const OBJECT_STORE_ENV = {
 describe('getConfig', () => {
   it('parses canonical cookie and provider settings', () => {
     process.env.NODE_ENV = 'development';
-    process.env.COOKIE_SECRET = 'c'.repeat(32);
-    process.env.VAULT_SECRET = 'v'.repeat(32);
+    process.env.COOKIE_SECRET = 'c'.repeat(SECRET_MIN_LENGTH);
+    process.env.VAULT_SECRET = 'v'.repeat(SECRET_MIN_LENGTH);
     process.env.KILO_GATEWAY_URL = 'https://kilo.example';
-    process.env.KILO_API_KEY = 'k'.repeat(16);
+    process.env.KILO_API_KEY = 'k'.repeat(SECRET_MIN_LENGTH);
     const config = getConfig();
-    expect(config.cookieSecret).toBe('c'.repeat(32));
+    expect(config.cookieSecret).toBe('c'.repeat(SECRET_MIN_LENGTH));
     expect(config.kiloGatewayUrl).toBe('https://kilo.example');
   });
 
   it('keeps a configured production cookie secret', () => {
     process.env.NODE_ENV = 'production';
-    process.env.COOKIE_SECRET = 'c'.repeat(32);
-    expect(getConfig().cookieSecret).toBe('c'.repeat(32));
+    process.env.COOKIE_SECRET = 'c'.repeat(SECRET_MIN_LENGTH);
+    expect(getConfig().cookieSecret).toBe('c'.repeat(SECRET_MIN_LENGTH));
   });
 
   it('never hands the development-only cookie secret to a production composition', () => {
@@ -145,3 +149,112 @@ describe('readObjectStoreSettings', () => {
     ).toBe(64 * 1024 * 1024);
   });
 });
+
+/**
+ * The documented credentials, audited by the policy rather than by eye.
+ *
+ * Finding P-6 raised a floor of 32 and broke twenty-two tests, and the same sweep
+ * found credential values in the quickstart, the E2E harness, the performance server
+ * and the CI workflow that the production policy has always refused — the README
+ * told developers to set a `COOKIE_SECRET` containing `change-me`, which
+ * `checkProductionPolicy` rejects. Those are not cosmetic: a documented value is the
+ * one a new operator copies, and the copy is what a deployment is built from.
+ *
+ * Reading the files is the point. A hand-maintained list of the values in this test
+ * would drift the moment a document gained a secret, which is the failure this suite
+ * exists to catch.
+ */
+const SECRET_VARIABLES = [
+  'COOKIE_SECRET',
+  'SESSION_SECRET',
+  'VAULT_SECRET',
+  'AUTOMATE_API_KEY',
+  'REPORTER_SECRET',
+  'RUNNER_REGISTRATION_SECRET',
+] as const satisfies readonly SecretVariable[];
+
+describe('documented credentials are usable by the policy', () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+  /** Files that hand a real secret value to a process, or tell an operator to set one. */
+  const SOURCES = [
+    '.env.example',
+    '.env.compose.example',
+    'playwright.config.ts',
+    'scripts/performance-server.mjs',
+    'performance/smoke.js',
+    'README.md',
+    '.github/workflows/unified-ci.yml',
+  ] as const;
+
+  for (const source of SOURCES) {
+    it(`${source} declares no secret the production policy would refuse`, () => {
+      const found = auditSource(readFileSync(path.join(repoRoot, source), 'utf8'));
+      expect(found).toEqual([]);
+    });
+  }
+
+  it('reads a value out of every source, so none of those assertions is vacuous', () => {
+    // Without this, a regex that silently matched nothing would pass all seven files
+    // and read as "the documentation is clean". The evidence is that each source
+    // yields at least one secret the reader can see.
+    for (const source of SOURCES) {
+      const text = readFileSync(path.join(repoRoot, source), 'utf8');
+      expect(assignmentsIn(text), `${source} yielded no readable secret`).not.toHaveLength(0);
+    }
+  });
+});
+
+/**
+ * Every secret-shaped string literal on a line that mentions a secret variable.
+ *
+ * The shapes are not one shape. A `.env` file writes `NAME=value`, a Playwright config
+ * writes `NAME: 'value'`, `scripts/performance-server.mjs` writes
+ * `NAME: process.env['NAME'] ?? 'value'`, and `performance/smoke.js` reads
+ * `__ENV.NAME || 'value'`. A reader that only understood the first would report the
+ * documentation as clean while the two script values were never looked at.
+ *
+ * The variable's own name is skipped, because `process.env['COOKIE_SECRET']` is a
+ * lookup and its text is a name, not a value.
+ */
+function assignmentsIn(text: string): Array<{ variable: SecretVariable; value: string }> {
+  const found: Array<{ variable: SecretVariable; value: string }> = [];
+  for (const line of text.split(/\r?\n/)) {
+    const variable = SECRET_VARIABLES.find((name) => line.includes(name));
+    if (variable === undefined) continue;
+    // Written without a backslash on purpose: `\s` inside this template literal is
+    // the letter `s`, which is a silent way to make a reader match nothing.
+    for (const literal of line.matchAll(/'([^']+)'|"([^"]+)"/g)) {
+      const value = literal[1] ?? literal[2] ?? '';
+      if (value === '' || (SECRET_VARIABLES as readonly string[]).includes(value)) continue;
+      found.push({ variable, value });
+    }
+    // The unquoted forms, which is what a `.env` file and a workflow `env:` block use.
+    for (const pattern of [
+      new RegExp(`\\b${variable}=([^\\s#]+)`),
+      new RegExp(`\\b${variable}:\\s+([^\\s#]+)`),
+    ]) {
+      const bare = pattern.exec(line)?.[1];
+      // `NAME: process.env['NAME'] ?? 'value'` is the one shape where the text right
+      // after the name is a lookup rather than a value, so it is skipped by name.
+      if (bare !== undefined && !bare.startsWith('process.env[')) {
+        found.push({ variable, value: bare });
+      }
+    }
+  }
+  return found;
+}
+
+function auditSource(text: string): string[] {
+  /** @type {string[]} */
+  const found = [];
+  for (const { variable, value } of assignmentsIn(text)) {
+    if (value.length < SECRET_MIN_LENGTH) {
+      found.push(`${variable}=${value} (${String(value.length)} characters)`);
+    }
+    if (isSecretPlaceholder(variable, value)) {
+      found.push(`${variable}=${value} (a placeholder)`);
+    }
+  }
+  return found;
+}

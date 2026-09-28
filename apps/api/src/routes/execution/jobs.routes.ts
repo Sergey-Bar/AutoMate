@@ -19,7 +19,7 @@ import { decodeArtifactBytes } from '../../http/artifact-bytes.js';
 import { jobLeaseIsCurrent } from './shared.js';
 import type { ExecutionRouteContext } from './shared.js';
 import type {} from './schemas.js';
-import { artifactKind, error, parseBody, publishCanonical, safeName, workspace } from './shared.js';
+import { artifactKind, parseBody, publishCanonical, safeName, workspace } from './shared.js';
 import {
   ArtifactSchema,
   CANONICAL_EVENT_TYPES,
@@ -27,7 +27,7 @@ import {
   EventBatchSchema,
 } from './schemas.js';
 import { CanonicalRealtimeEvent } from '../../realtime/realtime-bus.js';
-import { isDomainError } from '../../errors/domain-error.js';
+import { DomainError, isDomainError } from '../../errors/domain-error.js';
 import { JobCompletionInput } from '../../execution/types.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
 import { authenticate } from './shared.js';
@@ -36,27 +36,27 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
   const { options, ws, eventSequences, maxArtifactBytes } = context;
   const handleEvents = async (c: Context): Promise<Response> => {
     const runner = await authenticate(c, options.store);
-    if (!runner) return error(c, 401, 'RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const body = await c.req.json().catch(() => null);
     const parsed = Array.isArray(body) ? null : EventBatchSchema.safeParse(body);
-    if (!parsed?.success) return error(c, 400, 'INVALID_EVENT_BATCH', 'Event batch is invalid');
+    if (!parsed?.success) throw new DomainError('INVALID_EVENT_BATCH', 'Event batch is invalid');
     const jobId = c.req.param('jobId');
-    if (!jobId) return error(c, 400, 'INVALID_JOB_ID', 'Job id is required');
+    if (!jobId) throw new DomainError('INVALID_JOB_ID', 'Job id is required');
     const batch = parsed.data;
     // The runner must present its own lease credentials. Falling back to the
     // stored lease would let any authenticated runner write events into any
     // job in any workspace.
     if (batch.leaseId === undefined || batch.fencingToken === undefined)
-      return error(c, 409, 'JOB_LEASE_REQUIRED', 'Job lease credentials are required');
+      throw new DomainError('JOB_LEASE_REQUIRED', 'Job lease credentials are required');
     const workspaceId = workspace(options);
     const job = await options.store.getJob(jobId, workspaceId);
-    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (!job) throw new DomainError('JOB_NOT_FOUND', 'Job not found');
     if (job.leaseOwner !== runner.id)
-      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
+      throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
     if (job.leaseId !== batch.leaseId)
-      return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease is stale');
+      throw new DomainError('JOB_LEASE_INVALID', 'Job lease is stale');
     if (job.fencingToken !== batch.fencingToken)
-      return error(c, 409, 'JOB_FENCING_STALE', 'Job fencing token is stale');
+      throw new DomainError('JOB_FENCING_STALE', 'Job fencing token is stale');
     const results = await options.store.appendEvents(
       jobId,
       batch.leaseId,
@@ -97,15 +97,15 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
 
   app.post('/api/v1/jobs/:jobId/artifacts', async (c) => {
     const runner = await authenticate(c, options.store);
-    if (!runner) return error(c, 401, 'RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, ArtifactSchema);
-    if (!parsed) return error(c, 400, 'INVALID_ARTIFACT', 'Artifact metadata is invalid');
+    if (!parsed) throw new DomainError('INVALID_ARTIFACT', 'Artifact metadata is invalid');
     const job = await options.store.getJob(c.req.param('jobId'), ws);
-    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (!job) throw new DomainError('JOB_NOT_FOUND', 'Job not found');
     if (job.leaseOwner !== runner.id || !job.leaseId)
-      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by runner');
+      throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by runner');
     const lease = jobLeaseIsCurrent(job, parsed);
-    if (!lease.ok) return error(c, 409, lease.code, 'Job lease or fencing token is stale');
+    if (!lease.ok) throw new DomainError(lease.code, 'Job lease or fencing token is stale');
     // The decode rules — shape, padding, and the ceiling applied to the *decoded*
     // length — are one unit in `http/artifact-bytes.ts`, because that is what they are.
     // Inline they were six branches in a handler that also authenticates a runner,
@@ -116,14 +116,14 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       maxArtifactBytes,
     );
     if (!decoded.ok)
-      return error(c, decoded.status, decoded.code, decoded.message, decoded.details);
+      throw new DomainError(decoded.code, decoded.message, { details: decoded.details });
     const bytes = decoded.bytes;
     const name = safeName(parsed.name);
     const checksum = createHash('sha256').update(bytes).digest('hex');
     if (parsed.checksum !== undefined && parsed.checksum.toLowerCase() !== checksum)
-      return error(c, 400, 'ARTIFACT_CHECKSUM_MISMATCH', 'Artifact checksum does not match bytes');
+      throw new DomainError('ARTIFACT_CHECKSUM_MISMATCH', 'Artifact checksum does not match bytes');
     if (parsed.sizeBytes !== undefined && parsed.sizeBytes !== bytes.byteLength)
-      return error(c, 400, 'ARTIFACT_SIZE_MISMATCH', 'Artifact size does not match bytes');
+      throw new DomainError('ARTIFACT_SIZE_MISMATCH', 'Artifact size does not match bytes');
     try {
       const descriptor = await options.store.addArtifact({
         runId: job.runId,
@@ -158,22 +158,22 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       // inserts a row, so this can be a constraint violation rather than a
       // storage fault; the boundary classifies whichever it is and records it.
       if (isDomainError(failure)) throw failure;
-      return error(c, 503, 'ARTIFACT_STORAGE_FAILED', 'Artifact storage is unavailable');
+      throw new DomainError('ARTIFACT_STORAGE_FAILED', 'Artifact storage is unavailable');
     }
   });
 
   app.post('/api/v1/jobs/:jobId/complete', async (c) => {
     const runner = await authenticate(c, options.store);
-    if (!runner) return error(c, 401, 'RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, CompleteSchema);
-    if (!parsed) return error(c, 400, 'INVALID_COMPLETION', 'Job completion is invalid');
+    if (!parsed) throw new DomainError('INVALID_COMPLETION', 'Job completion is invalid');
     const jobId = c.req.param('jobId');
     // The completion path is a write into a run's terminal state, so it needs
     // the same lease-ownership proof the artifact path already had.
     const job = await options.store.getJob(jobId, ws);
-    if (!job) return error(c, 404, 'JOB_NOT_FOUND', 'Job not found');
+    if (!job) throw new DomainError('JOB_NOT_FOUND', 'Job not found');
     if (job.leaseOwner !== runner.id)
-      return error(c, 409, 'JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
+      throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
     const completion: JobCompletionInput = {
       ...parsed,
       leaseId: parsed.leaseId,
@@ -185,7 +185,7 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       })),
     };
     const result = await options.store.completeJob(jobId, completion, ws);
-    if (!result) return error(c, 409, 'JOB_LEASE_INVALID', 'Job lease or completion is stale');
+    if (!result) throw new DomainError('JOB_LEASE_INVALID', 'Job lease or completion is stale');
     publishCanonical(
       options.bus,
       {

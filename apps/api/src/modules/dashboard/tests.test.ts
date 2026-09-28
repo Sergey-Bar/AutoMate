@@ -11,6 +11,14 @@
  * asserted from real rows rather than from a single round number.
  */
 import { describe, expect, it } from 'vitest';
+/**
+ * The boundary's body, named.
+ *
+ * A cast to `Record<string, unknown>` can read any shape and so checks none, which is
+ * how `body.error` stayed a bare string in this suite after the migration: the
+ * assertion was satisfied by a field that no longer exists.
+ */
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
 import type { RunRecord, TestRecord } from '../../repositories/run-repository.js';
@@ -80,7 +88,7 @@ class WorkspaceScopedRunRepository extends InMemoryRunRepository {
 }
 
 function mount(repository: InMemoryRunRepository): Hono {
-  return new Hono().route('/', createDashboardTestsRoutes({ repository }));
+  return withErrorBoundary(createDashboardTestsRoutes({ repository }));
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +353,9 @@ describe('GET /api/v1/dashboard/runs/:runId/tests', () => {
     );
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Run not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'RUN_NOT_FOUND', message: 'Run not found' },
+    });
   });
 
   it('answers 404 for a run id that could not exist, without a stack trace', async () => {
@@ -371,6 +381,8 @@ describe('GET /api/v1/dashboard/runs/:runId/tests', () => {
 
     expect(response.status).toBe(404);
     expect(response.status).not.toBe(403);
-    expect(await response.json()).toEqual({ error: 'Run not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'RUN_NOT_FOUND', message: 'Run not found' },
+    });
   });
 });

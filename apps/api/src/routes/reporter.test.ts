@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import {
   LEGACY_FLAT_V1_CONTRACT_ID,
@@ -10,6 +11,30 @@ import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.
 import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
 
 // ---------------------------------------------------------------------------
+/**
+ * The boundary's body, named.
+ *
+ * A reporter reads these programmatically, so the shape is the contract: a `code` to
+ * branch on, a `message` to show a person, and a `details` object — always present,
+ * empty when there is nothing to say — when the refusal has something specific to add.
+ * The suite used to cast every body to `Record<string, unknown>`, which can read any
+ * shape and so checked none.
+ */
+interface ErrorBody {
+  /** The success shapes this same file also reads: `ok`, `runId`, `version`. */
+  [key: string]: unknown;
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: Record<string, unknown> & {
+      fieldErrors?: Record<string, unknown>;
+      supportedVersions?: string[];
+    };
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -17,15 +42,11 @@ function buildApp(
   secret?: string,
   options?: Omit<ReporterRouteOptions, 'repository' | 'bus'>,
 ): Hono {
-  const app = new Hono();
-  app.route('/', createReporterRoutes(secret, options));
-  return app;
+  return withErrorBoundary(createReporterRoutes(secret, options));
 }
 
 function buildAppWithRepo(repo: InMemoryRunRepository, secret?: string): Hono {
-  const app = new Hono();
-  app.route('/', createReporterRoutes(secret, { repository: repo }));
-  return app;
+  return withErrorBoundary(createReporterRoutes(secret, { repository: repo }));
 }
 
 const LEGACY_EVENT = {
@@ -55,7 +76,7 @@ describe('Reporter routes — legacy compatibility', () => {
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ok']).toBe(true);
     expect(body['runId']).toBe('run-legacy-001');
     expect(body['type']).toBe('run:start');
@@ -91,7 +112,7 @@ describe('Reporter routes — legacy compatibility', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(LEGACY_EVENT),
     });
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['version']).toBe('1');
   });
 
@@ -103,9 +124,8 @@ describe('Reporter routes — legacy compatibility', () => {
       body: JSON.stringify({ type: 'run:start', payload: {} }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
-    expect(body['error'] as string).toContain('Invalid legacy reporter event');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid legacy reporter event');
   });
 
   it('returns 400 for unknown legacy event type', async () => {
@@ -126,8 +146,8 @@ describe('Reporter routes — legacy compatibility', () => {
       body: 'not-valid-json{{',
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error']).toContain('Invalid JSON body');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid JSON body');
   });
 
   it('returns 400 when body is an array', async () => {
@@ -159,11 +179,10 @@ describe('Reporter routes — versioned format', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
-    expect(body['error'] as string).toContain('Invalid versioned reporter event');
-    expect(body['details']).toBeTypeOf('object');
-    expect(Array.isArray(body['details'])).toBe(false);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid versioned reporter event');
+    expect(body.error.details).toBeTypeOf('object');
+    expect(Array.isArray(body.error.details.fieldErrors)).toBe(false);
   });
 
   it('rejects payload with timestamp but no version and normalizes error shape', async () => {
@@ -179,11 +198,10 @@ describe('Reporter routes — versioned format', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
-    expect(body['error'] as string).toContain('Invalid versioned reporter event');
-    expect(body['details']).toBeTypeOf('object');
-    expect(Array.isArray(body['details'])).toBe(false);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid versioned reporter event');
+    expect(body.error.details).toBeTypeOf('object');
+    expect(Array.isArray(body.error.details.fieldErrors)).toBe(false);
   });
 
   it('accepts a reporter v1 versioned event and returns 202', async () => {
@@ -194,7 +212,7 @@ describe('Reporter routes — versioned format', () => {
       body: JSON.stringify(VERSIONED_EVENT),
     });
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ok']).toBe(true);
     expect(body['runId']).toBe('run-versioned-001');
     expect(body['type']).toBe('run:started');
@@ -215,7 +233,7 @@ describe('Reporter routes — versioned format', () => {
       }),
     });
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['type']).toBe('run.started');
     expect(body['version']).toBe(RUN_CONTRACT_VERSION);
   });
@@ -235,10 +253,13 @@ describe('Reporter routes — versioned format', () => {
         }),
       });
       expect(res.status, `version ${version}`).toBe(400);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['error'] as string).toContain('Invalid versioned reporter event');
-      expect(body['supportedVersions']).toEqual([REPORTER_EVENT_VERSION, RUN_CONTRACT_VERSION]);
-      expect(body['legacyContract']).toBe(LEGACY_FLAT_V1_CONTRACT_ID);
+      const body = (await res.json()) as ErrorBody;
+      expect(body.error.message).toContain('Invalid versioned reporter event');
+      expect(body.error.details.supportedVersions).toEqual([
+        REPORTER_EVENT_VERSION,
+        RUN_CONTRACT_VERSION,
+      ]);
+      expect(body.error.details.legacyContract).toBe(LEGACY_FLAT_V1_CONTRACT_ID);
     }
   });
 
@@ -257,9 +278,9 @@ describe('Reporter routes — versioned format', () => {
         }),
       });
       expect(res.status, `type ${type}`).toBe(400);
-      const body = (await res.json()) as Record<string, unknown>;
-      expect(body['error'] as string).toContain('Invalid versioned reporter event');
-      const details = body['details'] as Record<string, unknown>;
+      const body = (await res.json()) as ErrorBody;
+      expect(body.error.message).toContain('Invalid versioned reporter event');
+      const details = body.error.details.fieldErrors as Record<string, unknown>;
       expect(details['type']).toBeDefined();
     }
   });
@@ -276,7 +297,7 @@ describe('Reporter routes — versioned format', () => {
       }),
     });
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['version']).toBe(REPORTER_EVENT_VERSION);
   });
 
@@ -293,8 +314,8 @@ describe('Reporter routes — versioned format', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Invalid versioned reporter event');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid versioned reporter event');
   });
 });
 
@@ -311,8 +332,8 @@ describe('Reporter routes — auth negative cases', () => {
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(401);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Missing');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Missing');
   });
 
   it('returns 403 when secret set but wrong token in Authorization header', async () => {
@@ -326,8 +347,8 @@ describe('Reporter routes — auth negative cases', () => {
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Invalid');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid');
   });
 
   it('returns 403 when secret set but wrong token in query param (allowQueryToken enabled)', async () => {
@@ -338,8 +359,8 @@ describe('Reporter routes — auth negative cases', () => {
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(403);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Invalid');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid');
   });
 
   it('returns 403 when empty string token provided via query param', async () => {
@@ -417,8 +438,8 @@ describe('Reporter routes — query token compatibility', () => {
       body: JSON.stringify(LEGACY_EVENT),
     });
     expect(res.status).toBe(401);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Missing');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Missing');
   });
 
   it('accepts ?token= when allowQueryToken is true — returns 202', async () => {
@@ -519,7 +540,7 @@ describe('Reporter routes — upload ingestion', () => {
     });
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ok']).toBe(true);
     expect(body['runId']).toBe('upload-run-001');
     expect(body['ingestedTests']).toBe(2);
@@ -543,8 +564,7 @@ describe('Reporter routes — upload ingestion', () => {
   it('retains raw upload bytes in the configured artifact store', async () => {
     const repo = new InMemoryRunRepository();
     const writes: Array<{ key: string; bytes: Uint8Array }> = [];
-    const app = new Hono().route(
-      '/',
+    const app = withErrorBoundary(
       createReporterRoutes(undefined, {
         repository: repo,
         artifactStore: {
@@ -573,8 +593,8 @@ describe('Reporter routes — upload ingestion', () => {
       body: JSON.stringify({ runId: 'upload-run-002' }),
     });
     expect(res.status).toBe(503);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('not configured');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('not configured');
   });
 
   it('rejects an unsupported producer format instead of accepting unknown data', async () => {
@@ -599,8 +619,8 @@ describe('Reporter routes — upload ingestion', () => {
       }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body['error'] as string).toContain('Invalid reporter upload payload');
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('Invalid reporter upload payload');
   });
 
   it('enforces reporter auth for upload endpoint when secret is configured', async () => {
@@ -969,7 +989,7 @@ describe('Reporter upload — status derivation without an explicit status', () 
     });
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ingestedTests']).toBe(0);
 
     const run = await repo.getRun('derive-empty-json');
@@ -1000,7 +1020,7 @@ describe('Reporter upload — status derivation without an explicit status', () 
     });
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['status']).toBe('passed');
 
     const run = await repo.getRun('derive-passing-json');
@@ -1135,7 +1155,7 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
     });
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ingestedTests']).toBe(0);
 
     const run = await repo.getRun('pw-empty');
@@ -1196,7 +1216,7 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
     });
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ingestedTests']).toBe(2);
     expect(body['status']).toBe('failed');
 
@@ -1322,7 +1342,7 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
     );
 
     expect(res.status).toBe(202);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as ErrorBody;
     expect(body['ingestedTests']).toBe(0);
 
     const run = await repo.getRun('junit-empty');
@@ -1370,7 +1390,7 @@ describe('Reporter upload — derived status is broadcast', () => {
   it('publishes the derived non-green status for an evidence-free upload', async () => {
     const repo = new InMemoryRunRepository();
     const bus = new InMemoryRealtimeBus();
-    const app = new Hono().route('/', createReporterRoutes(undefined, { repository: repo, bus }));
+    const app = withErrorBoundary(createReporterRoutes(undefined, { repository: repo, bus }));
 
     await app.request('/api/v1/reporter/upload', {
       method: 'POST',
@@ -1381,5 +1401,102 @@ describe('Reporter upload — derived status is broadcast', () => {
     expect(bus.published).toHaveLength(1);
     expect(bus.published[0]?.runId).toBe('derive-broadcast-001');
     expect(bus.published[0]?.status).toBe('interrupted');
+  });
+});
+
+describe('Playwright ingestion is bounded on an untrusted boundary', () => {
+  // Ledger P-60. `collectSuite` recursed into `suite['suites']` with no depth cap and
+  // no cycle detection, on a body that is attacker-controlled by construction. Three
+  // distinct unbounded shapes, and each is asserted separately because a fix for one
+  // is not a fix for the others.
+  const reportWith = (build: (root: Record<string, unknown>) => void) => {
+    const root: Record<string, unknown> = {
+      title: 'root',
+      file: 'f.spec.ts',
+      specs: [],
+      suites: [],
+    };
+    build(root);
+    // A `suites` array at the top level is what routes this body to the Playwright
+    // converter at all — without it the upload is treated as a raw payload and the
+    // recursion never runs, so the test would pass over the defect.
+    return { suites: [root] };
+  };
+
+  const upload = async (report: unknown) => {
+    // A repository is required: the upload route answers `NOT_CONFIGURED` without
+    // one, and a 503 would be a pass-or-fail on the wrong thing.
+    //
+    // **Multipart, not `application/json`.** The Playwright converter is only reached
+    // from the multipart branch (`reporter.ts:351`); a plain JSON body goes straight
+    // to `ReporterUploadSchema` at `:371` and never touches `collectSuite` at all. A
+    // test that posts JSON would therefore pass over the defect entirely — which is
+    // what the first draft of this test did, and it "failed" for the wrong reason.
+    const app = buildAppWithRepo(new InMemoryRunRepository());
+    const form = new FormData();
+    form.set('runId', 'run-1');
+    form.set(
+      'file',
+      new File([JSON.stringify(report)], 'report.json', { type: 'application/json' }),
+    );
+    return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
+  };
+
+  it('refuses a report nested past the depth cap instead of overflowing the stack', async () => {
+    // Ledger P-60. The recursion into `suite['suites']` had no depth cap, and deep
+    // nesting converts to a `RangeError: Maximum call stack size exceeded` — not a
+    // catchable refusal, so the request is taken down rather than answered.
+    //
+    // `MAX_UPLOAD_BYTES` does not help: it bounds how *large* a body is, not how
+    // *deeply* it nests, and a small body of nothing but nested `suites` is well
+    // within the size limit.
+    //
+    // The depth is 200, not 5 000, because 5 000 overflows the *test's* own
+    // `JSON.stringify` before the request is ever sent — which is a limit on the
+    // fixture, not on the defect. 200 is comfortably past the 32-level cap and
+    // serialises fine.
+    const response = await upload(
+      reportWith((root) => {
+        let cursor = root;
+        for (let depth = 0; depth < 200; depth += 1) {
+          const child: Record<string, unknown> = {
+            title: `n${String(depth)}`,
+            specs: [],
+            suites: [],
+          };
+          (cursor['suites'] as unknown[]).push(child);
+          cursor = child;
+        }
+      }),
+    );
+
+    expect(response.status, 'a pathologically nested report must be refused').toBe(400);
+  });
+
+  it('still accepts a legitimately nested report', async () => {
+    // The counterweight. A cap that rejected ordinary nesting would make the
+    // ingestion path useless for the reports it exists to accept, and it would pass
+    // the case above. Playwright nests one level per directory a spec lives in, so a
+    // monorepo with deep test trees is the realistic case, not an edge one.
+    const response = await upload(
+      reportWith((root) => {
+        let cursor = root;
+        for (let depth = 0; depth < 8; depth += 1) {
+          const child: Record<string, unknown> = {
+            title: `n${String(depth)}`,
+            specs: [],
+            suites: [],
+          };
+          (cursor['suites'] as unknown[]).push(child);
+          cursor = child;
+        }
+        (cursor['specs'] as unknown[]).push({
+          title: 'works',
+          tests: [{ title: 'a test', results: [{ status: 'passed', duration: 5 }] }],
+        });
+      }),
+    );
+
+    expect(response.status).toBe(202);
   });
 });

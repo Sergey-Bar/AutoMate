@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { Hono } from 'hono';
 import { RunnerControlService } from '../services/runner-control.js';
 import { createRunnerRoutes } from './runner.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 
 describe('runner control route', () => {
   it('enrolls once, syncs, and accepts ordered events', async () => {
     const service = new RunnerControlService();
-    const app = new Hono().route('/', createRunnerRoutes(service));
+    const app = withErrorBoundary(createRunnerRoutes(service));
     const enrollmentToken = service.issueEnrollmentToken();
     const enrolled = await app.request('/api/v1/runner/v1/enroll', {
       method: 'POST',
@@ -24,7 +24,7 @@ describe('runner control route', () => {
 
   it('accepts an event and rejects a stale sequence', async () => {
     const service = new RunnerControlService();
-    const app = new Hono().route('/', createRunnerRoutes(service));
+    const app = withErrorBoundary(createRunnerRoutes(service));
     const identity = service.enroll(service.issueEnrollmentToken(), []);
     service.acquire(identity, 'job-1', 'lease-1');
     const event = {
@@ -58,7 +58,7 @@ describe('runner control route', () => {
 
   it('rejects invalid enrollment and terminal event batches', async () => {
     const service = new RunnerControlService();
-    const app = new Hono().route('/', createRunnerRoutes(service));
+    const app = withErrorBoundary(createRunnerRoutes(service));
     expect(
       (await app.request('/api/v1/runner/v1/enroll', { method: 'POST', body: '{}' })).status,
     ).toBe(400);
@@ -94,7 +94,7 @@ describe('runner control route', () => {
 
   it('rejects invalid event batches and unauthorized sync', async () => {
     const service = new RunnerControlService();
-    const app = new Hono().route('/', createRunnerRoutes(service));
+    const app = withErrorBoundary(createRunnerRoutes(service));
     const identity = service.enroll(service.issueEnrollmentToken(), []);
     const invalid = await app.request('/api/v1/runner/v1/jobs/job/events/batch', {
       method: 'POST',

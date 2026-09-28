@@ -26,6 +26,40 @@ services:
         condition: service_healthy
     restart: 'no'
 
+  # The object store the production API is required to use. `apps/api/src/startup-policy.ts`
+  # refuses to start a production deployment without `OBJECT_STORE_*`, and this service
+  # was the missing half of that: the policy was real, the stack was not wired to it,
+  # and `NODE_ENV: production` on the API meant the documented production deployment
+  # could not have booted. Artifact bytes are evidence — on one process's filesystem
+  # they disappear with it — so this is load-bearing, not an optional extra.
+  #
+  # MinIO is the self-hosted single-node answer D10 commits to, and it is the same
+  # image the dev stack already runs. A real deployment points `OBJECT_STORE_ENDPOINT`
+  # at its own S3-compatible store and drops this service; the contract is the five
+  # variables, not this image.
+  minio:
+    image: minio/minio
+    pull_policy: never
+    command: server /data --console-address :9001
+    environment:
+      # A root credential for a store bound to the compose network, and it still comes
+      # from the operator's environment rather than being written here — a literal in a
+      # committed compose file is a committed secret, which `pnpm security:secrets`
+      # correctly refuses.
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      # A dependent needs this to exist, or `service_healthy` is never satisfied and the
+      # documented stack cannot start — which is what `compose.dev.yml` got wrong before
+      # it had a healthcheck at all.
+      test: ['CMD-SHELL', 'mc ready local || exit 1']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
   api:
     build:
       context: .
@@ -41,10 +75,27 @@ services:
       REPORTER_SECRET: ${REPORTER_SECRET:?set REPORTER_SECRET}
       RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       ARTIFACT_ROOT: /var/lib/automate/artifacts
+      # The five variables `startup-policy.ts` requires in production. `ARTIFACT_ROOT`
+      # stays set for the local-filesystem fallback that development uses; in
+      # production the object store is what holds artifact bytes.
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:?set OBJECT_STORE_BUCKET}
+      OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:?set OBJECT_STORE_REGION}
+      OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      OBJECT_STORE_FORCE_PATH_STYLE: 'true'
+      # `http://minio:9000` is plain HTTP, and the policy refuses that in production
+      # unless this is set. It is set deliberately and narrowly: the traffic never
+      # leaves the compose network, and the alternative — claiming https to a local
+      # store — would be a false claim. A deployment with a real S3 endpoint over TLS
+      # omits this line and the policy enforces the stricter path.
+      OBJECT_STORE_ALLOW_INSECURE: 'true'
       PUBLIC_APP_URL: http://127.0.0.1:53173
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio:
+        condition: service_healthy
     ports:
       - '127.0.0.1:53000:3000'
     volumes:
@@ -161,3 +212,7 @@ networks:
 volumes:
   postgres_data:
   artifact_data:
+  # Named volume, not a container filesystem: the object store holds artifact bytes
+  # that are evidence, so losing them with the container is the failure mode the
+  # production policy exists to prevent.
+  minio_data:

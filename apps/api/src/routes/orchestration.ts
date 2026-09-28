@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { DomainError } from '../errors/domain-error.js';
 import { AutomationDefinitionSchema, ScheduleSchema } from '@automate/shared-contracts';
 import { OrchestrationService } from '../services/orchestration-service.js';
 
@@ -27,7 +28,8 @@ export function createOrchestrationRoutes(service: OrchestrationService) {
     const parsed = AutomationDefinitionSchema.omit({ id: true }).safeParse(
       await context.req.json().catch(() => null),
     );
-    if (!parsed.success) return context.json({ error: 'Invalid automation definition' }, 400);
+    if (!parsed.success)
+      throw new DomainError('INVALID_AUTOMATION_DEFINITION', 'Invalid automation definition');
     return context.json({ automation: service.createAutomation(parsed.data) }, 201);
   });
   app.get('/api/v1/schedules', (context) => context.json({ schedules: [] }));
@@ -35,7 +37,7 @@ export function createOrchestrationRoutes(service: OrchestrationService) {
     const parsed = ScheduleSchema.omit({ id: true }).safeParse(
       await context.req.json().catch(() => null),
     );
-    if (!parsed.success) return context.json({ error: 'Invalid schedule' }, 400);
+    if (!parsed.success) throw new DomainError('INVALID_SCHEDULE', 'Invalid schedule');
     return context.json({ schedule: service.createSchedule(parsed.data) }, 201);
   });
   app.get('/api/v1/jobs', (context) => context.json({ jobs: service.listJobs() }));
@@ -44,7 +46,7 @@ export function createOrchestrationRoutes(service: OrchestrationService) {
       return context.json({ job: service.enqueue(context.req.param('id')) }, 202);
     } catch (failure) {
       if (notFoundIfMissing(failure, 'Automation')) {
-        return context.json({ error: 'Automation not found' }, 404);
+        throw new DomainError('AUTOMATION_NOT_FOUND', 'Automation not found');
       }
       // Re-thrown so the app boundary classifies it and logs it, rather than a
       // defect inside `enqueue` being reported as a missing automation.
@@ -56,7 +58,7 @@ export function createOrchestrationRoutes(service: OrchestrationService) {
       return context.json({ job: service.cancel(context.req.param('id')) });
     } catch (failure) {
       if (notFoundIfMissing(failure, 'Job')) {
-        return context.json({ error: 'Job not found' }, 404);
+        throw new DomainError('JOB_NOT_FOUND', 'Job not found');
       }
       throw failure;
     }

@@ -45,23 +45,35 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Boundary preflight
         run: pnpm unify:preflight
-      # `pnpm compose:config` rather than the raw `docker compose … config` line this
+      # `pnpm compose:config` rather than the raw `docker compose â€¦ config` line this
       # step used to spell. The script existed and was in no workflow, which meant the
       # compose file was being validated by a command that could be edited without
       # anyone noticing a second copy had drifted.
       - name: Unified Compose config
         # Placeholders rather than secrets. This step only asks docker compose to
-        # resolve and print the file — no container starts — and the compose file
-        # marks six variables required so a misconfigured local stack fails loudly.
+        # resolve and print the file â€” no container starts â€” and the compose file
+        # marks every required variable so a misconfigured local stack fails loudly.
         # Resolving the file therefore needs values, and a real credential is not
         # one of them.
+        #
+        # The last three are the object store's. They are here because
+        # `docker-compose.unified.yml` now declares a `minio` service and wires
+        # `OBJECT_STORE_*` into the API, which sets `NODE_ENV: production` â€” and
+        # `apps/api/src/startup-policy.ts` refuses to start a production deployment
+        # without them. Without these three values this step would fail on a missing
+        # variable rather than on anything wrong with the compose file, which is the
+        # worst way for a config gate to be red.
         env:
-          POSTGRES_PASSWORD: ci-config-validation
-          COOKIE_SECRET: ci-config-validation
-          VAULT_SECRET: ci-config-validation
-          AUTOMATE_API_KEY: ci-config-validation
-          REPORTER_SECRET: ci-config-validation
-          RUNNER_REGISTRATION_SECRET: ci-config-validation
+          POSTGRES_PASSWORD: ci-config-validation-32-characters
+          COOKIE_SECRET: ci-config-validation-32-characters
+          VAULT_SECRET: ci-config-validation-32-characters
+          AUTOMATE_API_KEY: ci-config-validation-32-characters
+          REPORTER_SECRET: ci-config-validation-32-characters
+          RUNNER_REGISTRATION_SECRET: ci-config-validation-32-characters
+          MINIO_ROOT_USER: ci-config-validation-32-characters
+          MINIO_ROOT_PASSWORD: ci-config-validation-32-characters
+          OBJECT_STORE_BUCKET: ci-config-validation-32-characters
+          OBJECT_STORE_REGION: ci-config-validation-32-characters
         run: pnpm compose:config
       - name: Formatting
         run: pnpm format:check
@@ -103,7 +115,7 @@ jobs:
       # The coverage artifacts the ratchet job reads. Uploaded here because this is
       # the job that produced them; the `provenance.json` beside each summary records
       # the content hash of the inputs that run measured, which is what makes it
-      # sound for a *different* job to judge them — see `coverage-ratchet` below.
+      # sound for a *different* job to judge them â€” see `coverage-ratchet` below.
       - name: Upload coverage summaries
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -121,7 +133,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Its own required job, because the ratchet is the only gate that can prove a
-    # floor was not lowered — and until now it was reachable only from
+    # floor was not lowered â€” and until now it was reachable only from
     # `release-gate.yml`, which is `workflow_dispatch` only. A PR could lower a
     # coverage floor and merge, and the release run would be the first thing to
     # notice.
@@ -137,7 +149,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           # History, not a shallow clone. The floor ratchet reads the base commit's
-          # `coverage-baseline.json` — a floor may go up, never down, and the only
+          # `coverage-baseline.json` â€” a floor may go up, never down, and the only
           # record that survives the pull request is history.
           fetch-depth: 0
       - name: Set up pnpm
@@ -169,8 +181,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # `pnpm exec commitlint` rather than a Docker action, so CI enforces the
-    # repository's own `commitlint.config.js` — including the `scope-enum`
-    # vocabulary that decides which scopes exist — with the same commitlint
+    # repository's own `commitlint.config.js` â€” including the `scope-enum`
+    # vocabulary that decides which scopes exist â€” with the same commitlint
     # version the local hook runs. A Docker action ships its own commitlint and
     # its own config resolution, so the two gates were never the same gate.
     #
@@ -262,7 +274,7 @@ jobs:
           POSTGRES_DB: automate
           # 	rust, not a password. The service port is bound to the runner
           # only, and a password here would be a credential committed to the
-          # repository — which pnpm security:secrets refuses, correctly. The
+          # repository â€” which pnpm security:secrets refuses, correctly. The
           # database is destroyed with the job.
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -301,6 +313,107 @@ jobs:
           path: test-results/evidence
           if-no-files-found: ignore
           retention-days: 14
+
+  render-budget:
+    # The name says what the job is *doing*, not just what it is called, because the
+    # answer differs by phase and a reviewer has to tell them apart at a glance. Once
+    # a baseline is recorded this reads as a gate and stops changing.
+    name: Rendering budget (measuring, no ceiling recorded)
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # `contents: read` is inherited from the workflow-level block, and this job needs
+    # nothing more: it checks out, installs, and runs Playwright. No job in this file
+    # writes to the repository, a release, a package or a comment, so there is no
+    # per-job `permissions:` to add â€” declaring one here would be noise that reads as
+    # a grant.
+    #
+    # The two-phase rollout, and why it is two phases:
+    #
+    #  - **Measurement phase (now).** `performance/rendering-budget.json` has no
+    #    recorded ceiling, so this job measures the four primary routes and publishes
+    #    the numbers to the job summary without comparing them. It is **not** a
+    #    required check. The obvious alternative â€” keep it `pr-blocking` and red until
+    #    someone measures â€” is indefensible in practice: a required check that can
+    #    never pass blocks every pull request, teaches reviewers to read red as
+    #    noise, and buries the failures that matter under a failure nobody can fix
+    #    without hardware.
+    #  - **Threshold phase (after a real run).** Someone runs `pnpm render:baseline` on
+    #    the reference hardware the plan's D10 commits to, reviews the diff, and
+    #    commits it. The comparison becomes a real gate, and `test:render` becomes
+    #    `pr-blocking` **in the same commit**.
+    #
+    # That transition is not a convention. `scripts/lib/render-gate-phase.mjs` derives
+    # the required tier from the baseline, and `gate-tooling.test.mjs` fails until the
+    # manifest agrees â€” so graduating the gate cannot be forgotten, and a `recorded:
+    # true` beside invented numbers with a `pr-reporting` tier is caught rather than
+    # becoming a gate that is permanently green and not required.
+    #
+    # What is *not* relaxed in the measurement phase: the measurement itself must be
+    # complete. A metric `PerformanceObserver` never reported is a broken instrument,
+    # not a fast route, and the spec fails on that in every phase. Only the ceilings
+    # are skipped. The comparison rules themselves are unit-tested inside
+    # `pnpm test:integration`, so the policy is checked on every PR even while the
+    # measurement is not.
+    #
+    # Not in `verify`: this needs a browser and a PostgreSQL, and `verify` has a
+    # 20-step budget (D6) that the plan spends elsewhere.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # 	rust, not a password. The service port is bound to the runner
+          # only, and a password here would be a credential committed to the
+          # repository â€” which pnpm security:secrets refuses, correctly. The
+          # database is destroyed with the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      # The Chromium build is ~170 MB and is the slowest step in this job by a wide
+      # margin. Caching it is standard practice and safe here specifically because
+      # nothing in this repository consumes caches across workflows: the cache-poisoning
+      # path in the Actions threat model runs through `workflow_run`, and no workflow
+      # here triggers one. The key includes the Playwright version from the lockfile, so
+      # a dependency bump misses the cache instead of installing a stale browser.
+      - name: Cache the Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # `--with-deps` still runs every time: it installs apt packages, which is a
+      # system-level change a file cache cannot restore, and the browser download above
+      # is then a no-op cache hit.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+      # Phase-neutral on purpose: this measures while no ceiling is recorded and
+      # compares once one is. The job name above says which phase is in force, and it
+      # is the thing that changes â€” the command does not.
+      - name: Rendering budget
+        run: pnpm test:render
 
   contract:
     name: Contract tests
@@ -376,7 +489,7 @@ jobs:
           POSTGRES_DB: automate
           # 	rust, not a password. The service port is bound to the runner
           # only, and a password here would be a credential committed to the
-          # repository — which pnpm security:secrets refuses, correctly. The
+          # repository â€” which pnpm security:secrets refuses, correctly. The
           # database is destroyed with the job.
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -452,7 +565,7 @@ jobs:
           POSTGRES_DB: automate
           # 	rust, not a password. The service port is bound to the runner
           # only, and a password here would be a credential committed to the
-          # repository — which pnpm security:secrets refuses, correctly. The
+          # repository â€” which pnpm security:secrets refuses, correctly. The
           # database is destroyed with the job.
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:

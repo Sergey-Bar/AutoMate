@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { CanonicalReporterEvent } from '@automate/shared-contracts';
 import { digestRunOutcome, normalizeLegacyEvent } from './legacy-reporter.js';
 
 const context = {
@@ -9,6 +10,28 @@ const context = {
 
 function runEnded(payload: Record<string, unknown>) {
   return normalizeLegacyEvent({ type: 'run:end', runId: 'run-1', payload }, context);
+}
+
+/**
+ * The `resultDigest` off a `run.completed` event.
+ *
+ * `CanonicalReporterEvent` is a discriminated union on `type`, and `resultDigest`
+ * exists on the `run.completed` member alone. The previous version read
+ * `event.data.resultDigest` behind a `data === null` check, which is not the
+ * discriminant: `data` is required and non-nullable on every member, so the check
+ * could never narrow anything and `tsc` rejected the access. `pnpm typecheck` had been
+ * failing on this file, which means the `typecheck` step in `verify` could not pass —
+ * a gate that cannot pass, the same class of defect as one that cannot fail.
+ *
+ * Narrowing on `type` is both the thing the compiler understands and the thing the
+ * assertion means: a `run.end` that normalized to some other event type has no digest
+ * to compare, and that is a failure worth naming rather than a `null` to guard.
+ */
+function resultDigestOf(event: CanonicalReporterEvent): string {
+  if (event.type !== 'run.completed') {
+    throw new Error(`expected a run.completed event, got ${String(event.type)}`);
+  }
+  return event.data.resultDigest;
 }
 
 describe('the result digest', () => {
@@ -23,19 +46,15 @@ describe('the result digest', () => {
     const failed = runEnded({ status: 'failed', tests: 10, failures: 3 });
 
     expect(passed.type).toBe('run.completed');
-    expect(passed.data).toHaveProperty('resultDigest');
-    expect(failed.data).toHaveProperty('resultDigest');
-    if (passed.data === null || failed.data === null)
-      throw new Error('no digest on a run.completed');
-    expect(passed.data.resultDigest).not.toBe(failed.data.resultDigest);
+    expect(failed.type).toBe('run.completed');
+    expect(resultDigestOf(passed)).not.toBe(resultDigestOf(failed));
   });
 
   it('is stable for the same outcome, so a replay is not read as a new result', () => {
     const first = runEnded({ status: 'passed', tests: 10 });
     const replay = runEnded({ status: 'passed', tests: 10 });
 
-    if (first.data === null) throw new Error('no digest on a run.completed');
-    expect(first.data.resultDigest).toBe(replay.data?.resultDigest);
+    expect(resultDigestOf(first)).toBe(resultDigestOf(replay));
   });
 
   it('does not depend on the order the producer built its keys in', () => {

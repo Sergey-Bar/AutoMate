@@ -547,18 +547,21 @@ export interface ExecutionStoreOptions {
   tokenTtlMs?: number;
 }
 
-export function isTerminalPhase(phase: RunPhase): boolean {
-  return [
-    'complete',
-    'cancelled',
-    'timed_out',
-    'runner_lost',
-    'infra_failed',
-    'config_failed',
-    'blocked',
-    'partial',
-  ].includes(phase);
-}
+/**
+ * Re-exported from `phase-outcome.js`, where the terminal list and the
+ * `isTerminalPhase` / `isRequestablePhase` pair live together.
+ *
+ * This module had its own byte-identical copy of the eight-element array. Two lists of
+ * terminal phases in the same package is a list of eight that can grow by one — and the
+ * migration that added one would be a migration with two halves, only one of which any
+ * test would exercise.
+ *
+ * The direction of the import matters and is why this works: `phase-outcome.ts` imports
+ * `RunPhase` from here with `import type`, which erases at runtime, so there is no
+ * cycle. The reverse would not have been safe, which is the reason the logic lives in
+ * the module that owns the vocabulary and not in the one that owns the types.
+ */
+export { isTerminalPhase } from './phase-outcome.js';
 
 export function isInfrastructurePhase(phase: RunPhase): boolean {
   return phase === 'runner_lost' || phase === 'infra_failed' || phase === 'config_failed';

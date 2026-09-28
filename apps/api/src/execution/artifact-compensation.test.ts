@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,8 +60,14 @@ class RecordingByteStore implements ArtifactBytesStore {
     this.keys.set(storageKey, bytes);
   }
 
-  async get(storageKey: string): Promise<Uint8Array | null> {
-    return this.keys.get(storageKey) ?? null;
+  async get(storageKey: string, expectedDigest?: string): Promise<Uint8Array | null> {
+    const stored = this.keys.get(storageKey);
+    if (stored === undefined) return null;
+    if (expectedDigest !== undefined) {
+      const actual = createHash('sha256').update(stored).digest('hex');
+      if (actual !== expectedDigest) throw new Error('Artifact digest mismatch');
+    }
+    return stored;
   }
 
   async delete(storageKey: string): Promise<void> {
@@ -187,5 +194,37 @@ describe('a failed artifact row insert does not orphan the bytes', () => {
     const kept = await store.addArtifact({ ...ARTIFACT, runId, storageKey: 'ws-1/keep.zip' });
     expect(held.size).toBe(1);
     await expect(store.getArtifact(kept.id, 'ws-1')).resolves.not.toBeNull();
+  });
+});
+
+/**
+ * The read path must check the bytes against the checksum the row recorded.
+ *
+ * This is the half of the artifact integrity story the write side already had: the
+ * row carries a `checksum` and nothing on the way back out compared anything against
+ * it, so a truncated, rewritten or half-copied object was returned to the caller as
+ * evidence. `LocalArtifactStore.read` did compare — and had no caller outside its own
+ * test, so the check and the shipped method were the wrong way round.
+ */
+describe('the read path verifies the bytes against the checksum the row recorded', () => {
+  it('refuses to hand back an artifact whose bytes no longer match', async () => {
+    const store = buildStore();
+    const runId = await aRun(store);
+    const descriptor = await store.addArtifact({ ...ARTIFACT, runId });
+
+    // Unchanged first: a reader that refused everything would satisfy the refusal
+    // below without ever having returned a byte.
+    expect((await store.getArtifact(descriptor.id, 'ws-1'))?.bytes.byteLength).toBe(4);
+
+    // The object is rewritten after the row was written — a restored backup, a
+    // half-completed copy, a bucket something else also writes to.
+    bytes.keys.set(ARTIFACT.storageKey, new Uint8Array([9, 9, 9, 9, 9, 9]));
+
+    await expect(store.getArtifact(descriptor.id, 'ws-1')).rejects.toThrow(/digest/i);
+  });
+
+  it('still reports a genuinely absent artifact as absent rather than as a mismatch', async () => {
+    const store = buildStore();
+    expect(await store.getArtifact('00000000-0000-4000-8000-0000000000aa', 'ws-1')).toBeNull();
   });
 });

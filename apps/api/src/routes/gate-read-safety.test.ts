@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Hono } from 'hono';
 import { createExecutionRoutes } from './execution.js';
 import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.js';
 import type { CreateRunInput } from '../execution/types.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 
 /** An event the bus was handed, with only the field this test reads typed. */
 interface PublishedEvent {
@@ -47,13 +47,15 @@ async function harness() {
     },
     subscribe: () => () => undefined,
   };
-  const app = createExecutionRoutes({
-    store,
-    bus: bus as never,
-    workspaceId: 'ws-gate',
-    registrationSecret: REGISTRATION_SECRET,
-  });
-  const server = new Hono().route('/', app);
+  const app = withErrorBoundary(
+    createExecutionRoutes({
+      store,
+      bus: bus as never,
+      workspaceId: 'ws-gate',
+      registrationSecret: REGISTRATION_SECRET,
+    }),
+  );
+  const server = withErrorBoundary(app);
 
   const runner = await store.registerRunner(
     {

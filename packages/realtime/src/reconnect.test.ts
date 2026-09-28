@@ -179,3 +179,50 @@ describe('ReconnectState type', () => {
     expect(states).toHaveLength(5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Non-finite arguments (ledger R-7)
+// ---------------------------------------------------------------------------
+
+describe('computeBackoff - non-finite arguments', () => {
+  it('never returns NaN, whatever is passed in', () => {
+    // Ledger R-7. `Math.pow(2, NaN - 1)` is `NaN` and `Math.min(NaN, x)` is `NaN`,
+    // so every non-finite argument propagated straight through. A `NaN` handed to
+    // `setTimeout` is treated as **zero**, so one unguarded call is a reconnect that
+    // fires immediately and repeatedly -- a storm, which is the opposite of what a
+    // backoff is for.
+    //
+    // The row's stated harm is latent rather than live: the only
+    // `setTimeout(connect, delay)` in the package is inside the JSDoc usage example,
+    // and no product code calls `computeBackoff` yet. That is a reason to fix it
+    // while it is still a primitive rather than a reason to leave it: the first caller
+    // inherits the trap, and this helper is the only place it can be closed.
+    const attempts = [NaN, Infinity, -Infinity, -1, 0];
+    const durations = [NaN, Infinity, -Infinity, -1, 0];
+    for (const attempt of attempts) {
+      for (const baseMs of durations) {
+        for (const maxMs of durations) {
+          const delay = computeBackoff(attempt, baseMs, maxMs);
+          expect(
+            Number.isFinite(delay),
+            `computeBackoff(${String(attempt)}, ${String(baseMs)}, ${String(maxMs)}) must be finite, got ${String(delay)}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('falls back to a sane attempt when the counter is not a usable number', () => {
+    // A `NaN` attempt counter means the caller's state was already broken, and
+    // answering with `baseMs` is the safe reading: one normal wait. Answering with
+    // zero would rejoin the storm the broken counter already started.
+    const originalRandom = Math.random;
+    try {
+      Math.random = () => 0;
+      expect(computeBackoff(NaN, 1_000, 30_000)).toBe(1_000);
+      expect(computeBackoff(0, 1_000, 30_000)).toBe(1_000);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+});

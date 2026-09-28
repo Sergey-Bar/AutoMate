@@ -24,6 +24,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { GATE_STATUSES } from './vocabularies.js';
 
 export const RUN_PHASES = [
   'queued',
@@ -184,7 +185,15 @@ export const runs = pgTable(
     errorDetails: jsonb('error_details').$type<Record<string, unknown>>(),
     rawEvidenceRefs: jsonb('raw_evidence_refs').$type<string[]>().notNull().default([]),
     metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
-    gateStatus: text('gate_status', { enum: ['passed', 'failed', 'skipped'] }),
+    // The contract's five values, from the shared vocabulary rather than a
+    // hand-written list here. This used to be `['passed','failed','skipped']`, which
+    // disagreed with `GateStatusSchema` in `@automate/shared-contracts` in both
+    // directions: it accepted `skipped`, which the contract does not define, and it
+    // rejected `warning`, `unknown` and `not_evaluated`, which it does. The two lists
+    // could not be compared by the compiler — `execution.ts` imports from this module,
+    // so the constant could not be imported back from there — and so nothing noticed
+    // (ledger P-5). `0016_gate_status_contract.sql` widens the CHECK to match.
+    gateStatus: text('gate_status', { enum: GATE_STATUSES }),
     workspaceId: text('workspace_id'),
     queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -477,6 +486,16 @@ export const schedules = pgTable('schedules', {
   runOptions: jsonb('run_options'),
   // SQLite: integer('enabled', { mode: 'boolean' })
   enabled: boolean('enabled').default(true),
+  // The tenant this schedule runs in, and `NOT NULL` because a schedule that names no
+  // workspace has no correct one to default to.
+  //
+  // Added in `0015_schedule_workspace_scope.sql`. It used to exist only as
+  // `run_options->'request'->>'workspaceId'` — a string inside untyped JSONB, which
+  // meant the worker had nothing to scope its read by and nothing to validate the value
+  // against, so any principal able to insert a schedule chose the workspace its run
+  // executed in. With a column, the worker takes the workspace from here and refuses a
+  // row whose `run_options` disagrees.
+  workspaceId: text('workspace_id').notNull(),
   // SQLite: text('last_run_at')
   lastRunAt: timestamp('last_run_at', { withTimezone: true }),
   // SQLite: text('created_at').notNull()
@@ -908,6 +927,24 @@ export const agentConflicts = pgTable(
   ],
 );
 
+/**
+ * The sealed envelope `saml_config.sp_private_key` holds.
+ *
+ * A structural copy of the vault's `VaultEnvelope`, because `packages/db` is a leaf and
+ * must not depend on the API. Structural rather than duplicated-without-comment: a type
+ * import is impossible across that boundary, so the shape is written where it is used
+ * and the vault is the definition of record.
+ */
+interface VaultEnvelopeShape {
+  version: 1 | 2;
+  algorithm: 'aes-256-gcm';
+  keyVersion: number;
+  salt: string;
+  iv: string;
+  tag: string;
+  ciphertext: string;
+}
+
 // ─── saml_config ──────────────────────────────────────────────────────────────
 // Source: saml_config table — SAML SSO configuration
 export const samlConfig = pgTable('saml_config', {
@@ -916,7 +953,25 @@ export const samlConfig = pgTable('saml_config', {
   issuer: text('issuer').notNull(),
   idpCert: text('idp_cert').notNull(),
   callbackUrl: text('callback_url').notNull(),
-  spPrivateKey: text('sp_private_key'),
+  /**
+   * The Service Provider private key, as a sealed vault envelope.
+   *
+   * Was `text`, holding the key in the clear, while everything else this repository
+   * treats as a secret went through the vault — so a database dump yielded the key, and
+   * a SP private key is what an attacker needs to authenticate *as this installation* to
+   * every relying party that trusts it (ledger P-21).
+   *
+   * Typed as the same `VaultEnvelope` the vault uses, and sealed with the row bound as
+   * GCM additional authenticated data, so the key cannot be moved to another SAML
+   * configuration and opened there. `packages/db` cannot import the vault module — it
+   * is a leaf — so the envelope shape is stated here and the sealing happens at the API
+   * layer, which is the layer that holds the installation secret.
+   *
+   * `0019_sp_private_key_sealed.sql` will not convert an existing plaintext value:
+   * sealing needs the secret, which a migration does not have, and a jsonb column
+   * holding plaintext would assert a protection the data does not have.
+   */
+  spPrivateKey: jsonb('sp_private_key').$type<VaultEnvelopeShape>(),
   defaultRole: text('default_role', { enum: ['viewer', 'editor', 'admin'] })
     .notNull()
     .default('viewer'),

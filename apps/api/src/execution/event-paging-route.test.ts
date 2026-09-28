@@ -4,6 +4,27 @@ import { Hono } from 'hono';
 import { InMemoryExecutionStore } from './in-memory-execution-store.js';
 import { createExecutionRoutes } from '../routes/execution.js';
 import type { ExecutionEventInput, ExecutionStore } from './types.js';
+import { createErrorBoundary } from '../errors/boundary.js';
+
+/**
+ * The routes, mounted the way the application mounts them.
+ *
+ * The error boundary is not decoration here: since finding C-3 a handler refuses by
+ * `throw`ing a `DomainError`, and this boundary is what renders it into the response
+ * body. A bare `Hono` would answer 500 and the suite would be asserting the wrong thing
+ * — and a body only the removed `error(c, …)` helper could produce would stop being
+ * testable, which is the point.
+ */
+function mounted(routes: Hono): Hono {
+  const { onError } = createErrorBoundary({
+    log: () => undefined,
+    reportError: () => undefined,
+    // Outside a request there is no id, and the boundary is told so rather than being
+    // handed a fabricated one. The production middleware supplies the real value.
+    requestId: () => 'NO_REQUEST',
+  });
+  return new Hono().onError(onError).route('/', routes);
+}
 
 /**
  * The event list at the route, which is where a client actually meets it.
@@ -50,7 +71,7 @@ let counter = 0;
 async function withEvents(count: number): Promise<Built> {
   counter += 1;
   const store = new InMemoryExecutionStore();
-  const app = new Hono().route('/', createExecutionRoutes({ store, workspaceId: WS }));
+  const app = mounted(createExecutionRoutes({ store, workspaceId: WS }));
 
   const { run, job } = await store.createRun(
     { ...CREATE_RUN, externalId: `ext-event-route-${counter}` },

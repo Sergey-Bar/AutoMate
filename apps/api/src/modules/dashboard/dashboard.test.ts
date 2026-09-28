@@ -39,6 +39,7 @@
  *  26. POST /api/v1/dashboard/quality-gates — 400 when passRateThreshold invalid
  */
 import { describe, it, expect } from 'vitest';
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
 import { createDashboardRunsRoutes } from './runs.js';
@@ -53,7 +54,7 @@ import type { RunRecord, TestRecord } from '../../repositories/run-repository.js
 // ---------------------------------------------------------------------------
 
 function buildDashboardApp(repo: InMemoryRunRepository): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   const quarantineStore = new InMemoryQuarantineStore();
   const qualityGateStore = new InMemoryQualityGateStore();
   app.route('/', createDashboardRunsRoutes({ repository: repo }));
@@ -149,8 +150,10 @@ describe('GET /api/v1/dashboard/runs/:id', () => {
     const res = await app.request('/api/v1/dashboard/runs/does-not-exist');
     expect(res.status).toBe(404);
 
-    const body = (await jsonBody(res)) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
+    const body = (await jsonBody(res)) as unknown as {
+      error: { code: string; message: string };
+    };
+    expect(typeof body.error.code).toBe('string');
   });
 });
 
@@ -194,8 +197,10 @@ describe('PATCH /api/v1/dashboard/runs/:id/status', () => {
     });
     expect(res.status).toBe(400);
 
-    const body = (await jsonBody(res)) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
+    const body = (await jsonBody(res)) as unknown as {
+      error: { code: string; message: string };
+    };
+    expect(typeof body.error.code).toBe('string');
   });
 
   it('returns 400 when status field is missing', async () => {
@@ -282,8 +287,10 @@ describe('GET /api/v1/dashboard/runs/:runId/tests', () => {
     const res = await app.request('/api/v1/dashboard/runs/ghost-run/tests');
     expect(res.status).toBe(404);
 
-    const body = (await jsonBody(res)) as Record<string, unknown>;
-    expect(typeof body['error']).toBe('string');
+    const body = (await jsonBody(res)) as unknown as {
+      error: { code: string; message: string };
+    };
+    expect(typeof body.error.code).toBe('string');
   });
 
   it('returns test record with all expected fields', async () => {

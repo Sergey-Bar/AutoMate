@@ -6,6 +6,12 @@
  * narrow: a ledger is a claim about defects, and a claim that nothing checks is a
  * document. Every rule below corresponds to a sentence in the plan's §1 and §3.
  *
+ * The rule with the most weight is the newest one: **every `sweep`-provenance row must
+ * be hand-confirmed before it can close, and a row that turns out to be wrong gets a
+ * disposition instead of a deletion.** The previous version asked humans to read the
+ * rows a migration would destroy and had no way to record that they had — see
+ * `confirmationProblems` and `STATUS_RULES['false-positive']`.
+ *
  * Kept separate from the CLI so the rules can be tested against synthetic ledgers,
  * and so a rule that cannot fail is visible as one.
  */
@@ -24,32 +30,15 @@ export const BANDS = ['Blocker', 'Critical', 'Major', 'Minor', 'Nit'];
 export const BLOCKING_BANDS = new Set(['Blocker', 'Critical']);
 
 export const PROVENANCE = ['hand', 'sweep'];
-export const STATUSES = ['open', 'fixed', 'debt'];
 
 /**
- * Rows a destructive migration depends on, which the plan's §8.1 requires to be
- * spot-confirmed before anything irreversible acts on them.
+ * The four dispositions, and the only four.
  *
- * These are the `sweep`-provenance rows whose finding, if wrong, destroys data.
- * The check refuses to let one of them reach `fixed` while it still says
- * `sweep` and carries no confirmation — which is the plan's rule made
- * executable rather than a sentence in a document.
+ * `open`, `fixed` and `debt` are a triage. `false-positive` is the fourth because
+ * hand-confirmation is only honest if "I read it and it is not there" is a thing the
+ * ledger can record — see the rule in `STATUS_RULES` and the note on `isForward`.
  */
-export const CONFIRMATION_REQUIRED = new Set([
-  'P-5',
-  'P-6',
-  'P-7',
-  'P-8',
-  'P-9',
-  'P-10',
-  'P-12',
-  'P-13',
-  'P-20',
-  'O-1',
-  'O-2',
-  'O-3',
-  'P-23',
-]);
+export const STATUSES = ['open', 'fixed', 'debt', 'false-positive'];
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
@@ -263,6 +252,26 @@ const STATUS_RULES = {
   fixed(label, record, root) {
     return [...evidenceProblems(label, record, root), ...confirmationProblems(label, record)];
   },
+  // The fourth disposition, and the one that makes hand-confirmation honest.
+  //
+  // Before it existed, refuting a finding meant deleting its row — and deleting a row
+  // is itself a finding here, because the ratchet fails when a recorded row vanishes
+  // ("deleting a row is not a fix; the defect it described is still in the tree"). So
+  // a person who read P-23 and found it wrong had two moves: leave it open and lie
+  // about it, or delete it and turn the ledger gate red. Neither is a choice a person
+  // makes when the finding is genuinely false, which is the whole point of reading it.
+  //
+  // `refutedBy` is required because "false positive" with no pointer is
+  // indistinguishable from a row nobody wanted to fix, and those two need very
+  // different amounts of trust from the next reader.
+  'false-positive'(label, record) {
+    if (filled(record.refutedBy)) return [];
+    return [
+      `${label}: a refuted finding must say what refutes it. \`refutedBy\` names the ` +
+        'file:line, commit or observation showing the defect is not there — without it, ' +
+        '"false positive" is indistinguishable from a row nobody wanted to fix.',
+    ];
+  },
 };
 
 /**
@@ -296,8 +305,13 @@ function evidenceProblems(label, record, root) {
 }
 
 /**
- * Plan §8.1: the load-bearing `sweep` rows must be spot-confirmed by a human before
- * anything irreversible acts on them. A row nobody has read cannot be closed.
+ * Plan §8.1 generalized: **every** `sweep` row must be hand-confirmed before it can
+ * be closed. A row nobody has read is a claim produced by a script, and a claim
+ * nobody has read cannot be closed.
+ *
+ * Kept as its own function, and kept off `STATUS_RULES.fixed`'s critical path, so the
+ * rule reads as the one sentence it is. See the note on `STATUSES` for why the id set
+ * it used to consult is gone.
  *
  * @param {string} label
  * @param {Record<string, unknown>} record
@@ -306,10 +320,11 @@ function evidenceProblems(label, record, root) {
 function confirmationProblems(label, record) {
   if (record.confirmed === true) return [];
   if (record.provenance !== 'sweep') return [];
-  if (!CONFIRMATION_REQUIRED.has(label)) return [];
   return [
-    `${label}: this is a destructive-migration finding still marked \`sweep\`, and it ` +
-      'cannot be closed until someone confirms it by hand (`confirmed: true`).',
+    `${label}: this is a \`sweep\` finding, which means an automated sweep produced it and ` +
+      'no human has read it since. It cannot be closed until someone confirms it against ' +
+      'the code (`confirmed: true`), or refutes it (`status: "false-positive"` with a ' +
+      '`refutedBy` note).',
   ];
 }
 
@@ -343,11 +358,22 @@ function ratchetProblems(label, record, previous) {
   ];
 }
 
-/** @param {string} before @param {string} after @returns {boolean} */
+/**
+ * A status may move forward and never back.
+ *
+ * `open` → `fixed` or `open` → `debt` is progress, and `fixed` → `debt` is a statement
+ * that the fix was wrong. `false-positive` is forward from every other status, because
+ * it is a correction of the record rather than of the code — including from `fixed`,
+ * which is the case that matters most: the fix was sound work against a defect that
+ * was not there, and the row must be able to say so. It is terminal, because a
+ * refutation somebody has not read is not a refutation.
+ *
+ * @param {string} before @param {string} after @returns {boolean}
+ */
 function isForward(before, after) {
   if (before === 'open') return after !== 'open';
-  if (before === 'fixed') return after === 'debt';
-  return false;
+  if (after !== 'false-positive') return before === 'fixed' && after === 'debt';
+  return before === 'fixed' || before === 'debt';
 }
 
 /**

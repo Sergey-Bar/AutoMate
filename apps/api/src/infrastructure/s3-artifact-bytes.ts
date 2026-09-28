@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
-import type { ArtifactBytesStore } from './artifact-store.js';
+import { DIGEST_MISMATCH, MAX_ARTIFACT_BYTES, type ArtifactBytesStore } from './artifact-store.js';
 
 /**
  * Minimal S3-compatible artifact bytes adapter.
@@ -19,7 +19,15 @@ const MAX_ERROR_BODY_BYTES = 1024;
 const BUCKET_NAME = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 const UNRESERVED_EXTRA = /[!'()*]/g;
 
-export const DEFAULT_MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
+/**
+ * The object-store read bound.
+ *
+ * Named here because this is where it was first written, and re-exported rather than
+ * moved: the value is declared once, in `artifact-store.ts`, so the local tier cannot
+ * drift from this one. Two spellings of 64 MB in two files is how a limit becomes a
+ * suggestion in whichever tier nobody tested.
+ */
+export const DEFAULT_MAX_ARTIFACT_BYTES = MAX_ARTIFACT_BYTES;
 export const DEFAULT_OBJECT_STORE_TIMEOUT_MS = 15_000;
 export const MAX_STORAGE_KEY_LENGTH = 1024;
 
@@ -289,7 +297,7 @@ export class S3ArtifactBytesStore implements ArtifactBytesStore {
     if (!response.ok) throw await this.failure('delete', key, response);
   }
 
-  async get(storageKey: string): Promise<Uint8Array | null> {
+  async get(storageKey: string, expectedDigest?: string): Promise<Uint8Array | null> {
     const key = assertArtifactStorageKey(storageKey);
     const response = await this.send('GET', key, new Uint8Array());
     // Only a missing object is a miss; every other failure is a real storage
@@ -308,6 +316,12 @@ export class S3ArtifactBytesStore implements ArtifactBytesStore {
     const bytes = await readBounded(response, this.settings.maxBytes);
     if (bytes.byteLength > this.settings.maxBytes) {
       throw new Error(`Artifact is above the ${this.settings.maxBytes}-byte object store limit`);
+    }
+    // The bound above is not integrity: a truncated or rewritten object inside the
+    // limit is still not the artifact the row recorded. The digest travels with the
+    // read because only the row knows it, and the local tier checks the same one.
+    if (expectedDigest !== undefined && sha256Hex(bytes) !== expectedDigest) {
+      throw new Error(DIGEST_MISMATCH);
     }
     return bytes;
   }

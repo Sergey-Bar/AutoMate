@@ -69,6 +69,7 @@
     "test:e2e": "pr-blocking",
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
+    "test:render": "pr-reporting",
     "compose:config": "pr-blocking",
     "migrate:plan": "pr-reporting",
     "migrate:validate": "pr-reporting",
@@ -91,10 +92,13 @@
     "verify:release": "release",
     "security:secrets:self-test": "pr-blocking",
     "typecheck:scripts": "pr-blocking",
+    "typecheck:e2e": "pr-blocking",
+    "render:baseline": "never-in-ci",
     "complexity:baseline": "never-in-ci",
     "test:coverage": "pr-blocking",
     "coverage:provenance": "pr-blocking",
-    "docs:capability-register:baseline": "never-in-ci"
+    "docs:capability-register:baseline": "never-in-ci",
+    "migrate:rehearse": "never-in-ci"
   },
   "scripts": {
     "security:verify": {
@@ -168,6 +172,14 @@
       "requires": [],
       "why": "Playwright is a devDependency; the browser needs `playwright install`."
     },
+    "test:render": {
+      "requires": [],
+      "why": "The rendering budget reads `PerformanceObserver` in a real browser, so it needs no binary beyond the Playwright one `test:e2e` already installs. **Tiered `pr-reporting` and not `pr-blocking`, and the tier is derived rather than chosen** — see `scripts/lib/render-gate-phase.mjs`, whose rule is asserted by `gate-tooling.test.mjs`. Today `performance/rendering-budget.json` has no recorded measurement, so the job measures the four primary routes and reports the numbers without comparing them. It is deliberately not a required check in this state: a required check that can never pass blocks every pull request, teaches reviewers to read red as noise, and hides the failures that matter. Once someone records a real run on the reference hardware D10 commits to (PERF-1), the comparison becomes a real gate and this tier becomes `pr-blocking` **in the same commit** — and the same test fails until it does, so graduating the gate cannot be forgotten or half-applied. Deliberately not in `verify`: it needs a browser and a database, and `verify` has a 20-step budget (D6). Its policy half is in `scripts/lib/rendering-budget.mjs` and is covered by `node --test` inside `test:integration`, so the comparison is checked on every PR even while the measurement is not."
+    },
+    "render:baseline": {
+      "requires": [],
+      "why": "**`never-in-ci`, and that is the point.** This rewrites the rendering ceilings in `performance/rendering-budget.json` from a live run. A baseline writer in a workflow is how a gate starts agreeing with the tree instead of the code — the same reason `complexity:baseline` and `coverage:baseline` are hand-run."
+    },
     "compose:config": {
       "requires": ["docker|podman"],
       "preinstalledInJobImage": true,
@@ -192,7 +204,7 @@
     "smoke:rehearsal": {
       "requires": [],
       "tier": 2,
-      "why": "A **local-target guard**, not a rehearsal: it checks the target is a loopback database and refuses to authorize a cutover, and its own report says `rehearsalPerformed: false`. The rehearsal harness plan W6 requires does not exist yet. Needs `REHEARSAL_MODE=local` and `DATABASE_URL`."
+      "why": "A **local-target guard**, not a rehearsal: it checks the target is a loopback database and refuses to authorize a cutover, and its own report says `rehearsalPerformed: false`. It still is that, and `migrate:rehearse` does not replace it — the guard refuses a production target, and the rehearsal command calls the guard rather than re-implementing the refusal. Needs `REHEARSAL_MODE=local` and `DATABASE_URL`."
     },
     "quality:baseline": {
       "requires": ["semgrep", "gitleaks"],
@@ -203,12 +215,23 @@
     "findings:check": {
       "requires": [],
       "why": "Reads two JSON documents and stats the evidence paths they name. No tool, and deliberately so: the ledger gate is the one that must never be the step that cannot run."
+    },
+    "migrate:rehearse": {
+      "requires": ["pg_dump", "pg_restore", "psql"],
+      "installedBy": "postgresql-client",
+      "why": "RF-5. The rehearsal D1 requires: dump the source, restore it onto a clean instance, apply the migration graph **to the restore**, and re-open every sealed row through the product's own vault module. `pg_dump`/`pg_restore`/`psql` are the PostgreSQL client tools, and the Debian/Ubuntu package is `postgresql-client` — so the install step is a prefix match, not the exact binary name. **`never-in-ci` for the same reason `migrate:apply` is: a rehearsal needs a live second database, and CI has none.** A rehearsal against a service container proves that `pg_dump` is installed, which is not what D1 is for; the one thing that is worth proving — that a real run happened on a real installation before the tenancy wave lands — is a fact about an installation, not about a runner image."
     }
   },
   "environment": {
     "DATABASE_URL": {
-      "requiredByScripts": ["test:e2e", "test:e2e:api", "test:e2e:vertical"],
-      "why": "playwright.config.ts throws without it, so an E2E job with no PostgreSQL service is a configuration error rather than a silently in-memory pass.",
+      "requiredByScripts": [
+        "test:e2e",
+        "test:e2e:api",
+        "test:e2e:vertical",
+        "test:render",
+        "render:baseline"
+      ],
+      "why": "playwright.config.ts throws without it, so an E2E job with no PostgreSQL service is a configuration error rather than a silently in-memory pass. `test:render` and `render:baseline` read the same config, so they inherit the requirement: a rendering number measured against the in-memory store describes an application that does not exist.",
       "satisfiedByJobService": "postgres"
     }
   }

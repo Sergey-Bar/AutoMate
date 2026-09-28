@@ -11,6 +11,24 @@ export interface StoredArtifact {
   retention: 'standard' | 'quarantine' | 'legal_hold';
 }
 
+/**
+ * The largest artifact any store will hand back, in bytes.
+ *
+ * One number for every tier. The object store already refused anything above 64 MB
+ * and the local store refused nothing at all, which meant the same artifact was a
+ * stored object on one deployment and an unbounded allocation on the next, decided by
+ * configuration rather than by the artifact. The upload body limiter uses this same
+ * value, so an artifact the API accepted can always be read back.
+ */
+export const MAX_ARTIFACT_BYTES = 64 * 1024 * 1024;
+
+/** The digest every store compares against when the caller knows what it expected. */
+export const DIGEST_MISMATCH = 'Artifact digest mismatch';
+
+function digestOf(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
 function resolveArtifactPath(root: string, key: string): string {
   if (path.isAbsolute(key) || key.includes('..') || key.includes('\\'))
     throw new Error('Artifact key must be relative');
@@ -65,7 +83,11 @@ async function writeAtomically(target: string, bytes: Uint8Array): Promise<void>
 }
 
 export class LocalArtifactStore {
-  constructor(private readonly root: string) {}
+  constructor(
+    private readonly root: string,
+    /** The read bound, injectable so a test can assert the check without 64 MB of I/O. */
+    readonly maxBytes: number = MAX_ARTIFACT_BYTES,
+  ) {}
 
   async putAt(key: string, bytes: Uint8Array): Promise<void> {
     if (path.isAbsolute(key) || key.includes('..') || key.includes('\\'))
@@ -73,8 +95,26 @@ export class LocalArtifactStore {
     await writeAtomically(resolveArtifactPath(this.root, key), bytes);
   }
 
-  async readAt(key: string): Promise<Uint8Array> {
-    return new Uint8Array(await readFile(resolveArtifactPath(this.root, key)));
+  /**
+   * The live reader: bounded, and verified when the caller knows the expected digest.
+   *
+   * Both checks used to live somewhere else. The bound was absent here, so this read
+   * was unbounded while the object-store tier refused anything above 64 MB; the digest
+   * comparison lived on `read`, which nothing in production called. The verification
+   * is optional because only the caller holding the artifact row knows the digest —
+   * a check that could not be given the digest is a check that cannot run.
+   */
+  async readAt(key: string, expectedDigest?: string): Promise<Uint8Array> {
+    const bytes = await readFile(resolveArtifactPath(this.root, key));
+    if (bytes.byteLength > this.maxBytes) {
+      throw new Error(
+        `Artifact is ${bytes.byteLength} bytes, above the ${this.maxBytes}-byte local artifact store limit`,
+      );
+    }
+    if (expectedDigest !== undefined && digestOf(bytes) !== expectedDigest) {
+      throw new Error(DIGEST_MISMATCH);
+    }
+    return new Uint8Array(bytes);
   }
 
   /**
@@ -107,16 +147,19 @@ export class LocalArtifactStore {
       key,
       contentType: input.contentType,
       byteSize: input.bytes.byteLength,
-      digest: createHash('sha256').update(input.bytes).digest('hex'),
+      digest: digestOf(input.bytes),
       retention: input.retention ?? 'standard',
     };
   }
 
+  /**
+   * Reads by descriptor, so the row's own digest is the one checked.
+   *
+   * Delegates rather than hashing again: the comparison has one implementation, and
+   * this method differs from `readAt` only in that it already holds the digest.
+   */
   async read(artifact: StoredArtifact): Promise<Uint8Array> {
-    const bytes = await readFile(resolveArtifactPath(this.root, artifact.key));
-    const digest = createHash('sha256').update(bytes).digest('hex');
-    if (digest !== artifact.digest) throw new Error('Artifact digest mismatch');
-    return bytes;
+    return this.readAt(artifact.key, artifact.digest);
   }
 }
 
@@ -129,8 +172,13 @@ export interface ArtifactBytesStore {
    * so returning it for a permissions error, a full disk or a corrupt file
    * reported a storage fault as a missing artifact — the one response that tells
    * the caller to stop asking and tells nobody to go and look.
+   *
+   * `expectedDigest` is the sha256 the artifact row recorded. Supply it wherever a
+   * row is in hand: the bytes are evidence, and a store that returns whatever is
+   * there hands a truncated or rewritten object back as a passing artifact. The
+   * store cannot do this on its own, which is why it is the caller's to pass.
    */
-  get(storageKey: string): Promise<Uint8Array | null>;
+  get(storageKey: string, expectedDigest?: string): Promise<Uint8Array | null>;
   /**
    * Removes the bytes, and resolves when the key is already gone.
    *
@@ -155,9 +203,9 @@ export class LocalArtifactBytesStore implements ArtifactBytesStore {
     await this.store.putAt(storageKey, bytes);
   }
 
-  async get(storageKey: string): Promise<Uint8Array | null> {
+  async get(storageKey: string, expectedDigest?: string): Promise<Uint8Array | null> {
     try {
-      return await this.store.readAt(storageKey);
+      return await this.store.readAt(storageKey, expectedDigest);
     } catch (failure) {
       // Only "the file is not there" is a miss. Everything else is a fault, and it
       // propagates so the boundary can log it and answer 503.
@@ -183,11 +231,11 @@ export class FallbackArtifactBytesStore implements ArtifactBytesStore {
     await this.primary.put(storageKey, bytes);
   }
 
-  async get(storageKey: string): Promise<Uint8Array | null> {
-    const primary = await this.primary.get(storageKey);
+  async get(storageKey: string, expectedDigest?: string): Promise<Uint8Array | null> {
+    const primary = await this.primary.get(storageKey, expectedDigest);
     if (primary !== null) return primary;
     this.onFallback?.(storageKey);
-    return this.fallback.get(storageKey);
+    return this.fallback.get(storageKey, expectedDigest);
   }
 
   /**

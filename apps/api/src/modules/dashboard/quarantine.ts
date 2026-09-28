@@ -7,6 +7,7 @@
  */
 
 import { Hono } from 'hono';
+import { DomainError } from '../../errors/domain-error.js';
 import { randomUUID } from 'node:crypto';
 import type { ResolveQuarantineOutcome } from './drizzle-stores.js';
 import { InMemoryAuditSink, type AuditEntry, type WriteContext } from './audit-sink.js';
@@ -17,6 +18,7 @@ import {
   type ResolveQuarantineBody,
 } from './schemas.js';
 import { AddQuarantineEntryBodySchema, ResolveQuarantineBodySchema } from './schemas.js';
+import { currentRequestId } from '../../observability/request-context.js';
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -157,13 +159,20 @@ export interface DashboardQuarantineOptions {
   contextFor?: (c: { req: { header(name: string): string | undefined } }) => WriteContext;
 }
 
-function defaultContextFor(request: {
-  req: { header(name: string): string | undefined };
-}): WriteContext {
+/**
+ * The audit context for a write with no authenticated principal.
+ *
+ * The request is not an input: the id comes from the request context, so there is
+ * nothing here for a caller to supply and nothing that can disagree (ledger O-1b).
+ * Outside a request — a test, a background job — the id is absent rather than
+ * invented, because a fabricated correlatable-looking id in an audit row is worse than
+ * a missing one.
+ */
+function defaultContext(): WriteContext {
   return {
     actorId: 'anonymous',
     actorType: 'user',
-    requestId: request.req.header('x-request-id') ?? null,
+    requestId: currentRequestId() ?? null,
   };
 }
 
@@ -183,7 +192,7 @@ async function readBody(c: { req: { json(): Promise<unknown> } }): Promise<unkno
 
 export function createDashboardQuarantineRoutes(options: DashboardQuarantineOptions): Hono {
   const app = new Hono();
-  const contextFor = options.contextFor ?? defaultContextFor;
+  const contextFor = options.contextFor ?? defaultContext;
 
   // ── GET /api/v1/dashboard/quarantine ─────────────────────────────────────
   app.get('/api/v1/dashboard/quarantine', async (c) => {
@@ -195,7 +204,9 @@ export function createDashboardQuarantineRoutes(options: DashboardQuarantineOpti
   app.post('/api/v1/dashboard/quarantine', async (c) => {
     const parsed = AddQuarantineEntryBodySchema.safeParse(await readBody(c));
     if (!parsed.success) {
-      return c.json({ error: 'Invalid quarantine entry', issues: parsed.error.issues }, 400);
+      throw new DomainError('INVALID_QUARANTINE_ENTRY', 'Invalid quarantine entry', {
+        details: { issues: parsed.error.issues },
+      });
     }
 
     const entry = await options.store.add(
@@ -215,27 +226,30 @@ export function createDashboardQuarantineRoutes(options: DashboardQuarantineOpti
     const id = c.req.param('id');
     const parsed = ResolveQuarantineBodySchema.safeParse(await readBody(c));
     if (!parsed.success) {
-      return c.json({ error: 'Invalid quarantine decision', issues: parsed.error.issues }, 400);
+      throw new DomainError('INVALID_QUARANTINE_DECISION', 'Invalid quarantine decision', {
+        details: { issues: parsed.error.issues },
+      });
     }
     const outcome = await options.store.resolve(id, parsed.data, contextFor(c));
     if (outcome.kind === 'not_found') {
-      return c.json({ error: 'Quarantine entry not found' }, 404);
+      throw new DomainError('QUARANTINE_ENTRY_NOT_FOUND', 'Quarantine entry not found');
     }
     if (outcome.kind === 'illegal_transition') {
       // 409, not 400: the request was well formed and the resource exists, but its
       // current state forbids the move. A client can retry this against a different
       // state; it cannot fix it by resending the same body.
-      return c.json(
-        {
-          error: `A ${outcome.from} quarantine entry cannot become ${outcome.to}`,
+      throw new DomainError('INVALID_STATE_TRANSITION', 'Invalid quarantine transition', {
+        // `allowed` is the part a client actually needs: the message used to build the
+        // two states into a sentence, and a dashboard that wanted to offer the legal
+        // moves had to parse it.
+        details: {
           from: outcome.from,
           to: outcome.to,
           allowed: QUARANTINE_STATUSES.filter((status) =>
             canTransitionQuarantine(outcome.from, status),
           ),
         },
-        409,
-      );
+      });
     }
     return c.json(outcome.entry);
   });
@@ -245,7 +259,7 @@ export function createDashboardQuarantineRoutes(options: DashboardQuarantineOpti
     const id = c.req.param('id');
     const removed = await options.store.remove(id, contextFor(c));
     if (!removed) {
-      return c.json({ error: 'Quarantine entry not found' }, 404);
+      throw new DomainError('QUARANTINE_ENTRY_NOT_FOUND', 'Quarantine entry not found');
     }
     return c.json({ removed: true });
   });

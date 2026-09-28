@@ -57,10 +57,29 @@ services:
       REPORTER_SECRET: ${REPORTER_SECRET:?set REPORTER_SECRET}
       RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       ARTIFACT_ROOT: /var/lib/automate/artifacts
+      # The `minio` service above was declared and referenced by nothing: no service
+      # depended on it and no service pointed at it, so the dev stack ran a store
+      # nothing used. Wiring it here is what makes that service load-bearing. The API is
+      # `NODE_ENV: development`, so the production policy does not apply and the
+      # filesystem fallback in `ARTIFACT_ROOT` would have sufficed — which is exactly
+      # why nothing noticed. It is wired anyway, so that a developer exercising
+      # artifact upload and download runs the same path production does.
+      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-automate-artifacts}
+      OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
+      OBJECT_STORE_ACCESS_KEY_ID: local-only
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      OBJECT_STORE_FORCE_PATH_STYLE: 'true'
+      # Plain HTTP on the compose network, which the policy only permits outside
+      # production. Kept explicit so the difference from a production endpoint is a
+      # visible line rather than an absence.
+      OBJECT_STORE_ALLOW_INSECURE: 'true'
       PUBLIC_APP_URL: http://localhost:58080
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio:
+        condition: service_healthy
     # `web` and `edge` both wait on `service_healthy`, and only `postgres` had a
     # healthcheck, so the documented dev stack could never start: the condition
     # was never satisfied. `/api/v1/health` needs no credential.

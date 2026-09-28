@@ -8,12 +8,29 @@ import {
   resolveAuthSecrets,
 } from './startup-policy.js';
 import type { AppConfig } from './config.js';
+import {
+  syntheticApiKey,
+  syntheticCookieSecret,
+  syntheticReporterSecret,
+  syntheticRunnerRegistrationSecret,
+  syntheticVaultSecret,
+} from './test-support/synthetic-credentials.js';
 
-const VALID_COOKIE_SECRET = 'valid-cookie-secret-that-is-long-enough';
-const VALID_REPORTER_SECRET = 'valid-reporter-secret-x';
-const VALID_API_KEY = 'a-valid-api-key-here';
-const VALID_VAULT_SECRET = 'a-valid-vault-secret-32chars-min!!';
-const VALID_RUNNER_REGISTRATION_SECRET = 'a-valid-runner-registration';
+/**
+ * Values the production policy actually accepts.
+ *
+ * Assembled rather than written, and audited by
+ * `src/test-support/synthetic-credentials.test.ts`. These used to be 16- to
+ * 23-character hand-written strings, which meant a test standing in for a deployment
+ * credential was exercising a configuration the production policy refuses — a fixture
+ * that could not fail, because it was never checked against the thing it claimed to
+ * stand for.
+ */
+const VALID_COOKIE_SECRET = syntheticCookieSecret();
+const VALID_REPORTER_SECRET = syntheticReporterSecret();
+const VALID_API_KEY = syntheticApiKey();
+const VALID_VAULT_SECRET = syntheticVaultSecret();
+const VALID_RUNNER_REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 const VALID_OBJECT_STORE = {
   endpoint: 'https://objects.example.com',
   bucket: 'automate-artifacts',
@@ -62,6 +79,51 @@ describe('assertInMemoryAllowed', () => {
         assertInMemoryAllowed(config({ nodeEnv }), 'InMemoryRunRepository'),
       ).not.toThrow();
     }
+  });
+
+  it('announces the fallback rather than degrading in silence', () => {
+    // The half that was missing, and the half that costs something. Refusing in
+    // production is the guarantee; a developer whose database is unreachable still
+    // gets a working API that is not durable, and nothing in the output says so. The
+    // logger is injected so this asserts the announcement rather than reading stdout.
+    const messages: string[] = [];
+    assertInMemoryAllowed(config({ nodeEnv: 'development' }), 'InMemoryRunRepository', (message) =>
+      messages.push(message),
+    );
+
+    expect(messages).toHaveLength(1);
+    const [message] = messages;
+    expect(message).toContain('InMemoryRunRepository');
+    expect(message).toMatch(/not durable/i);
+    expect(message).toMatch(/DATABASE_URL/);
+  });
+
+  it('announces nothing when it refuses', () => {
+    // A refusal that also logged a fallback message would tell an operator the
+    // opposite of what happened.
+    const messages: string[] = [];
+    expect(() =>
+      assertInMemoryAllowed(config({ nodeEnv: 'production' }), 'InMemoryRunRepository', (message) =>
+        messages.push(message),
+      ),
+    ).toThrow();
+    expect(messages).toEqual([]);
+  });
+
+  it('names the component, so eight fallback sites produce eight distinguishable lines', () => {
+    // One function is the choke point on purpose: eight callers each logging for
+    // themselves is eight chances to forget one, and a log that names no component
+    // cannot tell you which store is not durable.
+    const messages: string[] = [];
+    for (const component of ['InMemoryRunRepository', 'dashboard stores', 'vault']) {
+      assertInMemoryAllowed(config({ nodeEnv: 'test' }), component, (message) =>
+        messages.push(message),
+      );
+    }
+    expect(messages).toHaveLength(3);
+    expect(messages[0]).toContain('InMemoryRunRepository');
+    expect(messages[1]).toContain('dashboard stores');
+    expect(messages[2]).toContain('vault');
   });
 });
 

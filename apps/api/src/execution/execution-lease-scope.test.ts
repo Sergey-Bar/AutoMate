@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { InMemoryExecutionStore } from './in-memory-execution-store.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 
 const REGISTRATION_SECRET = 'registration-secret';
 
@@ -50,12 +51,14 @@ function auth(token: string): Record<string, string> {
 }
 
 function build(store: InMemoryExecutionStore, workspaceId: string): Hono {
-  return createExecutionRoutes({
-    store,
-    workspaceId,
-    requireIdempotencyKey: true,
-    registrationSecret: REGISTRATION_SECRET,
-  });
+  return withErrorBoundary(
+    createExecutionRoutes({
+      store,
+      workspaceId,
+      requireIdempotencyKey: true,
+      registrationSecret: REGISTRATION_SECRET,
+    }),
+  );
 }
 
 async function createRun(app: Hono, key: string): Promise<string> {

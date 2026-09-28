@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { createAgentRoutes } from '../routes/agents.js';
@@ -6,6 +7,27 @@ import { createHealthRoutes } from '../routes/health.js';
 import { InMemoryExecutionStore, hashRunnerToken } from './in-memory-execution-store.js';
 import { createGateEvaluation, defaultPolicy, policyDigest } from './quality-gate.js';
 import { integrationMaturity, listIntegrationMaturity } from './maturity.js';
+import { createErrorBoundary } from '../errors/boundary.js';
+
+/**
+ * The routes, mounted the way the application mounts them.
+ *
+ * The error boundary is not decoration here: since finding C-3 a handler refuses by
+ * `throw`ing a `DomainError`, and this boundary is what renders it into the response
+ * body. A bare `Hono` would answer 500 and the suite would be asserting the wrong thing
+ * — and a body only the removed `error(c, …)` helper could produce would stop being
+ * testable, which is the point.
+ */
+function mounted(routes: Hono): Hono {
+  const { onError } = createErrorBoundary({
+    log: () => undefined,
+    reportError: () => undefined,
+    // Outside a request there is no id, and the boundary is told so rather than being
+    // handed a fabricated one. The production middleware supplies the real value.
+    requestId: () => 'NO_REQUEST',
+  });
+  return new Hono().onError(onError).route('/', routes);
+}
 
 function clockStore(): { store: InMemoryExecutionStore; set: (value: Date) => void } {
   let now = new Date('2026-02-01T00:00:00.000Z');
@@ -28,8 +50,7 @@ async function registeredApp(
   leaseId: string;
   fencingToken: number;
 }> {
-  const app = new Hono().route(
-    '/',
+  const app = mounted(
     createExecutionRoutes({ store, workspaceId: 'workspace-edge', registrationSecret: secret }),
   );
   const response = await app.request('/api/v1/runners/register', {
@@ -145,8 +166,7 @@ describe('execution edge cases', () => {
 describe('execution route edge cases', () => {
   it('returns structured errors for invalid and unauthenticated requests', async () => {
     const { store } = clockStore();
-    const app = new Hono().route(
-      '/',
+    const app = mounted(
       createExecutionRoutes({ store, registrationSecret: 'secret', requireIdempotencyKey: true }),
     );
     expect(
@@ -201,7 +221,7 @@ describe('execution route edge cases', () => {
 
   it('handles policy, gate, and canonical artifact endpoints', async () => {
     const { store } = clockStore();
-    const app = new Hono().route('/', createExecutionRoutes({ store }));
+    const app = mounted(createExecutionRoutes({ store }));
     const policyResponse = await app.request('/api/v1/quality-policies', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -693,15 +713,13 @@ describe('full in-memory execution branches', () => {
 
 describe('health and agents', () => {
   it('reports readiness with and without a database', async () => {
-    const noDatabase = new Hono().route('/', createHealthRoutes());
+    const noDatabase = withErrorBoundary(createHealthRoutes());
     expect((await noDatabase.request('/api/v1/ready')).status).toBe(503);
-    const ready = new Hono().route(
-      '/',
+    const ready = withErrorBoundary(
       createHealthRoutes({ databaseUrl: 'postgres://test', checkDatabase: async () => undefined }),
     );
     expect((await ready.request('/api/v1/ready')).status).toBe(200);
-    const unavailable = new Hono().route(
-      '/',
+    const unavailable = withErrorBoundary(
       createHealthRoutes({
         databaseUrl: 'postgres://test',
         checkDatabase: async () => {
@@ -713,7 +731,7 @@ describe('health and agents', () => {
   });
 
   it('returns explicit unknown and unconfigured agent responses', async () => {
-    const app = new Hono().route('/', createAgentRoutes());
+    const app = withErrorBoundary(createAgentRoutes());
     expect((await app.request('/api/v1/agents/unknown/generate', { method: 'POST' })).status).toBe(
       404,
     );

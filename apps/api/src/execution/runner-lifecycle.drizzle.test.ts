@@ -386,6 +386,90 @@ describe('claiming is exclusive, and the lease is enforced', () => {
   });
 });
 
+/**
+ * The terminal write is fenced, and the assertion is at the store rather than the route.
+ *
+ * Finding O-1 is about a worker that finishes a job it no longer owns. Two layers
+ * already refuse that: `routes/execution/shared.ts` compares the lease and the token
+ * before the store is called, and `drizzle-execution-store.ts:1387` compares them again
+ * inside the transaction. The route is covered — `routes/execution.test.ts` asserts
+ * `JOB_FENCING_STALE` and `JOB_LEASE_INVALID` as separate codes — and the store's
+ * `appendEvents` fence is covered above.
+ *
+ * `completeJob`'s own fence was the one left with no assertion on it, and that is a gap
+ * with a specific shape: the route fences, so a caller reaching the store through the
+ * route is already refused, which means deleting line 1387 changes nothing that any
+ * test can see. The second comparison is defence in depth, and defence in depth that
+ * nothing checks is one refactor away from not being there.
+ */
+describe('a terminal write is fenced at the store', () => {
+  it('refuses a completion from a lease that was never issued', async () => {
+    const { jobId } = await aRunWithAJob();
+    const runner = await enrol('complete-lease');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+
+    const result = await store.completeJob(
+      jobId,
+      {
+        leaseId: 'lease-that-was-never-issued',
+        fencingToken: claim?.fencingToken ?? 1,
+        status: 'completed',
+        phase: 'completed',
+      },
+      workspaceId,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('refuses a completion from a token the attempt before this one held', async () => {
+    const { jobId } = await aRunWithAJob();
+    const runner = await enrol('complete-fence');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+
+    // A runner that lost its lease, the reaper requeued the job, a second runner took
+    // it, and the first runner finishes last in wall-clock terms. Without the token
+    // comparison this writes `complete` over whatever the second runner has done.
+    const result = await store.completeJob(
+      jobId,
+      {
+        leaseId: claim?.leaseId ?? '',
+        fencingToken: (claim?.fencingToken ?? 2) - 1,
+        status: 'completed',
+        phase: 'completed',
+      },
+      workspaceId,
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it('accepts the holder’s own completion, so the refusals above are refusals', async () => {
+    const { jobId } = await aRunWithAJob();
+    const runner = await enrol('complete-held');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+    expect(claim).not.toBeNull();
+
+    const result = await store.completeJob(
+      jobId,
+      {
+        leaseId: claim!.leaseId,
+        fencingToken: claim!.fencingToken,
+        // `status` is the run's outcome here, and it is also what the job's terminal
+        // state is derived from. `completed` is a *job* state and leaves the run's
+        // outcome `unknown`, which is a real and correct refusal to call a run green
+        // that reported nothing — asserted deliberately rather than worked around.
+        status: 'passed',
+        phase: 'completed',
+      },
+      workspaceId,
+    );
+
+    expect(result).toMatchObject({ status: 'accepted' });
+    expect(result!.run).toMatchObject({ phase: 'complete', outcome: 'passed' });
+  });
+});
+
 describe('a swept lease releases the job it was holding', () => {
   it('releases an expired lease and clears the holder', async () => {
     const { jobId } = await aRunWithAJob();

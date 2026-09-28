@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { OrchestrationService } from '../services/orchestration-service.js';
 import { createOrchestrationRoutes } from './orchestration.js';
 
 describe('orchestration routes', () => {
   it('creates an automation, enqueues a job, and cancels it', async () => {
-    const app = new Hono().route('/', createOrchestrationRoutes(new OrchestrationService()));
+    const app = withErrorBoundary(new Hono()).route(
+      '/',
+      createOrchestrationRoutes(new OrchestrationService()),
+    );
     const definition = {
       workspaceId: 'workspace-1',
       name: 'Playwright',
@@ -34,7 +38,10 @@ describe('orchestration routes', () => {
   });
 
   it('creates and lists schedules', async () => {
-    const app = new Hono().route('/', createOrchestrationRoutes(new OrchestrationService()));
+    const app = withErrorBoundary(new Hono()).route(
+      '/',
+      createOrchestrationRoutes(new OrchestrationService()),
+    );
     const schedule = {
       automationId: 'automation-1',
       cron: '0 * * * *',

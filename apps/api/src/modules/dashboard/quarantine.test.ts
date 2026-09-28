@@ -13,6 +13,34 @@
  * whether a decision is applied or only reported.
  */
 import { describe, expect, it } from 'vitest';
+/**
+ * The boundary's body, named.
+ *
+ * A cast to `Record<string, unknown>` can read any shape and so checks none, which is
+ * how `body.error` stayed a bare string in this suite after the migration: the
+ * assertion was satisfied by a field that no longer exists.
+ */
+interface BoundaryBody {
+  /** The success shapes these same files read: `id`, `status`, `allowed`, `runs`. */
+  [key: string]: unknown;
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: {
+      issues: Array<{ path: unknown[]; message?: string }>;
+      fieldErrors?: Record<string, unknown>;
+      /** The statuses a client may ask for, rather than a sentence naming them. */
+      allowed?: string[];
+      /** How long to wait, rather than a sentence saying to try again. */
+      retryAfterSeconds?: number;
+      from?: string;
+      to?: string;
+    };
+  };
+}
+
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import {
   createDashboardQuarantineRoutes,
@@ -73,7 +101,7 @@ const FOREIGN_ENTRY: QuarantineEntry = {
 };
 
 function mount(store: QuarantineStore): Hono {
-  return new Hono().route('/', createDashboardQuarantineRoutes({ store }));
+  return withErrorBoundary(createDashboardQuarantineRoutes({ store }));
 }
 
 function build(): { app: Hono; store: InMemoryQuarantineStore } {
@@ -233,13 +261,13 @@ describe('POST /api/v1/dashboard/quarantine', () => {
     const { app } = build();
 
     const response = await post(app, { testFile: VALID_ENTRY.testFile });
-    const body = (await response.json()) as {
-      error: string;
-      issues: Array<{ path: unknown[] }>;
-    };
+    const body = (await response.json()) as BoundaryBody;
 
-    expect(body.error).toBe('Invalid quarantine entry');
-    expect(body.issues.map((issue) => issue.path[0])).toEqual(['testTitle']);
+    expect(body.error.code).toBe('INVALID_QUARANTINE_ENTRY');
+    expect(body.error.message).toBe('Invalid quarantine entry');
+    expect(
+      body.error.details.issues.map((issue) => String((issue as { path: unknown[] }).path[0])),
+    ).toEqual(['testTitle']);
   });
 
   it('attributes the write to the request id it was given', async () => {
@@ -317,11 +345,12 @@ describe('PATCH /api/v1/dashboard/quarantine/:id', () => {
     // 409, not 400: the request was well formed and the entry exists, but its state
     // forbids the move. Resending the same body cannot fix it.
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({
-      error: 'A rejected quarantine entry cannot become approved',
-      from: 'rejected',
-      to: 'approved',
-      allowed: ['rejected'],
+    expect(await response.json()).toMatchObject({
+      error: {
+        code: 'INVALID_STATE_TRANSITION',
+        message: 'Invalid quarantine transition',
+        details: { from: 'rejected', to: 'approved', allowed: ['rejected'] },
+      },
     });
     // Refused, not applied: the store still says `rejected` and recorded no second
     // decision.
@@ -388,7 +417,9 @@ describe('PATCH /api/v1/dashboard/quarantine/:id', () => {
     });
 
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Quarantine entry not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'QUARANTINE_ENTRY_NOT_FOUND', message: 'Quarantine entry not found' },
+    });
     expect(store.recorded).toHaveLength(0);
   });
 
@@ -400,7 +431,9 @@ describe('PATCH /api/v1/dashboard/quarantine/:id', () => {
 
     // 404, not 403: a 403 would confirm the id exists here.
     expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: 'Quarantine entry not found' });
+    expect(await response.json()).toMatchObject({
+      error: { code: 'QUARANTINE_ENTRY_NOT_FOUND', message: 'Quarantine entry not found' },
+    });
     expect(store.askedToResolve).toEqual(['theirs']);
     // And the decision was not applied to somebody else's row.
     expect(store.foreign[0]).toEqual(FOREIGN_ENTRY);
@@ -438,7 +471,9 @@ describe('DELETE /api/v1/dashboard/quarantine/:id', () => {
     // that removed nothing is how a caller comes to believe a test is back in the
     // pass rate.
     expect(second.status).toBe(404);
-    expect(await second.json()).toEqual({ error: 'Quarantine entry not found' });
+    expect(await second.json()).toMatchObject({
+      error: { code: 'QUARANTINE_ENTRY_NOT_FOUND', message: 'Quarantine entry not found' },
+    });
     expect(store.recorded.map((entry) => entry.action)).toEqual([
       'quarantine.created',
       'quarantine.removed',

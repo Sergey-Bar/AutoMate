@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod/v4';
+import { DomainError } from '../errors/domain-error.js';
 import { RunnerControlService } from '../services/runner-control.js';
 import { bearerToken } from '../http/bearer-token.js';
 
@@ -17,9 +18,6 @@ const EventSchema = z.object({
   payload: z.record(z.string(), z.unknown()),
 });
 
-/** The one failure a runner can legitimately provoke: an unusable credential. */
-class UnauthorizedError extends Error {}
-
 type RunnerIdentity = ReturnType<RunnerControlService['authenticate']>;
 
 /**
@@ -29,6 +27,12 @@ type RunnerIdentity = ReturnType<RunnerControlService['authenticate']>;
  * authentication failure — the hardest kind of bug to notice across a network.
  * Only this call is guarded; anything else reaches the central error handler
  * and becomes a logged 500.
+ *
+ * **The refusal is now a `DomainError` rather than a private error class.** It used to
+ * throw `UnauthorizedError` for the private `onError` to recognise, which is what a
+ * second boundary needs and what one boundary does not: with the class removed, the
+ * boundary no longer has to know this route exists, and a runner client can branch on
+ * `UNAUTHENTICATED` instead of on the absence of a `code`.
  */
 function requireIdentity(
   service: RunnerControlService,
@@ -37,32 +41,40 @@ function requireIdentity(
   try {
     return service.authenticate(bearer(header));
   } catch (error) {
-    if (error instanceof Error && error.message === 'Invalid runner credential')
-      throw new UnauthorizedError('Unauthorized');
+    if (error instanceof Error && error.message === 'Invalid runner credential') {
+      throw new DomainError('UNAUTHENTICATED', 'Unauthorized', { cause: error });
+    }
     throw error;
   }
 }
 
 export function createRunnerRoutes(service: RunnerControlService) {
   const app = new Hono();
-  app.onError((error, context) => {
-    if (error instanceof UnauthorizedError) return context.json({ error: 'Unauthorized' }, 401);
-    console.error('runner route failed', {
-      path: context.req.path,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return context.json({ error: 'Internal error' }, 500);
-  });
-
+  // No private `onError` here any more.
+  //
+  // This file registered its own, so it answered its own: an `UnauthorizedError` as a
+  // bare `{ error: 'Unauthorized' }` with no `code`, everything else as a bare
+  // `{ error: 'Internal error' }` with no request id and nothing reported. That is a
+  // second error boundary, which `AGENTS.md` forbids, and it is the reason a runner
+  // client had to match on prose: nothing in the body was branchable. The handlers below
+  // now throw `DomainError`, and `errors/boundary.ts` renders them — the same way every
+  // other route in this API answers.
   app.post('/api/v1/runner/v1/enroll', async (context) => {
     const parsed = EnrollmentSchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return context.json({ error: 'Invalid enrollment request' }, 400);
+    if (!parsed.success) {
+      throw new DomainError('INVALID_ENROLLMENT_REQUEST', 'Invalid enrollment request', {
+        details: { issues: parsed.error.issues },
+      });
+    }
     try {
       const identity = service.enroll(parsed.data.enrollmentToken, parsed.data.capabilities);
       return context.json({ runnerId: identity.id, credential: identity.credential }, 201);
     } catch (error) {
-      if (error instanceof Error && error.message === 'Invalid enrollment token')
-        return context.json({ error: 'Invalid enrollment token' }, 401);
+      if (error instanceof Error && error.message === 'Invalid enrollment token') {
+        throw new DomainError('INVALID_ENROLLMENT_TOKEN', 'Invalid enrollment token', {
+          cause: error,
+        });
+      }
       throw error;
     }
   });
@@ -73,12 +85,20 @@ export function createRunnerRoutes(service: RunnerControlService) {
   app.post('/api/v1/runner/v1/jobs/:jobId/events/batch', async (context) => {
     const identity = requireIdentity(service, context.req.header('Authorization'));
     const events = z.array(EventSchema).safeParse(await context.req.json().catch(() => null));
-    if (!events.success) return context.json({ error: 'Invalid event batch' }, 400);
+    if (!events.success) {
+      throw new DomainError('INVALID_EVENT_BATCH', 'Invalid event batch', {
+        details: { issues: events.error.issues },
+      });
+    }
     const results = events.data.map((event) =>
       service.acceptEvent(identity, { ...event, jobId: context.req.param('jobId') }),
     );
-    if (results.includes('conflict'))
-      return context.json({ error: 'Stale or conflicting event' }, 409);
+    // `conflict` is a 409 and not a 400: the batch was well-formed, the runner is
+    // behind. A runner that treats this as a bad request discards events it should
+    // resend under its current sequence.
+    if (results.includes('conflict')) {
+      throw new DomainError('STALE_OR_CONFLICTING_EVENT', 'Stale or conflicting event');
+    }
     return context.json({ results });
   });
   return app;

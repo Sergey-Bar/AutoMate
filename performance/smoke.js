@@ -45,7 +45,7 @@ const HEADERS = {
   'content-type': 'application/json',
   // The API key the compose stack is started with. The E2E/performance stack
   // supplies a key of its own; the value is a fixture, not a credential.
-  authorization: `Bearer ${__ENV.AUTOMATE_API_KEY || 'e2e-installation-key'}`,
+  authorization: `Bearer ${__ENV.AUTOMATE_API_KEY || 'e2e-installation-key-32-characters-long'}`,
 };
 
 export default function smoke() {

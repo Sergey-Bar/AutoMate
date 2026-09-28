@@ -148,8 +148,61 @@ if (!/useDefault\s*=\s*true/.test(gitleaksSource))
   fail(gitleaksFile, 'the default ruleset is not enabled, so provider token rules are absent');
 
 /**
+ * Strip one layer of matching quotes from a TOML key or path segment.
+ *
+ * @param {string} part
+ * @returns {string}
+ */
+function unquoteToml(part) {
+  return part.trim().replace(/^["']|["']$/g, '');
+}
+
+/**
+ * A `[table]` or `[[array-of-tables]]` header, or `null` for any other line.
+ *
+ * Extracted from the scanner below, which was one loop carrying six branches and
+ * measured cognitive complexity 20 against this repository's ceiling of 15. It had
+ * never been measured before, because `scripts/complexity-gate.mjs` was passing a
+ * `--rule` flag that flat config cannot resolve for a plugin-scoped rule — the gate
+ * exited 2 with no report and took its own "no report" branch, so the recorded
+ * baseline was counted from a measurement that never ran. Repairing that gate
+ * (ledger E-2) is what surfaced this function. Refactoring rather than re-recording the
+ * baseline is the deliberate choice: the baseline is only worth anything if it moves
+ * because the code got worse, and a count that grows because the instrument started
+ * working should not be absorbed by raising the line.
+ *
+ * @param {string} line
+ * @returns {{ path: string[], isArray: boolean } | null}
+ */
+function tomlHeader(line) {
+  const header = /^\[\[?([^\]]+)\]\]?$/.exec(line);
+  if (header === null) return null;
+  return { path: (header[1] ?? '').split('.').map(unquoteToml), isArray: line.startsWith('[[') };
+}
+
+/**
+ * A `key = value` assignment, or `null` for a line that is not one.
+ *
+ * @param {string} line
+ * @returns {{ key: string } | null}
+ */
+function tomlKey(line) {
+  const separator = line.indexOf('=');
+  if (separator === -1) return null;
+  const key = unquoteToml(line.slice(0, separator));
+  return key === '' ? null : { key };
+}
+
+/**
  * Every significant line of a TOML file: a table header, an array-of-tables
  * header, or a key assignment, each with its fully-qualified path.
+ *
+ * The per-line decision is a separate function because it has to answer four questions
+ * about one line — is it a header, are we inside a multi-line array, does it open one,
+ * does it assign a key — and the two pieces of state it answers two of them with are
+ * owned by the loop. Returning both the new state and whatever statement the line
+ * produced means the loop cannot forget to carry one of them forward, which is the
+ * failure mode when this is written as one function with two mutable locals.
  *
  * @param {string} source
  * @returns {Array<{ kind: 'table' | 'array-of-tables' | 'key', path: string }>}
@@ -161,40 +214,68 @@ function tomlStatements(source) {
   let tablePath = [];
   let inArray = false;
 
-  /** @param {string} part */
-  const unquote = (part) => part.trim().replace(/^["']|["']$/g, '');
-
   for (const raw of source.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (line === '' || line.startsWith('#')) continue;
-
-    const header = /^\[\[?([^\]]+)\]\]?$/.exec(line);
-    if (header !== null) {
-      tablePath = (header[1] ?? '').split('.').map(unquote);
-      // An array-of-tables re-opens its own namespace on every element, so it
-      // never collides with an earlier value of the same path.
-      statements.push({
-        kind: line.startsWith('[[') ? 'array-of-tables' : 'table',
-        path: tablePath.join('.'),
-      });
-      inArray = false;
-      continue;
-    }
-
-    // Inside a multi-line array the entries are values, not keys.
-    if (inArray) {
-      if (line === ']') inArray = false;
-      continue;
-    }
-    if (line.startsWith('[') && !line.endsWith(']')) inArray = true;
-
-    const separator = line.indexOf('=');
-    if (separator === -1) continue;
-    const key = unquote(line.slice(0, separator));
-    if (key === '') continue;
-    statements.push({ kind: 'key', path: [...tablePath, key].join('.') });
+    const outcome = readTomlLine(raw.trim(), tablePath, inArray);
+    tablePath = outcome.tablePath;
+    inArray = outcome.inArray;
+    if (outcome.statement !== null) statements.push(outcome.statement);
   }
   return statements;
+}
+
+/**
+ * One line, and the state it leaves behind.
+ *
+ * @param {string} line
+ * @param {string[]} tablePath the table bare keys currently belong to
+ * @param {boolean} inArray whether the cursor is inside a multi-line array
+ * @returns {{ tablePath: string[], inArray: boolean,
+ *   statement: { kind: 'table' | 'array-of-tables' | 'key', path: string } | null }}
+ */
+function readTomlLine(line, tablePath, inArray) {
+  const carried = { tablePath, inArray, statement: /** @type {null} */ (null) };
+  if (line === '' || line.startsWith('#')) return carried;
+
+  const header = tomlHeader(line);
+  if (header !== null) {
+    // An array-of-tables re-opens its own namespace on every element, so it never
+    // collides with an earlier value of the same path.
+    return {
+      tablePath: header.path,
+      inArray: false,
+      statement: {
+        kind: header.isArray ? 'array-of-tables' : 'table',
+        path: header.path.join('.'),
+      },
+    };
+  }
+
+  // Inside a multi-line array the entries are values, not keys, so the only thing
+  // this line can change is whether the array has just closed.
+  if (inArray) return { ...carried, inArray: line !== ']' };
+
+  const inArrayAfter = opensArray(line);
+  const assignment = tomlKey(line);
+  if (assignment === null) return { ...carried, inArray: inArrayAfter };
+
+  return {
+    tablePath,
+    inArray: inArrayAfter,
+    statement: { kind: 'key', path: [...tablePath, assignment.key].join('.') },
+  };
+}
+
+/**
+ * Whether a line opens a multi-line array.
+ *
+ * A header was already handled by the caller, so this only sees a value line whose
+ * bracket is unterminated.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
+function opensArray(line) {
+  return line.startsWith('[') && !line.endsWith(']');
 }
 
 /**

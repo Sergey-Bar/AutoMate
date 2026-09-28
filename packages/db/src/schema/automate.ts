@@ -16,6 +16,7 @@ import {
   jsonb,
   real,
   index,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
 
@@ -26,13 +27,21 @@ export const conversations = pgTable(
   {
     // SQLite: text('id').primaryKey()
     id: text('id').primaryKey(),
+    // Added, `NOT NULL`, by `0018_chat_workspace_scope.sql`. Every conversation was
+    // globally readable before it, and this is the only tenancy boundary in the
+    // repository — see the migration for why workspace scope and not a per-owner column
+    // (ledger P-11).
+    workspaceId: text('workspace_id').notNull(),
     title: text('title'),
     flowTemplateId: text('flow_template_id'),
     // SQLite: text('created_at').notNull()
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
-  (t) => [index('conversations_created_at_idx').on(t.createdAt)],
+  (t) => [
+    index('conversations_created_at_idx').on(t.createdAt),
+    index('conversations_workspace_updated_at_idx').on(t.workspaceId, t.updatedAt),
+  ],
 );
 
 // ─── messages ──────────────────────────────────────────────────────────────
@@ -44,6 +53,14 @@ export const messages = pgTable(
     conversationId: text('conversation_id')
       .notNull()
       .references(() => conversations.id, { onDelete: 'cascade' }),
+    // Inherited from the conversation and kept alongside it.
+    //
+    // A message cannot exist without its conversation — the foreign key says so, and
+    // cascades — so a denormalized copy of the workspace is a second value that can
+    // disagree rather than a second way to read the same one. It is here so the
+    // workspace-scoped query is a single index scan, and the migration fills it from the
+    // parent rather than from anything a caller supplied (ledger P-11).
+    workspaceId: text('workspace_id').notNull(),
     // SQLite: text('role', { enum: ['user', 'assistant', 'system', 'tool'] })
     role: text('role', { enum: ['user', 'assistant', 'system', 'tool'] }).notNull(),
     content: text('content').notNull(),
@@ -53,7 +70,14 @@ export const messages = pgTable(
     metadata: jsonb('metadata'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
-  (t) => [index('messages_conversation_id_created_at_idx').on(t.conversationId, t.createdAt)],
+  (t) => [
+    index('messages_conversation_id_created_at_idx').on(t.conversationId, t.createdAt),
+    index('messages_workspace_conversation_created_idx').on(
+      t.workspaceId,
+      t.conversationId,
+      t.createdAt,
+    ),
+  ],
 );
 
 // ─── message_attachments ───────────────────────────────────────────────────
@@ -72,16 +96,26 @@ export const messageAttachments = pgTable('message_attachments', {
 
 // ─── connector_configs ─────────────────────────────────────────────────────
 // Source: connector_configs table — per-connector settings
-export const connectorConfigs = pgTable('connector_configs', {
-  id: text('id').primaryKey(),
-  connectorName: text('connector_name').notNull().unique(),
-  // SQLite: integer('enabled', { mode: 'boolean' })
-  enabled: boolean('enabled').default(false),
-  credentialRef: text('credential_ref'),
-  // SQLite: text('settings') // JSON
-  settings: jsonb('settings'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
-});
+export const connectorConfigs = pgTable(
+  'connector_configs',
+  {
+    id: text('id').primaryKey(),
+    // Was `UNIQUE` on its own, so one settings row served the whole installation and a
+    // second tenant's configuration overwrote the first's. Now scoped to the workspace by
+    // `0020_connector_credentials_tenant.sql` (ledger P-7).
+    connectorName: text('connector_name').notNull(),
+    workspaceId: text('workspace_id').notNull(),
+    // SQLite: integer('enabled', { mode: 'boolean' })
+    enabled: boolean('enabled').default(false),
+    credentialRef: text('credential_ref'),
+    // SQLite: text('settings') // JSON
+    settings: jsonb('settings'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    uniqueIndex('connector_configs_workspace_connector_idx').on(t.workspaceId, t.connectorName),
+  ],
+);
 
 // ─── flow_templates ────────────────────────────────────────────────────────
 // Source: flow_templates table — workflow templates

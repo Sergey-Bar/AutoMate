@@ -156,6 +156,12 @@ describe('migration graph', () => {
       '0012_gate_config_name',
       '0013_drop_duplicate_runner_identities',
       '0014_query_path_indexes',
+      '0015_schedule_workspace_scope',
+      '0016_gate_status_contract',
+      '0017_outbox_workspace_scope',
+      '0018_chat_workspace_scope',
+      '0019_sp_private_key_sealed',
+      '0020_connector_credentials_tenant',
     ]);
   });
 

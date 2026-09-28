@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { digestOf } from './digest.js';
 import type {
   DomainName,
   DomainStatus,
@@ -39,17 +39,6 @@ export interface QualityGateResult {
   domainStatuses: Record<DomainName, DomainStatus>;
 }
 
-function stable(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .filter((key) => object[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stable(object[key])}`)
-    .join(',')}}`;
-}
-
 export function policyDigest(
   policy: Pick<
     QualityPolicy,
@@ -63,7 +52,7 @@ export function policyDigest(
   > &
     Partial<Pick<QualityPolicy, 'rules'>>,
 ): string {
-  return createHash('sha256').update(stable(policy)).digest('hex');
+  return digestOf(policy);
 }
 
 function defaultDomains(
@@ -93,6 +82,45 @@ function reasonForDomain(domain: DomainName, status: DomainStatus): string | nul
     return `${domain}:NOT_CONFIGURED`;
   if (status === 'unknown') return `${domain}:UNKNOWN`;
   return null;
+}
+
+/**
+ * A refusal reason that answers "which rule, against what, and by how much".
+ *
+ * The reasons used to be a code and, at best, the observed value:
+ * `threshold:PASS_RATE_98.20`, `threshold:DURATION`, `threshold:BROWSER_PASS_RATE`.
+ * From the outside that says *that* a gate failed and almost nothing about *why* — 98.20
+ * reads like a pass until you know the threshold was 99, and `threshold:DURATION` does
+ * not even carry the two numbers that were compared. The rule that fired was named by a
+ * field name rather than an identifier, so it could not be cited in a bug report or
+ * resolved to configuration. "Why did this verdict?" had no answer anywhere in the
+ * product (ledger X-5).
+ *
+ * The shape is `code; key=value; …` so that:
+ *
+ *  - the leading code is unchanged, so every existing `startsWith('threshold:')` and
+ *    `endsWith('…RUNNER_INFRASTRUCTURE')` check keeps working and a consumer that
+ *    wants only the code does not have to know about the rest;
+ *  - the tail is machine-readable without a parser, so a UI can render the rule and its
+ *    numbers rather than a sentence;
+ *  - `rule` is a **stable identifier** — a field name or a policy path, not a label — so
+ *    it can be looked up rather than matched by eye.
+ *
+ * `GateReasonSchema` is an opaque non-empty string, so this is contract-compatible: no
+ * schema change, no migration, and nothing that stored an older reason becomes
+ * unreadable.
+ *
+ * A value containing a space is quoted, so a free-text value cannot forge a second
+ * `key=value` pair and mislead whatever reads the tail.
+ */
+function refusal(code: string, detail: Record<string, string | number | null> = {}): string {
+  const parts = Object.entries(detail)
+    .filter(([, value]) => value !== null)
+    .map(([key, value]) => {
+      const text = String(value);
+      return /\s/.test(text) ? `${key}="${text}"` : `${key}=${text}`;
+    });
+  return parts.length === 0 ? code : `${code}; ${parts.join('; ')}`;
 }
 
 function runInfraReason(run: Pick<ExecutionRun, 'outcome'> & Partial<ExecutionRun>): string | null {
@@ -143,16 +171,35 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
   if (summary.total > 0) {
     const passRate = (summary.passed / summary.total) * 100;
     if (passRate < policy.browserPassRateThreshold)
-      reasons.push(`threshold:PASS_RATE_${passRate.toFixed(2)}`);
+      reasons.push(
+        refusal('threshold:PASS_RATE', {
+          observed: passRate.toFixed(2),
+          required: policy.browserPassRateThreshold,
+          rule: 'browserPassRateThreshold',
+        }),
+      );
     const flakyRate = (summary.flaky / summary.total) * 100;
     if (flakyRate > policy.maxFlakyRate)
-      reasons.push(`threshold:FLAKY_RATE_${flakyRate.toFixed(2)}`);
+      reasons.push(
+        refusal('threshold:FLAKY_RATE', {
+          observed: flakyRate.toFixed(2),
+          max: policy.maxFlakyRate,
+          rule: 'maxFlakyRate',
+        }),
+      );
     if (
       policy.maxDurationMs !== null &&
       summary.durationMs !== null &&
       summary.durationMs > policy.maxDurationMs
     )
-      reasons.push('threshold:DURATION');
+      reasons.push(
+        refusal('threshold:DURATION', {
+          observed: summary.durationMs,
+          max: policy.maxDurationMs,
+          unit: 'ms',
+          rule: 'maxDurationMs',
+        }),
+      );
   }
   const requiredDomains = [
     ...new Set([
@@ -183,7 +230,14 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
       summary.total > 0 &&
       (summary.passed / summary.total) * 100 < rule.minimumPassRate
     )
-      reasons.push(`threshold:${rule.domain.toUpperCase()}_PASS_RATE`);
+      reasons.push(
+        refusal('threshold:PER_RULE_PASS_RATE', {
+          observed: ((summary.passed / summary.total) * 100).toFixed(2),
+          required: rule.minimumPassRate,
+          domain: rule.domain,
+          rule: `rules[${rule.domain}].minimumPassRate`,
+        }),
+      );
     if (
       rule.requiredArtifactKinds.length > 0 &&
       !rule.requiredArtifactKinds.every((kind) =>

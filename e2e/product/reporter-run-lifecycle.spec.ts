@@ -13,7 +13,7 @@
  * to "an element with this id exists".
  */
 import { expect, test } from '@playwright/test';
-import { postReporterEvent, uniqueRunId, waitForRunPhase } from '../support/api.js';
+import { postReporterEvent, reportTest, uniqueRunId, waitForRunPhase } from '../support/api.js';
 import { WEB_BASE } from '../support/config.js';
 import { observedSummary, saveEvidence, saveEvidenceText } from '../support/evidence.js';
 import { authenticate, signInAndVisit } from '../support/session.js';

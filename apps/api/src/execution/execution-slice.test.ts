@@ -10,6 +10,7 @@ import {
 } from './in-memory-execution-store.js';
 import { evaluateQualityGate, defaultPolicy } from './quality-gate.js';
 import { listIntegrationMaturity } from './maturity.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 
 function requestBody(values: Record<string, unknown>): RequestInit {
   return {
@@ -76,12 +77,14 @@ function auth(token: string): Record<string, string> {
 describe('canonical execution store and routes', () => {
   it('runs the create, claim, evidence, completion, gate, and readiness path', async () => {
     const store = new InMemoryExecutionStore();
-    const app = createExecutionRoutes({
-      store,
-      workspaceId: 'workspace-1',
-      requireIdempotencyKey: true,
-      registrationSecret: 'registration-secret',
-    });
+    const app = withErrorBoundary(
+      createExecutionRoutes({
+        store,
+        workspaceId: 'workspace-1',
+        requireIdempotencyKey: true,
+        registrationSecret: 'registration-secret',
+      }),
+    );
 
     const createdResponse = await app.request('/api/v1/runs', requestBody(runBody('key-1')));
     expect(createdResponse.status).toBe(202);
@@ -236,7 +239,7 @@ describe('canonical execution store and routes', () => {
 
   it('cancels and retries with linked attempt metadata', async () => {
     const store = new InMemoryExecutionStore();
-    const app = createExecutionRoutes({ store, requireIdempotencyKey: true });
+    const app = withErrorBoundary(createExecutionRoutes({ store, requireIdempotencyKey: true }));
     const created = (await (
       await app.request('/api/v1/runs', requestBody(runBody('cancel-key')))
     ).json()) as { id: string };
@@ -261,7 +264,9 @@ describe('canonical execution store and routes', () => {
 
   it('requeues expired leases and exposes maturity', async () => {
     const store = new InMemoryExecutionStore({ leaseMs: 20 });
-    const app = createExecutionRoutes({ store, registrationSecret: 'registration-secret' });
+    const app = withErrorBoundary(
+      createExecutionRoutes({ store, registrationSecret: 'registration-secret' }),
+    );
     await app.request('/api/v1/runs', requestBody(runBody('lease-key')));
     const registration = await registerRunner(app, 'runner-lease');
     const claimResponse = await app.request(`/api/v1/runners/${registration.runnerId}/jobs/claim`, {
@@ -447,11 +452,13 @@ describe('canonical execution store and routes', () => {
       });
     }
     const store = new InMemoryExecutionStore();
-    const app = createExecutionRoutes({
-      store,
-      legacyRepository: legacy,
-      registrationSecret: 'secret',
-    });
+    const app = withErrorBoundary(
+      createExecutionRoutes({
+        store,
+        legacyRepository: legacy,
+        registrationSecret: 'secret',
+      }),
+    );
     const list = await app.request('/api/v1/runs');
     expect(list.status).toBe(200);
     expect((await list.json()) as unknown[]).toHaveLength(4);
@@ -509,11 +516,13 @@ describe('canonical execution store and routes', () => {
 
   it('handles terminal event conflicts, duplicate completion, and policy/readiness filters', async () => {
     const store = new InMemoryExecutionStore();
-    const app = createExecutionRoutes({
-      store,
-      registrationSecret: 'registration-secret',
-      workspaceId: 'workspace-edge',
-    });
+    const app = withErrorBoundary(
+      createExecutionRoutes({
+        store,
+        registrationSecret: 'registration-secret',
+        workspaceId: 'workspace-edge',
+      }),
+    );
     const registration = await registerRunner(app, 'edge-runner');
     const createdResponse = await app.request('/api/v1/runs', requestBody(runBody('edge-key')));
     const created = (await createdResponse.json()) as { id: string };
@@ -585,11 +594,13 @@ describe('canonical execution store and routes', () => {
 
   it('rejects malformed requests and stale runner actions', async () => {
     const store = new InMemoryExecutionStore();
-    const app = createExecutionRoutes({
-      store,
-      requireIdempotencyKey: true,
-      registrationSecret: 'registration-secret',
-    });
+    const app = withErrorBoundary(
+      createExecutionRoutes({
+        store,
+        requireIdempotencyKey: true,
+        registrationSecret: 'registration-secret',
+      }),
+    );
     expect(
       (
         await app.request('/api/v1/runs', {

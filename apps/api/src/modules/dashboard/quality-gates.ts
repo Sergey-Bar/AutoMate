@@ -8,9 +8,11 @@
  */
 
 import { Hono } from 'hono';
+import { DomainError } from '../../errors/domain-error.js';
 import { randomUUID } from 'node:crypto';
 import { InMemoryAuditSink, type AuditEntry, type WriteContext } from './audit-sink.js';
 import { CreateQualityGateBodySchema } from './schemas.js';
+import { currentRequestId } from '../../observability/request-context.js';
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -87,19 +89,26 @@ export interface DashboardQualityGatesOptions {
   contextFor?: (c: { req: { header(name: string): string | undefined } }) => WriteContext;
 }
 
-function defaultContextFor(request: {
-  req: { header(name: string): string | undefined };
-}): WriteContext {
+/**
+ * The audit context for a write with no authenticated principal.
+ *
+ * The request is not an input: the id comes from the request context, so there is
+ * nothing here for a caller to supply and nothing that can disagree (ledger O-1b).
+ * Outside a request — a test, a background job — the id is absent rather than
+ * invented, because a fabricated correlatable-looking id in an audit row is worse than
+ * a missing one.
+ */
+function defaultContext(): WriteContext {
   return {
     actorId: 'anonymous',
     actorType: 'user',
-    requestId: request.req.header('x-request-id') ?? null,
+    requestId: currentRequestId() ?? null,
   };
 }
 
 export function createDashboardQualityGatesRoutes(options: DashboardQualityGatesOptions): Hono {
   const app = new Hono();
-  const contextFor = options.contextFor ?? defaultContextFor;
+  const contextFor = options.contextFor ?? defaultContext;
 
   // ── GET /api/v1/dashboard/quality-gates ──────────────────────────────────
   app.get('/api/v1/dashboard/quality-gates', async (c) => {
@@ -115,7 +124,9 @@ export function createDashboardQualityGatesRoutes(options: DashboardQualityGates
     const body = await c.req.json().catch(() => null);
     const parsed = CreateQualityGateBodySchema.safeParse(body);
     if (!parsed.success) {
-      return c.json({ error: 'Invalid quality gate', issues: parsed.error.issues }, 400);
+      throw new DomainError('INVALID_QUALITY_GATE', 'Invalid quality gate', {
+        details: { issues: parsed.error.issues },
+      });
     }
 
     const gate = await options.store.add(parsed.data, contextFor(c));
@@ -127,7 +138,7 @@ export function createDashboardQualityGatesRoutes(options: DashboardQualityGates
     const id = c.req.param('id');
     const gate = await options.store.get(id);
     if (!gate) {
-      return c.json({ error: 'Quality gate not found' }, 404);
+      throw new DomainError('QUALITY_GATE_NOT_FOUND', 'Quality gate not found');
     }
     return c.json(gate);
   });

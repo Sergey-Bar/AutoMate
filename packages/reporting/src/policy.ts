@@ -64,12 +64,47 @@ export function classifyStatus(status: RunResult['status']): StatusClass {
 /** Every status value, so callers can prove they have covered the enum. */
 export const ALL_RUN_STATUSES = Object.keys(STATUS_CLASSIFICATION) as RunResult['status'][];
 
+/**
+ * Compare two strings by UTF-16 code unit.
+ *
+ * This is the ordering `JSON.stringify` uses for object keys, which is the point: the
+ * canonical form is then a plain serialization of the object with its keys in the
+ * order the language already chose, rather than a serialization in whatever order the
+ * host's collation tables happen to produce.
+ *
+ * `localeCompare` was wrong here in a way that outlived every machine it ran on,
+ * because the value it computes is **persisted**. `fingerprint()` writes the digest to a
+ * `notNull` column, and the ingestion path reads it back to choose `duplicate` versus
+ * `conflict` — so a different ICU build, a different Node version, or a different
+ * `LANG` reorders the keys, produces a different digest for the same result, and turns a
+ * legitimate duplicate into a conflict. Nothing about the data changed; the hash of it
+ * did (ledger P-23).
+ *
+ * The comparison is written out rather than delegated so it cannot vary with a runtime
+ * default: no locale, no sensitivity option, no collation table, no ICU version.
+ *
+ * Exported so its contract is testable directly. Sorting an object's keys never
+ * compares two equal strings, so the `return 0` branch is unreachable through the
+ * only call site — and an unreachable branch is an uncovered one. A comparator that
+ * is never asked whether two things are equal is a comparator nobody has checked
+ * returns zero.
+ *
+ * @param left the first string
+ * @param right the second string
+ * @returns a negative number, zero, or a positive number, as `<=` would produce
+ */
+export function compareCodeUnits(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => left.localeCompare(right))
+        .sort(([left], [right]) => compareCodeUnits(left, right))
         .map(([key, entry]) => [key, canonicalize(entry)]),
     );
   }

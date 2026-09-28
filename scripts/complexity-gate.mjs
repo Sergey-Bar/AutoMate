@@ -1,7 +1,3 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-
 /**
  * The `sonarjs/cognitive-complexity` ratchet.
  *
@@ -13,10 +9,36 @@ import path from 'node:path';
  * becomes a hard ESLint error as part of the Q0.14 split.
  *
  * Run with `--write` to re-record the baseline after an intentional refactor.
+ *
+ * Two defects this file used to carry, both of which made the gate unrunnable rather
+ * than merely wrong, and both found while wiring W-D.3:
+ *
+ * 1. `root` was the literal string `'C:/VS-Code-Projects/Github/Automate'`, so the gate
+ *    could only ever run on the machine that committed it — and in CI, where that path
+ *    does not exist, it had no `node_modules` to spawn eslint from. Resolved from
+ *    `import.meta.dirname` instead, the same fix `playwright.config.ts` carries for the
+ *    same reason: this file is ESM (`"type": "module"`), where `__dirname` does not
+ *    exist.
+ * 2. The rule was enabled with a `--rule` flag, which flat config cannot resolve for a
+ *    plugin-scoped rule. ESLint aborts with `A configuration object specifies rule
+ *    "sonarjs/cognitive-complexity", but could not find plugin "sonarjs"`, exits 2,
+ *    and writes no report — so the gate took its own "eslint produced no report" branch
+ *    and failed. It could not pass on any host, including CI, and it is a step in both
+ *    `verify` and `security:verify`. The rule now lives in
+ *    `scripts/complexity-eslint.config.mjs`, a real config object that registers the
+ *    plugin, which is the only shape ESLint 9 accepts.
+ *
+ * A gate that cannot fail is a defect; neither is one that cannot pass, and this one
+ * had been sitting in `verify` in that state.
  */
-const root = 'C:/VS-Code-Projects/Github/Automate';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(import.meta.dirname, '..');
 const target = path.join(root, 'docs', 'quality', 'complexity-baseline.json');
 const eslintBin = path.join(root, 'node_modules', 'eslint', 'bin', 'eslint.js');
+const eslintConfig = path.join(root, 'scripts', 'complexity-eslint.config.mjs');
 const write = process.argv.includes('--write');
 
 /**
@@ -52,18 +74,35 @@ const run = spawnSync(
     'tools',
     'tests',
     'scripts',
-    '--rule',
-    JSON.stringify({ 'sonarjs/cognitive-complexity': ['error', ceiling] }),
+    // A config object rather than `--rule`, which flat config cannot resolve for a
+    // plugin-scoped rule. The ceiling travels in the environment so the config and the
+    // comparison below cannot disagree about what was measured.
+    '--config',
+    eslintConfig,
     '-f',
     'json',
   ],
-  { cwd: root, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 },
+  {
+    cwd: root,
+    encoding: 'utf8',
+    maxBuffer: 32 * 1024 * 1024,
+    env: { ...process.env, AUTOMATE_COMPLEXITY_CEILING: String(ceiling) },
+  },
 );
 
 // ESLint exits 1 when it reports errors, which is the expected case here: the
-// whole point is to count them.
-if (run.stdout === undefined || run.stdout.trim() === '') {
-  console.error('Complexity ratchet: eslint produced no report');
+// whole point is to count them. Exit 2 is a crash — a config that would not load, a
+// plugin that would not resolve — and reporting that as "no report" is what hid the
+// plugin error behind a message about missing output. `null` means the child was
+// killed by a signal, which is a crash for the same reason and is named rather than
+// compared.
+const crashed = run.status === null || run.status > 1;
+if (crashed || run.stdout === undefined || run.stdout.trim() === '') {
+  console.error(
+    crashed
+      ? `Complexity ratchet: eslint exited ${String(run.status)} without linting.`
+      : 'Complexity ratchet: eslint produced no report',
+  );
   console.error(run.stderr ?? '');
   process.exit(1);
 }

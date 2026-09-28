@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { createReporterRoutes } from '../routes/reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
@@ -15,7 +16,7 @@ async function send(app: Hono, body: Record<string, unknown>): Promise<void> {
 describe('reporter duplicate counter handling', () => {
   it('does not count the same terminal test event twice', async () => {
     const repository = new InMemoryRunRepository();
-    const app = new Hono().route('/', createReporterRoutes(undefined, { repository }));
+    const app = withErrorBoundary(createReporterRoutes(undefined, { repository }));
     await send(app, { type: 'run:start', runId: 'dedupe-run', payload: { total: 1 } });
     await send(app, {
       type: 'test:begin',

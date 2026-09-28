@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { drizzle } from 'drizzle-orm/pglite';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +16,7 @@ const CREATE_OUTBOX_EVENTS = `
   CREATE TABLE outbox_events (
     sequence integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    workspace_id text,
+    workspace_id text NOT NULL,
     aggregate_type text NOT NULL,
     aggregate_id text NOT NULL,
     event_type text NOT NULL,
@@ -25,7 +26,7 @@ const CREATE_OUTBOX_EVENTS = `
     occurred_at timestamptz DEFAULT now() NOT NULL,
     expires_at timestamptz
   );
-  CREATE UNIQUE INDEX outbox_events_dedupe_idx ON outbox_events (dedupe_key);
+  CREATE UNIQUE INDEX outbox_events_workspace_dedupe_idx ON outbox_events (workspace_id, dedupe_key);
 `;
 
 const clients: PGlite[] = [];
@@ -203,7 +204,7 @@ describe('durable realtime composition', () => {
   it('replays a published run:updated event over the SSE route', async () => {
     const feed = await createFeed();
     const bus = new DurableRealtimeBus(feed, 'workspace-a');
-    const app = new Hono();
+    const app = withErrorBoundary(new Hono());
     app.route(
       '/',
       createEventsRoutes({ bus, feed, workspaceId: 'workspace-a', pollIntervalMs: 60_000 }),

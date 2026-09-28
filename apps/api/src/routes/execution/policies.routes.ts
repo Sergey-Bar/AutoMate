@@ -15,9 +15,10 @@
  */
 
 import { Hono } from 'hono';
+import { DomainError } from '../../errors/domain-error.js';
 import type { ExecutionRouteContext } from './shared.js';
 import type {} from './schemas.js';
-import { error, parseBody } from './shared.js';
+import { parseBody } from './shared.js';
 import { PolicySchema } from './schemas.js';
 import { type ArtifactKind, type DomainName } from '../../execution/types.js';
 import { listIntegrationMaturity } from '../../execution/maturity.js';
@@ -32,7 +33,7 @@ export function registerPolicyRoutes(app: Hono, context: ExecutionRouteContext):
 
   app.post('/api/v1/quality-policies', async (c) => {
     const parsed = await parseBody(c, PolicySchema);
-    if (!parsed) return error(c, 400, 'INVALID_POLICY', 'Quality policy is invalid');
+    if (!parsed) throw new DomainError('INVALID_POLICY', 'Quality policy is invalid');
     const input = {
       workspaceId: ws,
       name: parsed.name,

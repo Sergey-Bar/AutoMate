@@ -1,6 +1,7 @@
 import type { Context, ErrorHandler, NotFoundHandler } from 'hono';
-import { ErrorCode, isDomainError } from './domain-error.js';
+import { DomainError, ErrorCode, isDomainError } from './domain-error.js';
 import { classifyDatabaseError } from './db-errors.js';
+import { requireRequestId } from '../observability/request-context.js';
 
 /**
  * The coordinates of a failure, for a reporter that is not the log.
@@ -30,6 +31,34 @@ export interface ErrorBoundaryOptions {
   reportError?: (error: unknown, context: ReportedErrorContext) => void;
   /** The request id attached to every error response. */
   requestId: (c: Context) => string;
+}
+
+/**
+ * Render a `DomainError` into the one body shape this application uses.
+ *
+ * Exported because not every failure can be thrown. Hono's `bodyLimit` takes an
+ * `onError` hook that must *return* a response, so a handler that wants a coded 413
+ * there cannot throw into the boundary — and a hook that built its own body would be
+ * the second renderer this boundary exists to have replaced.
+ *
+ * So this is the same function the boundary uses, not a copy of it: one body shape,
+ * two entry points, and a test asserts the two agree.
+ */
+export function domainErrorResponse(c: Context, error: DomainError): Response {
+  return c.json(error.toBody(requestIdOf(c)), error.status as 400);
+}
+
+/**
+ * The id a response should carry.
+ *
+ * `requireRequestId` rather than a header read, because the boundary is mounted where
+ * `requestContext` is: inside a request the id is already established, and reading the
+ * header here would prefer a client-supplied value over the one the middleware
+ * resolved. The header is only consulted when there is no request at all, which is the
+ * test harness.
+ */
+function requestIdOf(_c: Context): string {
+  return requireRequestId();
 }
 
 function requestIdFromHeader(c: Context, fallback: string): string {
@@ -85,17 +114,7 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
           error: error.logMessage(),
         });
       }
-      return c.json(
-        {
-          error: {
-            code: error.code,
-            message: error.status >= 500 ? 'internal error' : error.message,
-            requestId,
-            details: error.status >= 500 ? {} : error.details,
-          },
-        },
-        error.status as 400,
-      );
+      return c.json(error.toBody(requestId), error.status as 400);
     }
 
     const classified = classifyDatabaseError(error);

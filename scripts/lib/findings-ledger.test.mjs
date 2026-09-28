@@ -201,7 +201,7 @@ test('a destructive-migration row cannot be closed while it is still a sweep', (
     }),
     { root },
   );
-  assert.ok(hasFinding(findings, /still marked `sweep`/));
+  assert.ok(hasFinding(findings, /`sweep` finding/));
 });
 
 test('the same row closes once it is hand-confirmed', () => {
@@ -218,16 +218,150 @@ test('the same row closes once it is hand-confirmed', () => {
   assert.deepEqual(findings, []);
 });
 
-test('the confirmation rule does not apply to a row the plan does not list', () => {
+// This pair is the whole of the generalization. The rule used to consult a
+// thirteen-id `Set`, and these two cases are what it could not see: a `sweep` row
+// that arrived after the list was written, and one whose id was never on it. Both
+// could be closed with no human having read them, which is the exact condition
+// D13 exists to prevent. The first case fails against the old rule; the second
+// pins that `confirmed` is the only thing that opens the gate.
+test('an unconfirmed sweep row cannot be closed, whatever its id', () => {
+  for (const id of ['X-9', 'Q-99', 'not-in-any-list']) {
+    const { findings } = auditLedger(
+      ledgerWith({
+        id,
+        status: 'fixed',
+        provenance: 'sweep',
+        evidence: [{ path: 'package.json', asserts: 'x' }],
+      }),
+      { root },
+    );
+    assert.ok(
+      hasFinding(findings, /`sweep` finding/),
+      `${id} closed unconfirmed: an id absent from a hard-coded set used to mean exempt`,
+    );
+  }
+});
+
+test('a hand-confirmed sweep row closes whatever its id', () => {
   const { findings } = auditLedger(
     ledgerWith({
+      id: 'X-9',
       status: 'fixed',
       provenance: 'sweep',
+      confirmed: true,
       evidence: [{ path: 'package.json', asserts: 'x' }],
     }),
     { root },
   );
   assert.deepEqual(findings, []);
+});
+
+test('the confirmation rule does not apply to a hand-provenance row', () => {
+  const { findings } = auditLedger(
+    ledgerWith({
+      status: 'fixed',
+      provenance: 'hand',
+      evidence: [{ path: 'package.json', asserts: 'x' }],
+    }),
+    { root },
+  );
+  assert.deepEqual(findings, []);
+});
+
+test('an unreadable confirmation flag does not count as confirmation', () => {
+  // `confirmed` is a claim about a human having read the row, so only the literal
+  // `true` opens the gate. Anything else — a date, a string, `false` — must not, or
+  // the field becomes a checkbox rather than a record.
+  for (const confirmed of ['2026-09-27', 1, 'true', false, null]) {
+    const { findings } = auditLedger(
+      ledgerWith({
+        status: 'fixed',
+        provenance: 'sweep',
+        confirmed,
+        evidence: [{ path: 'package.json', asserts: 'x' }],
+      }),
+      { root },
+    );
+    assert.ok(
+      hasFinding(findings, /`sweep` finding/),
+      `confirmed: ${String(confirmed)} opened the gate`,
+    );
+  }
+});
+
+test('a refuted row with no pointer is a finding', () => {
+  // Without `refutedBy`, "false positive" is indistinguishable from a row nobody
+  // wanted to fix — and unlike `open`, a refutation is read as a result.
+  const { findings } = auditLedger(ledgerWith({ status: 'false-positive' }), { root });
+  assert.ok(hasFinding(findings, /must say what refutes it/));
+  assert.ok(hasFinding(findings, /`refutedBy`/));
+});
+
+test('a refuted row that names what refuted it passes', () => {
+  const { findings } = auditLedger(
+    ledgerWith({
+      status: 'false-positive',
+      refutedBy: 'apps/api/src/routes/features.ts:12 returns the real registry',
+    }),
+    { root },
+  );
+  assert.deepEqual(findings, []);
+});
+
+test('a refuted row needs no wave, evidence or confirmation', () => {
+  // The refutation *is* the evidence. Requiring a test path would mean inventing a
+  // test for a defect that does not exist, which is the mistake W-A exists to stop.
+  const { findings } = auditLedger(
+    ledgerWith({ band: 'Blocker', status: 'false-positive', refutedBy: 'x.ts:1 is a comment' }),
+    { root },
+  );
+  assert.deepEqual(findings, []);
+});
+
+test('an unconfirmed sweep row can be refuted instead of fixed', () => {
+  // The honest exit for a sweep row that turns out to be wrong. Before the
+  // `false-positive` disposition existed, the only moves were to close it
+  // unconfirmed or to delete it and turn the ratchet red.
+  const { findings } = auditLedger(
+    ledgerWith({ status: 'false-positive', provenance: 'sweep', refutedBy: 'never happened' }),
+    { root },
+  );
+  assert.deepEqual(findings, []);
+});
+
+test('open to false-positive is progress', () => {
+  const { findings } = auditLedger(ledgerWith({ status: 'false-positive', refutedBy: 'x.ts:1' }), {
+    root,
+    previous: { 'X-1': 'open' },
+  });
+  assert.deepEqual(findings, []);
+});
+
+test('fixed to false-positive is progress, because the fix met no defect', () => {
+  const { findings } = auditLedger(ledgerWith({ status: 'false-positive', refutedBy: 'x.ts:1' }), {
+    root,
+    previous: { 'X-1': 'fixed' },
+  });
+  assert.deepEqual(findings, []);
+});
+
+test('debt to false-positive is progress', () => {
+  const { findings } = auditLedger(ledgerWith({ status: 'false-positive', refutedBy: 'x.ts:1' }), {
+    root,
+    previous: { 'X-1': 'debt' },
+  });
+  assert.deepEqual(findings, []);
+});
+
+test('a refutation is terminal: un-refuting a refuted row is a regression', () => {
+  // The asymmetry is the point. A refutation somebody has not read is not a
+  // refutation, so the only way out of this status is to delete the row — which the
+  // ratchet also refuses. It is a one-way door on purpose.
+  const { findings } = auditLedger(ledgerWith({ status: 'open' }), {
+    root,
+    previous: { 'X-1': 'false-positive' },
+  });
+  assert.ok(hasFinding(findings, /status moved from `false-positive` to `open`/));
 });
 
 test('a status moving from open to fixed is progress', () => {

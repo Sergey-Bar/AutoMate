@@ -1,0 +1,77 @@
+{
+  "$comment": [
+    "Rendering ceilings for the four primary flows: login, the Command Center, run",
+    "detail and quarantine. A **baseline**, not a live observation — `pnpm test:render`",
+    "measures a real browser and compares against this.",
+    "",
+    "The shape is the ratchet the repository already uses for coverage and complexity:",
+    "a floor is recorded once, deliberately and by hand, and thereafter only a",
+    "regression fails. That is what keeps the gate from being turned off — a gate whose",
+    "own threshold can be rewritten in the same commit is a gate that agrees with the",
+    "tree instead of the code. `render:baseline` is `never-in-ci` in gate-tooling.json",
+    "for exactly that reason.",
+    "",
+    "`recorded: false` is a MEASUREMENT phase, not a failing one, and the distinction is",
+    "enforced rather than documented. `scripts/lib/render-gate-phase.mjs` derives the tier",
+    "`test:render` is allowed to have from this file, and `gate-tooling.test.mjs` fails until",
+    "`scripts/gate-tooling.json` agrees. So:",
+    "",
+    "  - `recorded: false` -> the CI job measures the four routes, publishes the numbers to",
+    "    the job summary, compares nothing, and is tiered `pr-reporting` — not a required",
+    "    check. A required check that can never pass blocks every pull request and teaches",
+    "    reviewers to ignore red.",
+    "  - `recorded: true`  -> the same spec compares against these ceilings and fails on a",
+    "    regression, and `test:render` must be `pr-blocking`. Leaving it below that is a",
+    "    real gate nobody is required to satisfy, which is the worse state.",
+    "",
+    "Graduating is therefore one commit with two parts: record a real run, and raise the",
+    "tier. The test refuses to pass if only one of them happened, so `recorded: true`",
+    "beside invented numbers cannot quietly become a gate that is green and unenforced.",
+    "",
+    "Why the budget has to exist before the effect does: the design language puts",
+    "`backdrop-filter: blur(20px) saturate(180%)` on the app chrome, and",
+    "`backdrop-filter` repaints the backdrop on every frame. Stacked translucent layers",
+    "on a scroll-heavy dashboard are a known jank source, and without a ceiling the",
+    "effect ships on instinct.",
+    "",
+    "How to populate it: run `pnpm render:baseline` on the reference hardware the plan's",
+    "D10 commits to, which writes the measured values here with `recorded: true` and the",
+    "date. Review the diff before committing it — the point of recording the number once is",
+    "that the next change has to beat it. A GitHub runner is not that hardware: the",
+    "ceilings describe a self-hosted single-node install, so a run there would record the",
+    "wrong number just as honestly as a guess would."
+  ],
+  "recorded": false,
+  "reason": "Never measured. Every ceiling below is null because no run on the reference hardware has populated it, so this budget currently protects nothing. This is the same defect the ledger records as RF-9 for performance/thresholds.json, adopted here deliberately so the rendering budget does not ship as an unvalidated estimate — except that this file refuses to pretend. The ceilings stay null and the gate stays in its measurement phase rather than being given numbers that mean nothing. Populate with `pnpm render:baseline` on the reference hardware the plan's D10 commits to, and raise `test:render` to `pr-blocking` in the same commit. Tracked as PERF-1.",
+  "recordedOn": null,
+  "routes": {
+    "/login": {
+      "$why": "The first paint a person sees, and the only route reachable with no session.",
+      "lcpMs": null,
+      "inpMs": null,
+      "cls": null,
+      "longTasks": null
+    },
+    "/dashboard/runs": {
+      "$why": "The Command Center list. The heaviest of the four: every row is a run, and a slow one here is a dashboard that appears to hang.",
+      "lcpMs": null,
+      "inpMs": null,
+      "cls": null,
+      "longTasks": null
+    },
+    "/dashboard/runs/:runId": {
+      "$why": "Where a person decides whether a release is safe, so a rendering defect here is the most expensive one in the product. This is also the route the design language explicitly keeps opaque — glass is chrome, never data — which makes it the natural canary for the glass gate in W-E.2.",
+      "lcpMs": null,
+      "inpMs": null,
+      "cls": null,
+      "longTasks": null
+    },
+    "/dashboard/quarantine": {
+      "$why": "The filter surface, and the only primary flow whose content changes on every keystroke — so its INP is the reading most likely to catch an unthrottled re-render.",
+      "lcpMs": null,
+      "inpMs": null,
+      "cls": null,
+      "longTasks": null
+    }
+  }
+}

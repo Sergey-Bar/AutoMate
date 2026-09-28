@@ -433,6 +433,27 @@ describe('S3ArtifactBytesStore response handling', () => {
     ).rejects.toThrow('above the 4-byte object store limit');
   });
 
+  it('refuses a body whose digest is not the one the artifact row recorded', async () => {
+    // The object store can cap, but only the artifact row knows what the bytes were
+    // supposed to be, so the digest has to arrive with the read. Without it the cap
+    // is the only thing standing between a truncated object and a caller that treats
+    // the result as evidence.
+    const payload = bytes('{"passed":true}');
+    await expect(
+      storeReturning(() => new Response(payload, { status: 200 })).get(
+        'runs/run-1/file',
+        hexSha256(bytes('{"passed":false}')),
+      ),
+    ).rejects.toThrow(/digest/i);
+    // And the match, so a store that refused every digest could not pass.
+    await expect(
+      storeReturning(() => new Response(payload, { status: 200 })).get(
+        'runs/run-1/file',
+        hexSha256(payload),
+      ),
+    ).resolves.toEqual(payload);
+  });
+
   it('surfaces a failed put with the object store status', async () => {
     const store = new S3ArtifactBytesStore(SETTINGS, {
       now: () => FIXED_DATE,

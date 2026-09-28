@@ -196,16 +196,41 @@ function immediateSleep(_milliseconds: number): Promise<void> {
 }
 
 /**
- * Yields to the event loop until a condition the service controls holds. Bounded
- * by iteration count rather than by elapsed time, so a condition that never
- * arrives fails with the label below instead of a bare timeout.
+ * Yields to the event loop until a condition the service controls holds.
+ *
+ * Bounded by **elapsed time** rather than by iteration count. It used to be 150
+ * iterations with a 1 ms yield between them, which reads like 150 ms and is not: each
+ * iteration performs real asynchronous filesystem work against a `DurableSpool`, so on
+ * a loaded machine 150 iterations of that can take far longer than 150 ms of wall clock
+ * — and far less than enough. This test, `stops retrying an unreachable API,
+ * dead-letters the entry, and keeps it readable after a restart`, failed one run in
+ * three under `pnpm test`, passed in isolation every time, and was not reproducible by
+ * any change to the runner. An iteration bound is a load-sensitive deadline wearing the
+ * costume of a fixed one, and the same mistake as E-6 on the client side: `testTimeout`
+ * was raised for a documented reason while the inner clock the assertions actually race
+ * was left at a value chosen when the machine was idle.
+ *
+ * The property worth keeping from the original is the failure: a labelled error naming
+ * which condition never held, not a bare vitest timeout with no indication of what the
+ * service was doing. Time-bounding does that just as well, and 5 s is generous for
+ * conditions that settle in milliseconds while still failing the suite in seconds if the
+ * service is genuinely stuck.
+ *
+ * @param label what the condition is, quoted in the failure
+ * @param predicate the condition, re-evaluated on every tick
+ * @param budgetMs how long to keep trying before giving up
  */
-async function until(label: string, predicate: () => boolean | Promise<boolean>): Promise<void> {
-  for (let attempt = 0; attempt < 150; attempt += 1) {
+async function until(
+  label: string,
+  predicate: () => boolean | Promise<boolean>,
+  budgetMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + budgetMs;
+  do {
     if (await predicate()) return;
     await new Promise((resolveTick) => setTimeout(resolveTick, 1));
-  }
-  throw new Error(`Condition never held: ${label}`);
+  } while (Date.now() < deadline);
+  throw new Error(`Condition never held after ${String(budgetMs)}ms: ${label}`);
 }
 
 describe('RunnerService', () => {

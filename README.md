@@ -78,9 +78,9 @@ The web development proxy expects the API on port `3456`. Start the API and web 
 ```powershell
 $env:PORT='3456'
 $env:NODE_ENV='development'
-$env:AUTOMATE_API_KEY='local-installation-key'
-$env:COOKIE_SECRET='local-cookie-secret-change-me-32-chars'
-$env:REPORTER_SECRET='local-reporter-secret-change-me'
+$env:AUTOMATE_API_KEY='local-installation-key-32-characters'
+$env:COOKIE_SECRET='local-cookie-secret-32-characters-long'
+$env:REPORTER_SECRET='local-reporter-secret-32-characters'
 pnpm --filter @automate/api dev
 ```
 
@@ -89,9 +89,9 @@ pnpm --filter @automate/api dev
 ```bash
 PORT=3456 \
 NODE_ENV=development \
-AUTOMATE_API_KEY=local-installation-key \
-COOKIE_SECRET=local-cookie-secret-change-me-32-chars \
-REPORTER_SECRET=local-reporter-secret-change-me \
+AUTOMATE_API_KEY=local-installation-key-32-characters \
+COOKIE_SECRET=local-cookie-secret-32-characters-long \
+REPORTER_SECRET=local-reporter-secret-32-characters \
 pnpm --filter @automate/api dev
 ```
 

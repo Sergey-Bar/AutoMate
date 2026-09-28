@@ -28,6 +28,8 @@
  *     persisted as `interrupted`, never as `passed`.
  */
 import { Hono, type Context } from 'hono';
+import { domainErrorResponse } from '../errors/boundary.js';
+import { DomainError } from '../errors/domain-error.js';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
@@ -284,6 +286,22 @@ function normalizeUploadPayload(payload: ReporterUploadPayload): ReporterUploadP
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+/**
+ * How deep a Playwright report's `suites` may nest before it is refused.
+ *
+ * `MAX_UPLOAD_BYTES` bounds how *large* an upload is, but not how *deeply* it is
+ * nested, and bounding one does nothing for the other: a 5 MiB body of nothing but
+ * `{"suites":[{"suites":[ … ]}]}` is well within the size limit and converts to a
+ * call-stack overflow. That is a `RangeError` rather than a catchable refusal, so it
+ * takes down the request instead of answering it (ledger P-60).
+ *
+ * 32 is far above any real report. Playwright's own reporter nests one level per
+ * directory a spec lives in, so even a monorepo with deep test trees is single-digit;
+ * a generous ceiling here costs nothing and refuses the shape that is a
+ * denial-of-service rather than a report.
+ */
+const MAX_SUITE_DEPTH = 32;
+
 async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
   const contentType = c.req.header('content-type') ?? '';
   const contentLength = Number(c.req.header('content-length') ?? 0);
@@ -397,7 +415,26 @@ function convertPlaywrightJsonToUpload(
     runIdFromField || (typeof report['runId'] === 'string' ? report['runId'] : 'uploaded-run');
   const tests: UploadedTest[] = [];
 
-  const collectSuite = (suite: Record<string, unknown>, parentTitle = ''): void => {
+  const collectSuite = (suite: Record<string, unknown>, parentTitle = '', depth = 0): void => {
+    // Ledger P-60. The recursion into `suite['suites']` had no depth cap on an
+    // untrusted body, and it converts to a call-stack overflow — a `RangeError`, which
+    // is not a catchable refusal, so the process takes the request down rather than
+    // answering it.
+    //
+    // **A correction to the row, and it is why there is no cycle guard here.** The row
+    // says "a self-nested `suites` array". A cycle is not reachable on this path: the
+    // body arrives through `JSON.parse`, and JSON cannot express a reference back to
+    // an ancestor, so `suites[0] === suite` cannot occur — `JSON.stringify` refuses to
+    // even *produce* such a body. An earlier draft carried a visited-set for it; that
+    // was dead code with an untestable branch, and it has been removed rather than
+    // shipped with a test that cannot fail. What *is* reachable is arbitrary
+    // **depth**, and that is what the cap below refuses.
+    if (depth > MAX_SUITE_DEPTH) {
+      throw new Error(
+        `Playwright report nests suites more than ${String(MAX_SUITE_DEPTH)} levels deep; ` +
+          'a real report does not, and a deeper one is a denial of service rather than a report.',
+      );
+    }
     const suiteTitle = typeof suite['title'] === 'string' ? suite['title'] : '';
     const fullTitlePrefix = [parentTitle, suiteTitle].filter(Boolean).join(' > ');
 
@@ -446,7 +483,7 @@ function convertPlaywrightJsonToUpload(
     const nested = Array.isArray(suite['suites']) ? suite['suites'] : [];
     for (const child of nested) {
       if (typeof child === 'object' && child !== null) {
-        collectSuite(child as Record<string, unknown>, fullTitlePrefix);
+        collectSuite(child as Record<string, unknown>, fullTitlePrefix, depth + 1);
       }
     }
   };
@@ -745,7 +782,11 @@ export function createReporterRoutes(
     '*',
     bodyLimit({
       maxSize: MAX_UPLOAD_BYTES,
-      onError: (c) => c.json({ error: 'Request body too large' }, 413),
+      // A hook must *return*, so it renders through the boundary's one exported
+      // renderer rather than throwing — and the body is the same shape every other
+      // refusal in this API produces.
+      onError: (c) =>
+        domainErrorResponse(c, new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large')),
     }),
   );
 
@@ -772,11 +813,11 @@ export function createReporterRoutes(
         : undefined);
 
     if (token === undefined) {
-      return c.json({ error: 'Missing reporter authentication token' }, 401);
+      throw new DomainError('MISSING_REPORTER_TOKEN', 'Missing reporter authentication token');
     }
 
     if (!safeCompare(token, reporterSecret)) {
-      return c.json({ error: 'Invalid reporter authentication token' }, 403);
+      throw new DomainError('INVALID_REPORTER_TOKEN', 'Invalid reporter authentication token');
     }
 
     await next();
@@ -790,11 +831,11 @@ export function createReporterRoutes(
     try {
       body = await c.req.json();
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
+      throw new DomainError('INVALID_JSON', 'Invalid JSON body');
     }
 
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      return c.json({ error: 'Request body must be a JSON object' }, 400);
+      throw new DomainError('INVALID_REQUEST_BODY', 'Request body must be a JSON object');
     }
 
     const raw = body as Record<string, unknown>;
@@ -804,24 +845,25 @@ export function createReporterRoutes(
       // ── Compatibility path ──────────────────────────────────────────
       const result = LegacyReporterEventSchema.safeParse(raw);
       if (!result.success) {
-        return c.json(
-          { error: 'Invalid legacy reporter event', details: result.error.flatten().fieldErrors },
-          400,
-        );
+        throw new DomainError('INVALID_LEGACY_REPORTER_EVENT', 'Invalid legacy reporter event', {
+          details: { fieldErrors: result.error.flatten().fieldErrors },
+        });
       }
       normalized = adaptLegacyEvent(result.data);
     } else {
       // ── Versioned path ──────────────────────────────────────────────
       const result = VersionedReporterEventSchema.safeParse(raw);
       if (!result.success) {
-        return c.json(
+        throw new DomainError(
+          'INVALID_VERSIONED_REPORTER_EVENT',
+          'Invalid versioned reporter event',
           {
-            error: 'Invalid versioned reporter event',
-            details: result.error.flatten().fieldErrors,
-            supportedVersions: VERSIONED_EVENT_VERSIONS,
-            legacyContract: LEGACY_FLAT_V1_CONTRACT_ID,
+            details: {
+              fieldErrors: result.error.flatten().fieldErrors,
+              supportedVersions: VERSIONED_EVENT_VERSIONS,
+              legacyContract: LEGACY_FLAT_V1_CONTRACT_ID,
+            },
           },
-          400,
         );
       }
       normalized = result.data as NormalizedReporterEvent;
@@ -869,7 +911,12 @@ export function createReporterRoutes(
   // ------------------------------------------------------------------
   app.post('/api/v1/reporter/upload', async (c) => {
     if (!options?.repository) {
-      return c.json({ error: 'Reporter upload persistence is not configured' }, 503);
+      // `callerSafe`: a reporter whose upload store is unconfigured needs to be told
+      // *that*, not "internal error". The message names the missing thing and the
+      // operator can act on it; a blanked 503 is a support ticket instead.
+      throw new DomainError('NOT_CONFIGURED', 'Reporter upload persistence is not configured', {
+        callerSafe: true,
+      });
     }
 
     const rawBody = c.req.raw.clone();
@@ -877,7 +924,7 @@ export function createReporterRoutes(
     try {
       payload = await parseReporterUpload(c);
     } catch {
-      return c.json({ error: 'Invalid reporter upload payload' }, 400);
+      throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload');
     }
 
     if (options.artifactStore) {

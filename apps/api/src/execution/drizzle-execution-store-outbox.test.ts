@@ -51,7 +51,7 @@ const SCHEMA_SQL = `
     raw_args text,
     source text NOT NULL DEFAULT 'live',
     gate_status text,
-    workspace_id text,
+    workspace_id text NOT NULL,
     external_id text,
     phase text DEFAULT 'queued' NOT NULL,
     outcome text,
@@ -228,7 +228,7 @@ const OUTBOX_SQL = `
     occurred_at timestamptz DEFAULT now() NOT NULL,
     expires_at timestamptz
   );
-  CREATE UNIQUE INDEX outbox_events_dedupe_idx ON outbox_events (dedupe_key);
+  CREATE UNIQUE INDEX outbox_events_workspace_dedupe_idx ON outbox_events (workspace_id, dedupe_key);
 `;
 
 const clients: PGlite[] = [];

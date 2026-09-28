@@ -18,6 +18,7 @@
  * 10. Full lifecycle: run:start → test:end → run:end produces 3 events in order
  */
 import { describe, it, expect } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
@@ -29,7 +30,7 @@ import type { RunUpdatedPayload } from '../realtime/realtime-bus.js';
 // ---------------------------------------------------------------------------
 
 function buildApp(repo: InMemoryRunRepository, bus: InMemoryRealtimeBus): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   app.route('/', createReporterRoutes(undefined, { repository: repo, bus }));
   return app;
 }
@@ -392,7 +393,7 @@ describe('Realtime broadcast — payload redaction', () => {
 describe('Realtime broadcast — backward compatibility (no bus)', () => {
   it('accepts run:start without a bus and returns 202', async () => {
     const repo = new InMemoryRunRepository();
-    const app = new Hono();
+    const app = withErrorBoundary(new Hono());
     app.route('/', createReporterRoutes(undefined, { repository: repo }));
 
     const res = await post(app, {

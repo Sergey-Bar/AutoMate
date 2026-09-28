@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { DomainError, ErrorCode, statusForCode } from './domain-error.js';
 import { classifyDatabaseError, hasSqlState, sqlStateRules } from './db-errors.js';
@@ -17,7 +18,7 @@ function app() {
     reportError: (error, context) => reported.push({ error, context }),
     requestId: () => 'req-test',
   });
-  const instance = new Hono();
+  const instance = withErrorBoundary(new Hono());
   instance.onError(boundary.onError);
   instance.notFound(boundary.notFound);
   return { instance, logged, reported };
@@ -341,7 +342,7 @@ describe('error reporting', () => {
       log: () => {},
       requestId: () => 'req-test',
     });
-    const instance = new Hono();
+    const instance = withErrorBoundary(new Hono());
     instance.onError(boundary.onError);
     instance.get('/oops', () => {
       throw new Error('boom');
@@ -354,7 +355,7 @@ describe('error reporting', () => {
   it('falls back to console.error when no log sink is configured', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const boundary = createErrorBoundary({ requestId: () => 'req-test' });
-    const instance = new Hono();
+    const instance = withErrorBoundary(new Hono());
     instance.onError(boundary.onError);
     instance.get('/oops', () => {
       throw new Error('boom');

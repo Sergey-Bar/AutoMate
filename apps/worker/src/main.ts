@@ -119,8 +119,9 @@ async function runWorker(env: Record<string, string | undefined>): Promise<void>
     // than merely intended: no handler means `runOnce` skips claiming entirely, and
     // `PostgresExecutionStore.claimJob` requires a healthy, unrevoked `runners` row
     // for `runnerId`, which this process never registers. The invariant is pinned by
-    // `claims nothing in production composition, because the runner executes` in
-    // `worker.test.ts`, so it cannot be "fixed" into a regression by a later reader.
+    // two cases in `worker.test.ts` — `claims nothing without a handler, even when a
+    // job is claimable` and `still does its scheduler work without a handler` — so it
+    // cannot be "fixed" into a regression by a later reader.
     onError: (error) => {
       const code = error instanceof Error ? error.name : 'WORKER_POLL_FAILED';
       console.error(`automate-worker poll failed (${code})`);

@@ -1,24 +1,49 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { withErrorBoundary } from './test-support/error-boundary-app.js';
 import { Hono } from 'hono';
+import { SECRET_MIN_LENGTH } from '@automate/config';
 import { app } from './index.js';
 import { createReporterRoutes } from './routes/reporter.js';
+import {
+  syntheticApiKey,
+  syntheticCookieSecret,
+  syntheticReporterSecret,
+  syntheticVaultSecret,
+} from './test-support/synthetic-credentials.js';
 
-// A reporter secret that passes all production checks (not a placeholder, ≥ 16 chars).
-const VALID_REPORTER_SECRET = 'valid-reporter-secret-x';
-const VALID_COOKIE_SECRET = 'valid-cookie-secret-that-is-long-enough';
+/**
+ * Credentials the production policy actually accepts.
+ *
+ * These were hand-written here and were 20 to 22 characters, so every assertion
+ * below was standing in for a deployment the policy refuses. They are assembled in
+ * `test-support/synthetic-credentials.ts` and audited there, so a fixture can no
+ * longer be quietly shorter than the configuration it claims to represent.
+ */
+const VALID_REPORTER_SECRET = syntheticReporterSecret();
+const VALID_COOKIE_SECRET = syntheticCookieSecret();
+const VALID_API_KEY = syntheticApiKey();
+const VALID_VAULT_SECRET = syntheticVaultSecret();
 
 describe('Health routes', () => {
   it('GET /health returns 200', async () => {
     const res = await app.request('/health');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, string>;
+    const body = (await res.json()) as {
+      status?: string;
+      version?: string;
+      error?: { code: string; message: string };
+    };
     expect(body['status']).toBe('healthy');
   });
 
   it('GET /api/v1/health returns 200', async () => {
     const res = await app.request('/api/v1/health');
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, string>;
+    const body = (await res.json()) as {
+      status?: string;
+      version?: string;
+      error?: { code: string; message: string };
+    };
     expect(body['status']).toBe('healthy');
     expect(body['version']).toBe('1');
   });
@@ -40,8 +65,8 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: undefined,
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow('REPORTER_SECRET');
   });
@@ -54,8 +79,8 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: 'change-me',
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'REPORTER_SECRET must not be a placeholder',
@@ -70,15 +95,15 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: 'reporter-secret',
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'REPORTER_SECRET must not be a placeholder',
     );
   });
 
-  it('rejects REPORTER_SECRET shorter than 16 chars in production', async () => {
+  it('rejects REPORTER_SECRET shorter than the floor in production', async () => {
     const { checkProductionPolicy } = await import('./startup-policy.js');
     const config = {
       nodeEnv: 'production',
@@ -86,11 +111,13 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: 'short',
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
+    // The floor is 32 for every secret, reporter included. It used to be 16, which is
+    // the whole of this row: the weakest credential set the bar for the rest.
     expect(() => checkProductionPolicy(config)).toThrow(
-      'REPORTER_SECRET must be at least 16 characters',
+      `REPORTER_SECRET must be at least ${String(SECRET_MIN_LENGTH)} characters`,
     );
   });
 
@@ -102,8 +129,8 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: undefined,
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow('COOKIE_SECRET');
   });
@@ -116,8 +143,8 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: 'change-me-to-a-long-random-string',
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow('COOKIE_SECRET must not be a placeholder');
   });
@@ -130,8 +157,8 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: 'short-cookie-secret',
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'COOKIE_SECRET must be at least 32 characters',
@@ -161,14 +188,14 @@ describe('Startup policy', () => {
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
       apiKey: undefined,
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'AUTOMATE_API_KEY is required in production',
     );
   });
 
-  it('rejects AUTOMATE_API_KEY shorter than 16 chars in production', async () => {
+  it('rejects AUTOMATE_API_KEY shorter than the floor in production', async () => {
     const { checkProductionPolicy } = await import('./startup-policy.js');
     const config = {
       nodeEnv: 'production',
@@ -177,10 +204,10 @@ describe('Startup policy', () => {
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
       apiKey: 'short',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
-      'AUTOMATE_API_KEY must be at least 16 characters',
+      `AUTOMATE_API_KEY must be at least ${String(SECRET_MIN_LENGTH)} characters`,
     );
   });
 
@@ -193,7 +220,7 @@ describe('Startup policy', () => {
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
       apiKey: 'change-me',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'AUTOMATE_API_KEY must not be a placeholder',
@@ -209,7 +236,7 @@ describe('Startup policy', () => {
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
       apiKey: 'automate',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow(
       'AUTOMATE_API_KEY must not be a placeholder',
@@ -224,7 +251,7 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
+      apiKey: VALID_API_KEY,
       vaultSecret: undefined,
     };
     expect(() => checkProductionPolicy(config)).toThrow('VAULT_SECRET is required in production');
@@ -238,7 +265,7 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
+      apiKey: VALID_API_KEY,
       vaultSecret: 'change-me',
     };
     expect(() => checkProductionPolicy(config)).toThrow('VAULT_SECRET must not be a placeholder');
@@ -252,7 +279,7 @@ describe('Startup policy', () => {
       databaseUrl: 'postgres://localhost/test',
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
+      apiKey: VALID_API_KEY,
       vaultSecret: 'short-vault-secret',
     };
     expect(() => checkProductionPolicy(config)).toThrow(
@@ -268,8 +295,8 @@ describe('Startup policy', () => {
       databaseUrl: undefined,
       cookieSecret: VALID_COOKIE_SECRET,
       reporterSecret: VALID_REPORTER_SECRET,
-      apiKey: 'a-valid-api-key-here',
-      vaultSecret: 'a-valid-vault-secret-32chars-min!!',
+      apiKey: VALID_API_KEY,
+      vaultSecret: VALID_VAULT_SECRET,
     };
     expect(() => checkProductionPolicy(config)).toThrow('DATABASE_URL is required in production');
   });
@@ -290,7 +317,7 @@ describe('Startup policy', () => {
 });
 
 describe('Auth matrix', () => {
-  const TEST_KEY = 'test-api-key-for-testing';
+  const TEST_KEY = syntheticApiKey();
 
   beforeEach(() => {
     process.env['AUTOMATE_API_KEY'] = TEST_KEY;
@@ -304,43 +331,67 @@ describe('Auth matrix', () => {
     it('GET /api/v1/runs returns 401 without auth', async () => {
       const res = await app.request('/api/v1/runs');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/dashboard/runs/:id returns 401 without auth', async () => {
       const res = await app.request('/api/v1/dashboard/runs/some-run-id');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/events returns 401 without auth', async () => {
       const res = await app.request('/api/v1/events');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/orchestrator/conversations returns 401 without auth', async () => {
       const res = await app.request('/api/v1/orchestrator/conversations');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/vault/credentials returns 401 without auth', async () => {
       const res = await app.request('/api/v1/vault/credentials');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/connectors returns 401 without auth', async () => {
       const res = await app.request('/api/v1/connectors');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('POST /api/v1/agents/browser/generate returns 401 without auth', async () => {
@@ -350,8 +401,12 @@ describe('Auth matrix', () => {
         body: JSON.stringify({ prompt: 'generate a login test' }),
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
   });
 
@@ -397,8 +452,12 @@ describe('Auth matrix', () => {
         headers: { Authorization: WRONG_AUTH },
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/events returns 401 with wrong Bearer token', async () => {
@@ -406,8 +465,12 @@ describe('Auth matrix', () => {
         headers: { Authorization: WRONG_AUTH },
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
 
     it('GET /api/v1/dashboard/runs/:id returns 401 with wrong Bearer token', async () => {
@@ -415,8 +478,12 @@ describe('Auth matrix', () => {
         headers: { Authorization: WRONG_AUTH },
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
   });
 
@@ -438,7 +505,7 @@ describe('Auth matrix', () => {
     });
 
     it('POST /api/v1/reporter/events with REPORTER_SECRET configured returns 401 when auth is missing', async () => {
-      const reporterApp = new Hono();
+      const reporterApp = withErrorBoundary(new Hono());
       reporterApp.route('/', createReporterRoutes(TEST_REPORTER_SECRET));
       const res = await reporterApp.request('/api/v1/reporter/events', {
         method: 'POST',
@@ -450,12 +517,19 @@ describe('Auth matrix', () => {
         }),
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Missing reporter authentication token');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error).toMatchObject({
+        code: 'MISSING_REPORTER_TOKEN',
+        message: 'Missing reporter authentication token',
+      });
     });
 
     it('POST /api/v1/reporter/events with REPORTER_SECRET configured returns 403 for wrong Bearer token', async () => {
-      const reporterApp = new Hono();
+      const reporterApp = withErrorBoundary(new Hono());
       reporterApp.route('/', createReporterRoutes(TEST_REPORTER_SECRET));
       const res = await reporterApp.request('/api/v1/reporter/events', {
         method: 'POST',
@@ -470,12 +544,19 @@ describe('Auth matrix', () => {
         }),
       });
       expect(res.status).toBe(403);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Invalid reporter authentication token');
+      const body = (await res.json()) as {
+        status?: string;
+        version?: string;
+        error?: { code: string; message: string };
+      };
+      expect(body.error).toMatchObject({
+        code: 'INVALID_REPORTER_TOKEN',
+        message: 'Invalid reporter authentication token',
+      });
     });
 
     it('POST /api/v1/reporter/events with valid REPORTER_SECRET returns 202', async () => {
-      const reporterApp = new Hono();
+      const reporterApp = withErrorBoundary(new Hono());
       reporterApp.route('/', createReporterRoutes(TEST_REPORTER_SECRET));
       const res = await reporterApp.request('/api/v1/reporter/events', {
         method: 'POST',
@@ -495,7 +576,7 @@ describe('Auth matrix', () => {
 });
 
 describe('Shared repository — reporter and runs routes see same state', () => {
-  const TEST_KEY = 'test-api-key-for-testing';
+  const TEST_KEY = syntheticApiKey();
 
   beforeEach(() => {
     process.env['AUTOMATE_API_KEY'] = TEST_KEY;
@@ -535,7 +616,7 @@ describe('Shared repository — reporter and runs routes see same state', () => 
  * `security-headers.test.ts` and `request-deadline.test.ts` prove the two
  * middlewares behave. Neither can prove the *composed app* uses them, and a
  * middleware that works perfectly and is never registered is a real shape of dead
- * code � it reads as a security control in a code search and protects nothing.
+ * code — it reads as a security control in a code search and protects nothing.
  *
  * This asserts the effect on a live response from `{ app }`, which is the only
  * thing a client ever sees.

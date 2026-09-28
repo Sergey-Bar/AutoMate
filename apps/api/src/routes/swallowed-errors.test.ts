@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -38,7 +39,7 @@ function serviceDouble(overrides: Partial<Record<string, unknown>> = {}): Orches
 }
 
 function orchestrationApp(service: OrchestrationService): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   const boundary = createErrorBoundary({ log: () => undefined, requestId: () => 'req-test' });
   app.onError(boundary.onError);
   app.route('/', createOrchestrationRoutes(service));
@@ -56,7 +57,9 @@ describe('orchestration routes distinguish a miss from a fault', () => {
     );
     const response = await app.request('/api/v1/automations/missing/jobs', { method: 'POST' });
     expect(response.status).toBe(404);
-    expect(((await response.json()) as { error: string }).error).toBe('Automation not found');
+    expect(
+      ((await response.json()) as { error: { code: string; message: string } }).error,
+    ).toMatchObject({ code: 'AUTOMATION_NOT_FOUND', message: 'Automation not found' });
   });
 
   it('does not report a defect inside enqueue as a missing automation', async () => {

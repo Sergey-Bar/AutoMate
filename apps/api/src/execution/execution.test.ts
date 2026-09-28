@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import {
   InMemoryExecutionStore,
@@ -8,6 +9,27 @@ import {
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { createAgentRoutes } from '../routes/agents.js';
+import { createErrorBoundary } from '../errors/boundary.js';
+
+/**
+ * The routes, mounted the way the application mounts them.
+ *
+ * The error boundary is not decoration here: since finding C-3 a handler refuses by
+ * `throw`ing a `DomainError`, and this boundary is what renders it into the response
+ * body. A bare `Hono` would answer 500 and the suite would be asserting the wrong thing
+ * — and a body only the removed `error(c, …)` helper could produce would stop being
+ * testable, which is the point.
+ */
+function mounted(routes: Hono): Hono {
+  const { onError } = createErrorBoundary({
+    log: () => undefined,
+    reportError: () => undefined,
+    // Outside a request there is no id, and the boundary is told so rather than being
+    // handed a fabricated one. The production middleware supplies the real value.
+    requestId: () => 'NO_REQUEST',
+  });
+  return new Hono().onError(onError).route('/', routes);
+}
 
 function fixedStore(): { store: InMemoryExecutionStore; setNow: (value: Date) => void } {
   let current = new Date('2026-01-01T00:00:00.000Z');
@@ -140,8 +162,7 @@ describe('quality gate', () => {
 describe('canonical execution routes', () => {
   it('supports enqueue, idempotent replay, runner auth, and artifact retrieval', async () => {
     const { store } = fixedStore();
-    const app = new Hono().route(
-      '/',
+    const app = mounted(
       createExecutionRoutes({ store, runnerRegistrationSecret: 'runner-registration-secret' }),
     );
     const runResponse = await app.request('/api/v1/runs', {
@@ -211,7 +232,7 @@ describe('canonical execution routes', () => {
   });
 
   it('returns explicit agent maturity for unconfigured integrations', async () => {
-    const app = new Hono().route('/', createAgentRoutes());
+    const app = withErrorBoundary(createAgentRoutes());
     const response = await app.request('/api/v1/agents/api/generate', { method: 'POST' });
     expect(response.status).toBe(501);
     expect(((await response.json()) as { status: string }).status).toBe('not_configured');

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import type { CanonicalRunResult } from '@automate/shared-contracts';
 import {
@@ -70,8 +71,7 @@ class CountingResultStore implements ReporterResultStore {
 }
 
 function openApp(store: ReporterResultStore): Hono {
-  return new Hono().route(
-    '/',
+  return withErrorBoundary(
     createReporterResultsRoute(store, {
       reporterSecret: undefined,
       requireReporterSecret: false,
@@ -106,8 +106,7 @@ describe('reporter results route', () => {
   });
 
   it('requires the reporter secret when configured', async () => {
-    const app = new Hono().route(
-      '/',
+    const app = withErrorBoundary(
       createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
         reporterSecret: 'reporter-secret',
       }),
@@ -133,8 +132,7 @@ describe('reporter results route', () => {
     const previous = process.env['REPORTER_SECRET'];
     delete process.env['REPORTER_SECRET'];
     try {
-      const app = new Hono().route(
-        '/',
+      const app = withErrorBoundary(
         createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
           reporterSecret: undefined,
         }),
@@ -156,8 +154,7 @@ describe('reporter results route', () => {
   });
 
   it('rejects a token that is a prefix of the secret, differs in case, or is empty', async () => {
-    const app = new Hono().route(
-      '/',
+    const app = withErrorBoundary(
       createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
         reporterSecret: 'reporter-secret',
       }),
@@ -332,8 +329,7 @@ describe('a result is ingested once, however many times it is sent', () => {
 
   it('checks the secret before the body, so an unauthenticated caller cannot ingest', async () => {
     const store = new CountingResultStore('workspace-1');
-    const app = new Hono().route(
-      '/',
+    const app = withErrorBoundary(
       createReporterResultsRoute(store, { reporterSecret: 'reporter-secret' }),
     );
 

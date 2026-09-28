@@ -40,6 +40,12 @@ interface RecoveryRow extends QueryResultRow {
 
 interface ScheduleRow extends QueryResultRow {
   id: string;
+  /**
+   * The authoritative tenant. `NOT NULL` since
+   * `0015_schedule_workspace_scope.sql`, which is what makes it usable as a comparison
+   * against `run_options` rather than a second place to keep a value in sync by hand.
+   */
+  workspace_id: string;
   cron_expr: string;
   run_options: Record<string, unknown>;
   enabled: boolean;
@@ -377,7 +383,7 @@ export class PostgresExecutionStore implements ExecutionStore {
 
   async listDueSchedules(now: Date, limit: number): Promise<WorkerSchedule[]> {
     const result = await this.pool.query<ScheduleRow>(
-      `SELECT id, cron_expr, run_options, enabled,
+      `SELECT id, workspace_id, cron_expr, run_options, enabled,
               COALESCE((run_options->>'nextRunAt')::timestamptz, last_run_at, created_at) AS next_run_at
        FROM schedules
        WHERE enabled = true
@@ -389,6 +395,28 @@ export class PostgresExecutionStore implements ExecutionStore {
     return result.rows.map((row) => {
       const options = record(row.run_options);
       const request = { ...options, ...record(options['request']) };
+      const declaredWorkspaceId = requiredString(request['workspaceId'], 'workspaceId');
+      // The tenant comes from the **column**, never from the JSONB.
+      //
+      // Before `0015_schedule_workspace_scope.sql` the workspace existed only as
+      // `run_options->'request'->>'workspaceId'`, so the value a run executed in was
+      // whatever a writer put in an untyped blob, and this function had nothing to
+      // validate it against. Now the column is authoritative and the JSONB is a second
+      // opinion, so a row where the two disagree is a defect rather than a run in
+      // whichever workspace the blob claimed.
+      //
+      // Refusing is the only safe response. Silently preferring the column would mean a
+      // row whose payload disagrees still runs — in a workspace its author did not name
+      // — and the disagreement would stay invisible forever. Throwing stops the whole
+      // poll, which is blunt on purpose: a schedule that cannot be trusted must not be
+      // enqueued, and a loud failure is recoverable where a cross-tenant run is not.
+      if (declaredWorkspaceId !== row.workspace_id) {
+        throw new Error(
+          `Schedule ${row.id} declares workspace ${row.workspace_id} but its run_options ` +
+            `name ${declaredWorkspaceId}. The workspace column is authoritative; the ` +
+            'run_options disagree and the row must be repaired before it can run.',
+        );
+      }
       const misfirePolicy = options['misfirePolicy'];
       if (
         misfirePolicy !== undefined &&
@@ -405,7 +433,7 @@ export class PostgresExecutionStore implements ExecutionStore {
         enabled: row.enabled,
         nextRunAt: row.next_run_at.toISOString(),
         request: {
-          workspaceId: requiredString(request['workspaceId'], 'workspaceId'),
+          workspaceId: row.workspace_id,
           projectId: requiredString(request['projectId'], 'projectId'),
           environmentId: requiredString(request['environmentId'], 'environmentId'),
           releaseId: requiredString(request['releaseId'], 'releaseId'),

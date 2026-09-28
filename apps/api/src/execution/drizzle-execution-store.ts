@@ -1,4 +1,6 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { digestOf, tokenMatches } from './digest.js';
+import { normalizeArtifactKind } from './artifact-kind.js';
 import { and, asc, desc, eq, gt, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
@@ -31,7 +33,7 @@ import {
   BoundedMap,
   COMPLETION_HASH_CAPACITY,
 } from './bounded-map.js';
-import { deriveRunState, isRequestablePhase } from './phase-outcome.js';
+import { deriveRunState, isRequestablePhase, isTerminalPhase } from './phase-outcome.js';
 import { resolveSummary } from './summary.js';
 import { decodeRunCursor, normalizeEventLimit, normalizeRunLimit } from './run-paging.js';
 import type {
@@ -127,21 +129,8 @@ function iso(value: Date): string {
   return value.toISOString();
 }
 
-function stable(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(',')}]`;
-  const object = value as Record<string, unknown>;
-  return `{${Object.keys(object)
-    .filter((key) => object[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stable(object[key])}`)
-    .join(',')}}`;
-}
-
 function digest(value: unknown): string {
-  return createHash('sha256')
-    .update(value instanceof Uint8Array ? value : stable(value))
-    .digest('hex');
+  return digestOf(value);
 }
 
 function eventDigest(event: ExecutionEventInput): string {
@@ -152,12 +141,6 @@ function eventDigest(event: ExecutionEventInput): string {
     occurredAt: event.occurredAt,
     payload: event.payload ?? {},
   });
-}
-
-function tokenMatches(token: string, expectedHash: string): boolean {
-  const actual = Buffer.from(digest(token), 'hex');
-  const expected = Buffer.from(expectedHash, 'hex');
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function uuidFor(value: string): string {
@@ -400,21 +383,6 @@ function mapGate(row: DbRow): GateEvaluation {
     domainStatuses: domains,
     evaluatedAt: dateIso(row['evaluatedAt']),
   };
-}
-
-function normalizeArtifactKind(value: string): string {
-  const normalized = value.toLowerCase();
-  if (normalized === 'raw_report' || normalized === 'report') return 'report';
-  if (normalized === 'playwright-json' || normalized === 'json') return 'json';
-  if (normalized === 'junit') return 'junit';
-  if (normalized === 'stdout') return 'stdout';
-  if (normalized === 'stderr') return 'stderr';
-  if (normalized === 'screenshot') return 'screenshot';
-  if (normalized === 'video') return 'video';
-  if (normalized === 'trace') return 'trace';
-  if (normalized === 'html' || normalized === 'html-report') return 'html';
-  if (normalized === 'log' || normalized === 'event-log') return 'log';
-  return 'other';
 }
 
 function mapEvent(row: DbRow): ExecutionEvent {
@@ -728,19 +696,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
   async cancelRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
     const run = await this.getRun(runId, workspaceId);
     if (!run) return null;
-    if (
-      [
-        'complete',
-        'cancelled',
-        'timed_out',
-        'runner_lost',
-        'infra_failed',
-        'config_failed',
-        'blocked',
-        'partial',
-      ].includes(run.phase)
-    )
-      return run;
+    if (isTerminalPhase(run.phase)) return run;
     const timestamp = iso(nowDate(this.options));
     await this.db.transaction(async (tx) => {
       await tx
@@ -792,20 +748,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
     idempotencyKey?: string,
   ): Promise<CreateRunResult | null> {
     const previous = await this.getRun(runId, workspaceId);
-    if (
-      !previous ||
-      ![
-        'complete',
-        'cancelled',
-        'timed_out',
-        'runner_lost',
-        'infra_failed',
-        'config_failed',
-        'blocked',
-        'partial',
-      ].includes(previous.phase)
-    )
-      return null;
+    if (!previous || !isTerminalPhase(previous.phase)) return null;
     return this.createRun(
       {
         externalId: previous.externalId,
@@ -1384,8 +1327,13 @@ export class DrizzleExecutionStore implements ExecutionStore {
       const storedHash = nullableString(jobRecord['completionHash']);
       const effectivePreviousHash = storedHash ?? previousHash;
       if (effectivePreviousHash && effectivePreviousHash !== completionHash) return null;
+      // Fenced inside the transaction as well as at the route: the route's check is
+      // defence against a caller, and this is defence against a caller that got here
+      // anyway. `runner-lifecycle.drizzle.test.ts` asserts it directly, because
+      // without that assertion this line could be deleted and nothing would fail.
       if (job.leaseId !== completion.leaseId || job.fencingToken !== completion.fencingToken)
         return null;
+
       if (effectivePreviousHash) return { runId: job.runId, duplicate: true };
       const timestamp = nowDate(this.options);
       const status = (completion.status ?? completion.outcome ?? 'unknown').toLowerCase();
@@ -1647,8 +1595,13 @@ export class DrizzleExecutionStore implements ExecutionStore {
   async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
     const descriptor = await this.getArtifactDescriptor(artifactId, workspaceId);
     if (!descriptor) return null;
+    // The row's checksum is the only statement of what these bytes were, and this is
+    // the only place the row and the bytes are both in hand. Checking here rather than
+    // in the store is deliberate: the store holds a storage key and nothing else, so a
+    // check it cannot be given the digest is a check that cannot run — which is how the
+    // digest comparison ended up on a method no production path called.
     const bytes = this.options.artifactBytes
-      ? await this.options.artifactBytes.get(descriptor.storageKey)
+      ? await this.options.artifactBytes.get(descriptor.storageKey, descriptor.checksum)
       : this.memoryBytes.get(descriptor.storageKey);
     return bytes ? { ...descriptor, bytes: new Uint8Array(bytes) } : null;
   }

@@ -7,7 +7,7 @@ const CREATE_OUTBOX_EVENTS = `
   CREATE TABLE outbox_events (
     sequence integer PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     event_id uuid DEFAULT gen_random_uuid() NOT NULL,
-    workspace_id text,
+    workspace_id text NOT NULL,
     aggregate_type text NOT NULL,
     aggregate_id text NOT NULL,
     event_type text NOT NULL,
@@ -17,7 +17,7 @@ const CREATE_OUTBOX_EVENTS = `
     occurred_at timestamptz DEFAULT now() NOT NULL,
     expires_at timestamptz
   );
-  CREATE UNIQUE INDEX outbox_events_dedupe_idx ON outbox_events (dedupe_key);
+  CREATE UNIQUE INDEX outbox_events_workspace_dedupe_idx ON outbox_events (workspace_id, dedupe_key);
 `;
 
 const clients: PGlite[] = [];

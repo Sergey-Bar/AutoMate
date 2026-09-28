@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { ReporterIngestionService } from '../services/reporter-ingestion.js';
 import { createReportingRoutes } from './reporting.js';
@@ -40,7 +41,7 @@ const result = {
 describe('reporting routes', () => {
   it('returns 404 for missing runs and empty aggregate metrics', async () => {
     const service = new ReporterIngestionService('workspace-1');
-    const app = new Hono().route('/', createReportingRoutes(service));
+    const app = withErrorBoundary(new Hono()).route('/', createReportingRoutes(service));
     expect((await app.request('/api/v1/reporting/runs/missing')).status).toBe(404);
     expect((await app.request('/api/v1/reporting/kpis?runId=missing')).status).toBe(404);
     const empty = await app.request('/api/v1/reporting/kpis');
@@ -50,7 +51,7 @@ describe('reporting routes', () => {
   it('returns canonical run and KPI projections', async () => {
     const service = new ReporterIngestionService('workspace-1');
     service.ingest(result);
-    const app = new Hono().route('/', createReportingRoutes(service));
+    const app = withErrorBoundary(new Hono()).route('/', createReportingRoutes(service));
     const run = await app.request('/api/v1/reporting/runs/run-1');
     expect(run.status).toBe(200);
     expect(((await run.json()) as { summary: { total: number } }).summary.total).toBe(1);

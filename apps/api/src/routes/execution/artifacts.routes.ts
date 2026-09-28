@@ -15,16 +15,17 @@
  */
 
 import { Hono } from 'hono';
+import { DomainError } from '../../errors/domain-error.js';
 import type { ExecutionRouteContext } from './shared.js';
 import type {} from './schemas.js';
-import { error, safeName } from './shared.js';
+import { safeName } from './shared.js';
 import { missingArtifact } from './shared.js';
 export function registerArtifactRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws } = context;
   app.get('/api/v1/runs/:runId/artifacts', async (c) => {
     const runId = c.req.param('runId');
     const run = await options.store.getRun(runId, ws);
-    if (!run) return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+    if (!run) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
     return c.json(await options.store.listArtifacts(ws, runId));
   });
 
@@ -46,7 +47,7 @@ export function registerArtifactRoutes(app: Hono, context: ExecutionRouteContext
     const artifactId = c.req.param('artifactId');
     const artifact = await options.store.getArtifact(artifactId);
     if (!artifact) return missingArtifact(c, options.store, artifactId, runId);
-    if (artifact.runId !== runId) return error(c, 404, 'ARTIFACT_NOT_FOUND', 'Artifact not found');
+    if (artifact.runId !== runId) throw new DomainError('ARTIFACT_NOT_FOUND', 'Artifact not found');
     return new Response(Buffer.from(artifact.bytes), {
       headers: {
         'content-type': artifact.contentType,

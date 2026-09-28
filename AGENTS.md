@@ -50,6 +50,8 @@ pnpm security:secrets     # Dependency-free secret floor, working tree
 pnpm security:secrets:history  # The same patterns over every commit. CI step, not a pre-commit hook — it is proportional to the commit count
 pnpm duplication          # jscpd
 pnpm complexity           # Complexity gate against docs/quality/complexity-baseline.json
+pnpm test:render          # Rendering budget: LCP, INP, CLS, long tasks on the four primary routes
+pnpm render:baseline      # RECORDS the rendering ceilings. Never in CI, by design
 pnpm compose:config       # Resolves the canonical production compose file
 pnpm migrate:plan         # Builds the plan. Reads the repository, never a database
 pnpm migrate:validate     # Checks the migration graph against the journal
@@ -60,6 +62,25 @@ pnpm oci:build            # Container images
 pnpm oci:verify           # Verifies the built images
 pnpm docs:capability-register  # Regenerates the capability register
 ```
+
+`test:render` runs in **two phases, and the phase is derived from the data rather
+than chosen**. `scripts/lib/render-gate-phase.mjs` reads
+`performance/rendering-budget.json` and computes the tier `test:render` is allowed to
+have, and `gate-tooling.test.mjs` fails until `scripts/gate-tooling.json` agrees, in
+both directions:
+
+- `recorded: false` — the job **measures** the four routes, publishes the numbers to
+  the job summary, compares nothing, and is `pr-reporting`. Not a required check,
+  because a required check that can never pass blocks every pull request and teaches
+  reviewers to read red as noise.
+- `recorded: true` — the same spec **compares** against the ceilings and fails on a
+  regression, and `test:render` must be `pr-blocking`.
+
+Graduating is one commit with two parts: record a real run, and raise the tier. The
+test refuses to pass if only one happened, so `recorded: true` beside invented numbers
+cannot become a gate that is permanently green and unenforced. A GitHub runner is not
+the reference hardware — the ceilings describe a self-hosted single-node install, so
+`pnpm render:baseline` has to run there.
 
 `scripts/gate-tooling.json` records which external binary each script needs, **and
 the tier of every root script** — `pr-blocking`, `pr-reporting`, `nightly`,
@@ -83,12 +104,15 @@ defect, and `pnpm findings:check` is what makes it more than a document:
 - a Blocker or Critical recorded as debt **fails** — plan §1 forbids debt in the
   two blocking bands;
 - a `debt` row with no owner or no removal condition **fails**;
+- a `false-positive` row with no `refutedBy` note **fails**;
 - an empty ledger **fails**, because a check that measured nothing is not a pass.
 
 `provenance` says how a row got here: `hand` means it was confirmed by reading the
-code, `sweep` means an automated sweep produced it and nobody has read it since. The
-rows a destructive migration would act on cannot be closed while they are still
-`sweep` — see `CONFIRMATION_REQUIRED` in `scripts/lib/findings-ledger.mjs`.
+code, `sweep` means an automated sweep produced it and nobody has read it since.
+**No** `sweep` row can be closed while it is still `sweep` — it needs
+`confirmed: true` first, or `status: "false-positive"` with a `refutedBy` note naming
+what refutes it. Deleting a refuted row is not an option: the ratchet fails on
+vanished rows. See `confirmationProblems` in `scripts/lib/findings-ledger.mjs`.
 
 **Single package:**
 

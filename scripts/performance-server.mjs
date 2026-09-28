@@ -94,7 +94,8 @@ const api = spawn(
     env: {
       ...process.env,
       DATABASE_URL: databaseUrl,
-      AUTOMATE_API_KEY: process.env['AUTOMATE_API_KEY'] ?? 'e2e-installation-key',
+      AUTOMATE_API_KEY:
+        process.env['AUTOMATE_API_KEY'] ?? 'e2e-installation-key-32-characters-long',
       COOKIE_SECRET: process.env['COOKIE_SECRET'] ?? 'performance-gate-cookie-secret-32-chars',
       PUBLIC_APP_URL: process.env['PUBLIC_APP_URL'] ?? 'http://127.0.0.1:5173',
       PORT: port,

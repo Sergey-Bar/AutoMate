@@ -15,6 +15,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { DomainError } from '../../errors/domain-error.js';
 import { Hono } from 'hono';
 import { CreateRunSchema } from './schemas.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
@@ -24,7 +25,6 @@ import type { ExecutionRouteContext } from './shared.js';
 import {
   domainStatusesFromRun,
   ensurePolicy,
-  error,
   legacyRun,
   pageCursor,
   pageSize,
@@ -37,14 +37,14 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
   const { options, ws, eventSequences } = context;
   app.post('/api/v1/runs', async (c) => {
     const parsed = await parseBody(c, CreateRunSchema);
-    if (!parsed) return error(c, 400, 'INVALID_RUN', 'Run request is invalid');
+    if (!parsed) throw new DomainError('INVALID_RUN', 'Run request is invalid');
     const headerKey = c.req.header('idempotency-key');
     const key = headerKey ?? parsed.idempotencyKey;
     const required = options.requireIdempotencyKey ?? process.env['NODE_ENV'] === 'production';
     if (required && !key)
-      return error(c, 400, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
+      throw new DomainError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
     if (!key)
-      return error(c, 400, 'IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
+      throw new DomainError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
     const input = {
       ...parsed,
       selection: Array.isArray(parsed.selection)
@@ -107,13 +107,13 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
   app.get('/api/v1/runs/:runId/gate', async (c) => {
     const runId = c.req.param('runId');
     const run = await options.store.getRun(runId, ws);
-    if (!run) return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+    if (!run) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
     const recorded = await options.store.getRunGate(ws, runId);
     if (recorded) return c.json({ ...recorded, recorded: true });
     const policy = run.policyId
       ? await options.store.getPolicy(run.policyId, ws)
       : await ensurePolicy(options.store, ws);
-    if (!policy) return error(c, 404, 'POLICY_NOT_FOUND', 'Quality policy not found');
+    if (!policy) throw new DomainError('POLICY_NOT_FOUND', 'Quality policy not found');
     const evaluation = createGateEvaluation({
       run,
       policy,
@@ -126,7 +126,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
   app.get('/api/v1/runs/:runId/events', async (c) => {
     const runId = c.req.param('runId');
     const run = await options.store.getRun(runId, ws);
-    if (!run) return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+    if (!run) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
     // Paged on the sequence, which is the position `appendEvents` allocates
     // monotonically, so `after` is an exact place to resume rather than a guess.
     // This endpoint read every event a run had ever produced and serialised the lot:
@@ -134,7 +134,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
     // with the size of the *run* rather than the size of the page.
     const after = parseAfterSequence(c.req.query('after'));
     if (after === 'invalid')
-      return error(c, 400, 'INVALID_CURSOR', 'after must be a non-negative integer sequence');
+      throw new DomainError('INVALID_CURSOR', 'after must be a non-negative integer sequence');
     const page = await options.store.listEvents(ws, runId, {
       afterSequence: after,
       limit: pageSize(c.req.query('limit')),
@@ -167,7 +167,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       const legacy = options.legacyRepository
         ? await options.legacyRepository.getRun(c.req.param('runId'))
         : null;
-      if (!legacy) return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+      if (!legacy) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
       const finishedAt = new Date().toISOString();
       await options.legacyRepository?.patchRun(legacy.id, { status: 'interrupted', finishedAt });
       const updated = (await options.legacyRepository?.getRun(legacy.id)) ?? legacy;
@@ -200,7 +200,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
         ? await options.legacyRepository.getRun(c.req.param('runId'))
         : null;
       if (!legacy)
-        return error(c, 409, 'RUN_NOT_RETRYABLE', 'Run is not retryable or was not found');
+        throw new DomainError('RUN_NOT_RETRYABLE', 'Run is not retryable or was not found');
       const created = await options.store.createRun(
         {
           source: 'legacy-retry',
@@ -227,6 +227,6 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       const legacy = await options.legacyRepository.getRun(runId);
       if (legacy) return c.json(toCanonicalRun(legacyRun(legacy)));
     }
-    return error(c, 404, 'RUN_NOT_FOUND', 'Run not found');
+    throw new DomainError('RUN_NOT_FOUND', 'Run not found');
   });
 }

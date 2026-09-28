@@ -11,6 +11,34 @@
  * column refuses, a body that is absent, and a body that is not JSON.
  */
 import { describe, expect, it } from 'vitest';
+/**
+ * The boundary's body, named.
+ *
+ * A cast to `Record<string, unknown>` can read any shape and so checks none, which is
+ * how `body.error` stayed a bare string in this suite after the migration: the
+ * assertion was satisfied by a field that no longer exists.
+ */
+interface BoundaryBody {
+  /** The success shapes these same files read: `id`, `status`, `allowed`, `runs`. */
+  [key: string]: unknown;
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: {
+      issues: Array<{ path: unknown[]; message?: string }>;
+      fieldErrors?: Record<string, unknown>;
+      /** The statuses a client may ask for, rather than a sentence naming them. */
+      allowed?: string[];
+      /** How long to wait, rather than a sentence saying to try again. */
+      retryAfterSeconds?: number;
+      from?: string;
+      to?: string;
+    };
+  };
+}
+
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { PERSISTED_RUN_STATUS_VALUES, RUN_STATUS_VALUES } from '@automate/shared-contracts';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
@@ -74,11 +102,11 @@ class WorkspaceScopedRunRepository extends InMemoryRunRepository {
 }
 
 function mount(repository: InMemoryRunRepository): Hono {
-  return new Hono().route('/', createDashboardRunsRoutes({ repository }));
+  return withErrorBoundary(createDashboardRunsRoutes({ repository }));
 }
 
 async function readJson(response: Response): Promise<Record<string, unknown>> {
-  return (await response.json()) as Record<string, unknown>;
+  return (await response.json()) as BoundaryBody;
 }
 
 function patchStatus(app: Hono, id: string, body: unknown): Promise<Response> {
@@ -162,7 +190,9 @@ describe('GET /api/v1/dashboard/runs/:id', () => {
     const response = await app.request('/api/v1/dashboard/runs/does-not-exist');
 
     expect(response.status).toBe(404);
-    expect(await readJson(response)).toEqual({ error: 'Run not found' });
+    expect(await readJson(response)).toMatchObject({
+      error: { code: 'RUN_NOT_FOUND', message: 'Run not found' },
+    });
   });
 
   it('answers 404, and never 200, for an id that could not exist', async () => {
@@ -195,7 +225,9 @@ describe('GET /api/v1/dashboard/runs/:id', () => {
     expect(foreign.status).toBe(404);
     expect(foreign.status).not.toBe(403);
     // Not the record under any spelling: no id, no status, nothing.
-    expect(await readJson(foreign)).toEqual({ error: 'Run not found' });
+    expect(await readJson(foreign)).toMatchObject({
+      error: { code: 'RUN_NOT_FOUND', message: 'Run not found' },
+    });
   });
 });
 
@@ -302,13 +334,13 @@ describe('PATCH /api/v1/dashboard/runs/:id/status', () => {
     await repository.upsertRun(makeRun({ id: 'run-issues', status: 'running' }));
     const app = mount(repository);
 
-    const body = (await readJson(await patchStatus(app, 'run-issues', { status: 'banana' }))) as {
-      error: string;
-      issues: Array<{ path: unknown[] }>;
-    };
+    const body = (await readJson(
+      await patchStatus(app, 'run-issues', { status: 'banana' }),
+    )) as BoundaryBody;
 
-    expect(body.error).toContain('running, passed, failed, interrupted');
-    expect(body.issues.map((issue) => issue.path[0])).toContain('status');
+    expect(body.error.code).toBe('INVALID_RUN_STATUS');
+    expect(body.error.details.allowed).toContain('passed');
+    expect(body.error.details.issues.map((issue) => String(issue.path[0]))).toContain('status');
   });
 
   it('answers 404 for a run that does not exist, and does not write', async () => {
@@ -331,7 +363,9 @@ describe('PATCH /api/v1/dashboard/runs/:id/status', () => {
 
     expect(response.status).toBe(404);
     expect(response.status).not.toBe(403);
-    expect(await readJson(response)).toEqual({ error: 'Run not found' });
+    expect(await readJson(response)).toMatchObject({
+      error: { code: 'RUN_NOT_FOUND', message: 'Run not found' },
+    });
     // Read past the scoping filter to see the row the caller was refused: a 404
     // that had applied the write would be the worst of both answers. `getRun`
     // would hide it, so the fixture's unfiltered accessor is used deliberately.
@@ -342,51 +376,68 @@ describe('PATCH /api/v1/dashboard/runs/:id/status', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The transition rule this route does not have
+// The transition rule
 // ---------------------------------------------------------------------------
 
-describe('recorded gap: the status patch has no transition rule', () => {
-  it('currently permits reopening a terminal run — a recorded gap, not a guarantee', async () => {
-    // `dashboard/quarantine.ts` refuses `rejected → approved` with a 409 and names
-    // the states a row may take. This route has no equivalent table, so a terminal
-    // run can be moved back to `running` and a failed run can be marked `passed`
-    // by one dashboard call, with no state it is allowed to reach and no audit row
-    // recording that somebody decided to. A caller that is told "the run is
-    // failing" and then reads it back as `passed` has been handed a green run
-    // nobody produced.
-    //
-    // This test pins the *current* answer so that adding a transition table makes
-    // it fail loudly rather than silently changing behaviour. It is a
-    // characterisation, and it is not an endorsement — see the report.
+describe('a terminal run does not come back to life', () => {
+  it('refuses to reopen a terminal run', async () => {
+    // This case used to assert `200` here, under the heading "recorded gap: the status
+    // patch has no transition rule", with a long comment explaining that a failed run
+    // could be marked `passed` by one dashboard call with no audit row. That was
+    // honest — a gap written down beats a gap assumed — and it is now false. X-2 added
+    // the transition guard and the audit row; the behaviour is covered in detail in
+    // `runs-status.test.ts`.
     const repository = new InMemoryRunRepository();
     await repository.upsertRun(makeRun({ id: 'terminal', status: 'passed' }));
     const app = mount(repository);
 
     const response = await patchStatus(app, 'terminal', { status: 'running' });
 
-    expect(response.status).toBe(200);
-    expect((await repository.getRun('terminal'))?.status).toBe('running');
+    expect(response.status).toBe(409);
+    expect((await repository.getRun('terminal'))?.status).toBe('passed');
   });
 
-  it('permits every status from every status, so there is no refused pair at all', async () => {
-    // Enumerated rather than sampled: the shape of the gap is that it is total,
-    // and a sampled version of a total claim would not say so.
-    const reachable: string[] = [];
+  it('refuses every transition out of a terminal status, and no other pair', async () => {
+    // Enumerated rather than sampled, because the shape of the old claim was that it was
+    // total and a sampled version would not have said so. What it asserts now is the
+    // complement: a move is permitted only when the run is not already terminal.
+    const refused: string[] = [];
+    const accepted: string[] = [];
     for (const from of PERSISTED_RUN_STATUS_VALUES) {
       for (const to of PERSISTED_RUN_STATUS_VALUES) {
         const repository = new InMemoryRunRepository();
         await repository.upsertRun(makeRun({ id: 'from', status: from }));
         const response = await patchStatus(mount(repository), 'from', { status: to });
-        if (response.status === 200) reachable.push(`${from}→${to}`);
+        (response.status === 409 ? refused : accepted).push(`${from}→${to}`);
       }
     }
 
-    // 4 x 4, with nothing refused and no status appearing that the column stores.
-    expect(reachable).toHaveLength(PERSISTED_RUN_STATUS_VALUES.length ** 2);
-    for (const pair of reachable) {
-      const [, to] = pair.split('→');
-      expect(PERSISTED_RUN_STATUS_VALUES).toContain(to);
+    // The rule is one-sided and about where a move *comes from*: a run that has
+    // concluded does not move, whatever it is asked to become. `passed → failed` is
+    // refused for the same reason `passed → running` is — not because the target is
+    // terminal, but because the run is.
+    //
+    // A no-op — the same status twice — is not a transition and stays permitted, so it
+    // is excluded below rather than special-cased in the route.
+    // `Set<string>`, because the pair halves arrive from a template literal and are
+    // widened to `string` by the time they get here.
+    const TERMINAL = new Set<string>(
+      PERSISTED_RUN_STATUS_VALUES.filter((status) => status !== 'running'),
+    );
+    for (const pair of refused) {
+      const [from] = pair.split('→') as [string];
+      expect(TERMINAL.has(String(from)), `${pair} was refused from a non-terminal status`).toBe(
+        true,
+      );
     }
+    for (const pair of accepted) {
+      const [from, to] = pair.split('→') as [string, string];
+      if (from === to) continue;
+      expect(TERMINAL.has(String(from)), `${pair} was allowed from a terminal status`).toBe(false);
+    }
+    // And the guard is not vacuous: something must actually be refused, or the rule
+    // above would hold for a route that permits everything.
+    expect(refused.length).toBeGreaterThan(0);
   });
 });
 

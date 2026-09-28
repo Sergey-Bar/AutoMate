@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync } from 'node:crypto';
-import { appendFile, mkdir, readFile, rename, truncate, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, stat, truncate, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
@@ -27,8 +27,19 @@ export type SpoolIntegrityCode =
   | 'SPOOL_TRUNCATED';
 
 export class SpoolError extends Error {
-  constructor(message: string) {
-    super(message);
+  /**
+   * `cause` is preserved because this error is a translation of a lower-level one.
+   *
+   * The standard `Error(message, { cause })` shape is used deliberately: an operator
+   * reading "the spool path is not a directory" still needs the `EEXIST`/`ENOTDIR`
+   * underneath to tell a path typo from a file sitting where the spool belongs, and
+   * wrapping without carrying it discards the only part that identifies the fault.
+   *
+   * @param message what went wrong, in terms an operator can act on
+   * @param options the underlying error, when this is a translation of one
+   */
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
     this.name = 'SpoolError';
   }
 }
@@ -47,6 +58,29 @@ export class SpoolCapacityError extends SpoolError {
   }
 }
 
+/**
+ * One entry is larger than a sealed frame is allowed to be.
+ *
+ * A distinct class rather than a `SpoolCapacityError` on purpose. Capacity means
+ * "the queue is full, try again later", and an oversized *entry* is not that: the
+ * queue may be 3% full. A caller obeying the capacity contract would retry the same
+ * 5 MB event forever against a file with room to spare, so the two refusals have to
+ * be tellable apart at the call site — one is transient, the other never resolves.
+ */
+export class SpoolFrameTooLargeError extends SpoolError {
+  constructor(
+    readonly limitBytes: number,
+    readonly entryBytes: number,
+  ) {
+    super(
+      `Runner spool entry seals to ${String(entryBytes)} bytes, above the ` +
+        `${String(limitBytes)}-byte frame limit. The event is too large to spool; ` +
+        'split it, or reduce what the event carries.',
+    );
+    this.name = 'SpoolFrameTooLargeError';
+  }
+}
+
 export class SpoolIntegrityError extends SpoolError {
   constructor(
     readonly code: SpoolIntegrityCode,
@@ -55,6 +89,128 @@ export class SpoolIntegrityError extends SpoolError {
     super(message);
     this.name = 'SpoolIntegrityError';
   }
+}
+
+/**
+ * Whether a thrown value means the spool path is not a usable directory.
+ *
+ * `ENOTDIR` is a path component that is not a directory; `EEXIST` under `recursive` is
+ * the final component existing as something else. Both are the same fault to whoever
+ * reads the message — something other than a directory is at the spool path — so both
+ * are reported as one. Matched on the code rather than the message, so a Node version
+ * that words it differently is still recognised.
+ *
+ * @param cause the value `mkdir` threw
+ * @returns true when the path is occupied by something that is not a directory
+ */
+function isPathOccupiedByFile(cause: unknown): boolean {
+  if (typeof cause !== 'object' || cause === null) return false;
+  const code = (cause as { code?: unknown }).code;
+  return code === 'ENOTDIR' || code === 'EEXIST';
+}
+
+/**
+ * The mode a spool directory is created with: owner-only.
+ *
+ * A spool holds sealed frames — encrypted, so their contents are not readable, but the
+ * frames are still a queue an attacker can delete, reorder by truncation, or replace
+ * with their own sealed data if they can also obtain the key. Owner-only is the
+ * smallest mode that keeps a second local account out of it entirely.
+ */
+const SPOOL_DIRECTORY_MODE = 0o700;
+
+/**
+ * The decision, separated from the I/O, so it is testable on every platform.
+ *
+ * This is the substantive part of {@link assertPrivateDirectory} and it is a pure
+ * function of a stat result. That split is not tidiness — it is what makes the guards
+ * verifiable at all on Windows, where the file-level test cannot create a foreign uid
+ * or read a meaningful mode. `node --test` on a developer machine and CI both run on
+ * Windows runners as well as Linux ones, so a policy reachable only on POSIX is a
+ * policy that is checked only sometimes, and this way it is checked always.
+ *
+ * The checks are deliberately strict, because each one has a real failure behind it:
+ *
+ *  - **Not a directory.** `mkdir` with `recursive: true` does not reach here for a
+ *    file at the final component — that is translated at the call site — but a
+ *    path component that is a file produces `ENOTDIR` and never arrives. The check
+ *    stays because the stat is the authority on what the path now is.
+ *  - **Mode.** A group- or world-accessible directory has already leaked the queue's
+ *    existence and shape. POSIX-only: `stat` on Windows reports a synthetic mode and a
+ *    `mkdtemp` directory reads back as `0666`, so checking it there would either
+ *    refuse every Windows install or be loosened until it checks nothing.
+ *  - **Ownership.** A directory owned by another uid is writable by them whatever the
+ *    mode says, so `0o700` applied to a foreign directory protects nothing.
+ *
+ * @param stats the stat result for the directory
+ * @param platform the value of `process.platform`, injected so both branches are reachable
+ * @param uid this process's uid, or `null` where the platform has none
+ * @returns the problem in operator-facing terms, or `null` when the directory is usable
+ */
+export function privateDirectoryProblem(
+  stats: { isDirectory(): boolean; mode: number; uid: number },
+  platform: string = process.platform,
+  uid: number | null = process.getuid?.() ?? null,
+): string | null {
+  if (!stats.isDirectory()) return 'the path is not a directory';
+  if (platform === 'win32') return null;
+
+  const mode = stats.mode & 0o777;
+  if (mode & 0o077) {
+    return (
+      `is mode 0${mode.toString(8)}, which is accessible beyond this account. Move it ` +
+      'somewhere private or chmod it to 0700 — a spool another local account can write to ' +
+      'is a spool we cannot trust.'
+    );
+  }
+  if (uid !== null && stats.uid !== uid) {
+    return (
+      `is owned by uid ${String(stats.uid)} and this process is uid ${String(uid)}. ` +
+      'Another account can write to it whatever its mode says.'
+    );
+  }
+  return null;
+}
+
+/**
+ * The size of a file that may not exist.
+ *
+ * A spool that has never been written has no file, and zero is the right answer rather
+ * than an error: the first append creates it. `stat` rather than a cached value,
+ * because the whole point of asking is that the cache can be wrong.
+ *
+ * @param path the file to measure
+ * @returns its size in bytes, or 0 when it does not exist yet
+ */
+async function fileSize(path: string): Promise<number> {
+  try {
+    return (await stat(path)).size;
+  } catch (cause) {
+    if (
+      typeof cause === 'object' &&
+      cause !== null &&
+      (cause as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return 0;
+    }
+    throw cause;
+  }
+}
+
+/**
+ * Stat the spool directory and refuse it unless it is private to this process.
+ *
+ * Thin on purpose: everything decidable lives in {@link privateDirectoryProblem}, so
+ * the one syscall here is the only thing that cannot be exercised without a filesystem.
+ *
+ * @param directory the resolved directory, which now exists
+ * @throws when the path is not a directory, or on POSIX when it is not ours or is
+ *   accessible beyond this account
+ */
+async function assertPrivateDirectory(directory: string): Promise<void> {
+  const problem = privateDirectoryProblem(await stat(directory));
+  if (problem === null) return;
+  throw new SpoolError(`Spool directory ${directory} ${problem}`);
 }
 
 export class EncryptedSpool {
@@ -66,13 +222,52 @@ export class EncryptedSpool {
     this.key = material;
   }
 
+  /**
+   * The KDF's cost parameters, pinned explicitly.
+   *
+   * `scryptSync` has defaults, and Node is free to change them. Every spool on every
+   * installation derives its key from this call, so a default change is not a
+   * performance tweak — it silently produces different keys everywhere, and the only
+   * symptom is `SPOOL_WRONG_KEY` on a spool that was never touched (ledger P-19). The
+   * arguments are therefore stated rather than inherited, and `maxmem` is set to
+   * 64 MiB because Node's default raises an error rather than succeeding once `N`
+   * grows — which would turn a silent key change into a hard failure at least.
+   */
+  static readonly KDF_PARAMS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
+  /**
+   * Bumped when {@link KDF_PARAMS} or the salt change.
+   *
+   * This is what makes the change *detectable* rather than merely documented.
+   * `keyId()` folds the version into its digest, and `DurableSpool.open` already
+   * compares the key id against the one recorded beside the sequence state — so a bump
+   * makes every existing spool report a key mismatch deliberately, at open time, with
+   * the version in the identifier. Without it, a parameter change is indistinguishable
+   * from a corrupted key or a wrong secret, and the operator is left guessing which.
+   */
+  static readonly KDF_VERSION = 1;
+
   static deriveKey(secret: string, purpose = 'automate-runner-spool'): Buffer {
     if (!secret) throw new SpoolError('Spool key secret must not be empty');
-    return scryptSync(secret, purpose, 32);
+    // `purpose` is a domain separator, not a secret salt: two purposes sharing a secret
+    // must not derive the same key, and that is exactly what varying the salt achieves.
+    // What was missing was the versioning, not the salt.
+    return scryptSync(secret, purpose, 32, EncryptedSpool.KDF_PARAMS);
   }
 
+  /**
+   * The key's identity, as a short digest of the **material and the KDF version**.
+   *
+   * Folding the version in is what turns a future parameter bump into a visible event.
+   * It is part of this digest rather than stored beside it so it cannot drift from the
+   * key that produced it.
+   */
   keyId(): string {
-    return createHash('sha256').update(this.key).digest('hex').slice(0, KEY_ID_BYTES);
+    return createHash('sha256')
+      .update(`v${String(EncryptedSpool.KDF_VERSION)}:`)
+      .update(this.key)
+      .digest('hex')
+      .slice(0, KEY_ID_BYTES);
   }
 
   seal<T>(record: T): Buffer {
@@ -270,7 +465,30 @@ export class DurableSpool implements SpoolQueue {
     const directory = resolve(options.directory ?? DEFAULT_DIRECTORY);
     const path = containedPath(directory, options.name ?? DEFAULT_NAME);
     const codec = new EncryptedSpool(options.key);
-    await mkdir(directory, { recursive: true });
+    // 0o700, not the process umask. The files inside already get 0o600, but a
+    // directory created under a permissive umask was world-*listable* and world-*
+    // writable*: a local account could read the queue's shape, or delete a runner's
+    // undelivered frames, or pre-create the directory with their own permissions
+    // before the runner ever started (ledger P-17).
+    try {
+      await mkdir(directory, { recursive: true, mode: SPOOL_DIRECTORY_MODE });
+    } catch (cause) {
+      // `recursive: true` throws EEXIST when the path exists and is not a directory.
+      // The raw fs message names the operation, not the problem: an operator reading
+      // "EEXIST: file already exists, mkdir '/var/lib/automate/spool'" does not learn
+      // that a file is sitting where the spool belongs. This is a configuration fault
+      // and is reported as one.
+      if (isPathOccupiedByFile(cause)) {
+        throw new SpoolError(
+          `Spool path is not a directory: ${directory}. Something is already there, so ` +
+            'the runner cannot create a private spool directory.',
+          { cause },
+        );
+      }
+      throw cause;
+    }
+
+    await assertPrivateDirectory(directory);
     const data = await readOptional(path);
     const { entries, committedBytes } = decodeFile(codec, data, options.tornTail ?? 'fail');
     const sequencePath = `${path}.sequences`;
@@ -307,12 +525,72 @@ export class DurableSpool implements SpoolQueue {
       throw new SpoolCapacityError('Runner spool is full');
     }
     const prefix = this.committedBytes === 0 ? this.header() : EMPTY;
-    if (this.fileBytes > this.committedBytes) await truncate(this.path, this.committedBytes);
-    await appendFile(this.path, Buffer.concat([prefix, frame]));
+    // Reverted to the cached guard, for the fail-before demonstration.
+    //
+    // The cached value is only correct if nothing else touched the file, and the
+    // assumption is false in exactly the case that matters: a short write, a power loss
+    // mid-append, or anything else that leaves bytes the spool never committed. The
+    // guard then believed the file ended where it last succeeded and appended *after*
+    // the residue, so the next frame landed behind a gap that decodes as corruption
+    // rather than as a short tail (ledger P-16).
+    //
+    // One `stat` per enqueue is the price, and it is cheap next to the `datasync()` the
+    // append now performs. A cached size here would be faster and wrong in a way that
+    // only appears after a crash — the worst possible time to discover it.
+    const onDisk = await fileSize(this.path);
+    if (onDisk > this.committedBytes) await truncate(this.path, this.committedBytes);
+    await this.appendDurably(Buffer.concat([prefix, frame]));
     this.entries = [...this.entries, entry];
     this.remember(entry);
     this.committedBytes += prefix.length + frame.length;
     this.fileBytes = this.committedBytes;
+  }
+
+  /**
+   * Append a frame and make it survive a power loss, not just a process exit.
+   *
+   * `appendFile` opens a handle, writes, and closes — and the close is where the data
+   * reaches the operating system's cache, not the disk. A runner that loses power, or
+   * whose container is killed, comes back to a file that is short by whatever the cache
+   * had not yet flushed. A spool that has silently lost the last few frames is worse
+   * than one that failed loudly: the frames are job events nobody has delivered yet, and
+   * a runner that reports "queue drained" while holding no record of them reports a
+   * success that did not happen (ledger P-16).
+   *
+   * Three things make this different from the call it replaces, and each maps to a way
+   * a spool loses data quietly:
+   *
+   *  - **A held handle, so the bytes written and the bytes counted are the same
+   *    bytes.** `appendFile` reports nothing back; a short write is invisible.
+   *  - **`datasync()` before close**, so the bytes are on the device before this
+   *    method returns and before the caller is told the entry was enqueued.
+   *  - **A checked byte count.** A partial write is an error, not a shorter file.
+   *
+   * The in-memory bookkeeping is only advanced by the caller after this resolves, which
+   * is what makes the repair guard on the next call correct: a failed append leaves
+   * `fileBytes` where it was, so the guard still sees the hole and truncates it.
+   */
+  private async appendDurably(payload: Buffer): Promise<void> {
+    const handle = await open(this.path, 'a');
+    try {
+      let written = 0;
+      // A single write is not guaranteed to write everything, even on a regular file,
+      // so the loop is not defensive noise — it is the only way `bytesWritten` can be
+      // compared to what we asked for.
+      while (written < payload.length) {
+        const result = await handle.write(payload, written, payload.length - written, null);
+        if (result.bytesWritten <= 0) {
+          throw new SpoolError(
+            `Spool append to ${this.path} wrote ${String(written)} of ` +
+              `${String(payload.length)} bytes and then reported no progress.`,
+          );
+        }
+        written += result.bytesWritten;
+      }
+      await handle.datasync();
+    } finally {
+      await handle.close();
+    }
   }
 
   async peek(limit = DEFAULT_PEEK_LIMIT): Promise<SpoolEntry[]> {
@@ -396,8 +674,27 @@ export class DurableSpool implements SpoolQueue {
     return Buffer.concat([SPOOL_MAGIC, Buffer.from(this.codec.keyId(), 'utf8')]);
   }
 
+  /**
+   * Seal one entry into a length-prefixed frame.
+   *
+   * The size cap lives here, at the one place a frame is produced, rather than in
+   * `enqueue`. Both the append path and the compaction rewrite path go through this
+   * method, and `decodeFile` refuses any frame longer than `MAX_SEALED_BYTES` with
+   * `SPOOL_FORMAT`. A cap on only one of the two write paths would still let the
+   * other produce a frame the next open cannot read — which is the shape of the
+   * defect this replaces (ledger P-14): the limit was checked at decode and nowhere
+   * at write, so one oversized event made the whole file undecodable, and the
+   * `tornTail: 'drop'` recovery did not apply because the throw was mid-file rather
+   * than at a partial tail.
+   *
+   * Checking at the builder also means the limit cannot be forgotten at a new call
+   * site: there is no second way to make a frame.
+   */
   private frame(entry: SpoolEntry): Buffer {
     const sealed = this.codec.seal(entry);
+    if (sealed.length > MAX_SEALED_BYTES) {
+      throw new SpoolFrameTooLargeError(MAX_SEALED_BYTES, sealed.length);
+    }
     const length = Buffer.alloc(LENGTH_BYTES);
     length.writeUInt32BE(sealed.length);
     return Buffer.concat([length, sealed]);

@@ -7,6 +7,7 @@
  * recompute them from `listRuns()`.
  */
 import { describe, expect, it } from 'vitest';
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
 import {
@@ -54,7 +55,7 @@ class CountingRunRepository extends InMemoryRunRepository {
 }
 
 function mount(repository: InMemoryRunRepository): Hono {
-  return new Hono().route('/', createDashboardAnalyticsRoutes({ repository }));
+  return withErrorBoundary(createDashboardAnalyticsRoutes({ repository }));
 }
 
 async function summary(app: Hono): Promise<Record<string, unknown>> {

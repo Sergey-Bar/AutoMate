@@ -90,6 +90,23 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   },
   { family: 'realtime feed', files: ['infrastructure/drizzle-realtime-feed.ts'] },
   {
+    // The vault is claimed because it reads a workspace id, not because it queries a
+    // table: `VaultRowBinding` carries `workspaceId` and that value is authenticated
+    // as GCM additional authenticated data, so a row's workspace is part of what proves
+    // the ciphertext belongs to it. Without the binding an envelope could be written
+    // into any row and would open there — the vault returning one connector's credential
+    // for another's, silently (ledger P-8).
+    //
+    // The isolation property is therefore *cryptographic* rather than a `where` clause,
+    // and the second test in this file does not apply to it; what proves it is
+    // `vault-crypto.test.ts`, which asserts that an envelope sealed for one row will
+    // not open in another, varying each of workspace, name and entry id in turn. Claiming
+    // it here with that pointer is more honest than leaving the file unclaimed, which is
+    // what the first test in this file exists to prevent.
+    family: 'vault',
+    files: ['infrastructure/vault-crypto.ts'],
+  },
+  {
     family: 'dashboard stores',
     files: ['modules/dashboard/audit-sink.ts', 'modules/dashboard/drizzle-stores.ts'],
   },
@@ -172,8 +189,12 @@ describe('the open-mode branch is a development affordance, not the default', ()
       // a configuration failure is what stops an operator reading it as an auth
       // problem and rotating a key that is not the issue.
       expect(response.status).toBe(503);
-      const body = (await response.json()) as { error: string };
-      expect(body.error).toMatch(/not configured/i);
+      const body = (await response.json()) as { error: { code: string; message: string } };
+      // The code is the assertion that matters, and it is the one this body did not
+      // have: `{ error: 'Authentication is not configured' }` told a caller what had
+      // happened and left them nothing to branch on.
+      expect(body.error.code).toBe('NOT_CONFIGURED');
+      expect(body.error.message).toMatch(/not configured/i);
     } finally {
       if (savedKey === undefined) delete process.env['AUTOMATE_API_KEY'];
       else process.env['AUTOMATE_API_KEY'] = savedKey;

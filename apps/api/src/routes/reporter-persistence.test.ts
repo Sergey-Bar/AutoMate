@@ -15,6 +15,7 @@
  *  7. Versioned event format also persists correctly
  */
 import { describe, it, expect } from 'vitest';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
@@ -24,7 +25,7 @@ import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.
 // ---------------------------------------------------------------------------
 
 function buildApp(secret: string | undefined, repo: InMemoryRunRepository): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   app.route('/', createReporterRoutes(secret, { repository: repo }));
   return app;
 }
@@ -488,7 +489,7 @@ describe('Reporter persistence — versioned event format', () => {
 
 describe('Reporter persistence — backward compatibility (no repository)', () => {
   it('accepts events without a repository and returns 202 (no-op persistence)', async () => {
-    const app = new Hono();
+    const app = withErrorBoundary(new Hono());
     app.route('/', createReporterRoutes(undefined));
 
     const res = await app.request('/api/v1/reporter/events', {

@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { DomainError } from '../errors/domain-error.js';
 import { streamSSE } from 'hono/streaming';
 import {
   EVENT_VERSION,
@@ -65,9 +66,13 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
     const requestedCursor = options.feed
       ? parseCursor(c.req.header('Last-Event-ID') ?? c.req.query('cursor'))
       : null;
-    if (requestedCursor === undefined) return c.json({ error: 'Invalid cursor' }, 400);
+    if (requestedCursor === undefined) {
+      throw new DomainError('INVALID_CURSOR', 'Invalid cursor');
+    }
     if (options.feed && !options.workspaceId) {
-      return c.json({ error: 'Realtime workspace is not configured' }, 500);
+      // 503, and the taxonomy says so. This used to be a 500, which filed a
+      // configuration mistake under application defects and told the caller nothing.
+      throw new DomainError('NOT_CONFIGURED', 'Realtime workspace is not configured');
     }
 
     return streamSSE(c, async (stream) => {
@@ -91,6 +96,15 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
             resolve();
           };
           stream.onAbort(finish);
+          // `unsubscribe` is still the no-op until the assignment below, and finding
+          // P-70 named that as a leak. It is not one, and the reason is the line
+          // marked below: the only `await` an abort can be delivered during is the
+          // refetch frame's `writeSSE`, and the guard after it returns before the
+          // subscription is ever made. There is no await between that guard and the
+          // assignment either, so no abort can arrive in between. A test asserting the
+          // subscription pair (`subscribes === unsubscribes`) passes with the code in
+          // this order and would pass with it reordered, which is what says the reorder
+          // is not the fix.
           void (async () => {
             if (requestedCursor !== null && resumeCursor !== cursor && !stream.aborted) {
               await stream.writeSSE({
@@ -193,11 +207,26 @@ export function createEventsRoutes(options: EventsRouteOptions): Hono {
         return;
       }
 
+      // The teardown lives in the `finally`, not inside the abort handler.
+      //
+      // The handler was `void stream.writeSSE(...)`, and this is worth being precise
+      // about: in the pinned Hono, `writeSSE` *resolves* after the client has gone
+      // away, because cancelling the readable side of a TransformStream does not error
+      // the writable side. So the row's claim that this discards a rejection was
+      // checked and did not reproduce — there is no unhandled-rejection crash path
+      // here, and `void` is this tree's sanctioned floating-promise escape hatch, so
+      // lint did not object either.
+      //
+      // What the old shape did get wrong is real and is what this fixes: two teardown
+      // points that are not one, and a promise nobody watches. `stop` is assigned by
+      // the synchronous `subscribe` call and released once in the `finally`, so a bus
+      // that delivers a buffered event *during* `subscribe` — whose write fails
+      // before `stop` exists — still tears down. A teardown function that might not be
+      // assigned yet is the leak the row named on the subscription path below, which
+      // does not have it because the `if (closed || stream.aborted) return` after the
+      // last await closes that window.
       const unsubscribe = options.bus.subscribe((payload) => {
-        void stream.writeSSE({
-          event: 'message',
-          data: JSON.stringify(payload),
-        });
+        void stream.writeSSE({ event: 'message', data: JSON.stringify(payload) });
       });
 
       await new Promise<void>((resolve) => {

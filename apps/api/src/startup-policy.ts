@@ -1,3 +1,4 @@
+import { SECRET_MIN_LENGTH, isSecretPlaceholder, type SecretVariable } from '@automate/config';
 import type { AppConfig } from './config.js';
 
 /**
@@ -12,6 +13,35 @@ import type { AppConfig } from './config.js';
  */
 export const DEVELOPMENT_COOKIE_SECRET = 'development-only-cookie-secret-32-chars';
 export const DEVELOPMENT_INSTALLATION_KEY = 'development-installation-key';
+
+/**
+ * One secret policy, and the numbers live in `@automate/config`.
+ *
+ * This file used to write `32` and `16` itself, in its own messages, while
+ * `packages/config` wrote the same thresholds in a Zod schema. Two copies of one
+ * number is a number that will drift, and the floor drifted: the schema held four
+ * secrets to 16 while this policy held them to 16 and the cookie to 32, so the
+ * weakest credential set the standard. `SECRET_MIN_LENGTH` and
+ * `isSecretPlaceholder` are imported rather than restated, which is the only thing
+ * that makes the second authority stop being one.
+ *
+ * The placeholder test is deliberately first for every secret. A 9-character
+ * `change-me` is also too short, and reporting "too short" to an operator who
+ * copied the example is a worse answer than the one they need — so the check that
+ * names the mistake is the one that runs, at any floor.
+ */
+function refuseIfUnusable(variable: SecretVariable, value: string | undefined): string {
+  if (value === undefined || value === '') {
+    throw new Error(`${variable} is required in production`);
+  }
+  if (isSecretPlaceholder(variable, value)) {
+    throw new Error(`${variable} must not be a placeholder`);
+  }
+  if (value.length < SECRET_MIN_LENGTH) {
+    throw new Error(`${variable} must be at least ${String(SECRET_MIN_LENGTH)} characters`);
+  }
+  return value;
+}
 
 /**
  * The environment variable an operator must set to accept the committed
@@ -33,57 +63,49 @@ export function isProduction(config: AppConfig): boolean {
  * Process-local (in-memory) stand-ins are an explicit development/test
  * convenience, never a production composition. Production callers must fail
  * closed instead of silently degrading to process-local state.
+ *
+ * **And when it is permitted, it is announced.** This was the one half that was
+ * missing, and it is the half that costs something. Refusing in production is the
+ * important guarantee, but a developer whose database is unreachable gets a working
+ * API that is not durable, with nothing in the output to say so — and every
+ * behaviour that depends on persistence is then answered from process-local state. That
+ * is not hypothetical in this repository: `AGENTS.md` records that a missing
+ * `DATABASE_URL` makes the end-to-end suite "fall back to the in-memory store and the
+ * suite reports success without PostgreSQL ever being involved".
+ *
+ * So the fallback is logged, by name, at every site — which is why this is the single
+ * choke point rather than something each caller does for itself. Eight call sites all
+ * funnel through here; eight separate warnings are eight chances to forget one.
+ *
+ * @param config the parsed configuration, read for the environment
+ * @param component what is falling back, named so the log says which one
+ * @param log where to announce it; injected so a test can assert the announcement
+ *   happened rather than reading stdout
  */
-export function assertInMemoryAllowed(config: AppConfig, component: string): void {
+export function assertInMemoryAllowed(
+  config: AppConfig,
+  component: string,
+  log: (message: string) => void = (message) => console.warn(message),
+): void {
   if (isProduction(config)) {
     throw new Error(
       `Refusing in-memory ${component} in production; configure the durable backend instead`,
     );
   }
+  log(
+    `In-memory fallback: ${component} is process-local and NOT durable. Everything it holds ` +
+      'is lost when this process exits, and nothing here reaches a database. Set ' +
+      'DATABASE_URL to run against PostgreSQL — a suite that runs this way can report ' +
+      'success without a database ever being involved.',
+  );
 }
 
 export function checkProductionPolicy(config: AppConfig): void {
   if (isProduction(config)) {
-    if (!config.cookieSecret) {
-      throw new Error('COOKIE_SECRET is required in production');
-    }
-    if (
-      config.cookieSecret.includes('change-me') ||
-      config.cookieSecret === 'automate' ||
-      config.cookieSecret.includes('development-only')
-    ) {
-      throw new Error('COOKIE_SECRET must not be a placeholder');
-    }
-    if (config.cookieSecret.length < 32) {
-      throw new Error('COOKIE_SECRET must be at least 32 characters');
-    }
-    if (!config.reporterSecret) {
-      throw new Error('REPORTER_SECRET is required in production');
-    }
-    if (config.reporterSecret === 'change-me' || config.reporterSecret === 'reporter-secret') {
-      throw new Error('REPORTER_SECRET must not be a placeholder');
-    }
-    if (config.reporterSecret.length < 16) {
-      throw new Error('REPORTER_SECRET must be at least 16 characters');
-    }
-    if (!config.apiKey) {
-      throw new Error('AUTOMATE_API_KEY is required in production');
-    }
-    if (config.apiKey === 'change-me' || config.apiKey === 'automate') {
-      throw new Error('AUTOMATE_API_KEY must not be a placeholder');
-    }
-    if (config.apiKey.length < 16) {
-      throw new Error('AUTOMATE_API_KEY must be at least 16 characters');
-    }
-    if (!config.vaultSecret) {
-      throw new Error('VAULT_SECRET is required in production');
-    }
-    if (config.vaultSecret === 'change-me') {
-      throw new Error('VAULT_SECRET must not be a placeholder');
-    }
-    if (config.vaultSecret.length < 32) {
-      throw new Error('VAULT_SECRET must be at least 32 characters');
-    }
+    refuseIfUnusable('COOKIE_SECRET', config.cookieSecret);
+    refuseIfUnusable('REPORTER_SECRET', config.reporterSecret);
+    refuseIfUnusable('AUTOMATE_API_KEY', config.apiKey);
+    refuseIfUnusable('VAULT_SECRET', config.vaultSecret);
     if (!config.databaseUrl) {
       throw new Error('DATABASE_URL is required in production');
     }
@@ -100,18 +122,7 @@ export function checkProductionPolicy(config: AppConfig): void {
         'OBJECT_STORE_ENDPOINT must use https in production unless OBJECT_STORE_ALLOW_INSECURE is enabled',
       );
     }
-    if (!config.runnerRegistrationSecret) {
-      throw new Error('RUNNER_REGISTRATION_SECRET is required in production');
-    }
-    if (
-      config.runnerRegistrationSecret === 'change-me' ||
-      config.runnerRegistrationSecret === 'runner-registration-secret'
-    ) {
-      throw new Error('RUNNER_REGISTRATION_SECRET must not be a placeholder');
-    }
-    if (config.runnerRegistrationSecret.length < 16) {
-      throw new Error('RUNNER_REGISTRATION_SECRET must be at least 16 characters');
-    }
+    refuseIfUnusable('RUNNER_REGISTRATION_SECRET', config.runnerRegistrationSecret);
   }
 }
 

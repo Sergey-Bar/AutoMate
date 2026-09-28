@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { describe, expect, it } from 'vitest';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
@@ -42,7 +42,7 @@ async function upload(
   headers: Record<string, string> = { ...JSON_HEADERS, authorization: `Bearer ${SECRET}` },
 ) {
   const repository = new InMemoryRunRepository();
-  const app = createReporterRoutes(SECRET, { repository });
+  const app = withErrorBoundary(createReporterRoutes(SECRET, { repository }));
   const response = await app.request('/api/v1/reporter/upload', {
     method: 'POST',
     headers,
@@ -282,7 +282,7 @@ describe('malformed and hostile bodies', () => {
 describe('an unauthenticated upload changes nothing', () => {
   it('is refused, and persists no run', async () => {
     const repository = new InMemoryRunRepository();
-    const app = createReporterRoutes(SECRET, { repository });
+    const app = withErrorBoundary(createReporterRoutes(SECRET, { repository }));
     for (const headers of [
       JSON_HEADERS,
       { ...JSON_HEADERS, authorization: '' },
@@ -305,7 +305,7 @@ describe('an unauthenticated upload changes nothing', () => {
 describe('the upload path is the only one that writes a run', () => {
   it('does not let /reporter/events persist a green status it was never told', async () => {
     const repository = new InMemoryRunRepository();
-    const app = createReporterRoutes(SECRET, { repository });
+    const app = withErrorBoundary(createReporterRoutes(SECRET, { repository }));
     await app.request('/api/v1/reporter/events', {
       method: 'POST',
       headers: { ...JSON_HEADERS, authorization: `Bearer ${SECRET}` },
@@ -321,7 +321,9 @@ describe('the upload path is the only one that writes a run', () => {
 });
 describe('the composition is the real one', () => {
   it('serves exactly the two ingestion routes', () => {
-    const app = createReporterRoutes(SECRET, { repository: new InMemoryRunRepository() });
+    const app = withErrorBoundary(
+      createReporterRoutes(SECRET, { repository: new InMemoryRunRepository() }),
+    );
     const served = app.routes
       .map((route) => `${route.method} ${route.path}`)
       .filter((key) => !key.startsWith('ALL'));
@@ -334,7 +336,7 @@ describe('the composition is the real one', () => {
   it('mounts into a prefix without changing any path', async () => {
     const repository = new InMemoryRunRepository();
     const routes = createReporterRoutes(SECRET, { repository });
-    const mounted = new Hono().route('/', routes);
+    const mounted = withErrorBoundary(routes);
     const response = await mounted.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { ...JSON_HEADERS, authorization: `Bearer ${SECRET}` },

@@ -2,9 +2,19 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Hono } from 'hono';
 import { hashCredential } from '@automate/auth';
 import { createAuthMiddleware } from './auth.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 
+/**
+ * The boundary is part of the fixture, not decoration.
+ *
+ * The middleware refuses by `throw`ing a `DomainError` since finding C-3, and
+ * `errors/boundary.ts` is what renders it. Mounted into a bare `Hono` a thrown error
+ * becomes Hono's default 500, and every assertion below would be measuring the
+ * harness — so these assertions run against the body a deployment actually returns,
+ * which is the only version of them worth having.
+ */
 function buildTestApp(apiKey: string | undefined): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono());
   app.use('/*', createAuthMiddleware(apiKey));
   app.get('/health', (c) => c.json({ status: 'healthy' }));
   app.get('/api/v1/health', (c) => c.json({ status: 'healthy' }));
@@ -12,7 +22,7 @@ function buildTestApp(apiKey: string | undefined): Hono {
   app.get('/api/v1/reporter/events', (c) => c.json({ ok: true }));
   app.get('/api/v1/runs', (c) => c.json({ runs: [] }));
   app.get('/api/v1/dashboard/runs', (c) => c.json({ runs: [] }));
-  return app;
+  return withErrorBoundary(app);
 }
 
 describe('createAuthMiddleware', () => {
@@ -26,7 +36,7 @@ describe('createAuthMiddleware', () => {
     });
 
     it('keeps canonical runner and job paths public', async () => {
-      const app = new Hono();
+      const app = withErrorBoundary(new Hono());
       app.use('/*', createAuthMiddleware(undefined));
       app.get('/api/v1/runners/register', (c) => c.json({ ok: true }));
       app.get('/api/v1/jobs/1/events', (c) => c.json({ ok: true }));
@@ -45,8 +55,9 @@ describe('createAuthMiddleware', () => {
     it('returns 401 with { error: "Unauthorized" } when Authorization header is missing', async () => {
       const res = await app.request('/api/v1/runs');
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('UNAUTHENTICATED');
+      expect(body.error.message).toBe('Unauthorized');
     });
 
     it('returns 401 when Bearer token is wrong', async () => {
@@ -54,8 +65,9 @@ describe('createAuthMiddleware', () => {
         headers: { Authorization: 'Bearer wrong-key' },
       });
       expect(res.status).toBe(401);
-      const body = (await res.json()) as Record<string, string>;
-      expect(body['error']).toBe('Unauthorized');
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe('UNAUTHENTICATED');
+      expect(body.error.message).toBe('Unauthorized');
     });
 
     it('returns 401 when Authorization scheme is not Bearer', async () => {
@@ -73,7 +85,7 @@ describe('createAuthMiddleware', () => {
     });
 
     it('accepts a validated session cookie before checking the API key', async () => {
-      const sessionApp = new Hono();
+      const sessionApp = withErrorBoundary(new Hono());
       sessionApp.use(
         '/*',
         createAuthMiddleware(TEST_KEY, async () => ({ userId: 'user-1' })),
@@ -89,7 +101,7 @@ describe('createAuthMiddleware', () => {
       const previous = process.env['NODE_ENV'];
       process.env['NODE_ENV'] = 'production';
       try {
-        const openApp = new Hono();
+        const openApp = withErrorBoundary(new Hono());
         openApp.use('/*', createAuthMiddleware(undefined));
         openApp.get('/api/v1/runs', (c) => c.json({}));
         expect((await openApp.request('/api/v1/runs')).status).toBe(503);
@@ -123,7 +135,7 @@ describe('createAuthMiddleware', () => {
 
     describe('runner-token bypass is an exact allowlist', () => {
       const runnerApp = (): Hono => {
-        const runner = new Hono();
+        const runner = withErrorBoundary(new Hono());
         runner.use('/*', createAuthMiddleware(TEST_KEY));
         runner.get('/api/v1/runners/register', (c) => c.json({ ok: true }));
         runner.get('/api/v1/runners/:runnerId/heartbeat', (c) => c.json({ ok: true }));
@@ -173,7 +185,7 @@ describe('createAuthMiddleware', () => {
       it('falls through to the API key instead of 500-ing when the store is down', async () => {
         const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
         try {
-          const flaky = new Hono();
+          const flaky = withErrorBoundary(new Hono());
           flaky.use(
             '/*',
             createAuthMiddleware(TEST_KEY, () => {
@@ -213,7 +225,7 @@ describe('createAuthMiddleware', () => {
     const PEPPER = 'a-pepper-that-is-not-guessable';
 
     function app(key: string | undefined, hash?: string, pepper?: string): Hono {
-      const built = new Hono();
+      const built = withErrorBoundary(new Hono());
       built.use('/*', createAuthMiddleware(key, undefined, hash, pepper));
       built.get('/api/v1/runs', (c) => c.json({ runs: [] }));
       return built;

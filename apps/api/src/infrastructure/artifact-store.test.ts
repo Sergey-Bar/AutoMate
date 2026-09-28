@@ -1,12 +1,19 @@
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   FallbackArtifactBytesStore,
   LocalArtifactBytesStore,
   LocalArtifactStore,
+  MAX_ARTIFACT_BYTES,
 } from './artifact-store.js';
+import { DEFAULT_MAX_ARTIFACT_BYTES } from './s3-artifact-bytes.js';
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
 
 describe('LocalArtifactStore', () => {
   it('writes, verifies, and reads a relative artifact', async () => {
@@ -111,6 +118,113 @@ describe('LocalArtifactStore', () => {
       expect(remaining).toEqual(['occupied']);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the live reader is bounded and verified, not the one nothing calls', () => {
+  /**
+   * `readAt` is what every production read goes through — `LocalArtifactBytesStore.get`
+   * calls it, and `getArtifact` calls that. `read` verified a digest and had no caller
+   * outside this file, so the check and the shipped method were the wrong way round.
+   * Each case below names the method a real read reaches.
+   */
+  it('refuses a body above the cap and returns one within it', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      // A four-byte cap, so the assertion is about the check rather than about
+      // allocating 64 MB. The default is pinned separately.
+      const store = new LocalArtifactStore(root, 4);
+      const within = new TextEncoder().encode('abcd');
+      const over = new TextEncoder().encode('abcde');
+      await store.putAt('runs/run-1/within.bin', within);
+      await store.putAt('runs/run-1/over.bin', over);
+
+      // The negative first: a reader that refused everything would satisfy the
+      // refusal below without ever having read a file.
+      expect(await store.readAt('runs/run-1/within.bin')).toEqual(within);
+      await expect(store.readAt('runs/run-1/over.bin')).rejects.toThrow(/above the 4-byte/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses bytes whose digest is not the one the artifact row recorded', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const store = new LocalArtifactStore(root);
+      const key = 'runs/run-1/report.json';
+      const recorded = new TextEncoder().encode('{"passed":true}');
+      await store.putAt(key, recorded);
+
+      // The digest the row carries is the one `put` computed, so the mismatch below
+      // is the one a real truncated or rewritten object produces.
+      await expect(
+        store.readAt(key, sha256(new TextEncoder().encode('{"passed":false}'))),
+      ).rejects.toThrow(/digest/i);
+      // And the match, so a reader that refused every digest cannot pass.
+      expect(await store.readAt(key, sha256(recorded))).toEqual(recorded);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('defaults to the same cap the object store defaults to', () => {
+    // Two stores, one number. If the local and object tiers disagree, the same
+    // artifact is a stored object in one and a 503 in the other, and which tier a
+    // read lands in depends on deployment rather than on the artifact.
+    expect(MAX_ARTIFACT_BYTES).toBe(DEFAULT_MAX_ARTIFACT_BYTES);
+    // And the number itself, so a shared constant cannot be quietly halved: an
+    // artifact the upload body limiter accepts has to still be readable back.
+    expect(MAX_ARTIFACT_BYTES).toBe(64 * 1024 * 1024);
+    expect(new LocalArtifactStore('unused').maxBytes).toBe(MAX_ARTIFACT_BYTES);
+  });
+
+  it('carries the recorded digest through the byte-store port, not only through the store', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-'));
+    try {
+      const inner = new LocalArtifactStore(root);
+      const store = new LocalArtifactBytesStore(inner);
+      const key = 'runs/run-1/evidence.json';
+      const recorded = new TextEncoder().encode('evidence');
+      await store.put(key, recorded);
+
+      // The port is what `getArtifact` holds, so a check that lives only on
+      // `LocalArtifactStore` and is not carried through `get` is unreachable from
+      // the read path — which is how the inverted arrangement survived.
+      await expect(store.get(key, sha256(new TextEncoder().encode('tampered')))).rejects.toThrow(
+        /digest/i,
+      );
+      expect(await store.get(key, sha256(recorded))).toEqual(recorded);
+      // An absent key is still a miss, not a digest failure.
+      expect(await store.get('runs/run-1/never-written', sha256(recorded))).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('applies the same digest policy in the fallback tier', async () => {
+    const primaryRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-primary-'));
+    const fallbackRoot = await mkdtemp(path.join(tmpdir(), 'automate-artifacts-fallback-'));
+    try {
+      const primary = new LocalArtifactBytesStore(new LocalArtifactStore(primaryRoot));
+      const fallback = new LocalArtifactBytesStore(new LocalArtifactStore(fallbackRoot));
+      const store = new FallbackArtifactBytesStore(primary, fallback);
+      const key = 'runs/run-1/legacy.json';
+      const legacy = new TextEncoder().encode('legacy');
+      await fallback.put(key, legacy);
+
+      // The legacy tier is the one that is not written by this deployment, so it is
+      // the tier a stale or truncated object is most likely to be in. A digest check
+      // that only ran on the primary would be a check that only ran on the bytes this
+      // process wrote.
+      expect(await store.get(key, sha256(legacy))).toEqual(legacy);
+      await expect(store.get(key, sha256(new TextEncoder().encode('other')))).rejects.toThrow(
+        /digest/i,
+      );
+    } finally {
+      await rm(primaryRoot, { recursive: true, force: true });
+      await rm(fallbackRoot, { recursive: true, force: true });
     }
   });
 });

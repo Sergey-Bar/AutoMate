@@ -54,15 +54,36 @@ export function syntheticStripeKey(): string {
  * above: the value exists only at runtime, so the repository contains nothing a
  * scanner has to be told to look away from.
  *
- * @returns a value long enough to pass the production policy's length checks
+ * **Every installation secret below is at least `SECRET_MIN_LENGTH` characters and
+ * is not a placeholder**, and `synthetic-credentials.test.ts` asserts both against
+ * the policy that checks them. That assertion is the point: these values used to be
+ * hand-written per test file, 16 to 23 characters long, and a test standing in for a
+ * deployment credential was passing against a configuration production refuses. A
+ * fixture that is too short now fails a test rather than quietly encoding a floor
+ * that no longer exists.
  */
 export function syntheticApiKey(): string {
-  return ['api', '-key-long-enough-1'].join('');
+  return ['api', '-key-long-enough-for-production-1'].join('');
 }
 
 /** @returns a value long enough to pass the production policy's length checks */
 export function syntheticVaultSecret(): string {
   return ['vault', '-secret-long-enough-for-prod-1'].join('');
+}
+
+/** The session-cookie signing key. Never contains `change-me`: the policy refuses that. */
+export function syntheticCookieSecret(): string {
+  return ['cookie', '-secret-long-enough-for-tests-1'].join('');
+}
+
+/** The reporter ingestion credential. */
+export function syntheticReporterSecret(): string {
+  return ['reporter', '-secret-long-enough-for-tests-1'].join('');
+}
+
+/** The runner registration credential. */
+export function syntheticRunnerRegistrationSecret(): string {
+  return ['runner', '-registration-secret-long-enough-1'].join('');
 }
 
 /** A JWT with three dot-separated base64url segments. */

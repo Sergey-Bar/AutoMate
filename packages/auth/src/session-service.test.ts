@@ -132,3 +132,60 @@ describe('InMemorySessionService', () => {
     expect(sessions.validate(token)?.id).toBe(record.id);
   });
 });
+
+describe('InMemorySessionService argument and encapsulation guarantees', () => {
+  it('refuses a TTL that would issue a session which is already dead', () => {
+    // Ledger S-4. `ttlMs: 0` made `expiresAt === issuedAt`, so `validate` rejected
+    // the token `issue` had just handed back. The service looked healthy and every
+    // session it produced was unusable.
+    expect(() => new InMemorySessionService('a-secret', 0)).toThrow(/positive/);
+    expect(() => new InMemorySessionService('a-secret', -1)).toThrow(/positive/);
+    expect(() => new InMemorySessionService('a-secret', Number.NaN)).toThrow(/positive/);
+
+    // And the refused construction is a refusal, not a silently clamped one.
+    const refused = new InMemorySessionService('a-secret', 60_000);
+    expect(refused.issue('installation-1').record.expiresAt.getTime()).toBeGreaterThan(
+      refused.issue('installation-1').record.issuedAt.getTime(),
+    );
+  });
+
+  it('refuses an empty secret, because the hash stops being a secret operation', () => {
+    // A hardening refusal, not a forgery hole: an empty HMAC key over a 32-byte
+    // random token still cannot be inverted without the preimage. What it removes is
+    // the property that the stored hash is not computable from the spool alone.
+    expect(() => new InMemorySessionService('', 60_000)).toThrow(/non-empty secret/);
+  });
+
+  it('hands back a copy, so a caller cannot rewrite the stored session', () => {
+    // Ledger S-3. `issue` returned the object it had stored, so a caller could
+    // extend `expiresAt` or delete `revokedAt` and change the service's state
+    // through a value it was only given to read.
+    const sessions = new InMemorySessionService('a-secret', 60_000);
+    const { token, record } = sessions.issue('installation-1');
+    const originalExpiry = record.expiresAt.getTime();
+
+    record.expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    delete record.revokedAt;
+    record.installationId = 'installation-somebody-else';
+
+    // The returned value is a copy, so the edit above changed nothing that matters.
+    expect(sessions.validate(token)?.expiresAt.getTime()).toBe(originalExpiry);
+    expect(sessions.validate(token)?.installationId).toBe('installation-1');
+  });
+
+  it('does not let a caller un-revoke a session through the record it was given', () => {
+    // The same aliasing, reached through revocation rather than expiry. `revoke`
+    // mutates the stored record, and a caller holding a reference to it could have
+    // undone that; with a copy returned, there is nothing to undo it with.
+    const sessions = new InMemorySessionService('a-secret', 60_000);
+    const { token, record } = sessions.issue('installation-1');
+    expect(sessions.revoke(record.id)).toBe(true);
+    expect(sessions.validate(token)).toBeUndefined();
+
+    record.revokedAt = undefined;
+    expect(
+      sessions.validate(token),
+      'clearing revokedAt on the caller copy must not resurrect the session',
+    ).toBeUndefined();
+  });
+});

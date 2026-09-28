@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -100,22 +101,42 @@ const INGESTION_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
 ];
 
 function reporterApp(limit?: number) {
-  return createReporterRoutes(REPORTER_SECRET, {
-    repository: new InMemoryRunRepository(),
-    ...(limit === undefined ? {} : {}),
-  });
+  return withErrorBoundary(
+    createReporterRoutes(REPORTER_SECRET, {
+      repository: new InMemoryRunRepository(),
+      ...(limit === undefined ? {} : {}),
+    }),
+  );
 }
 
 function authApp(limit: number) {
-  return createAuthRoutes({
-    cookieSecret: COOKIE_SECRET,
-    installationId: '00000000-0000-4000-9000-0000000000cc',
-    installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
-    sessionTtlMs: 60_000,
-    secureCookies: false,
-    loginRateLimit: { limit, windowMs: 60_000, now: () => 0 },
-    clientKey: () => 'a-single-client',
-  }).app;
+  return withErrorBoundary(
+    createAuthRoutes({
+      cookieSecret: COOKIE_SECRET,
+      installationId: '00000000-0000-4000-9000-0000000000cc',
+      installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
+      sessionTtlMs: 60_000,
+      secureCookies: false,
+      loginRateLimit: { limit, windowMs: 60_000, now: () => 0 },
+      clientKey: () => 'a-single-client',
+    }),
+  );
+}
+
+/**
+ * The boundary's body, named.
+ *
+ * A rate-limited client has to branch: the correct response is to stop and wait, not to
+ * try another key. The body used to carry `code` and `retryAfterSeconds` as siblings of
+ * a prose `error`, which was branchable only if the client knew to look in three places.
+ */
+interface BoundaryBody {
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: { retryAfterSeconds: number };
+  };
 }
 
 describe('the rate limiter contract', () => {
@@ -133,11 +154,11 @@ describe('the rate limiter contract', () => {
     const limited = await attempt();
     expect(limited.status).toBe(429);
 
-    const body = (await limited.json()) as { code: string; retryAfterSeconds: number };
+    const body = (await limited.json()) as unknown as BoundaryBody;
     // A 429 with a prose `error` and no `code` cannot be handled by a client,
     // and cannot be alerted on by an operator reading logs.
-    expect(body.code).toBe('LOGIN_RATE_LIMITED');
-    expect(body.retryAfterSeconds).toBe(60);
+    expect(body.error.code).toBe('LOGIN_RATE_LIMITED');
+    expect(body.error.details.retryAfterSeconds).toBe(60);
     // The header is what a generic HTTP client obeys; the body field is what a
     // bespoke one reads. They disagreeing is a client that trusts the wrong one.
     expect(limited.headers.get('retry-after')).toBe('60');
@@ -165,15 +186,17 @@ describe('the rate limiter contract', () => {
     // point is the *unauthenticated* dimension: a flood from one address must not
     // be able to lock out a different address, or a shared NAT in front of a
     // corporate proxy is a denial-of-service on the product.
-    const routes = createAuthRoutes({
-      cookieSecret: COOKIE_SECRET,
-      installationId: '00000000-0000-4000-9000-0000000000cc',
-      installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
-      sessionTtlMs: 60_000,
-      secureCookies: false,
-      loginRateLimit: { limit: 2, windowMs: 60_000, now: () => 0 },
-      clientKey: (context) => context.req.header('x-test-client') ?? 'unknown-client',
-    }).app;
+    const routes = withErrorBoundary(
+      createAuthRoutes({
+        cookieSecret: COOKIE_SECRET,
+        installationId: '00000000-0000-4000-9000-0000000000cc',
+        installationKeyHash: hashCredential(COOKIE_SECRET, API_KEY),
+        sessionTtlMs: 60_000,
+        secureCookies: false,
+        loginRateLimit: { limit: 2, windowMs: 60_000, now: () => 0 },
+        clientKey: (context) => context.req.header('x-test-client') ?? 'unknown-client',
+      }),
+    );
 
     const attempt = (client: string, apiKey = 'wrong') =>
       routes.request('/api/v1/auth/login', {
@@ -243,10 +266,12 @@ describe('reporter ingestion is credentialed', () => {
   });
 
   it('accepts a query-parameter token only when compatibility is explicitly enabled', async () => {
-    const app = createReporterRoutes(REPORTER_SECRET, {
-      repository: new InMemoryRunRepository(),
-      allowQueryToken: true,
-    });
+    const app = withErrorBoundary(
+      createReporterRoutes(REPORTER_SECRET, {
+        repository: new InMemoryRunRepository(),
+        allowQueryToken: true,
+      }),
+    );
     const response = await app.request(
       `/api/v1/reporter/events?token=${encodeURIComponent(REPORTER_SECRET)}`,
       {
@@ -259,10 +284,12 @@ describe('reporter ingestion is credentialed', () => {
   });
 
   it('rejects an empty query token rather than treating it as absent', async () => {
-    const app = createReporterRoutes(REPORTER_SECRET, {
-      repository: new InMemoryRunRepository(),
-      allowQueryToken: true,
-    });
+    const app = withErrorBoundary(
+      createReporterRoutes(REPORTER_SECRET, {
+        repository: new InMemoryRunRepository(),
+        allowQueryToken: true,
+      }),
+    );
     // `?token=` is a *supplied but empty* credential, which is a different thing
     // from a missing one and must not fall through to open mode.
     const response = await app.request('/api/v1/reporter/events?token=', {

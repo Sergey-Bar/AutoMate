@@ -18,6 +18,7 @@
  * receive a 401 JSON response: { error: 'Unauthorized' }.
  */
 import type { Context, Next } from 'hono';
+import { DomainError } from '../errors/domain-error.js';
 import { getCookie } from 'hono/cookie';
 import { verifyCredential, verifySharedSecret } from '@automate/auth';
 import { bearerToken } from '../http/bearer-token.js';
@@ -111,17 +112,22 @@ export function createAuthMiddleware(
     const apiKey = typeof apiKeyOrGetter === 'function' ? apiKeyOrGetter() : apiKeyOrGetter;
     if (apiKey === undefined && !expectedKeyHash) {
       if (process.env['NODE_ENV'] === 'production') {
-        return c.json({ error: 'Authentication is not configured' }, 503);
+        // `callerSafe`, because a 503 that says "internal error" tells the operator
+        // nothing and files a missing key as a crash. This is a checklist item, and the
+        // person who has to fix it is the one reading the response.
+        throw new DomainError('NOT_CONFIGURED', 'Authentication is not configured', {
+          callerSafe: true,
+        });
       }
       await next();
       return;
     }
     const provided = bearerToken(c.req.header('Authorization'));
     if (provided === undefined) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
     }
     if (!isAuthorised(provided, { apiKey, expectedKeyHash, credentialSecret })) {
-      return c.json({ error: 'Unauthorized' }, 401);
+      throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
     }
     await next();
   };

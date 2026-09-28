@@ -1,4 +1,33 @@
 import { describe, expect, it } from 'vitest';
+/**
+ * The boundary's body, named.
+ *
+ * A cast to `Record<string, unknown>` can read any shape and so checks none, which is
+ * how `body.error` stayed a bare string in this suite after the migration: the
+ * assertion was satisfied by a field that no longer exists.
+ */
+interface BoundaryBody {
+  /** The success shapes these same files read: `id`, `status`, `allowed`, `runs`. */
+  [key: string]: unknown;
+  error: {
+    code: string;
+    message: string;
+    requestId: string;
+    details: {
+      issues: Array<{ path: unknown[]; message?: string }>;
+      fieldErrors?: Record<string, unknown>;
+      /** The statuses a client may ask for, rather than a sentence naming them. */
+      allowed?: string[];
+      /** How long to wait, rather than a sentence saying to try again. */
+      retryAfterSeconds?: number;
+      from?: string;
+      to?: string;
+    };
+  };
+}
+
+import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
+import { requestContext } from '../../observability/request-context.js';
 import { Hono } from 'hono';
 import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
 import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
@@ -24,7 +53,7 @@ import { canTransitionQuarantine, QUARANTINE_STATUSES, QUARANTINE_TRANSITIONS } 
  */
 
 function buildApp(store: InMemoryQuarantineStore, gates: InMemoryQualityGateStore): Hono {
-  const app = new Hono();
+  const app = withErrorBoundary(new Hono()).use(requestContext);
   app.route('/', createDashboardQuarantineRoutes({ store }));
   app.route('/', createDashboardQualityGatesRoutes({ store: gates }));
   return app;
@@ -42,8 +71,8 @@ async function addEntry(app: Hono, title = 'flaky login'): Promise<string> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ testTitle: title, testFile: 'e2e/login.spec.ts', reason: 'CI' }),
   });
-  const body = (await res.json()) as { id: string };
-  return body.id;
+  const body = (await res.json()) as BoundaryBody;
+  return String(body.id);
 }
 
 describe('dashboard write bodies', () => {
@@ -101,9 +130,11 @@ describe('dashboard write bodies', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passRateThreshold: 90 }),
     });
-    const body = (await res.json()) as { issues: Array<{ path: unknown[] }> };
+    const body = (await res.json()) as BoundaryBody;
 
-    expect(body.issues.map((issue) => issue.path[0])).toContain('name');
+    expect(
+      body.error.details.issues.map((issue) => String((issue as { path: unknown[] }).path[0])),
+    ).toContain('name');
   });
 });
 
@@ -130,7 +161,7 @@ describe('quarantine decisions', () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string };
+    const body = (await res.json()) as BoundaryBody;
     expect(body.status).toBe('approved');
     const decision = store.recorded.find((entry) => entry.action === 'quarantine.approved');
     expect(decision).toBeDefined();
@@ -153,10 +184,13 @@ describe('quarantine decisions', () => {
     // 409 and not 400: the request was well formed and the resource exists, but its
     // current state forbids the move. Resending the same body cannot fix it.
     expect(res.status).toBe(409);
-    const body = (await res.json()) as { from: string; to: string; allowed: string[] };
-    expect(body.from).toBe('rejected');
-    expect(body.to).toBe('approved');
-    expect(body.allowed).toEqual(['rejected']);
+    const body = (await res.json()) as BoundaryBody;
+    expect(body.error.code).toBe('INVALID_STATE_TRANSITION');
+    expect(body.error.details.from).toBe('rejected');
+    expect(body.error.details.to).toBe('approved');
+    // The states the entry *could* have become. This used to be a sentence naming the
+    // two statuses, and a dashboard had to parse it to offer the legal moves.
+    expect(body.error.details.allowed).toEqual(['rejected']);
   });
 
   it('refuses to re-open an entry through the body, before any store call', async () => {

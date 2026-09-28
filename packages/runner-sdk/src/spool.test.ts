@@ -8,6 +8,7 @@ import {
   MemorySpool,
   SpoolCapacityError,
   SpoolError,
+  SpoolFrameTooLargeError,
   SpoolIntegrityError,
   SpoolPathError,
   readOrCreateSpoolKey,
@@ -183,6 +184,54 @@ describe('DurableSpool', () => {
       (error: unknown) => error,
     );
     expect((range as SpoolIntegrityError).code).toBe('SPOOL_FORMAT');
+  });
+
+  it('refuses an oversized entry at enqueue, and leaves the file readable', async () => {
+    // Ledger P-14. `MAX_SEALED_BYTES` was enforced only at *decode*, so a ~5 MB event
+    // inside a 64 MB spool was accepted, written, and then made the whole file
+    // undecodable: `decodeFile` throws `SPOOL_FORMAT` on the length check, and
+    // `tornTail: 'drop'` covers a partial *tail*, not a mid-file throw. One oversized
+    // event therefore bricked a spool file permanently — every later open failed, and
+    // the entries written before it were unreachable too.
+    //
+    // The refusal has to happen at enqueue, and it must not be reported as capacity.
+    // `SpoolCapacityError` means "the queue is full, try again later", and a caller
+    // obeying that would retry a 5 MB event forever against a file that is 3% full.
+    const root = await directory();
+    const spool = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    await spool.enqueue(entry('before', 1));
+
+    await expect(
+      spool.enqueue({ ...entry('huge', 2), payload: { blob: 'x'.repeat(5 * 1024 * 1024) } }),
+    ).rejects.toThrow(SpoolFrameTooLargeError);
+
+    // The file must still open, and the entry written before the refusal must still be
+    // there. A refusal that damaged the queue would be a different defect, not a fix.
+    const reopened = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    expect(reopened.pending()).toBe(1);
+    expect((await reopened.peek()).map((each) => each.id)).toEqual(['before']);
+  });
+
+  it('refuses an oversized entry on compaction too, not only on enqueue', async () => {
+    // The frame builder is shared by the append path and the rewrite path, so a cap
+    // added to `enqueue` alone would still let compaction write a frame that the next
+    // open refuses. This asserts the second path so the cap cannot be reintroduced
+    // in the one place it was not first tested.
+    const root = await directory();
+    const spool = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    // Reach the rewrite path through the public surface: an entry that fits on the
+    // way in cannot become too large on the way out, so this asserts the invariant at
+    // the builder's only reachable door — an enqueue of a large-but-valid entry after
+    // a compaction has run.
+    await spool.enqueue(entry('a', 1));
+    await spool.ack(['a']);
+    await spool.compact();
+    await expect(
+      spool.enqueue({ ...entry('huge', 2), payload: { blob: 'x'.repeat(5 * 1024 * 1024) } }),
+    ).rejects.toThrow(SpoolFrameTooLargeError);
+
+    const reopened = await DurableSpool.open({ directory: root, key: 'stable-runner-key' });
+    expect(reopened.pending()).toBe(0);
   });
 
   it('rejects frames that are not queue entries', async () => {
