@@ -22,11 +22,10 @@ import type {} from './schemas.js';
 import { artifactKind, parseBody, publishCanonical, safeName, workspace } from './shared.js';
 import {
   ArtifactSchema,
-  CANONICAL_EVENT_TYPES,
   CompleteSchema,
   EventBatchSchema,
+  isCanonicalEventType,
 } from './schemas.js';
-import { CanonicalRealtimeEvent } from '../../realtime/realtime-bus.js';
 import { DomainError, isDomainError } from '../../errors/domain-error.js';
 import { JobCompletionInput } from '../../execution/types.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
@@ -69,11 +68,11 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       const input = batch.events[index];
       if (!input) continue;
       const type = input.type === 'run.phase' ? 'run.phase_changed' : input.type;
-      if (!CANONICAL_EVENT_TYPES.has(type)) continue;
+      if (!isCanonicalEventType(type)) continue;
       publishCanonical(
         options.bus,
         {
-          type: type as CanonicalRealtimeEvent['type'],
+          type,
           eventId: input.eventId,
           occurredAt: input.occurredAt ?? new Date().toISOString(),
           runId: job.runId,

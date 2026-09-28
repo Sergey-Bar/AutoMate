@@ -17,7 +17,11 @@
  */
 
 import { z } from 'zod/v4';
-import { ExecutionEventLineSchema } from '@automate/shared-contracts';
+import {
+  ExecutionEventLineSchema,
+  RunEventTypeSchema,
+  type RunEventType,
+} from '@automate/shared-contracts';
 import type { RunRepository } from '../../repositories/run-repository.js';
 import type { RealtimeBus } from '../../realtime/realtime-bus.js';
 import type { ExecutionStore } from '../../execution/types.js';
@@ -191,18 +195,22 @@ export const ArtifactSchema = z
  * the set is still persisted — it is only not republished, so an unknown event
  * can never be laundered into a canonical one.
  */
-export const CANONICAL_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'run.queued',
-  'run.assigned',
-  'run.started',
-  'run.phase_changed',
-  'test.queued',
-  'test.started',
-  'test.completed',
-  'run.completed',
-  'artifact.created',
-  'gate.evaluated',
-]);
+export const CANONICAL_EVENT_TYPES: ReadonlySet<RunEventType> = new Set(RunEventTypeSchema.options);
+
+/**
+ * Membership guard for the derived set.
+ *
+ * `Set.prototype.has` takes a `string` here, so it cannot narrow — which is why
+ * the call site needed `type as CanonicalRealtimeEvent['type']`, and why adding a
+ * name to the contract was a silent no-op. A predicate carries the narrowing the
+ * gate was missing, so the cast is gone and the type flows from the contract.
+ *
+ * A type predicate is required rather than a plain `boolean` return: TypeScript
+ * only narrows through a signature that names the narrowed type in its return.
+ */
+export function isCanonicalEventType(value: string): value is RunEventType {
+  return CANONICAL_EVENT_TYPES.has(value as RunEventType);
+}
 
 /**
  * A real object schema. `z.record(z.string(), z.unknown())` let a client send

@@ -20,7 +20,7 @@
 // Event payload type (mirrors RunUpdatedEventSchema from @automate/realtime)
 // ---------------------------------------------------------------------------
 
-import { RUN_UPDATED_EVENT_TYPE } from '@automate/shared-contracts';
+import { RUN_UPDATED_EVENT_TYPE, type RunEventType } from '@automate/shared-contracts';
 
 export interface RunUpdatedPayload {
   type: typeof RUN_UPDATED_EVENT_TYPE;
@@ -43,17 +43,10 @@ export interface RunUpdatedPayload {
  * Tests inject an InMemoryRealtimeBus for in-process verification.
  */
 export interface CanonicalRealtimeEvent {
-  type:
-    | 'run.queued'
-    | 'run.assigned'
-    | 'run.started'
-    | 'run.phase_changed'
-    | 'test.queued'
-    | 'test.started'
-    | 'test.completed'
-    | 'run.completed'
-    | 'artifact.created'
-    | 'gate.evaluated';
+  // The contract's type, not a parallel ten-name union. The union was the third
+  // hand-maintained copy of the same list, and adding an eleventh event name to
+  // `RunEventTypeSchema` left it behind with nothing to fail.
+  type: RunEventType;
   version: '1';
   eventId: string;
   sequence: number;

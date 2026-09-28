@@ -138,6 +138,109 @@ function canonicalEventTypes(): string[] {
 }
 
 /**
+ * `RunEventTypeSchema`'s values, read from `schemas/execution.ts`.
+ *
+ * The gate above only knows the **colon-style** names exported as constants from
+ * `reporter-events.ts`, so the dot-style canonical names were invisible to it — which
+ * is how `CANONICAL_EVENT_TYPES` in `apps/api/src/routes/execution/schemas.ts` could sit
+ * there as a hand-written ten-name `Set<string>` with the same list as the contract and
+ * nothing to notice.
+ */
+function canonicalRunEventTypes(): string[] {
+  const contract = readFileSync(
+    path.join(repoRoot, 'packages/shared-contracts/src/schemas/execution.ts'),
+    'utf8',
+  );
+  const declaration = /RunEventTypeSchema\s*=\s*z\.enum\(\[([\s\S]*?)\]\)/.exec(contract);
+  if (declaration?.[1] === undefined) {
+    throw new Error('RunEventTypeSchema is not a z.enum declaration in the contract');
+  }
+  const names = [...declaration[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
+  if (names.length === 0) throw new Error('RunEventTypeSchema declared no members');
+  return names;
+}
+
+/**
+ * The offset just past the `[` of a `new Set<…>([…])` beginning at `from`, or -1.
+ *
+ * A hand scan rather than a regex. The obvious pattern —
+ * `/new\s+Set\s*(?:<[^>]*>)?\s*\(\s*\[/g` — is a nested quantifier: an unbounded
+ * `[^>]*` inside a group, sitting between two `\s*` runs that can both match the same
+ * characters, so it backtracks on failure. `security/detect-unsafe-regex` refuses it,
+ * and bounding the inner quantifier does not help, because the ambiguity is between the
+ * adjacent `\s*` runs. The input is repository source, not untrusted data, so a linear
+ * scan is the honest answer rather than a tuned pattern.
+ */
+function setListOpenBracket(source: string, from: number): number {
+  const anchor = /^new\s+Set\b/.exec(source.slice(from));
+  if (!anchor) return -1;
+  let cursor = from + anchor[0].length;
+  if (source[cursor] === '<') {
+    const end = source.indexOf('>', cursor);
+    if (end === -1) return -1;
+    cursor = end + 1;
+  }
+  const paren = skipSpaces(source, cursor);
+  if (paren === -1 || source[paren] !== '(') return -1;
+  const bracket = skipSpaces(source, paren + 1);
+  if (bracket === -1 || source[bracket] !== '[') return -1;
+  return bracket + 1;
+}
+
+function skipSpaces(source: string, from: number): number {
+  let cursor = from;
+  while (source[cursor] === ' ' || source[cursor] === '\n' || source[cursor] === '\t') cursor += 1;
+  return cursor;
+}
+
+/**
+ * Hand-maintained dot-style allowlists: a `Set` constructor whose literal members are
+ * two or more canonical `RunEventType` names.
+ *
+ * Scoped to the allowlist shape on purpose. A gate forbidding *every* dot-style literal
+ * outside the contract would fail on roughly twenty files that legitimately construct
+ * canonical events — writers in `apps/api/src/execution/`, the runner, and the web hooks
+ * that match on the names — and folding that in here would be a different change wearing
+ * this one's tests. What made P-62 a defect was not that the names appear twice; it was
+ * that a **list of the names** was maintained by hand next to the contract that declares
+ * them. Deriving it is the fix, and this is the guard against the next copy of it.
+ */
+function handMaintainedRunEventTypeLists(): string[] {
+  const values = canonicalRunEventTypes();
+  const found: string[] = [];
+  for (const directory of ['apps', 'packages', 'tools', 'tests']) {
+    for (const file of sourceFiles(path.join(repoRoot, directory))) {
+      found.push(...handMaintainedInFile(file, values));
+    }
+  }
+  return found.sort();
+}
+
+/** The findings for one file, so the loop above stays a loop and not a nest of branches. */
+function handMaintainedInFile(file: string, values: readonly string[]): string[] {
+  const relative = path.relative(repoRoot, file).replaceAll('\\', '/');
+  if (relative.startsWith(CONTRACT_ROOT)) return [];
+  const source = withoutComments(readFileSync(file, 'utf8'));
+  const found: string[] = [];
+  for (let at = source.indexOf('new'); at !== -1; at = source.indexOf('new', at + 1)) {
+    const open = setListOpenBracket(source, at);
+    if (open === -1) continue;
+    // The members are read with a bracket scan rather than a regex. A `[\s\S]*?`
+    // between the opening `[` and a closing `]` is the same nested quantifier again.
+    const close = source.indexOf(']', open);
+    if (close === -1) continue;
+    const members = [...source.slice(open, close).matchAll(/'([^']+)'/g)].map((m) => m[1]);
+    const canonical = members.filter((member) => values.includes(member));
+    if (canonical.length < 2) continue;
+    const line = source.slice(0, at).split('\n').length;
+    found.push(
+      `${relative}:${line} hand-maintains a list of ${canonical.length} canonical run event types — derive it from RunEventTypeSchema.options`,
+    );
+  }
+  return found;
+}
+
+/**
  * Where `value` is written as a literal in one file, as `path:line` strings.
  *
  * One function per file rather than one big loop over files and values and matches:
@@ -200,5 +303,9 @@ describe('canonical event types', () => {
 
   it('is written as a string literal outside the contract nowhere', () => {
     expect(literalUses()).toEqual([]);
+  });
+
+  it('has no hand-maintained list of canonical run event types outside the contract', () => {
+    expect(handMaintainedRunEventTypeLists()).toEqual([]);
   });
 });
