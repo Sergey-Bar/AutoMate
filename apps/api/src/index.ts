@@ -14,6 +14,7 @@ import { createOrchestrationRoutes } from './routes/orchestration.js';
 import { ReporterIngestionService } from './services/reporter-ingestion.js';
 import { DrizzleReporterIngestionService } from './services/drizzle-reporter-ingestion.js';
 import { DrizzleAuthSessionBackend } from './infrastructure/session-backend.js';
+import { bootstrapDisplayPrefix } from './bootstrap-display-prefix.js';
 import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
@@ -233,7 +234,11 @@ if (realtimeFeed) {
   assertInMemoryAllowed(runtimeConfig, 'InMemoryRealtimeBus');
   realtimeBus = new InMemoryRealtimeBus();
 }
-let sessionBackend;
+// Declared rather than inferred from the branches. It infers
+// `DrizzleAuthSessionBackend | undefined` today, which is why `noImplicitAny`
+// passes — but a `let` with no annotation is one refactor away from being one, and
+// `undefined` is the meaningful half of that union, not an afterthought.
+let sessionBackend: DrizzleAuthSessionBackend | undefined;
 if (databaseResources) {
   sessionBackend = new DrizzleAuthSessionBackend(
     new DrizzleSessionStore(databaseResources.db),
@@ -248,7 +253,7 @@ const installationKeyHash = databaseResources
   ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureBootstrap({
       installationId,
       keyHash: hashCredential(authCookieSecret, installationKey),
-      displayPrefix: 'dev',
+      displayPrefix: bootstrapDisplayPrefix(runtimeConfig),
     })
   : hashCredential(authCookieSecret, installationKey);
 /**

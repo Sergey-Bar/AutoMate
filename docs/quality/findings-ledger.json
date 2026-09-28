@@ -676,9 +676,38 @@
       "title": "Every deployment records a dev installation key",
       "band": "Major",
       "provenance": "hand",
+      "status": "fixed",
+      "wave": "W4.12",
+      "summary": "`index.ts:246` passes `displayPrefix: 'dev'` unconditionally to `ensureBootstrap`, `:71` hardcodes the installation UUID `00000000-0000-4000-8000-000000000001`, and `:231` declares `let sessionBackend;` with no type.\n\n**Two citation corrections, recorded because both point at the wrong line.** The real lines are\n**`:251`** for `displayPrefix: 'dev'` and **`:236`** for `let sessionBackend;`.\n`findings:check` fails a `fixed` row whose evidence path no longer exists, and a fixer\nfollowing `:246` finds the wrong statement.\n\n**Reading taken: A (mislabel), stated explicitly as issue #9 requires. Reading B is recorded as\nits own follow-up row, P-72b, and is NOT closed by this change.**\n\nThe two readings were: **A** — a hardcoded cosmetic label lands on a production row; **B** —\n`ensureBootstrap` is called in production *at all*, deriving a bootstrap credential on every\nboot, and the fix is to gate the call on `nodeEnv` or an explicit opt-in.\n\n**A was chosen because it is free and B is not.** A is zero behavioural risk, because\n**`display_prefix` is write-only**: `findUsable`\n(`installation-key-repository.ts:139-153`) selects only `keyHash, revokedAt, expiresAt`, and\nno API route, no `apps/web` code, no audit row and no UI reads it. The credential's real\nidentity is `hashCredential(authCookieSecret, installationKey)`, which this does not touch. B\nchanges what production does on first boot, and shipping that inside a good-first-issue PR\nwould put a production-behaviour change through a review sized for a label.\n\n**What was verified before choosing, and it bears on the choice:** `ensureBootstrap` is at\n`installation-key-repository.ts:84-123` with four call sites, and **no test anywhere asserted\nthe literal `'dev'`** — which is exactly why a hardcoded mislabel could sit in a composition\nroot indefinitely. There is also **no config surface for it**: `AppConfig` has no\n`installationId` and no prefix field, and the only install-adjacent field is\n`installationApiKey` ← `AUTOMATE_API_KEY`. So the label had nowhere to come from but a literal.\n\n**Fixed, 2026-09-28.** `bootstrapDisplayPrefix(config)` returns `config.nodeEnv`, and the call\nsite passes it. The label is now `development` / `test` / `production` rather than `dev` — the\nfull name costs nothing on a write-only column and reads unambiguously beside it. **`let\nsessionBackend;` is now declared `DrizzleAuthSessionBackend | undefined`**, which is what it\nalready inferred, so `noImplicitAny` was never the reason; an unannotated `let` is one refactor\naway from being the reason, and `undefined` is the meaningful half of that union.\n\n**Calibration:** the helper was changed back to returning the literal `'dev'` and all three\nassertions were observed red, including the one that matters — *does not label a production\ndeployment as a development key* — before being restored.",
+      "confirmed": true,
+      "confirmedOn": "2026-09-28",
+      "confirmedBy": "kilo:fail-before-verification",
+      "evidence": [
+        {
+          "path": "apps/api/src/bootstrap-display-prefix.ts",
+          "asserts": "`bootstrapDisplayPrefix` derives the label from `config.nodeEnv` rather than hardcoding it, and the docstring records that Reading B was deliberately not taken."
+        },
+        {
+          "path": "apps/api/src/bootstrap-display-prefix.test.ts",
+          "asserts": "A production deployment is not labelled with a development key; the development label is still a development one; and every value in the `nodeEnv` union produces a non-empty, space-free prefix, so a fourth environment added to the schema cannot silently inherit the wrong one."
+        },
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "`ensureBootstrap` is called with `bootstrapDisplayPrefix(runtimeConfig)`, and `let sessionBackend` carries an explicit `DrizzleAuthSessionBackend | undefined` annotation."
+        }
+      ]
+    },
+    {
+      "id": "P-72b",
+      "title": "Every boot derives a bootstrap installation key, in production included",
+      "band": "Major",
+      "provenance": "hand",
       "status": "open",
       "wave": "W4.12",
-      "summary": "`index.ts:246` passes `displayPrefix: 'dev'` unconditionally to `ensureBootstrap`, `:71` hardcodes the installation UUID `00000000-0000-4000-8000-000000000001`, and `:231` declares `let sessionBackend;` with no type."
+      "summary": "**Split out of P-72 on 2026-09-28. This is Reading B, and P-72's fix deliberately did not take it.**\n\nP-72's title is *\"Every deployment records a dev installation key\"*, which supports two readings.\nP-72 took the narrow one — a hardcoded cosmetic label on a production row — because\n`display_prefix` is **write-only** and renaming it is behaviourally free. The wider one is this\nrow, and it is the more consequential of the two.\n\n`index.ts` calls `ensureBootstrap({ installationId, keyHash, displayPrefix })`\n**unconditionally whenever a database exists** — not only in development. So every production\nboot derives a bootstrap credential from `hashCredential(authCookieSecret, installationKey)`\nand inserts a row. P-72's fix changed only the label on that row; the derivation and the insert\nare untouched.\n\n**Why it is still open rather than fixed:** gating the call on `nodeEnv` or an explicit opt-in\nchanges what production does on first boot. A deployment that relies on the bootstrap key would\nfind it absent, and the failure mode is an installation that cannot authenticate — not a\ndegraded label. That needs its own design, its own migration story for installations already\nbootstrapped, and its own review.\n\n**What a fix has to answer, and none of it is answered here:**\n- What a production deployment uses **instead**, on first boot, with no database row.\n- Whether an installation that already has a usable key is unaffected — `ensureBootstrap`\n  returns the existing hash at `installation-key-repository.ts:91-92`, so the gate can be\n  additive without stranding anyone, and that is the property to build on.\n- What the operator-facing behaviour is when bootstrap is unavailable: refusing to start is a\n  very different decision from starting without it.\n- Whether `AUTOMATE_ALLOW_DEV_SECRETS`-style explicit opt-in (the pattern\n  `startup-policy.ts` already uses) is the right shape, or whether production needs a\n  genuinely separate provisioning path.",
+      "confirmed": true,
+      "confirmedOn": "2026-09-28",
+      "confirmedBy": "kilo:fail-before-verification"
     },
     {
       "id": "P-55",
