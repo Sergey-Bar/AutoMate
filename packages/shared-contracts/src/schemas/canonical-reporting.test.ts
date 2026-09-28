@@ -49,6 +49,81 @@ const baseResult = {
   raw: {},
 };
 
+describe('attempt identity within a run', () => {
+  /**
+   * F-4. `testId` is built by two adapters from two different key pairs —
+   * `junit-xml.ts` from `classname:name`, `playwright-json.ts` from `file:title` —
+   * and the contract imposed no rule on it, so two distinct tests can arrive carrying
+   * the same `testId` and be indistinguishable to any consumer that keys on it.
+   *
+   * **The rule is deliberately NOT `testId` uniqueness, and that is the judgement this
+   * row turns on.** A retried test is *one* test with several attempts:
+   * `playwright-json.ts` emits one attempt per `test.results` entry with
+   * `index: attemptIndex + 1` and the same `testId`, and JUnit expresses the same
+   * thing as `flakyFailure`/`rerunFailure`. So `testId` alone cannot be unique, and a
+   * uniqueness check on it would reject every flaky run — a normal case, not an
+   * unlucky one. The one demonstrated consumer, `in-memory-run-repository.ts`, keys a
+   * Map on `${testId}::${runId}` and its `patchTest` silently no-ops on a missing key,
+   * so the two rows that actually collide are the two a consumer cannot tell apart.
+   *
+   * So the invariant is: **for each `testId`, its attempt `index` values are exactly
+   * 1..n.** A retried test satisfies it by construction. Two distinct tests colliding on
+   * one `testId` produce `[1, 2, 1, 2]`, which does not — and that is precisely the
+   * defect, because a consumer has no way to decide where one test's attempts end and
+   * the next one's begin.
+   */
+  it('accepts a retried test, whose attempts share one testId', () => {
+    const retried = { ...baseAttempt, testId: 'tests/a.spec.ts:flaky', index: 1 };
+    const second = { ...baseAttempt, testId: 'tests/a.spec.ts:flaky', index: 2 };
+    const result = { ...baseResult, attempts: [retried, second] };
+    expect(RunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('refuses two distinct tests that collided on one testId', () => {
+    // Both adapters number `index` per test — `playwright-json.ts` uses
+    // `attemptIndex + 1` within one test's `results` — so two *distinct* tests that
+    // collided on an identity both arrive as attempt 1. That is the real shape, and it
+    // is what the in-memory repository cannot represent: it keys a Map on
+    // `${testId}::${runId}` and its `patchTest` silently no-ops on a missing key, so
+    // the second row is the one that disappears.
+    const first = { ...baseAttempt, testId: 'suite:duplicated name', index: 1 };
+    const second = { ...baseAttempt, testId: 'suite:duplicated name', index: 1 };
+    const result = { ...baseResult, attempts: [first, second] };
+    expect(RunResultSchema.safeParse(result).success).toBe(false);
+  });
+
+  it('cannot separate a collision that happens to look exactly like a retry', () => {
+    // Stated rather than papered over. Two distinct tests arriving as attempts 1 and 2
+    // on one `testId` are byte-identical to one test that ran twice, and no contract
+    // rule can tell them apart — the difference would have to be carried in the `testId`
+    // itself. Namespacing it is the change this row deliberately does not make: it buys
+    // nothing observable today, it is visible in an evidence UI (`run-detail.tsx`
+    // renders `testId` and keys `data-testid` on it), and the only demonstrated consumer
+    // is the in-memory store's silent no-op, which this rule already covers.
+    const first = { ...baseAttempt, testId: 'suite:ambiguous', index: 1 };
+    const second = { ...baseAttempt, testId: 'suite:ambiguous', index: 2 };
+    const result = { ...baseResult, attempts: [first, second] };
+    expect(RunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('refuses a gap in one test’s attempt sequence', () => {
+    // Attempts 1 and 3 with nothing between: the second attempt was lost, and nothing
+    // downstream would say so. This is a different defect from the collision — one
+    // test, one lost attempt — and it is the one a `Set`-size check would miss.
+    const first = { ...baseAttempt, testId: 'tests/a.spec.ts:gapped', index: 1 };
+    const third = { ...baseAttempt, testId: 'tests/a.spec.ts:gapped', index: 3 };
+    const result = { ...baseResult, attempts: [first, third] };
+    expect(RunResultSchema.safeParse(result).success).toBe(false);
+  });
+
+  it('still accepts distinct tests side by side', () => {
+    const first = { ...baseAttempt, testId: 'tests/a.spec.ts:one', index: 1 };
+    const second = { ...baseAttempt, testId: 'tests/b.spec.ts:two', index: 1 };
+    const result = { ...baseResult, attempts: [first, second] };
+    expect(RunResultSchema.safeParse(result).success).toBe(true);
+  });
+});
+
 describe('canonical reporting contracts', () => {
   it('accepts a complete canonical result', () => {
     expect(RunResultSchema.safeParse(baseResult).success).toBe(true);

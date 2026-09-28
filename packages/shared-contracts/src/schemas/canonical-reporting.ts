@@ -151,22 +151,65 @@ const StepSchema: z.ZodType<Step> = z.lazy(() =>
     children: z.array(StepSchema).default([]),
   }),
 );
-const RunResultSchema = z.object({
-  contractVersion: z.literal(RUN_CONTRACT_VERSION),
-  identity: RunIdentitySchema,
-  status: StatusSchema,
-  startedAt: TimestampSchema,
-  finishedAt: TimestampSchema.optional(),
-  durationMs: z.number().nonnegative().optional(),
-  attempts: z.array(AttemptSchema).min(1),
-  steps: z.array(StepSchema).default([]),
-  evidence: z.array(EvidenceReferenceSchema),
-  provenance: ProvenanceSchema,
-  retention: RetentionSchema,
-  proof: ProofSchema,
-  completeness: CompletenessSchema,
-  raw: z.record(z.string(), z.unknown()).default({}),
-});
+/**
+ * One test's attempts must be numbered 1..n with no gap and no repeat.
+ *
+ * F-4. `testId` is built by two adapters from two different key pairs —
+ * `classname:name` for JUnit, `file:title` for Playwright — so two distinct tests can
+ * arrive carrying the same `testId`. Nothing in the contract noticed.
+ *
+ * **The rule is on the attempt sequence, not on `testId` uniqueness, and that is
+ * deliberate.** A retried test is one test with several attempts: the Playwright adapter
+ * emits one attempt per `test.results` entry with the same `testId` and
+ * `index: attemptIndex + 1`, and JUnit says the same thing with `flakyFailure`. So
+ * `testId` cannot be unique — a uniqueness check on it would reject every flaky run,
+ * which is a normal case. Demanding 1..n per `testId` accepts retries by construction
+ * and rejects a collision, because two tests that landed on one identity arrive as
+ * `[1, 2, 1, 2]` rather than 1..2.
+ *
+ * The identity a consumer can rely on is therefore the pair `(testId, index)`, and this
+ * is what makes that pair an identity rather than a coincidence.
+ */
+const uniqueAttemptIdentity = (
+  attempts: ReadonlyArray<{ testId: string; index: number }>,
+  ctx: z.RefinementCtx,
+): void => {
+  const byTestId = new Map<string, number[]>();
+  for (const attempt of attempts) {
+    const seen = byTestId.get(attempt.testId);
+    if (seen) seen.push(attempt.index);
+    else byTestId.set(attempt.testId, [attempt.index]);
+  }
+  for (const [testId, indexes] of byTestId) {
+    const sorted = [...indexes].sort((a, b) => a - b);
+    const expected = sorted.map((_, position) => position + 1);
+    if (sorted.every((value, position) => value === expected[position])) continue;
+    ctx.addIssue({
+      code: 'custom',
+      message: `attempts for testId "${testId}" must be numbered 1..${sorted.length} with no gap and no repeat; got [${sorted.join(', ')}]. Two distinct tests carrying the same testId are indistinguishable to a consumer that keys on it.`,
+      path: ['attempts'],
+    });
+  }
+};
+
+const RunResultSchema = z
+  .object({
+    contractVersion: z.literal(RUN_CONTRACT_VERSION),
+    identity: RunIdentitySchema,
+    status: StatusSchema,
+    startedAt: TimestampSchema,
+    finishedAt: TimestampSchema.optional(),
+    durationMs: z.number().nonnegative().optional(),
+    attempts: z.array(AttemptSchema).min(1),
+    steps: z.array(StepSchema).default([]),
+    evidence: z.array(EvidenceReferenceSchema),
+    provenance: ProvenanceSchema,
+    retention: RetentionSchema,
+    proof: ProofSchema,
+    completeness: CompletenessSchema,
+    raw: z.record(z.string(), z.unknown()).default({}),
+  })
+  .superRefine((result, ctx) => uniqueAttemptIdentity(result.attempts, ctx));
 const EventBaseSchema = z.object({
   contractVersion: z.literal(RUN_CONTRACT_VERSION),
   eventId: z.string().min(1),

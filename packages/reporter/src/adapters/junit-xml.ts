@@ -147,8 +147,18 @@ export const junitXmlAdapter: ProducerAdapter = {
     });
     parser.write(new TextDecoder().decode(input)).close();
     if (testCases.length === 0) throw new Error('JUnit report contains no test cases');
-    const attempts = testCases.map((testCase, index) => ({
-      index: index + 1,
+    // One attempt per `<testcase>`, so the attempt ordinal is always 1.
+    //
+    // This used to be `index + 1` — a running ordinal across every testcase in the
+    // document. That is a different quantity from the one `playwright-json.ts` puts
+    // here (`attemptIndex + 1`, the attempt's ordinal *within one test*) and from the
+    // one `RunExplorer.tsx:36` renders as "attempt N". So a JUnit run whose second
+    // testcase failed claimed its only attempt was attempt 2, and a consumer keying on
+    // `(testId, index)` had no consistent identity across the two producers. The
+    // adapter-parity suite is what a disagreement like this belongs to, and the
+    // contract's attempt-sequence rule is what surfaced it.
+    const attempts = testCases.map((testCase) => ({
+      index: 1,
       testId: `${testCase.classname ?? 'suite'}:${testCase.name}`,
       specPath: testCase.file ?? 'unknown.spec.ts',
       title: testCase.name,

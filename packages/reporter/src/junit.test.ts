@@ -84,6 +84,22 @@ describe('JUnit adapter', () => {
     expect(result.attempts[0]?.status).toBe('unknown');
   });
 
+  it('numbers each testcase’s attempt 1, not a running ordinal across the document', () => {
+    // A JUnit `<testcase>` is one test with one attempt. `playwright-json.ts` puts
+    // `attemptIndex + 1` here — the attempt's ordinal within one test — and
+    // `RunExplorer.tsx:36` renders it as "attempt N". A running ordinal across the
+    // document made the second testcase in a report claim its only attempt was
+    // attempt 2, so a consumer keying on `(testId, index)` had no consistent identity
+    // across the two producers.
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite><testcase name="first" status="passed"/><testcase name="second" status="passed"/><testcase name="third" status="passed"/></testsuite>',
+      ),
+      context,
+    );
+    expect(result.attempts.map((attempt) => attempt.index)).toEqual([1, 1, 1]);
+  });
+
   it('rejects reports without testcases', () => {
     expect(() =>
       junitXmlAdapter.parse(new TextEncoder().encode('<testsuite/>'), context),
