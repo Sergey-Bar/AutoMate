@@ -5,7 +5,7 @@ import type { RunPhase } from '@automate/shared-contracts';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useRunDetail } from '../../hooks/useDashboard.js';
 import { isRunActive } from '../../hooks/useRuns.js';
-import { getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
+import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -176,7 +176,18 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
   }
 
   if (error) {
-    if (error.message.toLowerCase().includes('not found') || error.message.includes('404')) {
+    // On the status, not on the message. The API already sends a distinct code and
+    // status for this — `DomainError('RUN_NOT_FOUND')` renders as
+    // `{ error: { code, message, requestId } }` with a 404 — and the old check read
+    // `error.message` looking for the words "not found". It worked only because the
+    // server's English prose happened to contain them: translate the string, or
+    // reword it, and the run silently becomes a generic error (ledger W-6).
+    //
+    // The hook types this as `Error` while the value it stores is an `ApiError`, so
+    // the status is read through an `instanceof` check rather than a cast. An error
+    // that is not an `ApiError` carries no status to read, and falls through to the
+    // generic state, which is the honest answer for an error of unknown provenance.
+    if (error instanceof ApiError && error.status === 404) {
       return (
         <EmptyState
           data-testid="run-not-found"
@@ -190,7 +201,16 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     );
   }
 
-  if (!run) return null;
+  // A type guard, and nothing more: every line below narrows `run`, so this
+  // cannot be deleted without a typecheck error. It is also currently `unreachable` —
+  // `useRunDetail` dereferences `run.releaseId` straight after the fetch
+  // (`hooks/useDashboard.ts:131`), so a null run raises a TypeError inside the hook
+  // and arrives here as an error, not as an empty run. Ledger W-6's other claim is
+  // therefore half wrong, and the half that is right — matching a 404 on the status
+  // instead of on the server's English prose — is fixed above. Making this state
+  // reachable means optional-chaining the hook first; that is not done here, so this
+  // guard keeps its original shape rather than gaining a branch no test can reach.
+  if (run === null) return null;
 
   const performCancel = async () => {
     try {

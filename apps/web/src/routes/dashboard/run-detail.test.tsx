@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RunDetailPage } from './run-detail.js';
 import { makeApi, makePhaseEvent, makeRun, TEST_TIMESTAMP } from '../../test-utils.js';
-import type { ApiClient, Run } from '../../lib/api.js';
+import { ApiError, type ApiClient, type Run } from '../../lib/api.js';
 
 const artifact = {
   id: 'artifact-1',
@@ -105,11 +105,11 @@ const passedRun = makeRun({
   policyEvaluation: gate,
 });
 
-function detailApi(run: Run, overrides: Partial<ApiClient> = {}): ApiClient {
+function detailApi(run: Run | null, overrides: Partial<ApiClient> = {}): ApiClient {
   return makeApi({
     getRun: vi.fn().mockResolvedValue(run),
-    getRunArtifacts: vi.fn().mockResolvedValue(run.artifacts),
-    getRunGate: vi.fn().mockResolvedValue(run.policyEvaluation),
+    getRunArtifacts: vi.fn().mockResolvedValue(run?.artifacts ?? []),
+    getRunGate: vi.fn().mockResolvedValue(run?.policyEvaluation ?? null),
     ...overrides,
   });
 }
@@ -122,20 +122,70 @@ describe('RunDetailPage', () => {
   });
 
   it('renders not found and generic error states', async () => {
+    // The 404 case used to be built as `new Error('Run not found (404)')` — a plain
+    // Error whose *message* carried the words the component was matching on. That
+    // fixture is the defect: it made the string match look correct, and it would have
+    // kept passing against a component that read the status correctly. The real
+    // client throws `ApiError`, which carries the status, so that is what is thrown
+    // here (ledger W-6).
     const missing = detailApi(passedRun, {
-      getRun: vi.fn().mockRejectedValue(new Error('Run not found (404)')),
+      getRun: vi.fn().mockRejectedValue(new ApiError('Run not found', 404)),
     });
     const missingView = render(<RunDetailPage id="missing" api={missing} />);
     await waitFor(() => expect(screen.getByTestId('run-not-found')).toBeInTheDocument());
     missingView.unmount();
 
+    // A 404 with different prose still resolves as "not found", which is the whole
+    // point of reading the status rather than the English.
+    const reworded = detailApi(passedRun, {
+      getRun: vi
+        .fn()
+        .mockRejectedValue(new ApiError('Aucun run ne correspond a cet identifiant', 404)),
+    });
+    const rewordedView = render(<RunDetailPage id="reworded" api={reworded} />);
+    await waitFor(() => expect(screen.getByTestId('run-not-found')).toBeInTheDocument());
+    rewordedView.unmount();
+
+    // And the counterweight: an error whose *message* says "not found" but whose
+    // status is 500 is a real failure, and is shown as one. Before this change the
+    // message won and this was reported as a missing run.
+    const mislabelled = detailApi(passedRun, {
+      getRun: vi.fn().mockRejectedValue(new ApiError('Upstream said: run not found', 500)),
+    });
+    const mislabelledView = render(<RunDetailPage id="mislabelled" api={mislabelled} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('run-error')).toHaveTextContent('Upstream said: run not found'),
+    );
+    mislabelledView.unmount();
+
     const failed = detailApi(passedRun, {
-      getRun: vi.fn().mockRejectedValue(new Error('Database unavailable')),
+      getRun: vi.fn().mockRejectedValue(new ApiError('Database unavailable', 503)),
     });
     render(<RunDetailPage id="run-123" api={failed} />);
     await waitFor(() =>
       expect(screen.getByTestId('run-error')).toHaveTextContent('Database unavailable'),
     );
+  });
+
+  it('renders the dedicated loading state while the run is in flight', async () => {
+    // Pinning the ordering between the loading and error branches. The row W-6 summary
+    // also claimed the component renders `null` for an empty run; that branch is
+    // currently **unreachable**, because `useRunDetail` dereferences the run before the
+    // component sees it (`hooks/useDashboard.ts:131`), so a null run surfaces as an
+    // error instead. Making it reachable means optional-chaining the hook, which is
+    // recorded on the ledger row rather than done here.
+    const stillLoading = detailApi(null, {
+      getRun: vi.fn().mockImplementation(
+        () =>
+          new Promise(() => {
+            /* never settles, which is what "still loading" looks like */
+          }),
+      ),
+    });
+    const loadingView = render(<RunDetailPage id="pending" api={stillLoading} />);
+    await waitFor(() => expect(screen.getByTestId('run-detail-loading')).toBeInTheDocument());
+    expect(screen.queryByTestId('run-error')).toBeNull();
+    loadingView.unmount();
   });
 
   it('renders phase, outcome, attempts, artifacts, gate, and readiness evidence', async () => {

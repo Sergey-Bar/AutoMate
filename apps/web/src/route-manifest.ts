@@ -3,6 +3,7 @@ export const routeManifest = [
   { id: 'runs', path: '/dashboard/runs', label: 'Runs', visible: true },
   { id: 'run-detail', path: '/dashboard/runs/:runId', label: 'Run Detail', visible: false },
   { id: 'analytics', path: '/dashboard/analytics', label: 'Analytics', visible: true },
+  { id: 'quarantine', path: '/dashboard/quarantine', label: 'Quarantine', visible: true },
   { id: 'login', path: '/login', label: 'Login', visible: false },
 ] as const;
 

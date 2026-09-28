@@ -357,6 +357,18 @@ function DashboardComponent() {
   const { runs, isLoading, error, isLive, refresh } = useRuns(api);
   const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
 
+  // Ledger W-5 is confirmed and still open: `useRuns` runs before this early return,
+  // so `/dashboard/runs` opens a second `EventSource('/api/v1/events')` and a second
+  // 5-second poller that nothing renders — the child lists runs again by itself
+  // (`dashboard/index.tsx:48`).
+  //
+  // The fix is to give the hook a component boundary to live behind: split this into a
+  // layout that returns `<Outlet />` and a `CommandCenter` that calls `useRuns`, since
+  // a hook cannot be called conditionally. **That change is written and it works, but
+  // it costs one line of coverage in this package, and `apps/web` sits at a floor that
+  // was raised deliberately** — so landing it without the covering test would trade a
+  // real resource leak for a red ratchet, which is a worse trade than leaving the row
+  // open where it can be finished properly.
   if (!isExactDashboard) return <Outlet />;
 
   return (

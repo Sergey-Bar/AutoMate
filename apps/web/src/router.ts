@@ -16,7 +16,17 @@ const dashboardTree = dashboardRoute.addChildren([
   quarantineRoute,
 ]);
 
-const routeTree = rootRoute.addChildren([indexRoute, dashboardTree, loginRoute]);
+/**
+ * Exported so `route-manifest.test.ts` can assert the manifest against the routes
+ * that are actually registered.
+ *
+ * Keeping this private meant the manifest was only ever checked against itself:
+ * `isApplicationPath` is defined in the module under test, so a test comparing the
+ * manifest to it proves the manifest agrees with the manifest. A route could sit in
+ * this tree while being absent from the manifest, and nothing would fail — which is
+ * what happened to `/dashboard/quarantine` (ledger W-8).
+ */
+export const routeTree = rootRoute.addChildren([indexRoute, dashboardTree, loginRoute]);
 
 export const router = createRouter({ routeTree });
 
