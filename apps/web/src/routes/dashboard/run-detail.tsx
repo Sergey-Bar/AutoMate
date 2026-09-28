@@ -6,6 +6,7 @@ import { Route as dashboardRoute } from '../dashboard.js';
 import { useRunDetail } from '../../hooks/useDashboard.js';
 import { isRunActive } from '../../hooks/useRuns.js';
 import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
+import { formatDate as formatDateWithFallback } from '../../lib/format.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -39,8 +40,13 @@ const ACTIVE_PHASES = new Set<RunPhase>([
   'gate_evaluation',
 ]);
 
+/**
+ * Run detail says `UNKNOWN` where the runs list says `Not started`: here the
+ * field is unknown, not the run unstarted. The shared helper takes the fallback
+ * as a parameter precisely so the two screens keep making different claims.
+ */
 function formatDate(value: string | null | undefined): string {
-  return value ? new Date(value).toLocaleString() : 'UNKNOWN';
+  return formatDateWithFallback(value, 'UNKNOWN');
 }
 
 function outcomeTone(outcome: string | null): 'success' | 'danger' | 'warning' | 'secondary' {

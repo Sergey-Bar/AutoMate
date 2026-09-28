@@ -1747,10 +1747,32 @@
       "id": "W-7",
       "title": "Three formatDate definitions, none of them locale- or time-zone-aware",
       "band": "Major",
-      "provenance": "sweep",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W13.9",
+      "summary": "Defined at `dashboard.tsx:36`, `dashboard/index.tsx:43` and `run-detail.tsx:42`, all bare `toLocaleString()`, with zero uses of `Intl.DateTimeFormat` in either tree. Unacceptable in an evidence UI, where a timestamp is the claim.\n\n**Confirmed by reading the code, 2026-09-28.** **Confirmed, and the three definitions are genuinely three.** Repo-wide there are\nexactly three `formatDate` and the only `Intl.DateTimeFormat` in the repository is\nin `apps/worker/src/scheduler.ts:13` — none in `apps/web/src`, so the\nlocale/time-zone blindness holds. **But they are not identical**, which a straight\ndedupe would get wrong: signatures differ (`string`, `string | null`,\n`string | null | undefined`) and the empty fallbacks are `'Not started'` vs\n`'UNKNOWN'` vs absent. A shared helper must take the fallback as a parameter, or two\nof the three screens change what they render.\n\n**Fixed, 2026-09-28 — deduplication only, and the locale half is deliberately left open.**\n\n`apps/web/src/lib/format.ts` holds one `formatDate(value, emptyState)`. The fallback is a\n**required** parameter, not an option with a default, because `'Not started'` (the run\nnever began) and `'UNKNOWN'` (the field is unknown) are different user-visible claims;\na default would have picked one silently and turned a refactor into a product change.\n`dashboard/index.tsx` passes `'Not started'` at its one call site, `run-detail.tsx` binds\n`'UNKNOWN'` in a local wrapper for its five, and `dashboard.tsx:319` — where `createdAt`\nis a required `string` with no empty state — keeps a thin non-fallback wrapper rather\nthan being handed an invented user-visible string.\n\n**Locale behaviour is unchanged on purpose.** Introducing `Intl.DateTimeFormat` here would\nalter rendered output, and bundling it into the dedupe would make the assertions stop being\nevidence for a refactor. The only `Intl.DateTimeFormat` in the repository is\n`apps/worker/src/scheduler.ts:13`, which sets an explicit time zone — that is where the\nfollow-up starts. The row's title half therefore remains open work, narrowed to locale and\ntime zone, and is recorded as such rather than being closed by a change that did not make it.\n\n**No snapshot was added.** `apps/web` has no snapshot convention — no `toMatchSnapshot`, no\n`__snapshots__`, no inline snapshots, and no existing test asserting any rendered date — and\nintroducing a snapshot framework for one helper was not the trade. `format.test.ts` asserts\nthat a fixed input returns the string `toLocaleString()` produced, and that each empty value\nreturns the caller's fallback rather than any built-in one.\n\n**Calibration:** hardcoding `'Not started'` inside the helper was reintroduced and turned\nexactly the forwarding assertion red (`Tests 1 failed | 246 passed`), which is the specific\nguard against a 'fixed' dedupe quietly turning run-detail's `'UNKNOWN'` into `'Not started'`.\n`run-detail.test.tsx` and `index.test.tsx` kept passing throughout, because they assert the\n`UNKNOWN` values through other fields.",
+      "confirmed": true,
+      "confirmedOn": "2026-09-28",
+      "confirmedBy": "kilo:fail-before-verification",
+      "evidence": [
+        {
+          "path": "apps/web/src/lib/format.ts",
+          "asserts": "The single shared `formatDate` takes the empty-state string as a required parameter and returns it for `null`, `undefined`, and `''`."
+        },
+        {
+          "path": "apps/web/src/lib/format.test.ts",
+          "asserts": "For a fixed input the output is the same string `toLocaleString()` produced, and `formatDate(null, 'Not started')` and `formatDate(null, 'UNKNOWN')` return their own caller's fallback — the assertion that keeps the two screens' different claims."
+        }
+      ]
+    },
+    {
+      "id": "W-7a",
+      "title": "Rendered timestamps are locale- and time-zone-undefined",
+      "band": "Minor",
+      "provenance": "hand",
       "status": "open",
       "wave": "W13.9",
-      "summary": "Defined at `dashboard.tsx:36`, `dashboard/index.tsx:43` and `run-detail.tsx:42`, all bare `toLocaleString()`, with zero uses of `Intl.DateTimeFormat` in either tree. Unacceptable in an evidence UI, where a timestamp is the claim.\n\n**Confirmed by reading the code, 2026-09-28.** **Confirmed, and the three definitions are genuinely three.** Repo-wide there are\nexactly three `formatDate` and the only `Intl.DateTimeFormat` in the repository is\nin `apps/worker/src/scheduler.ts:13` — none in `apps/web/src`, so the\nlocale/time-zone blindness holds. **But they are not identical**, which a straight\ndedupe would get wrong: signatures differ (`string`, `string | null`,\n`string | null | undefined`) and the empty fallbacks are `'Not started'` vs\n`'UNKNOWN'` vs absent. A shared helper must take the fallback as a parameter, or two\nof the three screens change what they render.",
+      "summary": "**Split out of W-7 on 2026-09-28, deliberately.** W-7's title claimed two things: three duplicate\n`formatDate` definitions, and none of them locale- or time-zone-aware. The dedupe landed\nand is `fixed`; the locale half did not, and closing W-7 wholesale would have recorded a\nfix that was never made.\n\n`apps/web/src/lib/format.ts` still calls `new Date(value).toLocaleString()` with no locale\nand no time zone, so the same run shows different text on two machines. In an evidence UI a\ntimestamp is the claim, and a claim that renders differently per viewer is not reproducible.\nThe only `Intl.DateTimeFormat` in the repository is `apps/worker/src/scheduler.ts:13`, which\nsets an explicit time zone — that is the precedent to follow.\n\n**The fix:** construct the formatter once with an explicit locale and an explicit time zone,\nand route `formatDate` through it. **Why it was not in W-7's PR:** it changes rendered bytes,\nwhich makes a pure refactor indistinguishable from a behaviour change and stops the existing\nassertions being evidence. It needs its own review and its own before/after evidence of the\ntext it changes.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
       "confirmedBy": "kilo:fail-before-verification"

@@ -6,6 +6,7 @@ import type { CreateRunRequest, DomainReadinessStatus } from '@automate/shared-c
 import { useReleaseReadiness } from '../hooks/useDashboard.js';
 import { isRunActive, useRuns } from '../hooks/useRuns.js';
 import { defaultApiClient, type ApiClient, type Run } from '../lib/api.js';
+import { formatDate } from '../lib/format.js';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
@@ -33,8 +34,14 @@ const DEFAULT_DOMAIN_REASONS: Record<string, string> = {
   other: 'No additional quality adapter is configured.',
 };
 
-function formatDate(value: string): string {
-  return new Date(value).toLocaleString();
+/**
+ * `run.createdAt` is a required `string` here, so there is no empty state to
+ * render and no fallback to invent — one would be a user-visible string chosen
+ * by a refactor. The shared helper takes a fallback, so this stays a thin
+ * non-fallback wrapper over the same `toLocaleString()`.
+ */
+function formatRequiredDate(value: string): string {
+  return formatDate(value, '');
 }
 
 function readinessTone(
@@ -316,7 +323,7 @@ function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
             <div className="min-w-0">
               <div className="truncate font-mono text-sm">{run.id}</div>
               <div className="mt-1 text-xs text-fg-muted">
-                {run.projectId ?? 'UNKNOWN PROJECT'} · {formatDate(run.createdAt)}
+                {run.projectId ?? 'UNKNOWN PROJECT'} · {formatRequiredDate(run.createdAt)}
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">

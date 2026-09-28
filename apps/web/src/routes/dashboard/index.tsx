@@ -16,6 +16,7 @@ import {
 import { Route as dashboardRoute } from '../dashboard.js';
 import { isRunActive, useRuns } from '../../hooks/useRuns.js';
 import type { ApiClient, Run } from '../../lib/api.js';
+import { formatDate } from '../../lib/format.js';
 import { runDetailPath } from '../../route-manifest.js';
 
 export const Route = createRoute({
@@ -38,10 +39,6 @@ function outcomeVariant(
     default:
       return 'secondary';
   }
-}
-
-function formatDate(value: string | null): string {
-  return value ? new Date(value).toLocaleString() : 'Not started';
 }
 
 export function RunsListPage({ api }: { api?: ApiClient }) {
@@ -143,7 +140,7 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
                       {run.outcome ?? 'PENDING'}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatDate(run.createdAt)}</TableCell>
+                  <TableCell>{formatDate(run.createdAt, 'Not started')}</TableCell>
                   <TableCell>
                     {run.summary.durationMs != null ? `${run.summary.durationMs}ms` : 'UNKNOWN'}
                   </TableCell>
