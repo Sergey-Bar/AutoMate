@@ -16,6 +16,8 @@ interface TestCase {
   flakiness: 'unknown' | 'observed';
   declaredStatus?: string;
   message?: string;
+  /** Set when the cap discarded part of the body, surfaced as `error.code`. */
+  truncated?: boolean;
 }
 
 /**
@@ -63,6 +65,20 @@ function statusFrom(
   return 'unknown';
 }
 
+/**
+ * Ceiling on the failure text kept per `<testcase>`.
+ *
+ * `currentText` grew with `+=` on every `text`/`cdata` event and nothing bounded
+ * it, so one enormous `<failure>` body — a repeated stack trace, a test that
+ * dumps a whole response — was materialised in full before any consumer saw it.
+ * The cap is applied as the text is consumed, because slicing at the end would
+ * leave the unbounded string already allocated and throw the saving away.
+ */
+export const MAX_MESSAGE_CHARS = 8_192;
+
+/** Marked on `AttemptSchema.error.code` when the cap discarded producer text. */
+const TRUNCATED_CODE = 'MESSAGE_TRUNCATED';
+
 export const junitXmlAdapter: ProducerAdapter = {
   mediaType: 'application/xml',
   parse(input, context) {
@@ -70,6 +86,7 @@ export const junitXmlAdapter: ProducerAdapter = {
     const testCases: TestCase[] = [];
     let current: TestCase | undefined;
     let currentText = '';
+    let truncated = false;
     const currentChildren = new Set<string>();
     parser.on('opentag', (tag) => {
       if (tag.name === 'testcase') {
@@ -84,16 +101,29 @@ export const junitXmlAdapter: ProducerAdapter = {
           declaredStatus: attributes.status,
         };
         currentText = '';
+        truncated = false;
         currentChildren.clear();
       } else if (OUTCOME_CHILDREN.has(tag.name.toLowerCase())) {
         currentChildren.add(tag.name.toLowerCase());
       }
     });
-    parser.on('text', (text) => {
+    // Growth happens at `+=`, so the cap belongs here and not on the serialised
+    // attempt. Once the ceiling is reached the remaining text is dropped rather
+    // than accumulated, and `truncated` records that it was.
+    const append = (text: string): void => {
+      if (truncated) return;
+      if (currentText.length + text.length > MAX_MESSAGE_CHARS) {
+        currentText += text.slice(0, MAX_MESSAGE_CHARS - currentText.length);
+        truncated = true;
+        return;
+      }
       currentText += text;
+    };
+    parser.on('text', (text) => {
+      append(text);
     });
     parser.on('cdata', (text) => {
-      currentText += text;
+      append(text);
     });
     parser.on('closetag', (tag) => {
       if (tag.name === 'testcase' && current) {
@@ -108,6 +138,7 @@ export const junitXmlAdapter: ProducerAdapter = {
             ? 'observed'
             : 'unknown';
         current.message = currentText.trim() || undefined;
+        current.truncated = truncated;
         testCases.push(current);
         current = undefined;
         currentText = '';
@@ -127,7 +158,9 @@ export const junitXmlAdapter: ProducerAdapter = {
       startedAt: context.startedAt,
       finishedAt: context.finishedAt,
       durationMs: Number.isFinite(testCase.time) ? testCase.time : undefined,
-      error: testCase.message ? { message: testCase.message } : undefined,
+      error: testCase.message
+        ? { message: testCase.message, ...(testCase.truncated ? { code: TRUNCATED_CODE } : {}) }
+        : undefined,
       evidence: [],
       flakiness: testCase.flakiness,
     }));

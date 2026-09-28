@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { junitXmlAdapter } from './adapters/junit-xml.js';
+import { junitXmlAdapter, MAX_MESSAGE_CHARS } from './adapters/junit-xml.js';
 
 const context = {
   workspaceId: 'workspace-1',
@@ -88,5 +88,77 @@ describe('JUnit adapter', () => {
     expect(() =>
       junitXmlAdapter.parse(new TextEncoder().encode('<testsuite/>'), context),
     ).toThrow();
+  });
+
+  it('bounds an enormous failure body at consumption and marks the truncation', () => {
+    const huge = 'e'.repeat(200_000);
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        `<testsuite><testcase name="chatty"><failure>${huge}</failure></testcase></testsuite>`,
+      ),
+      context,
+    );
+    const attempt = result.attempts[0];
+    expect(attempt?.error?.message).toHaveLength(MAX_MESSAGE_CHARS);
+    // Truncation has to be *visible*. A sentinel appended to the message would make
+    // the string falsely claim to be the producer's own text; `error.code` is
+    // already permitted by the contract and a consumer can branch on it.
+    expect(attempt?.error?.code).toBe('MESSAGE_TRUNCATED');
+  });
+
+  it('leaves a normal-length message with no code, so a fix that truncates everything cannot pass', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite><testcase name="quiet"><failure>expected 1 to equal 2</failure></testcase></testsuite>',
+      ),
+      context,
+    );
+    expect(result.attempts[0]?.error?.message).toBe('expected 1 to equal 2');
+    expect(result.attempts[0]?.error?.code).toBeUndefined();
+  });
+
+  it('does not leak the truncation flag into the next testcase', () => {
+    const huge = 'e'.repeat(200_000);
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        `<testsuite><testcase name="chatty"><failure>${huge}</failure></testcase>` +
+          '<testcase name="quiet"><failure>short reason</failure></testcase></testsuite>',
+      ),
+      context,
+    );
+    expect(result.attempts[0]?.error?.code).toBe('MESSAGE_TRUNCATED');
+    // The reset lives in the `opentag` handler alongside `currentText` and
+    // `currentChildren`, not in the `closetag` branch. Resetting it on close would
+    // leave the flag set for whichever testcase the parser had not yet opened.
+    expect(result.attempts[1]?.error?.message).toBe('short reason');
+    expect(result.attempts[1]?.error?.code).toBeUndefined();
+  });
+
+  it('caps a CDATA body the same way a text body is capped', () => {
+    const huge = 'e'.repeat(200_000);
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        `<testsuite><testcase name="cdata"><failure><![CDATA[${huge}]]></failure></testcase></testsuite>`,
+      ),
+      context,
+    );
+    // The cap is enforced in the `text` and `cdata` handlers together. Covering
+    // only `text` would leave the CDATA path able to regrow the unbounded string.
+    expect(result.attempts[0]?.error?.message).toHaveLength(MAX_MESSAGE_CHARS);
+    expect(result.attempts[0]?.error?.code).toBe('MESSAGE_TRUNCATED');
+  });
+
+  it('stops accumulating once the cap is reached, so later text cannot regrow the message', () => {
+    const huge = 'e'.repeat(200_000);
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        `<testsuite><testcase name="chatty"><failure>${huge}</failure><system-out>${huge}</system-out></testcase></testsuite>`,
+      ),
+      context,
+    );
+    // Two events after the ceiling was reached. The second one has to be dropped
+    // outright rather than appended, which is what keeps the bound a bound.
+    expect(result.attempts[0]?.error?.message).toHaveLength(MAX_MESSAGE_CHARS);
+    expect(result.attempts[0]?.error?.code).toBe('MESSAGE_TRUNCATED');
   });
 });

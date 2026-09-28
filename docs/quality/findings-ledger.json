@@ -1018,13 +1018,23 @@
       "id": "F-6",
       "title": "Reporter text accumulation has no cap",
       "band": "Major",
-      "provenance": "sweep",
-      "status": "open",
+      "provenance": "hand",
+      "status": "fixed",
       "wave": "W4.9",
-      "summary": "`junit-xml.ts:92-97` accumulates failure text with no bound, on an untrusted boundary.\n\n**Confirmed by reading the code, 2026-09-28.** **Partly true: the code property holds, the threat model does not.** The\naccumulation at `junit-xml.ts:92-97` is genuinely uncapped and the contract imposes\nno cap downstream (`canonical-reporting.ts:95` is a floor, no maximum), so there is\nno bound anywhere in the path. But `junitXmlAdapter` has **no production call site** —\nits only importers are three test files. The API's actual untrusted JUnit ingestion is\n`routes/reporter.ts:540 parseJunitUpload`, a separate hand-rolled scanner bounded\ntwice (`MAX_UPLOAD_BYTES` at `:287` via `bodyLimit` at `:746-756`, and its own\n`MAX_JUNIT_BYTES` at `:538-543`) which does not accumulate message text at all. So\nthe row's \"untrusted boundary\" qualifier is unproven as written.",
+      "summary": "`junit-xml.ts:92-97` accumulates failure text with no bound, on an untrusted boundary.\n\n**Confirmed by reading the code, 2026-09-28.** **Partly true: the code property holds, the threat model does not.** The\naccumulation at `junit-xml.ts:92-97` is genuinely uncapped and the contract imposes\nno cap downstream (`canonical-reporting.ts:95` is a floor, no maximum), so there is\nno bound anywhere in the path. But `junitXmlAdapter` has **no production call site** —\nits only importers are **two** test files (`packages/reporter/src/junit.test.ts` and\n`packages/reporter/src/adapter-parity.test.ts`; `tests/contract/` does not reference\njunit at all, which corrects the three-importer claim this row originally carried). The\nAPI's actual untrusted JUnit ingestion is `routes/reporter.ts:540 parseJunitUpload`, a\nseparate hand-rolled scanner bounded twice (`MAX_UPLOAD_BYTES` at `:287` via `bodyLimit`\nat `:746-756`, and its own `MAX_JUNIT_BYTES` at `:538-543`) which does not accumulate\nmessage text at all. So the row's \"untrusted boundary\" qualifier is unproven as written.\n\n**Fixed as hardening, following the precedent in row F-7** — the code property was real\nand worth bounding, but the exposure claimed by the row was not. `MAX_MESSAGE_CHARS`\n(8 192) is now applied as the text is consumed, in the `text` and `cdata` handlers, not\non the serialised attempt: capping at `:110` would leave the unbounded string fully\nmaterialised in memory, because growth happens at `+=`. The truncation flag resets in the\n`opentag` handler alongside `currentText` and `currentChildren`, not in the two `closetag`\nbranches, so it cannot leak into a following `<testcase>`. Truncation is marked with the\nstructured `error.code === 'MESSAGE_TRUNCATED'`, which `AttemptSchema.error.code`\n(`packages/shared-contracts/src/schemas/canonical-reporting.ts:95`, `z.string().min(1).optional()`)\nalready permits — no contract change. A sentinel suffix on the message was rejected: it\nwould make the string falsely claim to be the producer's own text, and silent truncation\nwould be its own defect.\n\n**Fail-before calibration, all three trials observed red and then restored:** raising the\ncap to 200 000 fails the length and leak assertions; dropping the `code` field fails the\ntwo truncation assertions; removing the flag reset fails the leak case alone. A\nnormal-length-message case asserts `code` is `undefined`, so a fix that truncates\neverything cannot pass.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/junit-xml.ts",
+          "asserts": "`MAX_MESSAGE_CHARS` caps the accumulated text inside the `text`/`cdata` handlers, and the truncated flag is reset in the `opentag` handler."
+        },
+        {
+          "path": "packages/reporter/src/junit.test.ts",
+          "asserts": "A 200 000-character failure body yields a message of exactly `MAX_MESSAGE_CHARS` and `error.code === 'MESSAGE_TRUNCATED'`; a normal-length message carries no `code`; a truncated testcase followed by a short one in the same document does not leak the flag; a CDATA body is capped by the same path as a text body; and text arriving after the ceiling was reached is dropped rather than appended."
+        }
+      ]
     },
     {
       "id": "F-7",
