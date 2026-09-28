@@ -1,45 +1,45 @@
 {
   "apps/api": {
-    "statements": 93,
-    "branches": 84,
-    "functions": 93,
-    "lines": 96
+    "statements": 95.26,
+    "branches": 86.16,
+    "functions": 94.6,
+    "lines": 97.27
   },
   "apps/runner": {
-    "statements": 68,
-    "branches": 55,
-    "functions": 65,
-    "lines": 70
+    "statements": 70.14,
+    "branches": 57.88,
+    "functions": 66.43,
+    "lines": 72.01
   },
   "apps/web": {
-    "statements": 95,
-    "branches": 86,
-    "functions": 96,
-    "lines": 97
+    "statements": 96.18,
+    "branches": 88.47,
+    "functions": 96.34,
+    "lines": 98.23
   },
   "apps/worker": {
-    "statements": 56,
-    "branches": 43,
-    "functions": 62,
-    "lines": 58
+    "statements": 63.21,
+    "branches": 56.74,
+    "functions": 69.02,
+    "lines": 64.88
   },
   "packages/auth": {
-    "statements": 95,
-    "branches": 90,
-    "functions": 93,
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
     "lines": 100
   },
   "packages/automation": {
-    "statements": 90,
-    "branches": 80,
-    "functions": 83,
-    "lines": 92
+    "statements": 94.57,
+    "branches": 85.5,
+    "functions": 89.65,
+    "lines": 96.52
   },
   "packages/config": {
-    "statements": 87,
-    "branches": 95,
+    "statements": 92,
+    "branches": 96.29,
     "functions": 100,
-    "lines": 91
+    "lines": 95
   },
   "packages/connectors/github": {
     "statements": 100,
@@ -54,9 +54,9 @@
     "lines": 100
   },
   "packages/connectors/sdk": {
-    "statements": 90,
-    "branches": 92,
-    "functions": 66,
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
     "lines": 100
   },
   "packages/connectors/slack": {
@@ -66,52 +66,52 @@
     "lines": 100
   },
   "packages/db": {
-    "statements": 61,
-    "branches": 40,
-    "functions": 42,
-    "lines": 62
+    "statements": 71.62,
+    "branches": 67.07,
+    "functions": 55.46,
+    "lines": 73.09
   },
   "packages/orchestration": {
-    "statements": 90,
+    "statements": 92.5,
     "branches": 100,
     "functions": 100,
-    "lines": 90
+    "lines": 91.89
   },
   "packages/realtime": {
-    "statements": 86,
-    "branches": 85,
-    "functions": 88,
-    "lines": 86
+    "statements": 94.5,
+    "branches": 91.07,
+    "functions": 100,
+    "lines": 95.06
   },
   "packages/reporter": {
-    "statements": 88,
-    "branches": 80,
-    "functions": 96,
-    "lines": 91
+    "statements": 92.4,
+    "branches": 86.78,
+    "functions": 97.5,
+    "lines": 94.26
   },
   "packages/reporting": {
-    "statements": 95,
-    "branches": 98,
-    "functions": 95,
-    "lines": 93
+    "statements": 95.34,
+    "branches": 98.73,
+    "functions": 96,
+    "lines": 94
   },
   "packages/runner-sdk": {
-    "statements": 92,
-    "branches": 89,
+    "statements": 93,
+    "branches": 90.04,
     "functions": 100,
-    "lines": 93
+    "lines": 93.58
   },
   "packages/shared-contracts": {
-    "statements": 99,
-    "branches": 97,
-    "functions": 97,
-    "lines": 99
+    "statements": 99.27,
+    "branches": 97.72,
+    "functions": 97.22,
+    "lines": 99.25
   },
   "packages/ui": {
-    "statements": 59,
-    "branches": 74,
-    "functions": 62,
-    "lines": 59
+    "statements": 67.13,
+    "branches": 84.27,
+    "functions": 67.85,
+    "lines": 66.46
   },
   "tests/contract": {
     "status": "not_configured",
@@ -124,9 +124,9 @@
     "lines": 87
   },
   "tools/migrate-cli": {
-    "statements": 59,
-    "branches": 41,
-    "functions": 85,
-    "lines": 59
+    "statements": 59.12,
+    "branches": 41.89,
+    "functions": 85.48,
+    "lines": 59.83
   }
 }

@@ -1,60 +1,45 @@
 {
   "ceiling": 15,
-  "count": 31,
+  "count": 29,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 715,
+      "line": 690,
       "complexity": 73
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 1064,
+      "line": 1042,
       "complexity": 71
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1357,
+      "line": 1316,
       "complexity": 65
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 391,
-      "complexity": 50
+      "line": 418,
+      "complexity": 51
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1098,
+      "line": 1041,
       "complexity": 39
     },
     {
       "file": "apps/api/src/routes/events.ts",
-      "line": 73,
+      "line": 78,
       "complexity": 38
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 278,
+      "line": 305,
       "complexity": 38
-    },
-    {
-      "file": "apps/api/src/startup-policy.ts",
-      "line": 45,
-      "complexity": 38
-    },
-    {
-      "file": "packages/automation/src/kilo-gateway.ts",
-      "line": 56,
-      "complexity": 36
-    },
-    {
-      "file": "packages/automation/src/ollama-gateway.ts",
-      "line": 31,
-      "complexity": 36
     },
     {
       "file": "apps/api/src/execution/quality-gate.ts",
-      "line": 112,
+      "line": 140,
       "complexity": 35
     },
     {
@@ -69,22 +54,17 @@
     },
     {
       "file": "apps/worker/src/postgres-store.ts",
-      "line": 315,
+      "line": 321,
       "complexity": 29
     },
     {
       "file": "apps/runner/src/runner-service.ts",
-      "line": 310,
+      "line": 327,
       "complexity": 25
     },
     {
-      "file": "apps/api/src/execution/execution-coverage.test.ts",
-      "line": 246,
-      "complexity": 23
-    },
-    {
-      "file": "apps/api/src/errors/boundary.ts",
-      "line": 60,
+      "file": "packages/automation/src/ollama-gateway.ts",
+      "line": 50,
       "complexity": 22
     },
     {
@@ -98,24 +78,29 @@
       "complexity": 20
     },
     {
+      "file": "packages/automation/src/kilo-gateway.ts",
+      "line": 202,
+      "complexity": 20
+    },
+    {
       "file": "packages/reporter/src/compatibility/legacy-reporter.ts",
-      "line": 15,
+      "line": 53,
       "complexity": 20
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1823,
+      "line": 1798,
       "complexity": 19
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 569,
+      "line": 537,
       "complexity": 19
     },
     {
-      "file": "apps/api/src/middleware/auth.ts",
-      "line": 84,
-      "complexity": 19
+      "file": "apps/api/src/errors/boundary.ts",
+      "line": 89,
+      "complexity": 18
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
@@ -126,6 +111,11 @@
       "file": "tools/migrate-cli/src/index.ts",
       "line": 21,
       "complexity": 18
+    },
+    {
+      "file": "apps/api/src/middleware/auth.ts",
+      "line": 88,
+      "complexity": 17
     },
     {
       "file": "scripts/write-coverage-provenance.mjs",
@@ -144,12 +134,12 @@
     },
     {
       "file": "apps/worker/src/worker.ts",
-      "line": 118,
+      "line": 123,
       "complexity": 16
     },
     {
       "file": "packages/runner-sdk/src/spool.ts",
-      "line": 480,
+      "line": 862,
       "complexity": 16
     },
     {
@@ -158,6 +148,6 @@
       "complexity": 16
     }
   ],
-  "measuredAt": "2026-09-26",
+  "measuredAt": "2026-09-28",
   "worst": 73
 }
