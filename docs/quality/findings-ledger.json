@@ -818,13 +818,27 @@
       "id": "P-63",
       "title": "Duplicated error bodies on the health and agent routes",
       "band": "Minor",
-      "provenance": "sweep",
-      "status": "open",
+      "provenance": "hand",
+      "status": "fixed",
       "wave": "W8.3",
-      "summary": "`/health` and `/api/v1/health` are two near-identical literals (`health.ts:18-24` versus `:26-33`), and three near-identical agent 404/501 bodies have no shared builder.\n\n**Confirmed by reading the code, 2026-09-28.** `routes/health.ts:18-24` and `:26-33` are two near-identical health literals\ndiffering only by an added `version: '1'`. **The agent-error count is slightly off:\nthere are four body literals, not three**, in three distinct shapes across\n`routes/agents.ts:21-29,31-41,46-54,55-64`. Important for a fixer: those four are\n**not** built by the boundary's renderer — they are flat, with no `error` wrapper, no\n`requestId` and no nesting — so `domainErrorResponse` at `errors/boundary.ts:47-49`\nis not a drop-in and consolidating them changes their wire shape. The codebase already\nknows the right pattern: `health.ts:35-55` *is* a shared handler bound to both paths,\nand `health.test.ts:226-230` enforces byte-identical output.",
+      "summary": "`/health` and `/api/v1/health` are two near-identical literals (`health.ts:18-24` versus `:26-33`), and three near-identical agent 404/501 bodies have no shared builder.\n\n**Confirmed by reading the code, 2026-09-28.** `routes/health.ts:18-24` and `:26-33` are two near-identical health literals\ndiffering only by an added `version: '1'`. **The agent-error count is slightly off:\nthere are four body literals, not three**, in three distinct shapes across\n`routes/agents.ts:21-29,31-41,46-54,55-64`. Important for a fixer: those four are\n**not** built by the boundary's renderer — they are flat, with no `error` wrapper, no\n`requestId` and no nesting — so `domainErrorResponse` at `errors/boundary.ts:47-49`\nis not a drop-in and consolidating them changes their wire shape. The codebase already\nknows the right pattern: `health.ts:35-55` *is* a shared handler bound to both paths,\nand `health.test.ts:226-230` enforces byte-identical output.\n\n**Fixed, 2026-09-28 — and the difference the two health bodies make is deliberately preserved.**\n\n`healthBody(version?)` builds both. It **omits** the `version` key entirely on the\nunversioned path rather than setting it to `undefined`, because `c.json` drops an\n`undefined` value and the key order is asserted. The `timestamp` asymmetry is left alone:\neach handler calls `new Date()` at its own moment, and `health.test.ts:217-231` locks\nthat too. **The two bodies were not harmonised**, and the plan is explicit that doing so\nwould be a product change dressed as a refactor — the fact that a shared builder now\nexists is exactly the moment that temptation arrives, so the guard is a test rather than\na comment.\n\n`agentError(status, httpStatus, code, message, extra?)` builds all four agent bodies,\nkeyed `status, implemented, code, …` — **not alphabetical**, and the order is now pinned.\nIt is a **local** builder and not `domainErrorResponse`, for the two reasons this row\nalready recorded: the four bodies are flat, and 501 is `>= 500`, so `DomainError.toBody`\nwould replace every message with `'internal error'` and drop `details` unless each error\nwere built `callerSafe`. Nothing in `apps/web` reads these bodies and `agents.test.ts`\nasserts only status codes and `integrations.length`, so the shape is free — which is the\nargument for preserving it deliberately rather than cleaning it up.\n\n**Calibration, three trials, each observed red and then restored:** (1) making\n`healthBody` emit `version: '1'` on the unversioned path fails **both** the new\n`differs between the two paths only by version` assertion and the pre-existing\n`health.test.ts` case titled *states the contract version on /api/v1/health only, on\npurpose* — the repo already had a guard and it fired; (2) reordering the agent builder's\nkeys so `extra` came first fails the key-order assertion; (3) giving the agent bodies the\nboundary's `{ error, requestId }` shape fails three assertions, and the **flatness**\nassertion is the one that catches it, which is precisely the substitution the plan warns\nabout.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/health.ts",
+          "asserts": "`healthBody(version?)` is the one builder for both health paths, omitting the `version` key on the unversioned path so consolidation is a pure no-op — the existing `health.test.ts:55-69` case asserting `plain['version']` is `undefined` still passes, which is the proof no behaviour changed."
+        },
+        {
+          "path": "apps/api/src/routes/agents.ts",
+          "asserts": "`agentError` builds all four failure bodies with key order `status, implemented, code, …`, and none of them acquires an `error` wrapper or a `requestId` from the boundary renderer."
+        },
+        {
+          "path": "apps/api/src/routes/health-agents-consolidation.test.ts",
+          "asserts": "All four agent bodies share one key order; they stay flat with no `error` wrapper and no `requestId`; the 501 bodies keep the `domain` and `action` they were given; and the two health paths differ only by `version`, with the timestamp asymmetry left intact."
+        }
+      ]
     },
     {
       "id": "O-1",

@@ -12,25 +12,37 @@ export interface HealthRouteOptions {
   checkDatabase?: () => Promise<void>;
 }
 
+/**
+ * One builder for the two health bodies, parameterised by the version flag.
+ *
+ * The bodies differ only by `version: '1'`, and **the difference is deliberate**:
+ * `health.test.ts:55-69` asserts `plain['version']` is `undefined` and
+ * `versioned['version']` is `'1'`, with a comment saying this is stated so that
+ * harmonising them is a decision somebody makes rather than a diff. This factory
+ * preserves it: the unversioned path omits the key entirely rather than setting it to
+ * `undefined`, because `c.json` drops an `undefined` value and the key order is
+ * asserted.
+ *
+ * The `timestamp` asymmetry is left alone for the same reason
+ * (`health.test.ts:217-231`): each handler calls `new Date()` at its own moment.
+ *
+ * The precedent for one function bound to two paths is the readiness handler below,
+ * which `health.test.ts:226-230` holds to byte-identical output.
+ */
+function healthBody(version?: '1'): Record<string, unknown> {
+  return {
+    status: 'healthy',
+    ...(version === undefined ? {} : { version }),
+    service: 'automate-api',
+    timestamp: new Date().toISOString(),
+  };
+}
+
 export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
   const health = new Hono();
 
-  health.get('/health', (c) => {
-    return c.json({
-      status: 'healthy',
-      service: 'automate-api',
-      timestamp: new Date().toISOString(),
-    });
-  });
-
-  health.get('/api/v1/health', (c) => {
-    return c.json({
-      status: 'healthy',
-      version: '1',
-      service: 'automate-api',
-      timestamp: new Date().toISOString(),
-    });
-  });
+  health.get('/health', (c) => c.json(healthBody()));
+  health.get('/api/v1/health', (c) => c.json(healthBody('1')));
 
   const readiness = async (c: Context): Promise<Response> => {
     const databaseUrl = options.databaseUrl ?? process.env['DATABASE_URL'];
