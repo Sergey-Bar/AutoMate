@@ -270,9 +270,14 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   - Add or adjust tests for every behavior change.
   - Never delete or skip failing tests.
   - No `.skip` or `.only` in committed code.
-  - A test that cannot fail is worse than no test. If a loop or assertion exists only
-    to move a coverage counter, assert the real mapping or quarantine the code with a
-    reason in the exclusion register.
+- A test that cannot fail is worse than no test. If a loop or assertion exists only
+  to move a coverage counter, assert the real mapping or quarantine the code with a
+  reason in the exclusion register.
+- **Write the test, run it with the defect still present, watch it fail for the reason you
+  expect, then fix it.** A test only written against the fixed code is not evidence. See
+  [`CONTRIBUTING.md`](CONTRIBUTING.md) — three times in this programme's history a suite
+  was fully green while checking the wrong thing, and none of them was caught by reading
+  the code carefully.
 
 ### Security
 
