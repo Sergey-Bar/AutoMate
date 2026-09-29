@@ -136,6 +136,28 @@ describe('GET /api/v1/runs with a legacy repository mounted', () => {
     }
   });
 
+  it('does not read the legacy table when the store page already fills the limit', async () => {
+    // `room === 0` — the store returned a full page, so there is nothing for the
+    // legacy rows to fill. Reading anyway would be a query whose result is discarded
+    // on every first page of a long listing, which is most of them.
+    const legacy = legacyWith(500);
+    const response = await new Hono()
+      .route(
+        '/',
+        createExecutionRoutes({
+          store: storePaging(['db-1', 'db-2', 'db-3']),
+          workspaceId: 'ws-1',
+          bus: { publish: vi.fn() } as never,
+          legacyRepository: legacy,
+        }),
+      )
+      .request('/api/v1/runs?limit=3');
+
+    const body = (await response.json()) as Array<{ id: string }>;
+    expect(body).toHaveLength(3);
+    expect(legacy.listRuns).not.toHaveBeenCalled();
+  });
+
   it('serves the legacy rows once, and never repeats them on a later page', async () => {
     // The remaining half of Q-50, and the half the cap fix made worse rather than
     // better: `listRuns` takes a `limit` but no `after`, so paging through the

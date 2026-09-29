@@ -10,6 +10,7 @@ import {
   syntheticAwsKeyId,
   syntheticConnectionString,
   syntheticCookieSecret,
+  syntheticInstallationKey,
   syntheticReporterSecret,
   syntheticRunnerRegistrationSecret,
   syntheticVaultSecret,
@@ -86,6 +87,10 @@ const VALID_SECRETS = {
   AUTOMATE_API_KEY: syntheticApiKey(),
   VAULT_SECRET: syntheticVaultSecret(),
   RUNNER_REGISTRATION_SECRET: syntheticRunnerRegistrationSecret(),
+  // Required in production since ledger P-72b: the API will not derive an
+  // installation key, so a production composition has to present one. Without this
+  // the whole suite refused to boot — which is the refusal working.
+  AUTOMATE_INSTALLATION_KEY: syntheticInstallationKey(),
 };
 
 const OBJECT_STORE = {
@@ -103,6 +108,7 @@ function productionEnv(overrides: Record<string, string | undefined> = {}): void
     'SESSION_SECRET',
     'REPORTER_SECRET',
     'AUTOMATE_API_KEY',
+    'AUTOMATE_INSTALLATION_KEY',
     'VAULT_SECRET',
     'RUNNER_REGISTRATION_SECRET',
     'DATABASE_URL',
@@ -219,6 +225,34 @@ describe('production composition', () => {
     productionEnv();
     await expect(import('./index.js')).rejects.toThrow('DATABASE_URL is required in production');
   });
+
+  it(
+    'refuses to compose in production without an operator-provided installation key',
+    async () => {
+      // Ledger P-72b. `ensureBootstrap` ran on every boot that had a database,
+      // production included, and inserted a credential derived from a default
+      // `installationKey` that lives in the repository — so a production
+      // deployment grew a key nobody chose, on first boot, silently.
+      //
+      // The whole suite failing to compose until a key was added to `VALID_SECRETS`
+      // is the refusal working, and this is the assertion that says so: a
+      // deployment must be given a key rather than being issued one.
+      // A `DATABASE_URL` is supplied because the database policy gate runs first —
+      // without one the composition fails on that instead, and the test would be
+      // asserting the wrong refusal. Unreachable is deliberate: the guard this test
+      // is about runs *before* a connection is attempted, so a refused import means
+      // the refusal fired rather than that the connection did.
+      productionEnv({
+        DATABASE_URL: 'postgres://127.0.0.1:1/unreachable',
+        ...OBJECT_STORE,
+        AUTOMATE_INSTALLATION_KEY: undefined,
+      });
+      await expect(import('./index.js')).rejects.toThrow(
+        /AUTOMATE_INSTALLATION_KEY is required in production/,
+      );
+    },
+    COMPOSITION_IMPORT_TIMEOUT_MS,
+  );
 
   it('refuses an unreachable database url before any in-memory fallback is used', async () => {
     // If composition ran ahead of the policy gate, the import would fail on the

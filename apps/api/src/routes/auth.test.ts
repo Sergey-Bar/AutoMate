@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { hashCredential } from '@automate/auth';
-import { createAuthRoutes } from './auth.js';
+import { createAuthRoutes, memoryBackend } from './auth.js';
 
 const cookieSecret = 'c'.repeat(32);
 const installationKeyHash = hashCredential(cookieSecret, 'installation-key');
@@ -15,6 +15,29 @@ const options = {
 };
 
 describe('auth routes', () => {
+  it('exposes a sweep on the in-process backend, so retention has a caller', async () => {
+    // Ledger S-2/S-7. The sweep is what stops the in-process session map growing
+    // without bound, and a sweep with no caller is the state the row described.
+    //
+    // Exercised through `memoryBackend` — the *default* path — rather than through a
+    // caller-supplied backend, because a sweep only supplied by a caller who passed
+    // their own backend proves nothing about the one a development deployment runs.
+    let clock = new Date('2026-09-25T00:00:00.000Z');
+    const backend = memoryBackend(cookieSecret, 1_000, () => clock);
+    const { token } = await backend.issue('installation-1');
+
+    // Live, so nothing is swept.
+    expect(await backend.sweep?.()).toEqual({ removed: 0 });
+    expect(await backend.validate(token)).toBeDefined();
+
+    // Past its expiry, so it is — and the sweep says so rather than removing
+    // quietly, because a sweep that removes nothing and reports nothing is
+    // indistinguishable from one that was never called.
+    clock = new Date('2026-09-25T00:05:00.000Z');
+    expect(await backend.sweep?.()).toEqual({ removed: 1 });
+    expect(await backend.validate(token)).toBeUndefined();
+  });
+
   it('issues an HttpOnly session and revokes it on logout', async () => {
     const { app } = createAuthRoutes(options);
     const api = withErrorBoundary(app);

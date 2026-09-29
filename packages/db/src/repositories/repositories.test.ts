@@ -108,11 +108,60 @@ describe('DrizzleSessionStore', () => {
     expect(await sessions.findValid(tokenHash, ISSUED)).toBeUndefined();
   });
 
+  it('deletes sessions issued before the cutoff and keeps the rest', async () => {
+    // Ledger S-2 and S-7. Nothing in the repository deleted from `sessions`, so the
+    // table grew with every sign-in for the life of the installation; `revoke` only
+    // stamped a column.
+    //
+    // The cutoff is on `issuedAt` and not `expiresAt` on purpose, and this is the
+    // assertion that says so: a session that expired *long ago* is still there,
+    // because a row has to outlive its validity for "was this ever valid" to have an
+    // answer. Deleting at `expiresAt` would satisfy a shorter test and lose that.
+    const installationId = '00000000-0000-4000-8000-000000000102';
+    const aged = await sessions.create({
+      installationId,
+      tokenHash: '1'.repeat(64),
+      issuedAt: new Date('2025-01-01T00:00:00.000Z'),
+      expiresAt: new Date('2025-01-02T00:00:00.000Z'),
+    });
+    const recent = await sessions.create({
+      installationId,
+      tokenHash: '2'.repeat(64),
+      issuedAt: new Date('2026-08-01T00:00:00.000Z'),
+      expiresAt: new Date('2026-08-02T00:00:00.000Z'),
+    });
+
+    // A cutoff that removes one leaves the other alone, and reports what it did.
+    expect(
+      await sessions.deleteExpired(new Date('2026-01-01T00:00:00.000Z')),
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      await sessions.findValid('1'.repeat(64), new Date('2025-06-01T00:00:00.000Z')),
+    ).toBeUndefined();
+    expect(
+      (await sessions.findValid('2'.repeat(64), new Date('2026-08-01T00:00:00.000Z')))?.id,
+    ).toBe(recent);
+    expect(aged).not.toBe(recent);
+  });
+
+  it('reports zero when nothing is past the cutoff', async () => {
+    // A sweep that removed nothing and reported nothing is indistinguishable from one
+    // that was never called, which is the state the ledger row described.
+    const installationId = '00000000-0000-4000-8000-000000000103';
+    await sessions.create({
+      installationId,
+      tokenHash: '3'.repeat(64),
+      issuedAt: new Date('2026-09-01T00:00:00.000Z'),
+      expiresAt: new Date('2026-09-02T00:00:00.000Z'),
+    });
+    expect(await sessions.deleteExpired(new Date('2020-01-01T00:00:00.000Z'))).toBe(0);
+  });
+
   it('refuses a session with no expiry, which the column requires', async () => {
     await expect(
       sessions.create({
         installationId: '00000000-0000-4000-8000-000000000102',
-        tokenHash: 'b'.repeat(64),
+        tokenHash: '1'.repeat(64),
         issuedAt: ISSUED,
         expiresAt: undefined as unknown as Date,
       }),
@@ -123,7 +172,7 @@ describe('DrizzleSessionStore', () => {
     const installationId = '00000000-0000-4000-8000-000000000103';
     const id = await sessions.create({
       installationId,
-      tokenHash: 'c'.repeat(64),
+      tokenHash: '7'.repeat(64),
       issuedAt: ISSUED,
       expiresAt: EXPIRES,
     });
@@ -146,7 +195,7 @@ describe('DrizzleInstallationKeyStore', () => {
     const installationId = '00000000-0000-4000-8000-000000000201';
     const first = await keys.ensureBootstrap({
       installationId,
-      keyHash: 'd'.repeat(64),
+      keyHash: '3'.repeat(64),
       displayPrefix: 'auto_',
     });
     // The second call must not mint a second key. Rotating the installation key on

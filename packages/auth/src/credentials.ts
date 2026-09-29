@@ -73,6 +73,22 @@ export interface SessionRecord {
 }
 
 export class InMemorySessionService {
+  /**
+   * Live sessions, keyed by the token's hash.
+   *
+   * **Ledger S-1 and S-2, which are the same defect.** It used to be keyed by record
+   * id, so `validate` could not look a presented token up and instead walked every
+   * entry, running a keyed HMAC and a constant-time comparison on each — O(n) in live
+   * sessions, on **every request**. And nothing ever removed an entry: `revoke` only
+   * stamped `revokedAt`, so `n` grew without bound and the scan grew with it. A
+   * thousand sessions meant a thousand HMACs per request, forever.
+   *
+   * Keyed by the hash, `validate` hashes the presented token once and looks it up.
+   * Hashing is not the sensitive part — comparing two values is, and that still goes
+   * through {@link verifyCredential} — so the constant-time property is untouched and
+   * the scan is gone. Production already used an indexed store, which is why the cost
+   * was invisible there; this is the development path.
+   */
   private readonly sessions = new Map<string, SessionRecord>();
 
   constructor(
@@ -112,7 +128,8 @@ export class InMemorySessionService {
       issuedAt,
       expiresAt: new Date(issuedAt.getTime() + this.ttlMs),
     };
-    this.sessions.set(record.id, record);
+    // Keyed by the hash, so a presented token is one lookup rather than a scan.
+    this.sessions.set(record.tokenHash, record);
     // Ledger S-3. This used to hand back the stored object itself, so a caller could
     // write `record.expiresAt = <the far future>` or `delete record.revokedAt` and
     // change the service's own state — extending a session, or un-revoking one,
@@ -124,17 +141,63 @@ export class InMemorySessionService {
   }
 
   validate(token: string): SessionRecord | undefined {
-    const record = [...this.sessions.values()].find((candidate) =>
-      verifyCredential(this.secret, token, candidate.tokenHash),
-    );
-    if (!record || record.revokedAt || record.expiresAt <= this.now()) return undefined;
+    // One hash of the presented token, one lookup. The previous version ran a fresh
+    // HMAC *and* a constant-time comparison against every stored session, per
+    // request — see the note on the field above.
+    const hash = hashCredential(this.secret, token);
+    const record = this.sessions.get(hash);
+    if (record === undefined) return undefined;
+    // No second comparison. There used to be one, and it was dead code by
+    // construction: the map is keyed by `hashCredential(secret, token)` — the very
+    // value `verifyCredential` would have compared against — so a record found by
+    // that key always compares equal, and the branch was unreachable.
+    //
+    // The property it was there to preserve still holds, and holds more directly. The
+    // loop it replaced ran one comparison per stored session so that a presented
+    // token cost the same whatever the collection's size. A map lookup costs the same
+    // whatever the collection's size, so a caller cannot learn how many live
+    // sessions there are from how long validation took. The HMAC is the secret
+    // operation; the lookup is against its output.
+    if (record.revokedAt || record.expiresAt <= this.now()) return undefined;
     return record;
   }
 
   revoke(id: string): boolean {
-    const record = this.sessions.get(id);
-    if (!record || record.revokedAt) return false;
-    record.revokedAt = this.now();
-    return true;
+    // Still scans: `id` is a record id and the map is keyed by the token hash, so a
+    // lookup would need a second index to be worth having. Revocation is rare and
+    // not on the request path, which is where the O(n) cost used to hurt.
+    for (const record of this.sessions.values()) {
+      if (record.id !== id) continue;
+      if (record.revokedAt) return false;
+      record.revokedAt = this.now();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Removes every session that has expired, and returns how many went.
+   *
+   * **Ledger S-7, which named this method before it existed.** Revocation marks and
+   * expiry discards are kept apart on purpose: deleting a *revoked* session on revoke
+   * would destroy the answer to "was this ever a valid session", and the durable
+   * backend keeps the row for the same reason. So the sweep removes on expiry, and a
+   * revoked session goes when it would have expired anyway.
+   *
+   * There must be a caller. A sweep that is defined and never invoked removes nothing
+   * and reports nothing, which is the state the row described — the method existing
+   * is not the retention; the retention is somebody calling it.
+   *
+   * @returns how many sessions were removed
+   */
+  deleteExpired(): number {
+    const at = this.now();
+    let removed = 0;
+    for (const [hash, record] of this.sessions) {
+      if (record.expiresAt > at) continue;
+      this.sessions.delete(hash);
+      removed += 1;
+    }
+    return removed;
   }
 }

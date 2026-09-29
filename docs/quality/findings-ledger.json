@@ -658,12 +658,27 @@
       "title": "Every boot derives a bootstrap installation key, in production included",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W4.12",
       "summary": "**Split out of P-72 on 2026-09-28. This is Reading B, and P-72's fix deliberately did not take it.**\n\nP-72's title is *\"Every deployment records a dev installation key\"*, which supports two readings.\nP-72 took the narrow one — a hardcoded cosmetic label on a production row — because\n`display_prefix` is **write-only** and renaming it is behaviourally free. The wider one is this\nrow, and it is the more consequential of the two.\n\n`index.ts` calls `ensureBootstrap({ installationId, keyHash, displayPrefix })`\n**unconditionally whenever a database exists** — not only in development. So every production\nboot derives a bootstrap credential from `hashCredential(authCookieSecret, installationKey)`\nand inserts a row. P-72's fix changed only the label on that row; the derivation and the insert\nare untouched.\n\n**Why it is still open rather than fixed:** gating the call on `nodeEnv` or an explicit opt-in\nchanges what production does on first boot. A deployment that relies on the bootstrap key would\nfind it absent, and the failure mode is an installation that cannot authenticate — not a\ndegraded label. That needs its own design, its own migration story for installations already\nbootstrapped, and its own review.\n\n**What a fix has to answer, and none of it is answered here:**\n- What a production deployment uses **instead**, on first boot, with no database row.\n- Whether an installation that already has a usable key is unaffected — `ensureBootstrap`\n  returns the existing hash at `installation-key-repository.ts:91-92`, so the gate can be\n  additive without stranding anyone, and that is the property to build on.\n- What the operator-facing behaviour is when bootstrap is unavailable: refusing to start is a\n  very different decision from starting without it.\n- Whether `AUTOMATE_ALLOW_DEV_SECRETS`-style explicit opt-in (the pattern\n  `startup-policy.ts` already uses) is the right shape, or whether production needs a\n  genuinely separate provisioning path.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "Production no longer derives an installation key. `mayDeriveInstallationKey` is false for `production` and true elsewhere, and a production boot with a database and no `AUTOMATE_INSTALLATION_KEY` throws with a message naming the variable and saying what deriving one would have cost. Previously `ensureBootstrap` ran on every boot that had a database and inserted a row whose credential is `hashCredential(authCookieSecret, installationKey)` — so a production deployment grew a credential nobody chose, derived from a default that is in the repository, on first boot, silently. P-72 renamed the label on that row and left the derivation, which is why the two were separate rows. The proof is that the whole production-composition suite refused to boot until a synthetic installation key was added to its valid secrets; `index-production-composition.test.ts` now asserts the refusal directly.",
+      "evidence": [
+        {
+          "path": "apps/api/src/bootstrap-display-prefix.ts",
+          "asserts": "`mayDeriveInstallationKey` returns false only in production, and `NO_INSTALLATION_KEY` names the variable rather than failing with a null hash."
+        },
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "The guard runs before `ensureBootstrap`, so a production boot with no key never reaches the insert."
+        },
+        {
+          "path": "apps/api/src/index-production-composition.test.ts",
+          "asserts": "A production composition with no `AUTOMATE_INSTALLATION_KEY` refuses with the message — and the rest of the suite passes one, which is what made the refusal visible before it was asserted."
+        }
+      ]
     },
     {
       "id": "P-55",
@@ -894,24 +909,50 @@
       "title": "InMemorySessionService scans every session on every request",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W3.3",
       "summary": "`packages/auth/src/credentials.ts` verifies a presented session by HMAC-ing it and scanning the whole collection, so cost is O(n) in live sessions. Production uses the indexed `DrizzleSessionStore`, which is why the cost is invisible.\n\n**Confirmed by reading the code, 2026-09-28.** `packages/auth/src/credentials.ts:99-101`. No revocation list or index is\nconsulted; every candidate in the map gets a fresh HMAC plus `timingSafeEqual`, per\nrequest, **unbounded** — the map is only ever added to. The row's note that production\nuses the indexed Drizzle store is accurate (`index.ts:238`,\n`session-repository.ts:34-46`), **but the in-memory path is live** for any\nno-database deployment (`routes/auth.ts:57-64`, and it is what the auth middleware\nuses at `index.ts:342`). **This is a consequence of S-2/S-7**: the scan is the wrong\nshape, but unbounded growth is what makes it a live cost.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "The in-memory session map is keyed by the token hash, so `validate` hashes the presented token once and looks it up instead of running a keyed HMAC and a constant-time comparison against every stored session on every request. The constant-time property the loop provided is preserved more directly: a lookup costs the same whatever the collection holds, so a caller still cannot learn how many live sessions there are from how long validation took. The HMAC is the secret operation; the lookup is against its output. Production already used an indexed store, which is why the cost was invisible there.",
+      "evidence": [
+        {
+          "path": "packages/auth/src/credentials.ts",
+          "asserts": "The map is keyed by `tokenHash`, and `validate` is a lookup. The second `verifyCredential` the fix first added was dead code by construction — the key is the value it would have compared — and has been removed rather than left as an unreachable branch."
+        },
+        {
+          "path": "packages/auth/src/session-retention.test.ts",
+          "asserts": "A wrong token is rejected in a map with one entry and in a map with five hundred; the property asserted is that the rejection does not depend on the collection, not a timing."
+        }
+      ]
     },
     {
       "id": "S-2",
       "title": "Revoked sessions are never removed",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W3.3",
       "summary": "`revoke` only stamps `revokedAt`; there is no TTL sweep, so the collection grows without bound and the scan grows with it.\n\n**Confirmed by reading the code, 2026-09-28.** `credentials.ts:106-111`. `revoke` only stamps `revokedAt`; nothing removes\nentries. `deleteExpired` has one occurrence repo-wide — this ledger row. The durable\nstore's `revoke` is likewise an `UPDATE … SET revoked_at` and no `DELETE` on\n`sessions` exists anywhere. **One decision with S-6 and S-7:** all three are the\nsingle feature \"session retention\", currently specified in config\n(`SESSION_RETENTION_DAYS`, `RETENTION_SWEEP_INTERVAL_SECONDS`) and absent from code.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "Sessions are now removed, not only marked. The durable store gained `deleteExpired(cutoff)` — a real `DELETE` on `sessions`, which did not exist anywhere — and the in-memory service gained `deleteExpired()`. The cutoff is on `issuedAt`, not `expiresAt`, and that distinction is the point: a row outlives its validity so that \"was this ever a valid session\" still has an answer, which is the same reason `revoke` marks rather than deletes.",
+      "evidence": [
+        {
+          "path": "packages/db/src/repositories/session-repository.ts",
+          "asserts": "`deleteExpired` deletes by `issuedAt` and returns the count, so a sweep that removes nothing can be distinguished from one that was never called."
+        },
+        {
+          "path": "packages/auth/src/credentials.ts",
+          "asserts": "`deleteExpired` removes expired sessions and reports how many."
+        },
+        {
+          "path": "packages/db/src/repositories/repositories.test.ts",
+          "asserts": "A session that expired long ago is still there after a sweep with a later cutoff, and one past the cutoff is gone — the assertion that says the cutoff is on `issuedAt`."
+        }
+      ]
     },
     {
       "id": "S-3",
@@ -974,24 +1015,46 @@
       "title": "SESSION_RETENTION_DAYS is parsed and mapped with no consumer",
       "band": "Minor",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W3.3",
       "summary": "The setting is read from the environment and carried through a map, and nothing downstream uses the result.\n\n**Confirmed by reading the code, 2026-09-28.** `packages/config/src/config.ts:109,137,188`. `sessionRetentionDays` has exactly\ntwo occurrences repo-wide, both in that file. No consumer. The same file carries two\nmore parsed-and-unused siblings: `retentionSweepIntervalSeconds` (lines 140 and 191) and\n`auditRetentionDays` (lines 139 and 190). Part of the S-2/S-6/S-7 retention feature.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`SESSION_RETENTION_DAYS` has a consumer. It is passed to `DrizzleAuthSessionBackend` as the retention window and used to compute the sweep cutoff, and `SESSION_TTL_HOURS` is now read for the TTL where the value was a literal `24 * 60 * 60 * 1000` — so the two settings and the two literals agreed only because the defaults happened to be the same number, and an operator who set `SESSION_TTL_HOURS=8` got eight hours in nothing. Both now read from configuration, with the schema defaults as the fallback.",
+      "evidence": [
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "`sessionTtlMs` and `sessionRetentionMs` are derived from `runtimeConfig` rather than written as literals beside a config that declares them."
+        },
+        {
+          "path": "apps/api/src/infrastructure/session-backend.ts",
+          "asserts": "The backend takes a retention window and derives its cutoff from it, one window longer than the TTL on purpose."
+        }
+      ]
     },
     {
       "id": "S-7",
       "title": "There is no deleteExpired",
       "band": "Minor",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W3.3",
       "summary": "The interface has no expiry sweep at all, which is the missing half of S-2.\n\n**Confirmed by reading the code, 2026-09-28.** `infrastructure/session-backend.ts:5-9`. The `AuthSessionBackend` interface has\nno expiry or removal member, and `DrizzleSessionStore` has none either, so the\nsweep has nothing to call. `RETENTION_SWEEP_INTERVAL_SECONDS` exists in config and is\nconsumed by nothing, so there is not even a schedule on which a sweep could run. **The\nmissing half of S-2**, as the row says, and it cannot be closed alone: a removal path\nwithout a schedule does nothing.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`deleteExpired` exists on both backends and is *called*. The row named the method before it existed, which is the part worth keeping: defining it is not retention, and a method with no caller is the state the row described. It is reached from `memoryBackend` and from the durable backend, and both report how many rows went so that a sweep doing nothing can be told from a sweep that was never run.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/auth.ts",
+          "asserts": "The in-process backend exposes `sweep`, and `memoryBackend` is exported so a test can reach the default path rather than a caller-supplied one."
+        },
+        {
+          "path": "apps/api/src/routes/auth.test.ts",
+          "asserts": "A live session is not swept, an expired one is, and the sweep reports the count."
+        }
+      ]
     },
     {
       "id": "F-4",
@@ -1094,7 +1157,7 @@
       "title": "An attachment name is interpolated unencoded",
       "band": "Minor",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W4.9",
       "summary": "**Confirmed, and the fix is in — but this row stays open, because the proof is not.** `playwright-json.ts:71` interpolated the attachment name into the evidence URI unencoded: `artifact://${runId}/${testIndex}/${attemptIndex}/${attachmentIndex}/${name}`. The name is the only segment an outside party chooses — it arrives inside a Playwright report uploaded by a build, so a pull request controls it — and a name containing `?` starts a query, `#` starts a fragment, and `/` adds a path segment. The consequence is not a malformed string but a **different artifact reference**: the evidence URI is what a reader follows, so a crafted name makes it resolve to the wrong artifact or to nothing, and nothing reports it. The name is now `encodeURIComponent`-encoded. The other four segments are deliberately left unencoded because they are ours — a run id we generate and three indices — and the comment says so, since claiming they were encoded would be a claim that is not currently true. **Why it is open.** The plan's standard is a test that was shown to fail before the fix and pass after, and I could not calibrate the fixture in the time available: the synthetic Playwright report did not match what `collectSpecs` expects, so the adapter returned no attachments and every case read `undefined` — a test that fails for the wrong reason is exactly the kind this repository keeps finding and refuses. The test was removed rather than left red, and the source change is left in because it is typechecked and the encoding is unambiguous. **What closing this needs:** a fixture whose report shape `collectSpecs` actually walks — an existing adapter test to copy the shape from — and then four cases: an ordinary name unchanged, a name with `?`, a name with `#`, and a name with `/`, each asserting the recorded URI round-trips to the same name. The positive case matters as much as the rest, because an encoding that mangled normal names would make every evidence URI unreadable, which is worse than the defect.",
       "confirmed": true,
@@ -1102,10 +1165,15 @@
       "confirmedBy": "W4.9. Confirmed by reading the adapter exactly as described.",
       "evidence": [
         {
+          "path": "packages/reporter/src/playwright-evidence-uri.test.ts",
+          "asserts": "The recorded URI carries no query and no fragment, has exactly the five segments the adapter writes, and the name round-trips. The first version asserted only the round trip, which passes for an *unencoded* `report?x=1` because `decodeURIComponent` of it is itself — so the assertion that actually catches the defect is the one about query and fragment."
+        },
+        {
           "path": "packages/reporter/src/adapters/playwright-json.ts",
-          "asserts": "The attachment name is `encodeURIComponent`-encoded into the evidence URI, with a comment stating why the name is the only segment that needs it and why the others are left alone."
+          "asserts": "The name is `encodeURIComponent`-encoded; the other four segments are deliberately not, and the comment says so rather than claiming they are."
         }
-      ]
+      ],
+      "resolution": "The encoding was already in `playwright-json.ts`; what was missing was the proof, and the row said why it was missing — the first attempt at the test blamed a synthetic report that did not match what `collectSpecs` walks. It was not the fixture. It was the **context**: `ProducerContext` needs `sourceUri`, `sourceDigest`, `producerVersion`, `adapterVersion` and `projectId`, and the guessed context was missing them, so every case failed on a Zod error about `provenance` and read as an empty result. The fixture was blamed twice before the context was read. `playwright-evidence-uri.test.ts` now copies the real context from `adapter-parity.test.ts` and asserts four things: an ordinary name is unchanged and round-trips, a name containing `?`, `#` or `/` cannot restructure the URI, and all three together. Verified failing against the unencoded adapter and passing with it."
     },
     {
       "id": "R-1",
@@ -2036,12 +2104,27 @@
       "title": "The error boundary's log seam is never supplied a logger",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W11.3",
       "summary": "`ErrorBoundaryOptions.log` exists and `boundary.ts:57` defaults to `console.error`, but `index.ts:115-120` passes only `requestId` and `reportError`, so production never gets a logger. Ten further bare `console.error` sites remain in product code.\n\n**Confirmed by reading the code, 2026-09-28.** `errors/boundary.ts:20-22` declares the `log` seam and `:86` defaults it to\n`console.error`, but the only production construction (`index.ts:115-125`) supplies\nno `log`. The seam is used only by tests. **The row's count is approximately right,\nnot exact:** there are 8 bare `console.error` sites in product code outside the\ndefault (`index.ts:305,332`, `durable-realtime-bus.ts:84,124`,\n`middleware/auth.ts:101`, `drizzle-execution-store.ts:1588`,\n`drizzle-realtime-feed.ts:118,144`) plus one `console.warn` in\n`startup-policy.ts:88`. There is **no logger module** in\n`apps/api/src/observability/` — only `request-context.ts` and `sentry.ts` — so a\nfix has to introduce one or route through Sentry.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "The error boundary is given a logger. `ErrorBoundaryOptions.log` was declared and documented as injectable, and `index.ts` supplied `requestId` and `reportError` and nothing else — so every failure in the API reached a `console.error(message, context)`: a message string and a loose object side by side, unparseable and unqueryable. Nothing could have caught it, because every test supplies its own collector, so the test path was always populated and the production path never was. `observability/logger.ts` emits one JSON object per line, injected downward from the composition root as a single `LogSink`.",
+      "evidence": [
+        {
+          "path": "apps/api/src/observability/logger.ts",
+          "asserts": "A caller cannot relabel a record — `level`, `msg`, `time` and `service` are the record identity and a colliding value is kept under `fields`; a sink that throws is swallowed; `JSON.stringify(new Error(...))` being `{}` is handled."
+        },
+        {
+          "path": "apps/api/src/errors/boundary-logging.test.ts",
+          "asserts": "An unhandled failure produces a structured record with the request id, path and cause, and a failing logger cannot change the error response."
+        },
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "The composition root constructs one logger and passes `logger.error` as the boundary seam."
+        }
+      ]
     },
     {
       "id": "O-4b",

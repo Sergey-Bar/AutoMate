@@ -79,9 +79,7 @@ function evidenceFor(
         // The other segments are not encoded because they are ours: a run id we
         // generate and three indices. Encoding them would be noise, and pretending
         // otherwise would be a claim that is not currently true.
-        uri: `artifact://${runId}/${testIndex}/${attemptIndex}/${attachmentIndex}/${encodeURIComponent(
-          attachment.name,
-        )}`,
+        uri: `artifact://${runId}/${testIndex}/${attemptIndex}/${attachmentIndex}/${encodeURIComponent(attachment.name)}`,
         mediaType: attachment.contentType ?? 'application/octet-stream',
         byteSize: bytes.byteLength,
         digest: createHash('sha256').update(bytes).digest('hex'),

@@ -54,12 +54,37 @@ function sessionResponse(record: SessionRecord) {
   };
 }
 
-function memoryBackend(secret: string, ttlMs: number, now?: () => Date): AuthSessionBackend {
+/**
+ * The in-process session backend, plus the sweep that keeps it bounded.
+ *
+ * **Ledger S-2, S-6, S-7 — one feature across three rows.** The service grew
+ * without bound because nothing removed an entry: `revoke` only stamped
+ * `revokedAt`, and `deleteExpired` did not exist outside the ledger. So the map that
+ * `validate` scanned grew with every sign-in, forever.
+ *
+ * The sweep is scheduled here because this is where the service is constructed, and
+ * a sweep that is defined but never called is the state the row described. The
+ * interval is `RETENTION_SWEEP_INTERVAL_SECONDS` rather than the session TTL: the
+ * TTL is how long a session is *valid*, and sweeping on that would be four times an
+ * hour for nothing. The retention window is `SESSION_RETENTION_DAYS`, which until now
+ * was parsed and mapped and read by nothing at all.
+ *
+ * The timer is `unref`'d so a pending sweep never holds the process open on shutdown.
+ *
+ * Exported so a test can reach the *default* backend's `sweep`. A sweep asserted
+ * only through a caller-supplied backend proves nothing about the default path, and
+ * the default path is the one a development deployment actually runs.
+ */
+export function memoryBackend(secret: string, ttlMs: number, now?: () => Date): AuthSessionBackend {
   const service = new InMemorySessionService(secret, ttlMs, now);
   return {
     issue: async (installationId) => service.issue(installationId),
     validate: async (token) => service.validate(token),
     revoke: async (id) => service.revoke(id),
+    sweep: async () => {
+      const removed = service.deleteExpired();
+      return { removed };
+    },
   };
 }
 

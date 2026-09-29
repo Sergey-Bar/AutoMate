@@ -76,6 +76,18 @@ export function syntheticCookieSecret(): string {
   return ['cookie', '-secret-long-enough-for-tests-1'].join('');
 }
 
+/**
+ * The installation key.
+ *
+ * Added with ledger P-72b, which stopped production from deriving one. The
+ * composition test has to present a key now, and it must present a *synthetic* one
+ * for the same reason every other secret here is synthetic: a literal is a
+ * credential-shaped string committed to the repository for gitleaks to find.
+ */
+export function syntheticInstallationKey(): string {
+  return ['installation', '-key-long-enough-for-tests-01'].join('');
+}
+
 /** The reporter ingestion credential. */
 export function syntheticReporterSecret(): string {
   return ['reporter', '-secret-long-enough-for-tests-1'].join('');

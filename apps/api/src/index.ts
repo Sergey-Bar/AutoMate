@@ -14,7 +14,11 @@ import { createOrchestrationRoutes } from './routes/orchestration.js';
 import { ReporterIngestionService } from './services/reporter-ingestion.js';
 import { DrizzleReporterIngestionService } from './services/drizzle-reporter-ingestion.js';
 import { DrizzleAuthSessionBackend } from './infrastructure/session-backend.js';
-import { bootstrapDisplayPrefix } from './bootstrap-display-prefix.js';
+import {
+  NO_INSTALLATION_KEY,
+  bootstrapDisplayPrefix,
+  mayDeriveInstallationKey,
+} from './bootstrap-display-prefix.js';
 import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
@@ -66,6 +70,19 @@ import { S3ArtifactBytesStore } from './infrastructure/s3-artifact-bytes.js';
 import type { ArtifactBytesStore } from './execution/drizzle-execution-store.js';
 
 const runtimeConfig = getConfig();
+/**
+ * Session lifetimes, in milliseconds, read from configuration.
+ *
+ * Both were literal `24 * 60 * 60 * 1000` in this file while
+ * `packages/config` declared `SESSION_TTL_HOURS` and `SESSION_RETENTION_DAYS` and
+ * mapped them onto this config. So the literals and the settings agreed only because
+ * the defaults happened to be the same number — an operator who set
+ * `SESSION_TTL_HOURS=8` got eight hours in nothing. The fallbacks below are the
+ * schema's own defaults, so the value is unchanged for a default deployment and
+ * *does* follow the setting when there is one.
+ */
+const sessionTtlMs = (runtimeConfig.sessionTtlHours ?? 24) * 60 * 60 * 1000;
+const sessionRetentionMs = (runtimeConfig.sessionRetentionDays ?? 30) * 24 * 60 * 60 * 1000;
 // Production policy is validated before any composition: no database client, no
 // in-memory fallback, and no secret literal is constructed before this point.
 checkProductionPolicy(runtimeConfig);
@@ -283,12 +300,27 @@ if (databaseResources) {
   sessionBackend = new DrizzleAuthSessionBackend(
     new DrizzleSessionStore(databaseResources.db),
     authCookieSecret,
-    24 * 60 * 60 * 1000,
+    sessionTtlMs,
+    // The retention window, which was parsed and mapped and read by nothing until
+    // the sweep had something to sweep with. It is longer than the TTL on purpose:
+    // a row outlives its validity so that "was this ever valid" still has an answer.
+    sessionRetentionMs,
   );
 } else {
   // createAuthRoutes falls back to a process-local session store without this.
   assertInMemoryAllowed(runtimeConfig, 'in-memory auth sessions');
 }
+// Production never derives one. See `mayDeriveInstallationKey` for why the two
+// readings of P-72 were separate rows: renaming the label on a bootstrapped key was
+// cosmetic, deriving that key in production is not.
+if (
+  databaseResources &&
+  !mayDeriveInstallationKey(runtimeConfig) &&
+  !process.env['AUTOMATE_INSTALLATION_KEY']
+) {
+  throw new Error(NO_INSTALLATION_KEY);
+}
+
 const installationKeyHash = databaseResources
   ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureBootstrap({
       installationId,
