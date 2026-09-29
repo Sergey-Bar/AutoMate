@@ -1,8 +1,94 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { SECRET_MIN_LENGTH, isSecretPlaceholder, parseConfig } from './config.js';
+import { SECRET_MIN_LENGTH, apiProxyTarget, isSecretPlaceholder, parseConfig } from './config.js';
 
 /** Long enough to clear the floor, and not a placeholder, so only the check under test fires. */
 const long = (character: string): string => character.repeat(SECRET_MIN_LENGTH);
+
+describe('apiProxyTarget', () => {
+  // The quick start was broken, and it was broken in the most expensive way a
+  // document can be broken: it looked right. `README.md` said to start the API on
+  // `PORT=3456`; the web dev proxy hardcoded `http://127.0.0.1:3000`, and
+  // `.env.example` and `AGENTS.md` both said `3000`. A reader who followed the
+  // README exactly got a dashboard whose every `/api` call went to a port nothing
+  // was listening on — with no error, because a failed fetch and a failed login
+  // render identically.
+  //
+  // These make the two numbers the same computation rather than two constants
+  // somebody has to keep in agreement by hand.
+
+  it('is derived from the same PORT the API reads', () => {
+    expect(apiProxyTarget({ PORT: '3456' })).toBe(
+      `http://127.0.0.1:${String(parseConfig({ PORT: '3456' }).port)}`,
+    );
+  });
+
+  it('agrees with the API default without restating it', () => {
+    // The assertion that closes the defect. `parseConfig({})` takes the schema
+    // default; `apiProxyTarget({})` must reach the same number from the same
+    // source, or the two drift the next time either one changes.
+    expect(apiProxyTarget({})).toBe(`http://127.0.0.1:${String(parseConfig({}).port)}`);
+  });
+
+  it('falls back to the default rather than to an unusable URL', () => {
+    // An unset, empty, or non-numeric PORT must not produce `:NaN` or
+    // `:undefined`, which fail at request time with a DNS-shaped error rather
+    // than a configuration one.
+    for (const value of [undefined, '', 'not-a-port']) {
+      expect(apiProxyTarget({ PORT: value })).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+    }
+  });
+
+  it('honours a bind address, and falls back only for a blank one', () => {
+    // `HOST=0.0.0.0` is a bind address the API is genuinely reachable on, so
+    // proxying there is correct. A blank or absent one is not a host, and
+    // substituting it would send the proxy to a literal `:0.0.0.0` authority.
+    expect(apiProxyTarget({ HOST: '0.0.0.0' })).toBe('http://0.0.0.0:3000');
+    expect(apiProxyTarget({ HOST: '' })).toBe('http://127.0.0.1:3000');
+    expect(apiProxyTarget({ HOST: '   ' })).toBe('http://127.0.0.1:3000');
+  });
+
+  it('is what the web dev proxy actually uses', () => {
+    // The fix rests on this. A hardcoded number in `apps/web/vite.config.ts` is
+    // exactly what let the README and the running system disagree while each was
+    // green in its own gate.
+    const source = readFileSync(
+      path.join(import.meta.dirname, '..', '..', '..', 'apps', 'web', 'vite.config.ts'),
+      'utf8',
+    );
+    expect(source).toContain('apiProxyTarget');
+    expect(source).not.toMatch(/target:\s*['"`]http:\/\/127\.0\.0\.1:\d+/);
+  });
+});
+
+describe('the documented quick start', () => {
+  const readme = readFileSync(
+    path.join(import.meta.dirname, '..', '..', '..', 'README.md'),
+    'utf8',
+  );
+
+  it('does not send the reader to a port of its own', () => {
+    // Deriving the proxy is not enough if the document still overrides the port,
+    // so this fails the moment a `PORT=` line reappears in the quick start.
+    expect(readme).not.toMatch(/PORT=\s*['"`]?\d+/);
+  });
+
+  it('signs in with the key it tells the reader to set', () => {
+    // The other half of the broken quick start: it set
+    // `AUTOMATE_API_KEY=local-installation-key-32-characters` and then said to
+    // sign in with `local-installation-key`, which is a different string and
+    // cannot authenticate — `verifyCredential` compares the whole value.
+    const assigned = /AUTOMATE_API_KEY=['"]?([A-Za-z0-9-]+)['"]?/.exec(readme);
+    expect(assigned).not.toBeNull();
+    const value = assigned?.[1] ?? '';
+    expect(readme).toContain(`Sign in with \`${value}\``);
+    // And it has to clear the floor `packages/config` enforces, or the API
+    // refuses to start on the documented path with an error naming a secret
+    // rather than a port.
+    expect(value.length).toBeGreaterThanOrEqual(SECRET_MIN_LENGTH);
+  });
+});
 
 describe('parseConfig', () => {
   it('uses COOKIE_SECRET before the compatibility alias', () => {

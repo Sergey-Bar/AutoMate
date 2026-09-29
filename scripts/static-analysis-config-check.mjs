@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { semgrepDirectories } from './lib/semgrep-scope.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** @type {string[]} */
@@ -331,32 +332,23 @@ for (const problem of tomlValueTableCollisions(gitleaksSource)) {
  * subprocess. Nothing failed when that was true, because a scope that omits a
  * directory reports the same clean result as one that includes it.
  *
- * So the scope is read out of `scripts/static-analysis.mjs` and compared against
- * the real workspace layout. A new package that is not in the scope is a finding,
- * which makes "we widened the scope" a property of the file rather than a claim
- * in a commit message.
+ * So the scope is read out of `scripts/lib/semgrep-scope.mjs` — the array the gate
+ * actually passes to the binary — and compared against the real workspace layout.
+ * A new package that is not in the scope is a finding, which makes "we widened the
+ * scope" a property of the file rather than a claim in a commit message.
+ *
+ * It used to scrape `scripts/static-analysis.mjs`'s source text for the literal
+ * `run('semgrep'` and read the lines after it. That coupled this check to one
+ * refactorable function in another file: moving the argv into a constant silently
+ * emptied the scanned set and reported every package as unscanned, and the
+ * `indexOf(...) === ''` guard could not fire, because `slice(-1)` returns the last
+ * character rather than an empty string.
  */
-const staticAnalysisFile = 'scripts/static-analysis.mjs';
-const staticAnalysisSource = readFileSync(path.join(root, staticAnalysisFile), 'utf8');
-const semgrepInvocation = staticAnalysisSource.slice(staticAnalysisSource.indexOf("run('semgrep'"));
-if (semgrepInvocation === '') {
-  fail(staticAnalysisFile, 'no semgrep invocation found; the scope cannot be checked');
+const scopeFile = 'scripts/lib/semgrep-scope.mjs';
+const scanned = new Set(semgrepDirectories());
+if (scanned.size === 0) {
+  fail(scopeFile, 'the semgrep scope is empty; nothing would be examined');
 } else {
-  /** Directories the invocation names, ignoring flags and their arguments. */
-  const ignored = new Set(['[', ']', 'scan', '--config', '.semgrep.yml', '--error', '--exclude']);
-  const scanned = new Set(
-    semgrepInvocation
-      .split('\n')
-      .map((line) =>
-        line
-          .trim()
-          .replace(/,$/, '')
-          .replace(/^'(.*)'$/, '$1')
-          .replace(/^"(.*)"$/, '$1'),
-      )
-      .filter((token) => token !== '' && !token.startsWith('--') && !ignored.has(token)),
-  );
-
   /** Every directory `pnpm-workspace.yaml` says is a package root. */
   const workspacePackages = [];
   for (const group of ['apps', 'packages', 'tools']) {
@@ -387,7 +379,7 @@ if (semgrepInvocation === '') {
     );
     if (covered) continue;
     fail(
-      staticAnalysisFile,
+      scopeFile,
       `the semgrep scope omits ${target}, so that package is not examined by the ` +
         'security gate. A scope that omits a directory reports the same clean result as ' +
         'one that includes it, so this cannot be left to a reviewer to notice.',

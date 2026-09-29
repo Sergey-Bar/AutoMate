@@ -11,6 +11,7 @@ import {
   readRootScriptCommand,
   readRootScripts,
   referencedScripts,
+  WORKFLOW_DIR,
 } from './gate-tooling.mjs';
 import { phaseFor, tierProblems } from './render-gate-phase.mjs';
 
@@ -351,6 +352,35 @@ test('every root script carries a tier, and every tier is one of the four', () =
     !steps.some((step) => step.includes('migrate:apply')),
     'migrate:apply must never enter verify: CI has no persistent database',
   );
+});
+
+test('no workflow sets the host-scanner opt-in, and verify:local is never-in-ci', () => {
+  // `AUTOMATE_HOST_SCANNERS=unavailable` turns a missing scanner from a failure
+  // into a recorded `not_configured` pass. That is a legitimate trade on a
+  // developer laptop with no semgrep and it is a *defect* in a pull request: CI is
+  // the only place the security scan is actually enforced, and a job that sets the
+  // variable reports green for a scan that never ran.
+  //
+  // Read from the raw source rather than the parsed `env`, because the argument
+  // for *not* setting it belongs in a comment beside the job, and a substring
+  // search would report that explanation as the violation it forbids.
+  const offenders = listWorkflows().filter((file) =>
+    readFileSync(path.join(WORKFLOW_DIR, file), 'utf8').includes('AUTOMATE_HOST_SCANNERS'),
+  );
+  assert.deepEqual(
+    offenders,
+    [],
+    'a workflow must never set AUTOMATE_HOST_SCANNERS; the scanners are installed and enforced there',
+  );
+
+  assert.equal(
+    (readManifest().tiers ?? {})['verify:local'],
+    'never-in-ci',
+    'verify:local is the degraded chain and has no business being a required or reported check',
+  );
+  // And the gate that degrades must still be blocking where it counts.
+  assert.equal((readManifest().tiers ?? {})['security:static'], 'pr-blocking');
+  assert.equal((readManifest().tiers ?? {})['verify'], 'pr-blocking');
 });
 
 test("the rendering gate's tier follows its baseline, in both directions", () => {

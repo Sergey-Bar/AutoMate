@@ -23,6 +23,32 @@ export const STANDARD_THRESHOLDS = {
 } as const;
 
 /**
+ * The per-test budget, in milliseconds.
+ *
+ * Vitest's default is 5s, which is a reasonable default for a machine that is
+ * running one test file. This repository runs twenty-odd package suites at once
+ * under turbo, and the difference is not marginal: `packages/reporter`'s
+ * whole-tree ownership scan took 0.3s in isolation and was observed at 25.1s
+ * under `pnpm test`; `packages/runner-sdk`'s PBKDF2 and sealed-queue round-trips
+ * were observed at 2.3–3.5s each against 2.45s for its entire file in isolation.
+ * `apps/api` recorded 31.5s, 44.0s and 57.0s for the same test across three
+ * runs of an unchanged tree.
+ *
+ * None of those is a slow test. All of them are a slow *machine*, and the
+ * assertion was identical in every case. A timeout that reports a loaded machine
+ * as a failing repository is a timeout people learn to re-run, and a gate that
+ * must be re-run before it can be believed provides nothing at all — which is how
+ * a flaky gate gets switched off rather than fixed.
+ *
+ * 60s is headroom for the observed worst case, not a target. A test that
+ * genuinely needs a minute has moved its cost somewhere it can be made cheaper.
+ *
+ * Nothing about what is asserted changes here. Only how long the harness waits
+ * before saying so.
+ */
+export const STANDARD_TEST_TIMEOUT_MS = 60_000;
+
+/**
  * Coverage measurement config for a package.
  *
  * `all: true` with an explicit `include` is the part that matters. Without it,

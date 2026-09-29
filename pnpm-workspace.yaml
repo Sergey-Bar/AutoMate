@@ -2,6 +2,10 @@ packages:
   - 'apps/*'
   - 'packages/*'
   - 'packages/connectors/*'
+  # The documentation site, which is a package at `site/` rather than a group of
+  # them. `site/*` would match nothing today and would match a sub-package only if
+  # one were ever added, which is not the shape this repository has.
+  - 'site'
   - 'tools/*'
   - 'tests/*'
 
@@ -30,8 +34,16 @@ onlyBuiltDependencies:
 # upstream and drop the override, or move the date and say why it still applies.
 overrides:
   # GHSA-vfh2-g5qg-2w2x / CVE-2024-45590 (body-parser DoS) reaches us through
-  # ajv 8.20.0's fast-uri < 3.1.1. Reviewed 2026-06-30.
-  'ajv@8.20.0>fast-uri': 3.1.6
+  # ajv 8.20.0's fast-uri < 3.1.1. Reviewed 2026-09-29.
+  #
+  # Raised 3.1.6 -> 3.1.7 on 2026-09-29: two further high advisories landed against
+  # 3.1.6 itself — GHSA-qw65-cvwx-89v3 (authority injection via an unvalidated port
+  # in `serialize`) and GHSA-58mr-gqgx-xq4g (host confusion via an unclosed bracket
+  # in the URI authority). 3.1.7 is the first version fixed for both. An override
+  # pinned to the version that was current when it was written is the failure mode
+  # this file's own header warns about, so a review date that arrives is a trigger
+  # to re-check the advisory rather than to move the date.
+  'ajv@8.20.0>fast-uri': 3.1.7
   # GHSA-7fh5-64p2-3v2j (browserslist ReDoS) in 4.28.2 and earlier. Reviewed
   # 2026-06-30.
   'browserslist@4.28.2': 4.28.7
@@ -46,6 +58,14 @@ overrides:
   # CVE-2024-55565 (nanoid predictable results when given a non-integer seed),
   # reached through postcss. Reviewed 2026-06-30.
   'postcss@8.5.18>nanoid': 3.3.18
+  # GHSA-fx2h-pf6j-xcff (vite `server.fs.deny` bypass on Windows alternate paths,
+  # fixed in 6.4.3) reached through `vitepress`, which pins vite 5. VitePress is a
+  # build-time-only dependency of the documentation site, but it runs a dev server
+  # on a contributor's machine and its output is deployed — so "build only" is not
+  # the same as "never executed". 6.4.3 is the same major as the root catalog, so
+  # the override also dedupes the tree rather than adding a second copy.
+  # Reviewed 2026-09-29.
+  'vitepress>vite': ^6.4.3
 
 catalog:
   '@eslint/js': ^9.21.0

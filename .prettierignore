@@ -7,6 +7,10 @@ node_modules/
 **/blob-report/
 **/.turbo/
 **/.vite/
+# VitePress's dependency-optimizer cache. It sits under `.vitepress/cache` rather
+# than a top-level `cache/`, so the `**/dist/` rule above does not reach it, and it
+# is minified third-party output regenerated on every build.
+**/.vitepress/cache/
 **/.sisyphus/
 **/.artifacts/
 **/.kilo/

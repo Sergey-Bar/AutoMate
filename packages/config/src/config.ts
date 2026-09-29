@@ -84,10 +84,52 @@ function secretSchema(variable: SecretVariable) {
     .min(SECRET_MIN_LENGTH);
 }
 
+/**
+ * Where the web dev server should proxy `/api` to.
+ *
+ * Exists because the quick start was broken in the way a document can be broken
+ * most expensively: it looked right. `README.md` said to run the API on
+ * `PORT=3456`, while `apps/web/vite.config.ts` hardcoded `http://127.0.0.1:3000`
+ * and `.env.example` and `AGENTS.md` both said `3000`. A reader who followed the
+ * README exactly got a dashboard whose every `/api` call went to a port nothing
+ * was listening on — silently, because a failed fetch and a failed login render
+ * the same thing on screen.
+ *
+ * So the proxy target reads the same `PORT` the API reads, and when `PORT` is
+ * absent or unusable it falls back to the same schema default rather than
+ * producing a URL that fails at request time. There is one number in this
+ * repository, and it lives in `EnvironmentSchema` above.
+ *
+ * Not `parseConfig`: this is called from `vite.config.ts`, which runs before the
+ * API's production startup policy and must not fail on a missing `DATABASE_URL`
+ * or a placeholder secret just to work out a dev proxy target.
+ *
+ * @param env the process environment, or anything with the same shape
+ * @returns an `http://host:port` origin
+ */
+export function apiProxyTarget(env: Record<string, string | undefined> = {}): string {
+  const raw = env['PORT'];
+  const parsed = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw);
+  const port = Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : DEFAULT_PORT;
+  // A `HOST` of `0.0.0.0` is a *bind* address and must be honoured verbatim: the
+  // API is reachable there, so proxying to it is correct. Only an absent or blank
+  // value falls back, and it falls back to the loopback the API itself defaults to.
+  const configuredHost = env['HOST'];
+  const host =
+    configuredHost === undefined || configuredHost.trim() === '' ? DEFAULT_HOST : configuredHost;
+  return `http://${host}:${String(port)}`;
+}
+
+/** The bind address the API uses when `HOST` is unset. */
+export const DEFAULT_HOST = '127.0.0.1';
+
+/** The port the API uses when `PORT` is unset, and the port the web proxy targets. */
+export const DEFAULT_PORT = 3000;
+
 const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  HOST: z.string().min(1).default('127.0.0.1'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  HOST: z.string().min(1).default(DEFAULT_HOST),
+  PORT: z.coerce.number().int().min(1).max(65535).default(DEFAULT_PORT),
   DATABASE_URL: z.string().url().optional(),
   COOKIE_SECRET: secretSchema('COOKIE_SECRET').optional(),
   SESSION_SECRET: secretSchema('SESSION_SECRET').optional(),

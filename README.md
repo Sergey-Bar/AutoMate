@@ -71,12 +71,13 @@ pnpm install --frozen-lockfile
 
 ### Run the zero-database sample
 
-The web development proxy expects the API on port `3456`. Start the API and web app in separate terminals so their ports and credentials stay aligned.
+The API listens on `127.0.0.1:3000` by default, and the web development proxy
+resolves its target from that same `PORT` — so you do not have to set one. To use
+a different port, set it in **both** terminals below, before starting either.
 
 **Terminal 1 — API (PowerShell)**
 
 ```powershell
-$env:PORT='3456'
 $env:NODE_ENV='development'
 $env:AUTOMATE_API_KEY='local-installation-key-32-characters'
 $env:COOKIE_SECRET='local-cookie-secret-32-characters-long'
@@ -87,7 +88,6 @@ pnpm --filter @automate/api dev
 **Terminal 1 — API (macOS/Linux)**
 
 ```bash
-PORT=3456 \
 NODE_ENV=development \
 AUTOMATE_API_KEY=local-installation-key-32-characters \
 COOKIE_SECRET=local-cookie-secret-32-characters-long \
@@ -104,8 +104,8 @@ pnpm --filter @automate/unified-web dev
 Then:
 
 1. Open `http://localhost:5173`.
-2. Sign in with `local-installation-key`.
-3. Verify the API at `http://localhost:3456/api/v1/health`.
+2. Sign in with `local-installation-key-32-characters`.
+3. Verify the API at `http://127.0.0.1:3000/api/v1/health`.
 
 This mode intentionally uses in-memory run and dashboard state. Restarting the API clears it.
 

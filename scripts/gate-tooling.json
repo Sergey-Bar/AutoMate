@@ -44,6 +44,7 @@
       "making a gate agree with the tree instead of with the code."
     ],
     "verify": "pr-blocking",
+    "verify:local": "never-in-ci",
     "security:verify": "pr-blocking",
     "review:rules": "pr-blocking",
     "unify:preflight": "pr-blocking",
@@ -118,7 +119,7 @@
     "security:static": {
       "requires": ["semgrep", "gitleaks"],
       "installedBy": ".github/actions/install-scanners",
-      "why": "Exits non-zero as not_configured when either scanner is absent."
+      "why": "Exits non-zero as not_configured when either scanner is absent. `AUTOMATE_HOST_SCANNERS=unavailable` relaxes that to exit 0 for a *missing* scanner, and it is deliberately never set in a workflow — a scanner that ran and found something still fails either way, and `gate-tooling.test.mjs` asserts no workflow sets it."
     },
     "security:secrets": {
       "requires": [],

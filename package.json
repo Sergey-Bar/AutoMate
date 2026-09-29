@@ -48,6 +48,7 @@
     "findings:check": "node ./scripts/findings-check.mjs",
     "findings:baseline": "node ./scripts/findings-check.mjs --write",
     "verify": "pnpm unify:preflight && pnpm review:rules && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract && pnpm test:integration && pnpm test:runner && pnpm coverage:ratchet && pnpm build && pnpm db:check && pnpm security:verify",
+    "verify:local": "node ./scripts/verify-local.mjs",
     "verify:release": "pnpm verify && pnpm oci:verify",
     "security:static": "node ./scripts/static-analysis.mjs",
     "security:config-check": "node ./scripts/static-analysis-config-check.mjs",

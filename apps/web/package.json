@@ -21,6 +21,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@automate/config": "workspace:*",
     "@eslint/js": "catalog:",
     "@sentry/vite-plugin": "catalog:",
     "@tailwindcss/vite": "^4.3.3",

@@ -18,6 +18,12 @@ export default tseslint.config(
       '**/playwright-report/**',
       '**/test-results/**',
       '**/.kilo/**',
+      // VitePress's dependency-optimizer cache, under `.vitepress/cache` rather
+      // than a top-level `cache/` so the existing `**/dist/**` rule does not reach
+      // it. It is minified third-party code, regenerated on every build, and
+      // linting it reports hundreds of findings in files nobody wrote.
+      '**/.vitepress/cache/**',
+      '**/.vitepress/dist/**',
     ],
   },
   eslint.configs.recommended,
@@ -248,6 +254,26 @@ export default tseslint.config(
             'type, or record why the boundary cannot be typed yet.',
         },
       ],
+    },
+  },
+  {
+    // The documentation site.
+    //
+    // `site/` is picked up by the `**/*` blocks above, which is the right default:
+    // a config file in the repository is lintable like any other. What it must NOT
+    // pick up is the type-aware block, because that block enables
+    // `projectService`, and a file outside a tsconfig the service knows about
+    // is a *configuration* error, not a lint finding. So this block pins the site
+    // to the non-type-aware set explicitly.
+    //
+    // A `site/eslint.config.js` is the alternative and is refused by
+    // `scripts/unify-preflight.mjs`'s nested-authority check unless it is a bare
+    // re-export — a second flat config would be a second place where a rule is
+    // decided, which is the thing that check exists to prevent.
+    files: ['site/**/*.{js,mjs,ts}'],
+    rules: {
+      // The site's own config is a VitePress config, which is data, not logic.
+      'no-console': 'off',
     },
   },
   {

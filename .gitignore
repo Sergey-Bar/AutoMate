@@ -7,6 +7,11 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# VitePress's dependency-optimizer cache. It sits under `.vitepress/cache` rather
+# than a top-level `cache/`, so the `dist/` rule above does not reach it, and it is
+# minified third-party output regenerated on every build.
+.vitepress/cache/
+
 # Environment
 # `.env.*` covers every real environment file, so the two placeholder files have
 # to be excepted by name. `.env.compose.example` was added with the compose

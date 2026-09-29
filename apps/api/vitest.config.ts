@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { standardCoverage } from '../../vitest.shared.js';
+import { STANDARD_TEST_TIMEOUT_MS, standardCoverage } from '../../vitest.shared.js';
 
 const coverage = standardCoverage(process.cwd());
 
@@ -24,15 +24,14 @@ export default defineConfig({
      * not changed and nothing was wrong; the *machine* was the variable.
      *
      * A timeout that reports a loaded machine as a failing repository is a timeout
-     * people learn to re-run, and a gate that must be re-run provides nothing. 60s is
-     * headroom for the observed worst case, not a target: if a test here genuinely
-     * needs 60 s, the cost has moved somewhere it can be made cheaper.
+     * people learn to re-run, and a gate that must be re-run provides nothing.
      *
-     * This is not a weakened assertion. Nothing about what is checked changes; only
-     * how long the harness waits before saying so.
+     * The value and its rationale now live in `STANDARD_TEST_TIMEOUT_MS`, because
+     * sixteen other packages had reached the same wall and each had been given
+     * its own private number to remember.
      */
-    testTimeout: 60000,
-    hookTimeout: 60000,
+    testTimeout: STANDARD_TEST_TIMEOUT_MS,
+    hookTimeout: STANDARD_TEST_TIMEOUT_MS,
     // `all: true` with an explicit `include` is what makes an untested module
     // visible. Without it V8 reports only the files a test happened to import, so
     // deleting every test in a module would *raise* the reported coverage — and

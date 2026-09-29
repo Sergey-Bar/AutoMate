@@ -17,6 +17,7 @@
     "docs/quality/complexity-baseline.json",
     "docs/quality/findings-ledger.json",
     "docs/quality/findings-status.json",
+    "docs/migration/capability-register.md",
     "scripts/gate-tooling.json",
     ".semgrep.yml",
     ".gitleaks.toml",

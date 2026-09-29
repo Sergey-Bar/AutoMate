@@ -1,0 +1,18 @@
+{
+  "name": "@automate/docs",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "type": "module",
+  "description": "The Automate documentation site. The pages under src/ are curated; the reference pages are read from docs/ at build time, and the status pages are generated from machine-checked sources.",
+  "scripts": {
+    "build": "vitepress build .",
+    "dev": "vitepress dev .",
+    "preview": "vitepress preview .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vitepress": "^1.6.4"
+  }
+}
