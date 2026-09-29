@@ -1,48 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
-import { RunnerClient } from './client.js';
+import { describe, expect, it } from 'vitest';
 import { EncryptedSpool } from './spool.js';
 
-describe('RunnerClient', () => {
-  it('uses the one-time enrollment and scoped sync endpoints', async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ credential: 'credential', runnerId: 'runner-1' }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ jobs: [] }), { status: 200 }));
-    const client = new RunnerClient({
-      baseUrl: 'http://localhost:3000',
-      credential: 'credential',
-      fetchImpl: fetcher,
-    });
-    await expect(client.enroll('enrollment')).resolves.toEqual({
-      credential: 'credential',
-      runnerId: 'runner-1',
-    });
-    await client.sync({ runnerId: 'runner-1' });
-    expect(fetcher).toHaveBeenLastCalledWith(
-      'http://localhost:3000/api/v1/runner/v1/sync',
-      expect.objectContaining({
-        method: 'POST',
-        headers: expect.objectContaining({ authorization: 'Bearer credential' }),
-      }),
-    );
-  });
-
-  it('surfaces enrollment and sync failures', async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('{}', { status: 401 }));
-    const client = new RunnerClient({
-      baseUrl: 'http://localhost:3000',
-      credential: 'bad',
-      fetchImpl: fetcher,
-    });
-    await expect(client.enroll('bad')).rejects.toThrow('401');
-    await expect(client.sync({})).rejects.toThrow('401');
-  });
-});
-
+/**
+ * The `RunnerClient` cases that used to be here are gone with the class.
+ *
+ * They were green, and they were the only reason anyone believed the file was
+ * covered. `src/client.ts` was never imported by the runner binary, which uses
+ * `apps/runner/src/client.ts` — a different class with a different name — so the
+ * tests exercised a second implementation of a protocol the first one already
+ * owned. Two clients and two sets of tests for one endpoint pair is how a
+ * protocol change lands in one and silently misses the other.
+ */
 describe('EncryptedSpool', () => {
   it('round trips records and rejects a different key', () => {
     const key = Buffer.alloc(32, 7);

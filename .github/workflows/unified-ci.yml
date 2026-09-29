@@ -89,6 +89,12 @@ jobs:
         # first because a reviewer's eye is the only thing that reads prose, the
         # second because `JSON.parse` silently takes the last of a duplicated key.
         run: pnpm docs:check
+      - name: Dead exports
+        # `packages/runner-sdk/src/client.ts` was a second HTTP client for the
+        # runner protocol, imported by nothing, with its own passing test suite.
+        # Two clients and two suites for one endpoint pair is how a protocol change
+        # lands in one and silently misses the other.
+        run: pnpm docs:dead-exports
       - name: License check
         run: pnpm license:check
       - name: Audit
