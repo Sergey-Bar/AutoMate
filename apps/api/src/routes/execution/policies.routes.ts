@@ -22,11 +22,14 @@ import { parseBody } from './shared.js';
 import { PolicySchema } from './schemas.js';
 import { type ArtifactKind, type DomainName } from '../../execution/types.js';
 import { listIntegrationMaturity } from '../../execution/maturity.js';
-import { ensurePolicy } from './shared.js';
+import { ensurePolicy, parsePageQuery } from './shared.js';
 export function registerPolicyRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws } = context;
   app.get('/api/v1/quality-policies', async (c) => {
-    const policies = await options.store.listPolicies(ws);
+    // Capped like every other listing. `listPolicies` was unbounded, so a
+    // workspace with a long policy history returned all of it (ledger Q-50).
+    const { limit } = parsePageQuery(c.req.query('limit'), c.req.query('cursor'));
+    const policies = (await options.store.listPolicies(ws)).slice(0, limit);
     if (policies.length === 0) return c.json([await ensurePolicy(options.store, ws)]);
     return c.json(policies);
   });

@@ -75,11 +75,24 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       if (page.hasMore) c.header('X-Next-Cursor', pageCursor(last));
     }
     if (!options.legacyRepository) return c.json(page.runs.map(toCanonicalRun));
-    const legacy = await options.legacyRepository.listRuns();
+    // The legacy repository is asked for at most the remaining room on the page,
+    // not for the whole table.
+    //
+    // It used to be called with no arguments and its entire result concatenated
+    // into the response. The `!ids.has(run.id)` filter removed runs already on the
+    // page and nothing else, so the cap held only when no legacy repository was
+    // mounted — the deployment where nobody would have noticed (ledger Q-50).
+    //
+    // Two caps, because a caller asking for five gets five: the page is already
+    // `limit` long, and the legacy rows are whatever fills the rest.
+    const room = Math.max(0, limit - page.runs.length);
+    if (room === 0) return c.json(page.runs.map(toCanonicalRun));
+    const legacy = await options.legacyRepository.listRuns({ limit: room });
     const ids = new Set(page.runs.map((run) => run.id));
     return c.json([
       ...legacy
         .filter((run) => !ids.has(run.id))
+        .slice(0, room)
         .map((record) => toCanonicalRun(legacyRun(record))),
       ...page.runs.map(toCanonicalRun),
     ]);

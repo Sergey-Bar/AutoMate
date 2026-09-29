@@ -106,8 +106,11 @@ export class DrizzleRunRepository implements RunRepository {
     return this._mapRun(rows[0]);
   }
 
-  async listRuns(): Promise<RunRecord[]> {
-    const rows = await this.db.select().from(runs).orderBy(asc(runs.startedAt));
+  async listRuns(options?: { limit?: number }): Promise<RunRecord[]> {
+    // `limit` applied in the query rather than after it, so a capped read does not
+    // still pull the whole table across the wire first (ledger Q-50).
+    const query = this.db.select().from(runs).orderBy(asc(runs.startedAt));
+    const rows = options?.limit === undefined ? await query : await query.limit(options.limit);
     return rows.map((r) => this._mapRun(r));
   }
 

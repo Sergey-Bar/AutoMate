@@ -18,7 +18,7 @@ import { Hono } from 'hono';
 import { DomainError } from '../../errors/domain-error.js';
 import type { ExecutionRouteContext } from './shared.js';
 import type {} from './schemas.js';
-import { safeName } from './shared.js';
+import { parsePageQuery, safeName } from './shared.js';
 import { missingArtifact } from './shared.js';
 export function registerArtifactRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws } = context;
@@ -26,7 +26,12 @@ export function registerArtifactRoutes(app: Hono, context: ExecutionRouteContext
     const runId = c.req.param('runId');
     const run = await options.store.getRun(runId, ws);
     if (!run) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
-    return c.json(await options.store.listArtifacts(ws, runId));
+    // Capped like every other listing. A run that uploads a screenshot per step
+    // can have thousands of artifacts, and this route returned all of them with
+    // the whole body materialised in Node before the response was written
+    // (ledger Q-50).
+    const { limit } = parsePageQuery(c.req.query('limit'), c.req.query('cursor'));
+    return c.json((await options.store.listArtifacts(ws, runId)).slice(0, limit));
   });
 
   app.get('/api/v1/artifacts/:artifactId', async (c) => {

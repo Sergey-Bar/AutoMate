@@ -60,8 +60,9 @@ export class InMemoryRunRepository implements RunRepository {
     return this._runs.get(id) ?? null;
   }
 
-  async listRuns(): Promise<RunRecord[]> {
-    return Array.from(this._runs.values());
+  async listRuns(options?: { limit?: number }): Promise<RunRecord[]> {
+    const all = Array.from(this._runs.values());
+    return options?.limit === undefined ? all : all.slice(0, options.limit);
   }
 
   /**

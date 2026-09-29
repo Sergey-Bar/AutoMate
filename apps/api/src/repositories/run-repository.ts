@@ -188,10 +188,15 @@ export interface RunRepository {
   getRun(id: string): Promise<RunRecord | null>;
 
   /**
-   * Retrieve all run rows in insertion order.
-   * Returns an empty array when no runs exist.
+   * Retrieve run rows in insertion order, optionally capped.
+   *
+   * `limit` exists because `GET /api/v1/runs` merges this into a page it has
+   * already bounded, and reading the whole table to truncate it afterwards holds
+   * every row in Node — the cost the page's cap existed to avoid (ledger Q-50).
+   * Omitting it means "all", which is what the other callers want and what they
+   * got before.
    */
-  listRuns(): Promise<RunRecord[]>;
+  listRuns(options?: { limit?: number }): Promise<RunRecord[]>;
 
   /**
    * The dashboard's three numbers, aggregated.
