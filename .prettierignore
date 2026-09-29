@@ -7,12 +7,6 @@ node_modules/
 **/blob-report/
 **/.turbo/
 **/.vite/
-# VitePress build output and dependency-optimizer cache. `**/dist/` already covers
-# the output; the cache resolves to `node_modules/.vitepress`, which
-# `node_modules/` covers. The `outDir` is set to `dist` in
-# `site/.vitepress/config.mts` precisely so these two existing rules apply.
-site/.vitepress/cache/
-site/dist/
 **/.sisyphus/
 **/.artifacts/
 **/.kilo/

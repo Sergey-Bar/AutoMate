@@ -12,6 +12,7 @@ This is a **pnpm workspace monorepo** containing the unified Automate platform.
 | `apps/web`    | Unified Web             | React 19, Vite, TanStack Router, Tailwind CSS 4 |
 | `apps/runner` | Execution boundary      | Node, rootless process control                  |
 | `apps/worker` | Lease and recovery loop | Node, worker resilience                         |
+| `site`        | Documentation site      | VitePress                                       |
 
 The platform uses **pnpm 10+**, **Node.js 24+**, **TypeScript 5.9**, and **Vitest 4** for unit tests.
 
@@ -30,6 +31,7 @@ pnpm typecheck            # tsc --noEmit across all packages
 pnpm test                 # Vitest run across all packages
 pnpm verify               # Full gate: preflight + format + lint + typecheck + test + contract + integration + runner + coverage ratchet + build + db check + security
 pnpm verify:release       # pnpm verify + oci:verify
+pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm unify:preflight      # Pre-unification safety check
 ```
 
@@ -52,6 +54,7 @@ pnpm duplication          # jscpd
 pnpm complexity           # Complexity gate against docs/quality/complexity-baseline.json
 pnpm test:render          # Rendering budget: LCP, INP, CLS, long tasks on the four primary routes
 pnpm render:baseline      # RECORDS the rendering ceilings. Never in CI, by design
+pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm compose:config       # Resolves the canonical production compose file
 pnpm migrate:plan         # Builds the plan. Reads the repository, never a database
 pnpm migrate:validate     # Checks the migration graph against the journal
@@ -75,6 +78,27 @@ both directions:
   reviewers to read red as noise.
 - `recorded: true` — the same spec **compares** against the ceilings and fails on a
   regression, and `test:render` must be `pr-blocking`.
+
+### The static scanners, and the one way to run around them
+
+`security:static` exits non-zero when it cannot produce a scan, because an unrun
+security scan is not a pass. On a host where `semgrep` is pip-installed, answers
+`--version`, and never returns from `scan`, that makes `verify` unrunnable — and a
+developer who cannot run the other twelve steps is worse off than one who can.
+
+**`AUTOMATE_HOST_SCANNERS=unavailable`** (set for you by `pnpm verify:local`) records
+that as `not_configured` and exits 0. The boundary is narrow and machine-checked:
+
+- a scanner that **ran** and reported something still fails, with or without it;
+- a scanner **killed at the ceiling** counts as unavailable, never as clean — so a
+  ten-minute stall cannot become a green security gate;
+- `AUTOMATE_SCAN_TIMEOUT_MS` is clamped to [1 min, 1 h], because a ceiling small
+  enough to guarantee a kill is the same defect by another route;
+- **no file anywhere under `.github/` may set it**, composite actions included —
+  `auditRepository` reports it as a finding.
+
+`scripts/lib/host-scanners.mjs` holds the policy and `host-scanners.test.mjs` the
+proof. Extending the opt-in is a change to that module, not to a workflow.
 
 Graduating is one commit with two parts: record a real run, and raise the tier. The
 test refuses to pass if only one happened, so `recorded: true` beside invented numbers
@@ -128,7 +152,7 @@ pnpm --filter @automate/unified-web dev   # Web dev only
 
 ```bash
 pnpm --filter @automate/api exec vitest run src/routes/execution.test.ts
-pnpm --filter @automate/api exec vitest run src/routes/chat.test.ts -t "specific test name"
+pnpm --filter @automate/api exec vitest run src/routes/agents.test.ts -t "specific test name"
 ```
 
 **E2E tests (Playwright):**

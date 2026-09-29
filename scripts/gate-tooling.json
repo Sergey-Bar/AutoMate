@@ -119,7 +119,7 @@
     "security:static": {
       "requires": ["semgrep", "gitleaks"],
       "installedBy": ".github/actions/install-scanners",
-      "why": "Exits non-zero as not_configured when either scanner is absent. `AUTOMATE_HOST_SCANNERS=unavailable` relaxes that to exit 0 for a *missing* scanner, and it is deliberately never set in a workflow — a scanner that ran and found something still fails either way, and `gate-tooling.test.mjs` asserts no workflow sets it."
+      "why": "Exits non-zero as not_configured when either scanner is absent. `AUTOMATE_HOST_SCANNERS=unavailable` relaxes that to exit 0 for a *missing* scanner, and it is deliberately never set anywhere under `.github/` — including in the composite `install-scanners` action, whose step-scoped `env:` every later step in the calling job inherits. `gate-tooling.test.mjs` walks all of `.github/` and fails if any file there sets it, or if `AUTOMATE_SCAN_TIMEOUT_MS` is set small enough to guarantee a kill (a scanner killed at the ceiling is `unavailable`, which is what the opt-in turns into a pass); both are clamped in `scripts/lib/host-scanners.mjs`."
     },
     "security:secrets": {
       "requires": [],

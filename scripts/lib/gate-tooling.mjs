@@ -29,6 +29,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HOST_SCANNERS_ENV } from './host-scanners.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..', '..');
@@ -49,7 +50,9 @@ export const MANIFEST_PATH = path.join(root, 'scripts', 'gate-tooling.json');
  * @returns {string[]} paths relative to the repository root, `/`-separated
  */
 export function listActionFiles() {
+  /** @type {string[]} */
   const found = [];
+  /** @param {string} directory */
   const walk = (directory) => {
     let entries;
     try {
@@ -919,5 +922,36 @@ export function auditRepository() {
       );
     }
   }
+  findings.push(...auditHostDegradation());
   return findings;
+}
+
+/**
+ * The security gate must not be switched off in CI.
+ *
+ * `AUTOMATE_HOST_SCANNERS=unavailable` turns a scanner that cannot produce a scan
+ * into a recorded pass. That is a legitimate trade on a developer laptop and a
+ * defect in a pull request: CI is the only place the security scan is enforced, so
+ * a job that sets it reports green for a scan that never ran.
+ *
+ * Read over all of `.github/`, not `.github/workflows/`, because
+ * `install-scanners` is a composite action whose step-scoped `env:` every later
+ * step in the calling job inherits — a variable set there is set for the job
+ * running the gate.
+ *
+ * Read from raw text rather than the parsed `env`, because the argument for *not*
+ * setting it belongs in a comment beside the job, and a structured read would
+ * report that explanation as the violation it forbids.
+ *
+ * @returns {string[]}
+ */
+function auditHostDegradation() {
+  return listActionFiles()
+    .filter((file) => readFileSync(file, 'utf8').includes(HOST_SCANNERS_ENV))
+    .map(
+      (file) =>
+        `${path.relative(root, file).replaceAll('\\', '/')}: sets ${HOST_SCANNERS_ENV}, which turns a ` +
+        'scanner that could not scan into a pass. The scanners are installed and enforced in CI; the ' +
+        'degraded chain is `pnpm verify:local` and is deliberately not run here.',
+    );
 }

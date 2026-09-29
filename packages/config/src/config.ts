@@ -95,11 +95,11 @@ function secretSchema(variable: SecretVariable) {
  * was listening on — silently, because a failed fetch and a failed login render
  * the same thing on screen.
  *
- * So the proxy target reads the same `PORT` the API reads, and when `PORT` is
- * absent or unusable it falls back to the same schema default rather than
- * producing a URL that fails at request time. The two defaults are declared below
- * and `EnvironmentSchema` reads *those*, so there is one number in this
- * repository rather than three that have to agree.
+ * So the proxy target reads the same `PORT` the API reads, through the *same*
+ * `PORT_SCHEMA` below rather than a second copy of its rules — coercion,
+ * integer, and the 1–65535 range are stated once. When `PORT` is absent or
+ * unusable it falls back to the same default the API uses, so there is one
+ * number in this repository rather than three that have to agree.
  *
  * `HOST` is validated rather than interpolated, because it lands in a URL
  * authority. Unvalidated, `HOST=127.0.0.1:3000@evil.example.com` produces a
@@ -116,9 +116,8 @@ function secretSchema(variable: SecretVariable) {
  * @returns an `http://host:port` origin
  */
 export function apiProxyTarget(env: Record<string, string | undefined> = {}): string {
-  const raw = env['PORT'];
-  const parsed = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw);
-  const port = Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : DEFAULT_PORT;
+  const parsed = PORT_SCHEMA.safeParse(env['PORT']);
+  const port = parsed.success ? parsed.data : DEFAULT_PORT;
   return `http://${proxyHost(env['HOST'])}:${String(port)}`;
 }
 
@@ -140,9 +139,22 @@ function proxyHost(value: string | undefined): string {
   const host = value.trim();
   // A bracketed literal is already in its URL form; re-bracketing would double it.
   if (/^\[[0-9A-Fa-f:.]+\]$/.test(host)) return host;
-  if (/^[0-9A-Fa-f]*:[0-9A-Fa-f:.]+$/.test(host) && host.includes(':')) return `[${host}]`;
-  if (/^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(host)) return host;
-  return DEFAULT_HOST;
+  // A bare IPv6 literal is the one shape that legitimately contains colons.
+  // `host.includes(':')` is the discriminator rather than a pattern, because a
+  // single regex covering both the host and IPv6 shapes is ambiguous about which
+  // colon is the separator — and an ambiguous host parser is the bug this
+  // function exists to prevent.
+  if (host.includes(':')) {
+    return /^[0-9A-Fa-f:.]+$/.test(host) ? `[${host}]` : DEFAULT_HOST;
+  }
+  // A hostname or IPv4 literal: alphanumeric ends, and only `.`, `-`, `_` between.
+  // Written as three lookaheads rather than `([A-Za-z0-9._-]*[A-Za-z0-9])?` because
+  // that nested quantifier is the shape `security/detect-unsafe-regex` flags, and
+  // the rule is right to: it is genuinely ambiguous, and here the ambiguity would
+  // decide whether `HOST` names a host.
+  if (!/^[A-Za-z0-9._-]+$/.test(host)) return DEFAULT_HOST;
+  if (!/^[A-Za-z0-9]/.test(host) || !/[A-Za-z0-9]$/.test(host)) return DEFAULT_HOST;
+  return host;
 }
 
 /** The bind address the API uses when `HOST` is unset. */
@@ -151,10 +163,22 @@ export const DEFAULT_HOST = '127.0.0.1';
 /** The port the API uses when `PORT` is unset, and the port the web proxy targets. */
 export const DEFAULT_PORT = 3000;
 
+/**
+ * The one rule for what counts as a usable `PORT`.
+ *
+ * Declared before both its users on purpose. `EnvironmentSchema` and
+ * `apiProxyTarget` used to restate the same coercion, integer check, and 1–65535
+ * range independently — so widening the schema would have left the proxy
+ * validating the old rule, and nothing would have said so. `apiProxyTarget` is
+ * reached from `vite.config.ts`, which runs in a context that must not fail
+ * loudly, so it checks with `safeParse` and falls back rather than throwing.
+ */
+const PORT_SCHEMA = z.coerce.number().int().min(1).max(65535);
+
 const EnvironmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().min(1).default(DEFAULT_HOST),
-  PORT: z.coerce.number().int().min(1).max(65535).default(DEFAULT_PORT),
+  PORT: PORT_SCHEMA.default(DEFAULT_PORT),
   DATABASE_URL: z.string().url().optional(),
   COOKIE_SECRET: secretSchema('COOKIE_SECRET').optional(),
   SESSION_SECRET: secretSchema('SESSION_SECRET').optional(),

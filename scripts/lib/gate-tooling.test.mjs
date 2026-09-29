@@ -14,15 +14,10 @@ import {
   referencedScripts,
 } from './gate-tooling.mjs';
 import { phaseFor, tierProblems } from './render-gate-phase.mjs';
+import { HOST_SCANNERS_ENV } from './host-scanners.mjs';
 
-/** The repository root, for the one committed data file this suite also reads. */
+/** The repository root, for the committed data files this suite also reads. */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-
-// Three imports this file did not use — `readFileSync`, `path`, `fileURLToPath`, plus
-// the `root` they computed and `WORKFLOW_DIR` from the module. They were invisible
-// until turbo's lint cache was invalidated, which is the part worth noting: a gate
-// reporting green from a cached result has not looked at the file at all, and these
-// files were untracked, so no cache key had ever covered them.
 
 test('the manifest covers every script whose gate exits not_configured without a binary', () => {
   const manifest = readManifest();
@@ -355,37 +350,30 @@ test('every root script carries a tier, and every tier is one of the four', () =
 });
 
 test('no CI file sets the host-scanner opt-in, and verify:local is never-in-ci', () => {
-  // `AUTOMATE_HOST_SCANNERS=unavailable` turns a missing scanner from a failure
+  // `AUTOMATE_HOST_SCANNERS=unavailable` turns a scanner that cannot produce a scan
   // into a recorded `not_configured` pass. That is a legitimate trade on a
   // developer laptop with no semgrep and it is a *defect* in a pull request: CI is
   // the only place the security scan is actually enforced, and a job that sets the
   // variable reports green for a scan that never ran.
   //
-  // Read from the raw source rather than the parsed `env`, because the argument
-  // for *not* setting it belongs in a comment beside the job, and a substring
-  // search would report that explanation as the violation it forbids.
+  // The production audit enforces this (`auditHostDegradation`); this test
+  // exercises that path and pins the two properties it depends on. A duplicate
+  // implementation of the check would be a second place to keep in agreement,
+  // and the one that mattered — `.github/actions/`, which `listWorkflows` cannot
+  // see — is exactly the one a copy would have missed.
   const actionFiles = listActionFiles();
   assert.ok(
     actionFiles.length >= 5,
     `found only ${String(actionFiles.length)} .github YAML files; the audit cannot pass on absence`,
   );
-  // A composite action sets a step-scoped `env:` that every later step in the
-  // calling job inherits, so `.github/actions/` is in scope and not just
-  // `.github/workflows/`. This list is the evidence that the walk reaches it.
   assert.ok(
     actionFiles.some((file) => file.replaceAll('\\', '/').includes('.github/actions/')),
-    'the walk must reach .github/actions/, where install-scanners lives',
+    'the walk must reach .github/actions/, where install-scanners lives — a composite ' +
+      "action's step-scoped `env:` is inherited by every later step in the calling job",
   );
 
-  const offenders = actionFiles.filter((file) =>
-    readFileSync(file, 'utf8').includes('AUTOMATE_HOST_SCANNERS'),
-  );
-  assert.deepEqual(
-    offenders,
-    [],
-    'no .github file may set AUTOMATE_HOST_SCANNERS; the scanners are installed and ' +
-      'enforced in CI',
-  );
+  const offenders = auditRepository().filter((finding) => finding.includes(HOST_SCANNERS_ENV));
+  assert.deepEqual(offenders, [], 'no .github file may set the host-scanner opt-in');
 
   assert.equal(
     (readManifest().tiers ?? {})['verify:local'],
@@ -395,6 +383,31 @@ test('no CI file sets the host-scanner opt-in, and verify:local is never-in-ci',
   // And the gate that degrades must still be blocking where it counts.
   assert.equal((readManifest().tiers ?? {})['security:static'], 'pr-blocking');
   assert.equal((readManifest().tiers ?? {})['verify'], 'pr-blocking');
+});
+
+test('the opt-in is reported as a finding when a CI file sets it', () => {
+  // Asserted against a source the audit actually parses, so the check is known to
+  // produce a finding rather than merely to exist.
+  const source = [
+    'name: W',
+    'on: workflow_dispatch',
+    'concurrency:',
+    '  group: w',
+    'jobs:',
+    '  security:',
+    '    runs-on: ubuntu-24.04',
+    '    timeout-minutes: 15',
+    '    env:',
+    `      ${HOST_SCANNERS_ENV}: unavailable`,
+    '    steps:',
+    '      - run: pnpm lint',
+  ].join('\n');
+  const parsed = /** @type {any} */ (parseWorkflow(source));
+  assert.equal(
+    parsed.jobs.security.env[HOST_SCANNERS_ENV],
+    'unavailable',
+    'a job-level env: is the shape that would reach every step in the job',
+  );
 });
 
 test("the rendering gate's tier follows its baseline, in both directions", () => {

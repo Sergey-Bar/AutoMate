@@ -33,7 +33,23 @@ test('every application is named explicitly', () => {
 
 test('test files are scanned', () => {
   // A blanket test exclusion is how a real secret in a fixture goes unnoticed.
-  assert.ok(!SEMGREP_SCOPE.some((entry) => entry.includes('*.test')));
+  // Asserted positively — the two directories that hold tests must be in scope —
+  // rather than by pattern-matching a nine-element literal for a string no entry
+  // could contain, which proves nothing.
   assert.ok(SEMGREP_SCOPE.includes('e2e'));
   assert.ok(SEMGREP_SCOPE.includes('tests'));
+});
+
+test('a glob in a comment does not silently close it', () => {
+  // `* slash-star` inside a `slash-star slash-star` block comment *is* the comment
+  // terminator. Writing an exclude pattern literally in a doc comment therefore
+  // ends the comment early and the rest of the file parses as code — with the
+  // error reported at the end of the file, hundreds of lines from the cause.
+  //
+  // It happened here, and the only reason it was caught quickly is that
+  // `typecheck:scripts` and `node --check` both read the file. The assertion is
+  // that the module still loads: if a future comment reintroduces the glob, this
+  // fails at import rather than as a baffling syntax error three screens down.
+  assert.ok(semgrepDirectories().length > 0);
+  assert.ok(Array.isArray(SEMGREP_SCOPE));
 });

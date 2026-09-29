@@ -18,13 +18,12 @@ export default tseslint.config(
       '**/playwright-report/**',
       '**/test-results/**',
       '**/.kilo/**',
-      // VitePress's dependency-optimizer cache. It resolves to
-      // `node_modules/.vitepress`, so it is already covered by the rule above —
-      // this is here because the first attempt assumed it lived under
-      // `.vitepress/cache` and did not, and an ignore rule whose comment states a
-      // fact that is wrong is worse than no rule.
-      '**/.vitepress/cache/**',
-      '**/.vitepress/dist/**',
+      // `site/` needs nothing here. Its only source file is `.vitepress/config.mts`,
+      // the `**/*` blocks lint it, and its build output and dependency cache are
+      // already covered by the `dist/` and `node_modules/` rules above — which is
+      // what `outDir: 'dist'` in site/.vitepress/config.mts exists to keep true.
+      // An earlier revision added `**/.vitepress/cache/**` here, a comment that
+      // said the path could not exist, and left the rule in anyway.
     ],
   },
   eslint.configs.recommended,

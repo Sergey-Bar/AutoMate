@@ -4,7 +4,7 @@
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
-  "description": "The Automate documentation site. The pages under src/ are curated; the reference pages are read from docs/ at build time, and the status pages are generated from machine-checked sources.",
+  "description": "The Automate documentation site. A single VitePress shell: one curated home page, and no other pages yet.",
   "scripts": {
     "build": "vitepress build .",
     "dev": "vitepress dev .",
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "typescript": "catalog:",
     "vitepress": "^1.6.4"
   }

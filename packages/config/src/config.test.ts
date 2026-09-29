@@ -31,6 +31,23 @@ describe('apiProxyTarget', () => {
     expect(apiProxyTarget({})).toBe(`http://127.0.0.1:${String(parseConfig({}).port)}`);
   });
 
+  it('agrees with the API about which ports are usable, at the boundaries', () => {
+    // Both read the same `PORT_SCHEMA`, and this is what makes that a fact rather
+    // than a claim: every boundary is asserted against `parseConfig` itself, so
+    // widening the schema without widening the proxy (or the reverse) fails here.
+    for (const value of ['0', '1', '3000', '65535', '65536', '3000.5', '-1', 'abc', '']) {
+      let apiPort: number;
+      try {
+        apiPort = parseConfig({ PORT: value }).port;
+      } catch {
+        // The API refuses this port outright, so the proxy must not use it either.
+        expect(apiProxyTarget({ PORT: value })).toBe('http://127.0.0.1:3000');
+        continue;
+      }
+      expect(apiProxyTarget({ PORT: value })).toBe(`http://127.0.0.1:${String(apiPort)}`);
+    }
+  });
+
   it('falls back to the default rather than to an unusable URL', () => {
     // An unset, empty, or non-numeric PORT must not produce `:NaN` or
     // `:undefined`, which fail at request time with a DNS-shaped error rather
@@ -75,6 +92,19 @@ describe('apiProxyTarget', () => {
     expect(apiProxyTarget({ HOST: '' })).toBe('http://127.0.0.1:3000');
     expect(apiProxyTarget({ HOST: '   ' })).toBe('http://127.0.0.1:3000');
     expect(apiProxyTarget({ HOST: 'localhost' })).toBe('http://localhost:3000');
+  });
+
+  it('refuses a HOST whose first or last character is not alphanumeric', () => {
+    // The character set and the boundary rule are two different checks, and a
+    // single regex with a nested quantifier merges them — which is both the shape
+    // the security rule flags and the shape that made the original ambiguous.
+    // `.local` and `host-` pass the character check and must still be refused.
+    for (const value of ['.example.com', 'example.com.', '-host', 'host-', '_host', 'host_']) {
+      expect(apiProxyTarget({ HOST: value })).toBe('http://127.0.0.1:3000');
+    }
+    // And an already-bracketed literal is accepted in its URL form, not
+    // re-bracketed into `[[::1]]`.
+    expect(apiProxyTarget({ HOST: '[::1]' })).toBe('http://[::1]:3000');
   });
 
   it('is what the web dev proxy actually uses', () => {
