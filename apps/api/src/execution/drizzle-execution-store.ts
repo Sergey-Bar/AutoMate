@@ -1155,6 +1155,21 @@ export class DrizzleExecutionStore implements ExecutionStore {
       }
       const results: EventApplyResult[] = [];
       const outboxBatch: OutboxAppend[] = [];
+      // One run row per batch, written once after the loop.
+      //
+      // Every item here belongs to the same job and therefore the same run, so the
+      // loop used to issue an `UPDATE runs SET event_sequence = <sequence>` per
+      // item and the phase update per phase-bearing item: N round trips for one
+      // row, growing with the batch size, of which only the last write survived
+      // (ledger Q-49).
+      //
+      // Both are accumulated and applied once. "Last wins" is what the sequential
+      // writes did, and it is preserved exactly — including the case where a
+      // terminal phase is followed by a non-terminal one, which nulls the
+      // timestamps, because the accumulator takes the last *phase-bearing* item
+      // rather than the last item.
+      const eventSequenceByRun = new Map<string, number>();
+      const derivedStateByRun = new Map<string, ReturnType<typeof deriveRunState>>();
       for (const item of prepared) {
         if (item.duplicate) {
           results.push({
@@ -1208,10 +1223,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
             payload: input.payload ?? {},
           },
         });
-        await tx
-          .update(runs)
-          .set({ eventSequence: input.sequence, updatedAt: nowDate(this.options) })
-          .where(eq(runs.id, job.runId));
+        eventSequenceByRun.set(job.runId, input.sequence);
         const payload = input.payload ?? {};
         const requestedPhase = input.type === 'run.completed' ? 'complete' : payload['phase'];
         if (isRequestablePhase(requestedPhase)) {
@@ -1219,18 +1231,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           // taken independently from the payload. Writing them separately made
           // the CHECK unreachable by a client choice, rolled the transaction
           // back, and surfaced as a 500 for a merely malformed request.
-          const derived = deriveRunState(requestedPhase, payload['outcome']);
-          await tx
-            .update(runs)
-            .set({
-              phase: derived.phase,
-              outcome: derived.outcome,
-              status: derived.status,
-              completedAt: derived.terminal ? nowDate(this.options) : null,
-              finishedAt: derived.terminal ? nowDate(this.options) : null,
-              updatedAt: nowDate(this.options),
-            })
-            .where(eq(runs.id, job.runId));
+          derivedStateByRun.set(job.runId, deriveRunState(requestedPhase, payload['outcome']));
         }
         if (input.type === 'test.started' || input.type === 'test.completed') {
           const testId = stringValue(payload['testId'], eventId);
@@ -1261,6 +1262,28 @@ export class DrizzleExecutionStore implements ExecutionStore {
               },
             });
         }
+      }
+      for (const [runId, sequence] of eventSequenceByRun) {
+        const derived = derivedStateByRun.get(runId);
+        await tx
+          .update(runs)
+          .set({
+            eventSequence: sequence,
+            ...(derived
+              ? {
+                  phase: derived.phase,
+                  outcome: derived.outcome,
+                  status: derived.status,
+                  // Nulled rather than omitted, so a non-terminal phase after a
+                  // terminal one still clears the timestamps — the same row state
+                  // the sequential writes produced.
+                  completedAt: derived.terminal ? nowDate(this.options) : null,
+                  finishedAt: derived.terminal ? nowDate(this.options) : null,
+                }
+              : {}),
+            updatedAt: nowDate(this.options),
+          })
+          .where(eq(runs.id, runId));
       }
       await this.appendOutboxBatch(tx, outboxBatch);
       return results;
