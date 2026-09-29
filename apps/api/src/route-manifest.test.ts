@@ -9,6 +9,8 @@ import { createRunnerRoutes } from './routes/runner.js';
 import { createOrchestrationRoutes } from './routes/orchestration.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createAgentRoutes } from './routes/agents.js';
+import { createChatRoutes } from './routes/chat.js';
+import { aiGatewayOrUnconfigured } from './observability/ai-gateway.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createDashboardModule } from './modules/dashboard/index.js';
 import { createErrorBoundary } from './errors/boundary.js';
@@ -83,6 +85,19 @@ function mountedApp(): Hono {
     }),
   );
   app.route('/', createAgentRoutes());
+  // A gateway that refuses, because this suite is about the route set and a real
+  // one would need a provider. The route is the same either way — which gateway is
+  // the composition root's choice, not the route's — and the shared helper is used
+  // rather than a second unconfigured stub that could differ from it.
+  app.route(
+    '/',
+    createChatRoutes({
+      gateway: aiGatewayOrUnconfigured({
+        kind: 'none',
+        reason: 'no provider in the manifest test',
+      }),
+    }),
+  );
   app.route('/', createEventsRoutes({ bus, workspaceId: 'workspace-routes' }));
   app.route(
     '/',
@@ -190,6 +205,9 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/agents'],
   ['GET', '/api/v1/agents/:domain'],
   ['POST', '/api/v1/agents/:domain/:action'],
+  // Chat — the consumer `packages/automation` had no route for until now.
+  ['GET', '/api/v1/chat/models'],
+  ['POST', '/api/v1/chat/completions'],
   // Dashboard.
   ['GET', '/api/v1/dashboard/runs/:id'],
   ['PATCH', '/api/v1/dashboard/runs/:id/status'],

@@ -20,6 +20,8 @@ import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
 import { createAgentRoutes } from './routes/agents.js';
+import { createChatRoutes } from './routes/chat.js';
+import { aiGatewayOrUnconfigured, resolveAiGateway } from './observability/ai-gateway.js';
 import { InMemoryExecutionStore } from './execution/in-memory-execution-store.js';
 import { DrizzleExecutionStore } from './execution/drizzle-execution-store.js';
 import type { ExecutionStore } from './execution/types.js';
@@ -113,6 +115,27 @@ const app = new Hono();
  * reading the log has to know which of them produced the line it is looking at.
  */
 const logger = createLogger({ service: 'automate-api' });
+
+/**
+ * The one model provider decision, made here because this is the only place that
+ * knows which providers exist.
+ *
+ * Unconfigured is a gateway that refuses with a coded 503, not a missing one: an
+ * optional feature that is switched off should not be a deployment that will not
+ * start, and a client deserves a claim it can act on rather than a `null` the
+ * route has to guess about.
+ */
+const gatewayResolution = resolveAiGateway();
+const aiGateway = aiGatewayOrUnconfigured(gatewayResolution);
+if (gatewayResolution.kind === 'none') {
+  // Named at startup, because "chat 404s with a permission error" is a much longer
+  // diagnosis than "no model provider is configured".
+  logger.warn('chat is unconfigured and will refuse requests', {
+    reason: gatewayResolution.reason,
+  });
+} else {
+  logger.info('chat provider selected', { provider: gatewayResolution.kind });
+}
 
 /**
  * One error boundary for the whole app.
@@ -399,6 +422,7 @@ app.route(
   }),
 );
 app.route('/', createAgentRoutes());
+app.route('/', createChatRoutes({ gateway: aiGateway }));
 app.route(
   '/',
   createEventsRoutes({
