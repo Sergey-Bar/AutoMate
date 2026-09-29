@@ -95,27 +95,65 @@ function consoleSink(record: LogRecord): void {
 /**
  * Renders any value as something `JSON.stringify` accepts.
  *
- * Errors first, because that is the case that loses information silently.
- * Cycles get a marker rather than an exception.
+ * `ancestors` is a **path** set, not a seen set: a value is added before its
+ * children are walked and removed afterwards. That distinction is the whole
+ * difference between a cycle and a shared reference, and a diamond in an object
+ * graph is ordinary — a job and a lease both holding the same request, the same
+ * `Error` reachable from two branches. A set that was never unwound reported the
+ * second occurrence as `[circular]`, which is a false claim in the one artefact
+ * whose stated property is that the context survives.
+ *
+ * Errors are added to the path *before* their `cause` is walked, for the same
+ * reason: `error.cause = error` is legal, and the Error branch used to return
+ * before anything was tracked, so a self-referential cause recursed until the
+ * stack blew — from inside the failure handler, taking the request with it.
  */
-function serialisable(value: unknown, seen: WeakSet<object>): unknown {
+function serialisable(value: unknown, ancestors: WeakSet<object>): unknown {
   if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
-      ...(value.cause === undefined ? {} : { cause: serialisable(value.cause, seen) }),
-    };
+    if (ancestors.has(value)) return `${value.name}: ${value.message} [circular]`;
+    ancestors.add(value);
+    try {
+      return {
+        name: value.name,
+        message: value.message,
+        ...(value.stack === undefined ? {} : { stack: value.stack }),
+        ...(value.cause === undefined ? {} : { cause: serialisable(value.cause, ancestors) }),
+      };
+    } finally {
+      ancestors.delete(value);
+    }
   }
   if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) return '[circular]';
-  seen.add(value);
-  if (Array.isArray(value)) return value.map((item) => serialisable(item, seen));
-  const out: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    out[key] = serialisable(item, seen);
+  if (ancestors.has(value)) return '[circular]';
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => serialisable(item, ancestors));
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      out[key] = serialisable(item, ancestors);
+    }
+    return out;
+  } finally {
+    ancestors.delete(value);
   }
-  return out;
+}
+
+/**
+ * `serialisable`, wrapped so a value it cannot render becomes a marker rather than
+ * a throw.
+ *
+ * `serialisable` is defensive about cycles and self-referential causes, and that
+ * covers everything a plain object graph can do. It cannot cover a value whose
+ * *own* getter throws, or a Proxy that throws on `ownKeys` — and this runs inside
+ * the error handler, so a throw here replaces a coded 500 with an unhelpful crash
+ * in the process reporting the original one.
+ */
+function render(value: unknown, ancestors: WeakSet<object>): unknown {
+  try {
+    return serialisable(value, ancestors);
+  } catch (cause) {
+    return `[unrenderable: ${cause instanceof Error ? cause.message : 'unknown'}]`;
+  }
 }
 
 export function createLogger(options: LoggerOptions): Logger {
@@ -128,6 +166,10 @@ export function createLogger(options: LoggerOptions): Logger {
     });
 
   const emit = (level: LogLevel, msg: string, context: Record<string, unknown>): void => {
+    // One shared path set for the whole record, not one per top-level key: a
+    // value reachable from two keys is one value, and treating each key as its own
+    // universe would report the second one as circular.
+    const ancestors = new WeakSet<object>();
     const record: LogRecord = {
       time: now().toISOString(),
       level,
@@ -136,8 +178,8 @@ export function createLogger(options: LoggerOptions): Logger {
     };
     const collided: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(context)) {
-      if (RESERVED.has(key)) collided[key] = serialisable(value, new WeakSet());
-      else record[key] = serialisable(value, new WeakSet());
+      if (RESERVED.has(key)) collided[key] = render(value, ancestors);
+      else record[key] = render(value, ancestors);
     }
     if (Object.keys(collided).length > 0) record['fields'] = collided;
     try {

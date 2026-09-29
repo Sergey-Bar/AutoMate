@@ -1,11 +1,27 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-/** The repository root, for the committed data files this suite also reads. */
+/** The repository root, for the committed data file this suite also reads. */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
+
+/** The generator, the pages it writes, and the three sources it reads. */
+const SCRIPT = path.join(REPO_ROOT, 'scripts', 'build-site-pages.mjs');
+const FORMATTER = path.join(REPO_ROOT, 'scripts', 'format-generated.mjs');
+const SITE_PAGES = path.join(REPO_ROOT, 'site', 'pages');
+const REGISTER = path.join(REPO_ROOT, 'docs', 'migration', 'capability-register.md');
+const LEDGER = path.join(REPO_ROOT, 'docs', 'quality', 'findings-ledger.json');
+const BASELINE = path.join(REPO_ROOT, 'coverage-baseline.json');
 
 /**
  * Documentation a person reads to decide whether to trust this product.
@@ -225,40 +241,109 @@ test('the generated status pages are current, or a reader is reading a stale cla
   // claim more than the gates prove. That guarantee has one failure mode: the
   // generator stops running and the committed pages go on being read as live.
   //
-  // Regenerating and comparing is the check. It is run against a temporary copy
-  // rather than in place, so a failure leaves the working tree alone and the diff
-  // the developer sees is the one `pnpm site:generate` would produce.
-  const before = [
-    'pages/capabilities.md',
-    'pages/quality/findings.md',
-    'pages/quality/coverage.md',
-  ].map((page) => readFileSync(path.join(REPO_ROOT, 'site', page), 'utf8'));
+  // **Read-only, and that is the whole point.** The first version ran the generator
+  // and then compared, which regenerated the very files it was checking — so the
+  // check passed whatever the committed state was, and a failure left a modified
+  // working tree behind. In docs.yml it was worse: the workflow ran
+  // pnpm site:generate *before* pnpm docs:check, so the check was satisfied by
+  // construction and its own step comment was false.
+  //
+  // The comparison is therefore made against a copy. The generator resolves its
+  // output directory from its own location, so a copy of the script and of the pages
+  // is what gets run — which is what makes the whole thing read-only, because
+  // nothing writes back into the checkout.
+  // Inside the repository, under `node_modules/.cache`, for two reasons.
+  //
+  // `node_modules` is already git-ignored, so the copy is never a working-tree
+  // change — which is the property this check exists to have. And the generator
+  // resolves Prettier through the module system, which walks *up* from the running
+  // script: a copy under the OS temp directory cannot find it, because
+  // `C:\Users\...\Temp` is not below this repository and the walk ends at the drive
+  // root. The first attempt used `mkdtemp(os.tmpdir())` and failed with "Cannot find
+  // module 'prettier/bin/prettier.cjs'" — a check that cannot run is a check that
+  // passes for the wrong reason.
+  const temporary = mkdtempSync(path.join(REPO_ROOT, 'node_modules', '.cache', 'site-stale-'));
+  try {
+    mkdirSync(path.join(temporary, 'scripts'), { recursive: true });
+    mkdirSync(path.join(temporary, 'site'), { recursive: true });
+    copyFileSync(SCRIPT, path.join(temporary, 'scripts', 'build-site-pages.mjs'));
+    // The generator shells out to its formatter by name, so the copy needs it too —
+    // and because that one resolves Prettier through the module system, the copy
+    // still finds the installed package by walking up from itself.
+    copyFileSync(FORMATTER, path.join(temporary, 'scripts', 'format-generated.mjs'));
+    copyTree(SITE_PAGES, path.join(temporary, 'site', 'pages'));
+    // The generator reads the register, the ledger and the baseline, so a copy of
+    // those has to sit beside it or the copy is not a faithful reproduction.
+    mkdirSync(path.join(temporary, 'docs', 'migration'), { recursive: true });
+    mkdirSync(path.join(temporary, 'docs', 'quality'), { recursive: true });
+    copyFileSync(REGISTER, path.join(temporary, 'docs', 'migration', 'capability-register.md'));
+    copyFileSync(LEDGER, path.join(temporary, 'docs', 'quality', 'findings-ledger.json'));
+    copyFileSync(BASELINE, path.join(temporary, 'coverage-baseline.json'));
 
+    const output = runGeneratorIn(temporary);
+
+    const stale = ['capabilities.md', 'findings.md', 'coverage.md'].filter((name) => {
+      const relative = name === 'capabilities.md' ? name : 'quality/' + name;
+      const produced = path.join(temporary, 'site', 'pages', relative);
+      // A page the generator did not produce at all is stale in the strongest way.
+      if (!existsSync(produced)) return true;
+      return (
+        readFileSync(path.join(SITE_PAGES, relative), 'utf8') !== readFileSync(produced, 'utf8')
+      );
+    });
+
+    assert.deepEqual(
+      stale,
+      [],
+      'these generated pages are stale; run pnpm site:generate and commit the result: ' +
+        stale.join(', ') +
+        '. The generator produced: ' +
+        output.trim() +
+        '. The working tree was not modified.',
+    );
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+/**
+ * Copies a directory tree.
+ *
+ * `copyFileSync` does not take a directory, and `fs.cpSync` would have worked — this
+ * exists so the only thing the staleness check needs from `node:fs` is `readFileSync`
+ * and the handful of writers the copy itself uses.
+ *
+ * @param {string} from source directory
+ * @param {string} to   destination directory
+ */
+function copyTree(from, to) {
+  mkdirSync(to, { recursive: true });
+  for (const entry of readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    if (entry.isDirectory()) copyTree(source, target);
+    else copyFileSync(source, target);
+  }
+}
+
+/**
+ * Runs the copied generator, which resolves its output from its own location.
+ *
+ * @param {string} workingDirectory a directory holding scripts/, site/pages/ and the three data files
+ * @returns {string} the generator's stdout
+ */
+function runGeneratorIn(workingDirectory) {
   const result = spawnSync(
     process.execPath,
-    [path.join(REPO_ROOT, 'scripts', 'build-site-pages.mjs')],
+    [path.join(workingDirectory, 'scripts', 'build-site-pages.mjs')],
     {
-      cwd: REPO_ROOT,
+      cwd: workingDirectory,
       encoding: 'utf8',
     },
   );
-  assert.equal(result.status, 0, `site:generate failed: ${result.stderr}`);
-
-  const after = [
-    'pages/capabilities.md',
-    'pages/quality/findings.md',
-    'pages/quality/coverage.md',
-  ].map((page) => readFileSync(path.join(REPO_ROOT, 'site', page), 'utf8'));
-
-  const stale = ['capabilities', 'findings', 'coverage'].filter(
-    (name, index) => before[index] !== after[index],
-  );
-  assert.deepEqual(
-    stale,
-    [],
-    `these generated pages are stale; run \`pnpm site:generate\` and commit the result: ${stale.join(', ')}`,
-  );
-});
+  assert.equal(result.status, 0, 'site:generate failed against the copy: ' + result.stderr);
+  return result.stdout;
+}
 
 test('no document cites a path that does not exist', () => {
   // Neither of these was in a "planned" section, and both were in documents a

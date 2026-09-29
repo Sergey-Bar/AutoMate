@@ -33,15 +33,27 @@ export interface ChatRoutesOptions {
   gateway: AiGateway;
 }
 
+/** The largest chat request accepted, in bytes. */
+export const MAX_CHAT_BODY_BYTES = 256 * 1024;
+
+/** How long one completion may run before the provider call is abandoned. */
+export const CHAT_TIMEOUT_MS = 120_000;
+
 const MessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system', 'tool']),
-  content: z.string(),
+  // Bounded per message as well as overall: an array of a million one-byte messages
+  // passes any count limit and still costs a provider a fortune, so the size of each
+  // one matters as much as the size of the request.
+  content: z.string().max(32_000),
 });
 
 const CompletionRequestSchema = z.object({
-  model: z.string().min(1, 'model is required'),
-  messages: z.array(MessageSchema).min(1, 'messages must not be empty'),
-  tools: z.array(z.unknown()).optional(),
+  model: z.string().min(1, 'model is required').max(200),
+  messages: z.array(MessageSchema).min(1, 'messages must not be empty').max(200),
+  // Optional, and it was briefly not: making it required refused every request
+  // that did not send tools, which is most of them. The count limit is only
+  // meaningful on the field that exists.
+  tools: z.array(z.unknown()).max(64).optional(),
 });
 
 export function createChatRoutes(options: ChatRoutesOptions): Hono {
@@ -73,6 +85,13 @@ export function createChatRoutes(options: ChatRoutesOptions): Hono {
 
   // ── POST /api/v1/chat/completions ──────────────────────────────────────
   app.post('/api/v1/chat/completions', async (c) => {
+    // Bounded before parsing, like the execution routes. `await c.req.json()`
+    // buffers the whole body, so an unbounded one is an unbounded allocation on a
+    // public endpoint.
+    const declared = Number(c.req.header('content-length') ?? '0');
+    if (Number.isFinite(declared) && declared > MAX_CHAT_BODY_BYTES) {
+      throw new DomainError('VALIDATION_FAILED', 'Request body is too large');
+    }
     let body: unknown;
     try {
       body = await c.req.json();
@@ -89,10 +108,29 @@ export function createChatRoutes(options: ChatRoutesOptions): Hono {
       );
     }
     const { model, messages, tools } = parsed.data;
+    // One controller per request, so an abandoned or timed-out response releases
+    // the provider call rather than leaving it streaming into nothing.
+    const controller = new AbortController();
+    c.req.raw.signal.addEventListener('abort', () => controller.abort(), { once: true });
 
     return streamSSE(c, async (stream) => {
+      // The request deadline disarms in its own `finally` as soon as `await next()`
+      // returns, and a `streamSSE` handler returns its `Response` before the body is
+      // consumed — so the 30s budget does not reach the provider call. That is the
+      // failure the deadline middleware exists to prevent, so the signal is derived
+      // here and the route is exempted from the middleware in `index.ts` so the
+      // intent is recorded rather than accidental.
+      const timeout = setTimeout(
+        () => controller.abort(new Error('chat deadline exceeded')),
+        CHAT_TIMEOUT_MS,
+      );
       try {
-        for await (const chunk of options.gateway.streamCompletion({ model, messages, tools })) {
+        for await (const chunk of options.gateway.streamCompletion({
+          model,
+          messages,
+          tools,
+          signal: controller.signal,
+        })) {
           await writeChunk(stream, chunk);
         }
         // The frame that says "this finished". Its absence is what makes a broken
@@ -109,6 +147,8 @@ export function createChatRoutes(options: ChatRoutesOptions): Hono {
             message: cause instanceof Error ? cause.message : 'The provider stream failed',
           }),
         });
+      } finally {
+        clearTimeout(timeout);
       }
     });
   });

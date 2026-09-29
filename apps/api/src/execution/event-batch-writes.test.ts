@@ -5,7 +5,7 @@ import path from 'node:path';
 /**
  * A batch of N events cost N unconditional `UPDATE runs` statements.
  *
- * `completeJob` walks the prepared batch and, for every item, issues
+ * `appendEvents` walks the prepared batch and, for every item, issues
  * `UPDATE runs SET event_sequence = <sequence>`. Every item in that loop belongs
  * to the same job and therefore the same run, so the loop writes the same row N
  * times and only the last write survives — N round trips for one row
@@ -19,20 +19,13 @@ import path from 'node:path';
  * for this would need a PGlite, a real job, a lease, and a prepared batch — and
  * the thing being pinned is that the write is not in the loop at all, which is
  * visible in the code and invisible in a mock's call log. The behavioural
- * guarantee that the last write wins is already covered by the store's own tests
- * for event application; what was missing was the shape of the write.
+ * guarantee that the last write wins is covered by the store's own event-application
+ * tests in `drizzle-execution-store.test.ts`, which is where a transformation that
+ * got the ordering wrong would actually be caught.
  */
 const source = readFileSync(path.join(import.meta.dirname, 'drizzle-execution-store.ts'), 'utf8');
 
-/**
- * The body of the per-event `for` loop, and nothing else.
- *
- * The first version sliced from the accumulators to the outbox append, which is
- * the whole method body — and therefore included the single post-loop write the
- * fix introduced, so it reported the fix as still broken. The region has to be the
- * loop itself, matched by brace depth: the assertion is "this write is not inside
- * the loop", and a slice that includes what comes after the loop cannot say that.
- */
+/** The body of the per-event `for` loop, and nothing else. */
 function completeJobLoop(): string {
   const open = source.indexOf('for (const item of prepared) {');
   expect(open, 'the per-event loop is still where it was').toBeGreaterThan(-1);

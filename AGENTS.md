@@ -177,6 +177,23 @@ pnpm db:migrate    # Apply the journal-ordered migration graph
 pnpm db:check      # drizzle-kit check — journal and schema agree
 ```
 
+### The findings that are waiting on a measurement, not on code
+
+Three rows in the ledger cannot be closed from a development host, and the reason
+is the same in each: the harness is complete and the _evidence_ is missing. They are
+listed here because a reader finding them in the ledger would otherwise re-derive
+why they are open.
+
+| Row        | What is built                                                                                                                                          | What is missing                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **RF-5**   | `pnpm migrate:rehearse` — dump, restore onto a clean instance, migrate **the copy**, re-open every sealed row through the product's own `vault-crypto` | One run against a real installation. CI has no second database, so a rehearsal there proves `pg_dump` is installed                                                             |
+| **RF-9**   | `performance/thresholds.json` with a cross-check against the k6 scenario, so a changed threshold and an unchanged record each fail the gate            | Observed numbers. `recorded: false`, so the gate protects drift from a baseline nobody measured                                                                                |
+| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks                                                                 | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
+
+None of these is closable by writing more code, and none should be closed on the
+strength of its harness. The tenancy wave (W7) must not start until RF-5 has one
+real run behind it — that is the D1 rule, and the blocker is evidence, not scope.
+
 ---
 
 ## Project Structure

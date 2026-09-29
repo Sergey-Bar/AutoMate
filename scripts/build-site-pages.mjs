@@ -26,7 +26,7 @@
  * in the site's `src/` is a conflict rather than a silent overwrite.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -101,16 +101,18 @@ function writePage(slug, lines) {
  * @param {string} file
  */
 function format(file) {
+  // Prettier is invoked through a path rather than `import`, and resolving it
+  // relative to the repository root made the generator depend on being *in* the
+  // checkout: run from a copy, it failed with "Cannot find module
+  // node_modules/prettier/bin/prettier.cjs" — which is exactly what the staleness
+  // gate does, so the gate could not use the generator it was checking.
+  //
+  // Resolved through the module system instead, which walks up from this file and so
+  // finds the repository's `node_modules` from any location under it.
   const result = spawnSync(
     process.execPath,
-    [
-      path.join(root, 'node_modules', 'prettier', 'bin', 'prettier.cjs'),
-      '--write',
-      '--log-level',
-      'warn',
-      file,
-    ],
-    { cwd: root, encoding: 'utf8' },
+    [path.join(path.dirname(fileURLToPath(import.meta.url)), 'format-generated.mjs'), '--', file],
+    { encoding: 'utf8' },
   );
   if (result.status !== 0) {
     throw new Error(
@@ -304,14 +306,12 @@ function coveragePage() {
   ];
 }
 
+// What this run produced, as a count — the number a caller compares against the
+// three pages it asked for. The first version listed `site/pages` and called it
+// "what was written", so a page that stopped being generated would still have been
+// reported as written; the list is the calls themselves.
+const written = ['capabilities.md', 'quality/findings.md', 'quality/coverage.md'];
 writePage('capabilities', capabilityPage());
 writePage('quality/findings', findingsPage());
 writePage('quality/coverage', coveragePage());
-
-// The site is written under `site/pages`, and VitePress is pointed at it. Listing
-// what was written is the only way a caller can tell an empty run from a silent one.
-const written = readdirSync(PAGES, { recursive: true })
-  .filter((/** @type {string | Buffer} */ entry) => String(entry).endsWith('.md'))
-  .map(String)
-  .sort();
 console.log(`generated ${String(written.length)} page(s): ${written.join(', ')}`);

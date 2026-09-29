@@ -372,7 +372,15 @@ app.use(
   '*',
   createRequestDeadline({
     budgetMs: Number(process.env['REQUEST_DEADLINE_MS'] ?? 30_000),
-    exemptPaths: ['/api/v1/events'],
+    exemptPaths: [
+      '/api/v1/events',
+      // A streaming completion outlives the handler that started it — the deadline
+      // disarms when the handler returns, while the body is still being consumed —
+      // so the middleware budget cannot reach the provider. The route carries its
+      // own, from `CHAT_TIMEOUT_MS`. Listed here so the exemption is a recorded
+      // decision rather than a gap nobody noticed.
+      '/api/v1/chat/completions',
+    ],
     onTimeout: ({ path, method, budgetMs }) =>
       console.error(`request exceeded its ${String(budgetMs)}ms deadline: ${method} ${path}`),
   }),

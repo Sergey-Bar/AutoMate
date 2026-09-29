@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -36,12 +37,18 @@ export default defineConfig(({ mode }) => {
           // dashboard whose API calls went nowhere, with no error to explain it.
           // `packages/config/src/config.test.ts` fails if a literal returns here.
           //
-          // Read with an empty prefix, so a `PORT` in a `.env` file is visible
-          // here too. The API has no dotenv loader, so today the two agree only
-          // when the variable is exported in the shell — which is exactly the
-          // condition a reader can silently fail to meet.
+          // Read with an empty prefix, from the **repository root** rather than
+          // Vite's own root.
+          //
+          // `loadEnv` resolves relative to the path it is given, and Vite's root is
+          // `apps/web` — so the obvious call reads `apps/web/.env*`, which nothing
+          // creates. The one `.env` file this repository has is `.env.example` at
+          // the root, and the API has no dotenv loader at all, so a `PORT` in a file
+          // is aspirational either way. The shell is the only place it can really
+          // come from, and the tests assert that the proxy and the API agree on the
+          // value they *do* get rather than pretending the file path works.
           target: apiProxyTarget({
-            ...loadEnv(mode, process.cwd(), ''),
+            ...loadEnv(mode, path.resolve(__dirname, '../..'), ''),
             ...process.env,
           }),
           changeOrigin: true,

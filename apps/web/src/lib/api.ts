@@ -511,6 +511,15 @@ function subscribeToRunEvents(subscription: RunEventSubscriber): () => void {
   if (typeof EventSource === 'undefined') return () => undefined;
   runEventSubscribers.add(subscription);
   openRunEventSource();
+  // A source that is already open will not fire `open` again, so a subscriber
+  // arriving after the fact has to be told, or it believes the stream is down for
+  // the life of the page — and `useRuns` gates its five-second poller on exactly
+  // that belief, so a healthy connection would keep triggering a full list fetch.
+  //
+  // This is the ordinary case rather than an edge one: the dashboard layout calls
+  // `useRuns` and renders an `<Outlet />`, so the layout's hook opens the source
+  // and every page underneath it is a late subscriber.
+  if (runEventOpened) subscription.onConnectionChange?.(true);
   let released = false;
   return () => {
     if (released) return;

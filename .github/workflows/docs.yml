@@ -48,15 +48,24 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Check the committed pages are current
+        # **Before** generating, and this ordering is the point.
+        #
+        # The first version ran `pnpm site:generate` first and `pnpm docs:check`
+        # second, which made the staleness check satisfied by construction: the
+        # generator had just rewritten the very files it was about to compare. The
+        # check is now read-only — it generates into `node_modules/.cache` and diffs
+        # — so running it here fails if the committed pages have drifted.
+        run: |
+          pnpm docs:check
+          pnpm docs:dead-exports
+
       - name: Generate the status pages
         # The capabilities, findings, and coverage pages are generated from
         # machine-checked sources, so they cannot claim more than the gates prove.
-        # `pnpm docs:check` then fails if the committed pages are stale, which is
-        # the failure mode of a generator that quietly stops running.
-        run: |
-          pnpm site:generate
-          pnpm docs:check
-          pnpm docs:dead-exports
+        # This step only exists so the deployed site matches the sources even if the
+        # check above somehow passed; the check above is the gate.
+        run: pnpm site:generate
 
       - name: Build
         run: pnpm --filter @automate/docs build

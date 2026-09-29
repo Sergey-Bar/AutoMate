@@ -225,6 +225,18 @@ describe('ThemeProvider', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
+  it('ignores a stored value that is not a theme', () => {
+    // `localStorage` is not a trusted input. A value left by an older build, written
+    // by another tab, or edited by hand used to be cast to `Theme` and written
+    // straight to `data-theme` — so an arbitrary string became an attribute no
+    // stylesheet matches, and the page rendered in no theme with nothing in the
+    // console to say why.
+    localStorage.setItem('automate-theme', 'neon');
+    const { result } = renderHook(() => useTheme(), { wrapper });
+    expect(result.current.theme).toBe('system');
+    expect(document.documentElement.getAttribute('data-theme')).not.toBe('neon');
+  });
+
   it('useTheme throws when called outside a ThemeProvider (covers context === undefined branch)', () => {
     // With createContext<...>(undefined), calling useTheme without a Provider throws
     expect(() => renderHook(() => useTheme())).toThrow(

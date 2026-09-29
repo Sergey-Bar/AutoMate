@@ -184,6 +184,47 @@ describe('the run event stream is shared, not duplicated per subscriber', () => 
     release();
   });
 
+  it('tells a late subscriber the connection is already live', async () => {
+    // The regression this shared source introduced, and the one the two-subscriber
+    // connection-count test could not see.
+    //
+    // `onopen` fires once per connection. A subscriber that arrives *after* the
+    // connection is open never sees it, so in `useRuns` its `isLiveRef` stays
+    // `false` and its five-second poller keeps fetching the list against a healthy
+    // stream — which is the exact duplicate work the poller was gated to avoid.
+    //
+    // This is the ordinary case rather than an edge one: the dashboard layout calls
+    // `useRuns` and renders an `<Outlet />`, so the layout's hook opens the source
+    // and every page underneath it is a late subscriber.
+    // The `EventSource` stub is already installed and the module state reset by
+    // `beforeEach`; `currentSources` is this test's view of it.
+    const first: boolean[] = [];
+    const second: boolean[] = [];
+
+    const releaseFirst = api.subscribeToRunEvents({
+      onEvent: () => undefined,
+      onConnectionChange: (live) => first.push(live),
+    });
+    const source = sources[0];
+    source?.onopen?.();
+    expect(first).toEqual([true]);
+
+    // Arrives now, while the connection is open and will not fire `open` again.
+    const releaseSecond = api.subscribeToRunEvents({
+      onEvent: () => undefined,
+      onConnectionChange: (live) => second.push(live),
+    });
+    expect(second, 'a late subscriber must be told the connection is live').toEqual([true]);
+
+    // And it follows a subsequent drop like any other subscriber.
+    source?.onerror?.();
+    expect(first).toEqual([true, false]);
+    expect(second).toEqual([true, false]);
+
+    releaseFirst();
+    releaseSecond();
+  });
+
   it('releasing twice does not close a connection another subscriber is reading', () => {
     // `useEffect` cleanup can run twice under React's strict-mode double-invoke,
     // and an unguarded second release would decrement the count to zero and take

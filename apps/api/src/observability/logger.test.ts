@@ -98,6 +98,66 @@ describe('the structured logger', () => {
     expect(record?.['failed']).toEqual([{ name: 'a' }, { name: 'b' }]);
   });
 
+  it('does not call a shared reference a cycle', () => {
+    // A diamond in an object graph is ordinary — a job and a lease both
+    // referencing the same request, the same `Error` reachable from two branches.
+    // The first version used a *seen* set that was never unwound, so the second
+    // occurrence of a shared object was reported as `[circular]`: a false claim
+    // in the one artefact whose stated property is that the context survives.
+    const { sink, records } = capture();
+    const log = createLogger({ sink, service: 'automate-api' });
+    const lease = { id: 'l-1', token: 'abc' };
+
+    log.error('lease lost', { context: { job: { lease }, held: lease } });
+
+    const record = records[0];
+    // Both branches carry the value, because both of them really do. Read through
+    // `context` — `held` is a key *inside* it, not a sibling, and the first version
+    // of this asserted a top-level `held` that does not exist.
+    const context = record?.['context'] as {
+      job: { lease: { token: string } };
+      held: { token: string };
+    };
+    expect(context.job.lease.token).toBe('abc');
+    expect(context.held.token).toBe('abc');
+    expect(JSON.stringify(record)).not.toContain('[circular]');
+  });
+
+  it('survives an Error whose cause is itself', () => {
+    // `error.cause = error` is legal, and the Error branch returned before
+    // `seen.add`, so the cause chain was never tracked and this recursed until
+    // the stack blew. The throw happened *before* the emit's own try, so it took
+    // down the request whose failure was being reported — the exact thing the
+    // logger's contract says cannot happen.
+    const { sink, records } = capture();
+    const log = createLogger({ sink, service: 'automate-api' });
+    const loop = new Error('boom');
+    loop.cause = loop;
+
+    expect(() => log.error('failed', { error: loop })).not.toThrow();
+    expect(records).toHaveLength(1);
+    expect(JSON.stringify(records[0])).toContain('boom');
+  });
+
+  it('keeps a repeated Error at two branches rather than calling the second one circular', () => {
+    const { sink, records } = capture();
+    const log = createLogger({ sink, service: 'automate-api' });
+    const shared = new Error('repeated');
+
+    log.error('two branches', { context: { direct: shared, nested: { inner: shared } } });
+
+    // Counted on the rendered *messages* rather than on a raw substring: an Error
+    // record carries the message in `message` and again inside `stack`, so a
+    // substring count sees four where there are two values.
+    const context = records[0]?.['context'] as {
+      direct: { message: string };
+      nested: { inner: { message: string } };
+    };
+    expect(context.direct.message).toBe('repeated');
+    expect(context.nested.inner.message).toBe('repeated');
+    expect(JSON.stringify(records[0])).not.toContain('[circular]');
+  });
+
   it('survives a circular value instead of throwing while reporting a failure', () => {
     // The worst possible moment for a `TypeError` from inside the logger: the
     // request has already failed, and the failure handler is what throws. A log

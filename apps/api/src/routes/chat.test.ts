@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createErrorBoundary } from '../errors/boundary.js';
-import { createChatRoutes } from './chat.js';
+import { createChatRoutes, MAX_CHAT_BODY_BYTES } from './chat.js';
 import type { AiGateway, CompletionChunk } from '@automate/automation';
 
 /**
@@ -158,6 +158,58 @@ describe('POST /api/v1/chat/completions', () => {
       body: 'not json',
     });
     expect(response.status).toBe(422);
+  });
+
+  it('refuses an over-large request before the provider is touched', async () => {
+    // `await c.req.json()` buffers the whole body, so an unbounded body is an
+    // unbounded allocation on a public endpoint — the execution routes bound this
+    // one the same way, and a chat endpoint is the cheaper one to attack.
+    const g = gateway();
+    const response = await app(g).request('/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(MAX_CHAT_BODY_BYTES + 1),
+      },
+      body: JSON.stringify({ model: 'k', messages: [{ role: 'user', content: 'x' }] }),
+    });
+    expect(response.status).toBe(422);
+    expect(g.streamCompletion).not.toHaveBeenCalled();
+  });
+
+  it('refuses a message too large to be a message', async () => {
+    // Bounded per message as well as overall: a hundred thousand one-byte messages
+    // passes any array limit and still costs a provider a fortune.
+    const g = gateway();
+    const response = await app(g).request('/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'k',
+        messages: [{ role: 'user', content: 'x'.repeat(32_001) }],
+      }),
+    });
+    expect(response.status).toBe(422);
+    expect(g.streamCompletion).not.toHaveBeenCalled();
+  });
+
+  it('hands the gateway an abort signal, so a completion can be abandoned', async () => {
+    // The request deadline disarms when the handler returns, and a `streamSSE`
+    // handler returns before the body is consumed — so without a signal of its own
+    // the only bound on a completion is however long the provider takes. Asserted
+    // on the shape rather than on the timing, because a test that waits out a
+    // timeout is a slow test that proves less.
+    const g = gateway();
+    await app(g).request('/api/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'k', messages: [{ role: 'user', content: 'hi' }] }),
+    });
+
+    const call = (g.streamCompletion as unknown as { mock: { calls: unknown[][] } }).mock
+      .calls[0]?.[0] as { signal: AbortSignal };
+    expect(call.signal).toBeInstanceOf(AbortSignal);
+    expect(call.signal.aborted).toBe(false);
   });
 
   it('reports a provider that fails mid-stream, rather than ending the stream cleanly', async () => {

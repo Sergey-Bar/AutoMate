@@ -35,6 +35,30 @@ function sourceFiles() {
 const RUNNER_SDK = path.join(REPO_ROOT, 'packages', 'runner-sdk');
 const CLIENT = path.join(RUNNER_SDK, 'src', 'client.ts');
 
+test('no shipped source file carries a raw NUL, or git stops showing diffs for it', () => {
+  // `useCommandActions.ts` was committed with two raw NUL bytes inside a template
+  // literal — the residue of a shell replacement that wrote `\0` literally. Git
+  // classifies a file containing NUL as binary, so that commit had **no line-level
+  // diff, no blame, and no reviewable content** for the exact change that fixed an
+  // infinite render loop. Nobody reviewing the change could have seen what it did.
+  //
+  // A binary-classified source file is not a style problem, so this is a gate: a
+  // change that fixes a real defect and then cannot be reviewed is a defect that
+  // ships unreviewed.
+  //
+  // **Test files are exempt, and one of them has to be.**
+  // `reporter-persistence.test.ts` contains `'report.json\0/../../etc/passwd'` as a
+  // *fixture*: a NUL in a path is the traversal it is testing for, and writing it as
+  // an escape would test a different string. So the rule is scoped to what ships.
+  const shipped = sourceFiles().filter(
+    (file) => !/\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !/\.test\.mjs$/.test(file),
+  );
+  const offenders = shipped
+    .filter((file) => readFileSync(file).includes(0))
+    .map((file) => path.relative(REPO_ROOT, file).replaceAll('\\', '/'));
+  assert.deepEqual(offenders, [], `source files containing a NUL byte: ${offenders.join(', ')}`);
+});
+
 test('the dead runner-sdk client is gone', () => {
   // `packages/runner-sdk/src/client.ts` targeted
   // `/api/v1/runner/v1/enroll` and `/sync`, which `apps/api/src/routes/runner.ts`
