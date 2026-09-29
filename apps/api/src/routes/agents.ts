@@ -1,7 +1,31 @@
 import { Hono } from 'hono';
+import { AgentRequestSchema } from '@automate/shared-contracts';
+import { AGENT_DOMAINS } from './agent-registry.js';
 
-const DOMAINS = new Set(['browser', 'api', 'load', 'security', 'mobile']);
-const ACTIONS = new Set(['generate', 'run', 'scan']);
+/**
+ * The registered domains and actions.
+ *
+ * Both are read from the contract that declares them, and the domains come from
+ * `agent-registry.ts` so `/api/v1/features` — which used to answer
+ * `features: {}` from a literal while this route listed five domains from a
+ * hand-written array — cannot report a different set. One process, two
+ * endpoints, one answer.
+ *
+ * They were hand-written arrays in this file beside the `AgentDomainSchema` and
+ * `AgentRequestSchema` that declare exactly those values, in a route that served
+ * them and imported neither. Adding a domain to the contract would have left this
+ * endpoint rejecting it while the contract said it existed, and nothing would
+ * have said so, because both files were individually correct. The same defect
+ * class the repository has already fixed twice ("the event allowlist is derived").
+ *
+ * `AgentRequestSchema.shape.action` rather than a second exported constant: the
+ * action vocabulary is a property of the request, so reading it from the request
+ * is what makes the two impossible to separate.
+ */
+const DOMAINS = new Set<string>(AGENT_DOMAINS);
+const ACTIONS = new Set<string>(
+  (AgentRequestSchema.shape['action'] as { options: string[] }).options,
+);
 
 /**
  * The one builder for all four agent failure bodies.
@@ -45,12 +69,24 @@ export function createAgentRoutes(): Hono {
   app.post('/api/v1/agents/:domain/:action', (c) => {
     const domain = c.req.param('domain');
     const action = c.req.param('action');
-    if (!DOMAINS.has(domain) || !ACTIONS.has(action)) {
+    // The two halves are refused separately. One opaque 404 for both meant a caller
+    // could not tell "I do not know this tool" from "that verb does not exist on
+    // any tool" — and the second is a bug in the caller that the first hides.
+    if (!DOMAINS.has(domain)) {
       const error = agentError(
         'not_implemented',
         404,
         'AGENT_ROUTE_NOT_FOUND',
         'Agent route is not implemented',
+      );
+      return c.json(error.body, error.httpStatus);
+    }
+    if (!ACTIONS.has(action)) {
+      const error = agentError(
+        'not_implemented',
+        404,
+        'AGENT_ACTION_NOT_FOUND',
+        `Action is not available on any agent. Supported: ${[...ACTIONS].join(', ')}`,
       );
       return c.json(error.body, error.httpStatus);
     }

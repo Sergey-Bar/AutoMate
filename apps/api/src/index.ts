@@ -49,6 +49,7 @@ import { createRequestDeadline } from './middleware/request-deadline.js';
 import { createSecurityHeaders } from './middleware/security-headers.js';
 import { getConfig } from './config.js';
 import { createSentryErrorReporter } from './observability/sentry.js';
+import { createLogger } from './observability/logger.js';
 import {
   assertInMemoryAllowed,
   checkProductionPolicy,
@@ -105,6 +106,15 @@ function createDashboardStores(): {
 const app = new Hono();
 
 /**
+ * The process's one log sink.
+ *
+ * Created here, at the composition root, and injected downward. Anywhere else it
+ * would be a second sink — and two sinks means two formats, so a deployment
+ * reading the log has to know which of them produced the line it is looking at.
+ */
+const logger = createLogger({ service: 'automate-api' });
+
+/**
  * One error boundary for the whole app.
  *
  * Without it, Hono's default handler produced a bare 500 for anything a handler
@@ -123,6 +133,13 @@ const errorBoundary = createErrorBoundary({
   // The boundary is the only place that knows whether a throw was a defect or a
   // refusal, so it is also the only place that decides what gets reported.
   reportError: createSentryErrorReporter(),
+  // The seam was declared, documented as injectable, and passed by nothing —
+  // so every failure in the API reached a `console.error(message, context)`:
+  // a message string and a loose object side by side, unparseable and
+  // unqueryable. Nothing could have caught it, because every test supplies its
+  // own collector and the test path was therefore always populated while the
+  // production path never was. `observability/logger.ts` is the one sink.
+  log: logger.error,
 });
 app.onError(errorBoundary.onError);
 app.notFound(errorBoundary.notFound);

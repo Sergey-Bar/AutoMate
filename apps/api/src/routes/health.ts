@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { sql } from 'drizzle-orm';
 import { createDbResources } from '@automate/db';
+import { AGENT_DOMAINS, agentAvailability } from './agent-registry.js';
 
 export interface HealthRouteOptions {
   databaseUrl?: string;
@@ -70,10 +71,20 @@ export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
   health.get('/ready', readiness);
 
   health.get('/api/v1/features', (c) => {
-    return c.json({
-      features: {} as Record<string, boolean>,
-      version: '1',
-    });
+    // Derived from the agent contracts rather than a literal.
+    //
+    // This returned `features: {}` from a hard-coded object, which is a hard-coded
+    // answer to "what can this build do?" — it reported none of the five agent
+    // domains the same process serves on `/api/v1/agents`, so the two endpoints
+    // contradicted each other and both were wrong. Deriving it means a domain
+    // added to `AgentDomainSchema` is advertised the moment the contract changes.
+    //
+    // `available` is what a client can act on: no domain has a configured
+    // execution adapter, so every entry is `false`. That is the honest answer and
+    // it is derived from the same registry the dispatch uses, not typed in twice.
+    const features: Record<string, boolean> = {};
+    for (const domain of AGENT_DOMAINS) features[`agent.${domain}`] = agentAvailability(domain);
+    return c.json({ features, version: '1' });
   });
 
   return health;

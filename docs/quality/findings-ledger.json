@@ -1040,7 +1040,6 @@
     {
       "id": "F-4",
       "title": "Two reporter adapters build test ids from different key pairs",
-      "band": "Major",
       "provenance": "hand",
       "status": "fixed",
       "band": "Minor",

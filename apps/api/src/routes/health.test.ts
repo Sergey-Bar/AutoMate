@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createHealthRoutes } from './health.js';
+import { createAgentRoutes } from './agents.js';
+import { AGENT_DOMAINS } from './agent-registry.js';
 import { syntheticConnectionString } from '../test-support/synthetic-credentials.js';
 
 /**
@@ -232,10 +234,41 @@ describe('what a readiness response is allowed to say', () => {
 });
 
 describe('the capability manifest', () => {
-  it('answers publicly, with the version and an empty feature set', async () => {
+  it('answers publicly, with the version and a derived feature set', async () => {
     const response = await createHealthRoutes().request('/api/v1/features');
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ features: {}, version: '1' });
+    const body = (await response.json()) as {
+      features: Record<string, boolean>;
+      version: string;
+    };
+    expect(body.version).toBe('1');
+    // Every domain the contract declares is advertised, and every one is reported
+    // `false` — no domain has a configured execution adapter today.
+    //
+    // This was `toEqual({ features: {}, version: '1' })`: the empty object *was*
+    // the assertion, so the endpoint was required to claim the platform had no
+    // features while `/api/v1/agents` in the same process listed five agent
+    // domains. A test encodes a defect just as effectively as code does.
+    expect(Object.keys(body.features).sort()).toEqual(
+      AGENT_DOMAINS.map((domain) => `agent.${domain}`).sort(),
+    );
+    expect(Object.values(body.features).every((available) => available === false)).toBe(true);
+  });
+
+  it('reports the same domains the agent routes serve', async () => {
+    // The two endpoints used to disagree because each carried its own copy of the
+    // answer. They read one registry now, and this is what says so.
+    const features = (await (await createHealthRoutes().request('/api/v1/features')).json()) as {
+      features: Record<string, boolean>;
+    };
+    const listed = (await (await createAgentRoutes().request('/api/v1/agents')).json()) as {
+      integrations: Array<{ domain: string }>;
+    };
+    expect(
+      Object.keys(features.features)
+        .map((key) => key.replace('agent.', ''))
+        .sort(),
+    ).toEqual(listed.integrations.map((item) => item.domain).sort());
   });
 });
