@@ -135,6 +135,96 @@ describe('ThemeProvider', () => {
     expect(document.documentElement.getAttribute('data-theme')).toBe('light');
   });
 
+  it('follows an OS theme change while in system mode', () => {
+    // The provider asked `matchMedia` once and returned. A reader who has not
+    // chosen a theme — the default, and the only setting that promises to follow
+    // the system — got the OS's answer at page load and nothing after it, so
+    // switching the OS to dark at 6pm left them staring at a white page until they
+    // reloaded. Nothing was wrong and nothing looked wrong (ledger W-9).
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    let matches = false;
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        get matches() {
+          return matches;
+        },
+        media: query,
+        onchange: null,
+        addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+          listeners.add(listener);
+        },
+        removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+          listeners.delete(listener);
+        },
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    const { unmount } = renderHook(() => useTheme(), { wrapper });
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+    expect(listeners.size).toBe(1);
+
+    act(() => {
+      matches = true;
+      for (const listener of listeners) {
+        listener({ matches: true } as MediaQueryListEvent);
+      }
+    });
+
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark');
+
+    // And back again, which is the direction nobody tests.
+    act(() => {
+      matches = false;
+      for (const listener of listeners) {
+        listener({ matches: false } as MediaQueryListEvent);
+      }
+    });
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+
+    // Unsubscribing, so a provider that unmounts and remounts does not accumulate
+    // listeners — each one keeps a closure alive for the life of the page.
+    unmount();
+    expect(listeners.size).toBe(0);
+  });
+
+  it('stops following the OS once a theme is chosen explicitly', () => {
+    // An explicit choice overrides the system, so a later OS change must not undo
+    // it. A provider that kept its listener would fight the reader.
+    const listeners = new Set<(event: MediaQueryListEvent) => void>();
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+          listeners.add(listener);
+        },
+        removeEventListener: (_type: string, listener: (event: MediaQueryListEvent) => void) => {
+          listeners.delete(listener);
+        },
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    const { result } = renderHook(() => useTheme(), { wrapper });
+    expect(listeners.size).toBe(1);
+
+    act(() => {
+      result.current.setTheme('light');
+    });
+    expect(listeners.size).toBe(0);
+
+    act(() => {
+      for (const listener of listeners) {
+        listener({ matches: true } as MediaQueryListEvent);
+      }
+    });
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light');
+  });
+
   it('useTheme throws when called outside a ThemeProvider (covers context === undefined branch)', () => {
     // With createContext<...>(undefined), calling useTheme without a Provider throws
     expect(() => renderHook(() => useTheme())).toThrow(

@@ -29,19 +29,37 @@ export function ThemeProvider({
 
   useEffect(() => {
     const root = window.document.documentElement;
-
-    if (theme === 'system') {
-      const systemTheme =
-        typeof window !== 'undefined' &&
-        window.matchMedia &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light';
-      root.setAttribute('data-theme', systemTheme);
+    if (theme !== 'system') {
+      root.setAttribute('data-theme', theme);
       return;
     }
 
-    root.setAttribute('data-theme', theme);
+    // In system mode the OS is the source of truth, so this subscribes rather than
+    // asking once.
+    //
+    // It used to ask once and return, which meant a reader on the default theme —
+    // the only setting that promises to follow the system — got the answer at page
+    // load and nothing after it. Switching the OS to dark at 6pm left them on a
+    // white page until they reloaded, and nothing looked wrong (ledger W-9).
+    if (typeof window === 'undefined' || !window.matchMedia) {
+      root.setAttribute('data-theme', 'light');
+      return;
+    }
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    // One named handler, referenced by both `addEventListener` and the cleanup.
+    // A second arrow in the cleanup would not be the same function, so
+    // `removeEventListener` would silently do nothing and the listener would
+    // outlive the provider.
+    const onChange = (event: MediaQueryListEvent) =>
+      root.setAttribute('data-theme', event.matches ? 'dark' : 'light');
+    root.setAttribute('data-theme', query.matches ? 'dark' : 'light');
+    query.addEventListener('change', onChange);
+    // Unsubscribed, or a provider that unmounts and remounts — which a route
+    // change does — leaves a listener behind holding a closure for the life of
+    // the page, and each of them would write the attribute again.
+    return () => {
+      query.removeEventListener('change', onChange);
+    };
   }, [theme]);
 
   const setTheme = (newTheme: Theme) => {
