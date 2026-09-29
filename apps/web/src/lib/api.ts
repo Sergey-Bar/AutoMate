@@ -98,6 +98,22 @@ export function isAbortError(error: unknown): boolean {
   );
 }
 
+/**
+ * A request this client could not build.
+ *
+ * The mirror of {@link ResponseContractError}, and separate from it for the reason
+ * that one exists: a response that does not match the contract is the server's to
+ * answer for, while a request the client cannot build is this application's own
+ * bug. Before this existed, `ZodError` arrived as a bare `Error` and every hook
+ * passed it through, so a reader saw a JSON dump of the schema (ledger W-6).
+ */
+export class RequestContractError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RequestContractError';
+  }
+}
+
 /** Per-request cancellation, threaded from a hook's `AbortController`. */
 export interface RequestOptions {
   signal?: AbortSignal;
@@ -534,7 +550,13 @@ export const defaultApiClient: ApiClient = {
   getRun: (id, options) =>
     getJson(`/api/v1/runs/${encodeURIComponent(id)}`, NormalizedRunSchema, options),
   createRun: async (requestBody, options) => {
-    const input = CreateRunRequestSchema.parse(requestBody);
+    const built = CreateRunRequestSchema.safeParse(requestBody);
+    if (!built.success) {
+      throw new RequestContractError(
+        'The run request could not be built: ' + describeSchemaIssues(built.error),
+      );
+    }
+    const input = built.data;
     return parse(
       await request(
         await fetch(

@@ -31,6 +31,23 @@ export class DrizzleSessionStore {
     return id;
   }
 
+  /**
+   * The valid session for a token hash, touching `lastUsedAt` on the way.
+   *
+   * **Ledger S-5: a column that was declared and never written.** `last_used_at` was
+   * in the schema, absent from the insert, selected here and dropped by the mapping in
+   * `session-backend.ts` — so a session's idleness could not be observed by anything,
+   * which is the whole point of storing it.
+   *
+   * The touch is what makes the column mean something, and it is deliberately on the
+   * *read* path: a session's last use is when it was last validated, because that is
+   * the only moment anyone proves the token is still good. A separate heartbeat would
+   * be a second source of truth that could disagree with the first.
+   *
+   * It costs one `UPDATE` on a row that is already being read, and it happens on
+   * validation rather than on every request: an unauthenticated request never gets
+   * here, so an endpoint that is being hammered anonymously writes nothing.
+   */
   async findValid(tokenHash: string, now: Date) {
     const rows = await this.db
       .select()
@@ -43,7 +60,18 @@ export class DrizzleSessionStore {
         ),
       )
       .limit(1);
-    return rows[0];
+    const row = rows[0];
+    if (row === undefined) return undefined;
+    await this.touch(row.id, now);
+    // The value we just wrote, not the one the `SELECT` returned. Returning the
+    // pre-touch row would make the column permanently one validation behind: a
+    // caller reading it back sees when the session was used *before* this request,
+    // which is the opposite of what the column is for.
+    return { ...row, lastUsedAt: now };
+  }
+
+  private async touch(id: string, now: Date): Promise<void> {
+    await this.db.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, id));
   }
 
   async revoke(id: string, now: Date): Promise<boolean> {

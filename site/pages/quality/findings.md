@@ -10,22 +10,21 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ---------------- | ---- |
 | `debt`           | 1    |
 | `false-positive` | 4    |
-| `fixed`          | 99   |
-| `open`           | 17   |
+| `fixed`          | 101  |
+| `open`           | 15   |
 
-## Open (17)
+## Open (15)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
-| Major   | 12   |
-| Minor   | 4    |
+| Major   | 11   |
+| Minor   | 3    |
 
 | ID       | Band    | Finding                                                                                                               |
 | -------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | `RF-5`   | Blocker | The rehearsal harness that blocks the tenancy wave does not exist, and nothing tracked it                             |
 | `Q-53`   | Major   | PBKDF2 is synchronous on the request path and sealing always misses the cache                                         |
-| `W-6`    | Major   | A missing run renders null and a 404 is detected by string-matching an error message                                  |
 | `O-4b`   | Major   | No /metrics endpoint and no metrics library                                                                           |
 | `O-5b`   | Major   | Readiness cannot report a failed store                                                                                |
 | `C-2`    | Major   | The capability register contradicts itself and two of its real rows cite dead evidence                                |
@@ -36,7 +35,6 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `RF-10`  | Major   | The E2E suite runs on one engine, so a rendering defect in another is invisible                                       |
 | `RF-11`  | Major   | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does                                |
 | `PERF-1` | Major   | The rendering budget exists and has never been measured, so the gate is red by design                                 |
-| `S-5`    | Minor   | lastUsedAt is a dead column                                                                                           |
 | `D-4`    | Minor   | node --test interference between the scripts/lib suites                                                               |
 | `C-1`    | Minor   | The plan's verified-fixed list carries no evidence for thirteen of its seventeen rows                                 |
 | `RF-12`  | Minor   | A plan claim that `vitest-axe` is unused is false, and acting on it would delete working accessibility infrastructure |

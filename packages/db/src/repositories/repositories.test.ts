@@ -108,6 +108,36 @@ describe('DrizzleSessionStore', () => {
     expect(await sessions.findValid(tokenHash, ISSUED)).toBeUndefined();
   });
 
+  it('records when a session was last used, so idleness is observable', async () => {
+    // Ledger S-5. `last_used_at` was in the schema, absent from the insert, selected
+    // and then dropped by the mapping — so nothing could read a session's idleness,
+    // which is the only reason to store it.
+    //
+    // The touch is on the *read* path, and that placement is the assertion: a
+    // session's last use is when it was last validated, because that is the only
+    // moment anyone proves the token is still good. A separate heartbeat would be a
+    // second source of truth that could disagree with the first.
+    const installationId = '00000000-0000-4000-8000-000000000104';
+    const tokenHash = '8'.repeat(64);
+    await sessions.create({
+      installationId,
+      tokenHash,
+      issuedAt: ISSUED,
+      expiresAt: EXPIRES,
+    });
+
+    // Each validation moves the column to the instant it was given, and hands back
+    // the value it wrote rather than the one the `SELECT` read — a row returned
+    // from before its own touch would make the column permanently one validation
+    // behind, which is the opposite of what it is for.
+    const first = new Date('2026-01-01T09:30:00.000Z');
+    expect((await sessions.findValid(tokenHash, first))?.['lastUsedAt']).toEqual(first);
+
+    // A later validation moves it again, so it is a running "last use" and not a
+    // value written once at issue.
+    const later = new Date('2026-01-01T18:00:00.000Z');
+    expect((await sessions.findValid(tokenHash, later))?.['lastUsedAt']).toEqual(later);
+  });
   it('deletes sessions issued before the cutoff and keeps the rest', async () => {
     // Ledger S-2 and S-7. Nothing in the repository deleted from `sessions`, so the
     // table grew with every sign-in for the life of the installation; `revoke` only

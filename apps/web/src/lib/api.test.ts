@@ -5,6 +5,7 @@ import {
   isAbortError,
   resetRunEventStream,
   resetSessionExpiry,
+  RequestContractError,
   ResponseContractError,
   setSessionExpiredResponder,
   subscribeToSessionExpired,
@@ -815,7 +816,31 @@ describe('default session expiry responder', () => {
     await expect(defaultApiClient.getRuns()).rejects.toMatchObject({ status: 401 });
 
     // Reloading the login page would reproduce the same expired session and
-    // assign the same URL again — the loop this latch exists to prevent.
+    // assign the same URL again â€” the loop this latch exists to prevent.
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('reports an unbuildable request as ours, and sends nothing', async () => {
+    // Ledger W-6. `createRun` used `CreateRunRequestSchema.parse`, which throws a
+    // bare `ZodError` — and that *is* an `Error`, so every hook's
+    // `caught instanceof Error ? caught : â€¦` passed it through and the UI rendered
+    // `error.message`. For Zod that message is a JSON dump of every field that
+    // disagreed, so a reader saw schema internals for a failure that is a bug in
+    // this application.
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 201 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    // A body missing a required field: the client cannot build a valid request.
+    const broken = { projectId: 'web' } as never;
+    await expect(defaultApiClient.createRun(broken)).rejects.toBeInstanceOf(RequestContractError);
+    await expect(defaultApiClient.createRun(broken)).rejects.toThrow(/could not be built/);
+    // And the distinction is not just the message: a response the *server* sent is
+    // the server's to answer for, and stays `ResponseContractError`.
+    await expect(defaultApiClient.createRun(broken)).rejects.not.toBeInstanceOf(
+      ResponseContractError,
+    );
+    // Nothing is sent — a request that cannot be built is a client bug, and firing
+    // a malformed one would turn it into a server error instead.
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

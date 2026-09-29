@@ -1003,12 +1003,23 @@
       "title": "lastUsedAt is a dead column",
       "band": "Minor",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W3.3",
       "summary": "`lastUsedAt` is declared and never written or read, so a session's idleness cannot be observed.\n\n**Confirmed by reading the code, 2026-09-28.** `packages/db/src/schema/identity.ts:47` declares `lastUsedAt`. The `create`\ninsert omits it, `findValid` selects it but `session-backend.ts:43-50` drops it when\nmapping, and `SessionRecord` (`credentials.ts:66-73`) does not declare it at all, so\nthe in-memory service cannot observe idleness even in principle. The same column is\nalso dead on `installation_keys` (`:28`) and `service_credentials` (`:66`).\n**Note:** this is a schema/domain gap, *not* the same decision as S-6, despite the\nshared theme — producing `lastUsedAt` does not consume `SESSION_RETENTION_DAYS`.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`last_used_at` is written, and it is written on the read path. `findValid` now touches the row as it validates it, so a session's last use is the last moment anyone proved the token was still good — which is the only moment \"last use\" means anything. It was previously declared in the schema, omitted from the insert, selected, and then dropped by the mapping in `session-backend.ts`, so a session's idleness could not be observed by anything, which is the only reason to store it. Two properties are deliberate: the touch happens on validation rather than on every request, so an endpoint being hammered anonymously writes nothing; and the row handed back carries the value just written, not the one the `SELECT` read, because a row returned from before its own touch would leave the column permanently one validation behind — the opposite of what it is for.",
+      "evidence": [
+        {
+          "path": "packages/db/src/repositories/session-repository.ts",
+          "asserts": "`findValid` touches `lastUsedAt` and returns the post-touch row; the comment says why the write belongs on the read path and why a separate heartbeat would be a second source of truth."
+        },
+        {
+          "path": "packages/db/src/repositories/repositories.test.ts",
+          "asserts": "A first validation records its instant, and a later one moves it again — so it is a running \"last use\" and not a value written once at issue."
+        }
+      ]
     },
     {
       "id": "S-6",
@@ -1945,7 +1956,7 @@
       "title": "A missing run renders null and a 404 is detected by string-matching an error message",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.8",
       "summary": "`run-detail.tsx:193` renders `null`, `:179` matches on `error.message` while the API returns a distinct `code` (`boundary.ts:159`), and `lib/api.ts:104` uses `schema.parse`, so a `ZodError` reaches the user verbatim.\n\n**Confirmed by reading the code, 2026-09-28.** **Partly true, and one of the row's three claims is already stale — the row must not\nbe closed as a unit or it will claim a fix that was never made.** The\n`run-detail.tsx:193` `return null` is literally there, and `:179` does detect a 404\nby string-matching `error.message`. But the match works *only* because the server's\nEnglish prose contains \"not found\": the API returns a distinct\n`{ error: { code: 'RUN_NOT_FOUND', … } }`, and `lib/api.ts:255-273` reads only\n`body.error.message`, keeping `status` and **discarding `code`** — while\n`error.status === 404` is already available and unused. **The `schema.parse`/\n`ZodError` claim is fixed in the tree:** `api.ts:307-313` now uses `safeParse` and\nthrows `ResponseContractError`. The `return null` is defensive — a live component\nrarely reaches it — but it is the only unguarded state.\n\n**Half fixed, 2026-09-28 — and the other half was wrong.** A row that is only half right should\nsay which half, rather than being closed and claiming a fix that was never made.\n\n**Fixed: the 404 is matched on the status, not on the message.** The component read\n`error.message` looking for the words \"not found\". That worked only because the server's\nEnglish prose happened to contain them — the API sends a distinct\n`{ code: 'RUN_NOT_FOUND', message, requestId }` with a 404 status, and\n`lib/api.ts` discards the code while keeping the status. Translate the string, or reword\nit, and a missing run silently became a generic error.\n\nThe status is read through `error instanceof ApiError && error.status === 404` rather\nthan a cast, because the hook types the value as `Error` while storing an `ApiError`.\nAn error that is not an `ApiError` carries no status and falls through to the generic\nstate, which is the honest answer for an error of unknown provenance.\n\n**The row's own test was the bug.** The 404 case was built as\n`new Error('Run not found (404)')` — a plain Error whose *message* carried the words\nthe component matched on. That fixture made the string match look correct, and it would\nhave kept passing against a correctly fixed component. It is now `ApiError`, and the\ncase set is stronger: a 404 with French prose still resolves as \"not found\", and a 500\nwhose message says \"run not found\" is reported as a real failure. That second case is\nthe fail-before — before this change the message won.\n\n**Not fixed, and the row is wrong about it: the `return null` is unreachable, not\nmerely rare.** `useRunDetail` dereferences `run.releaseId` immediately after the fetch\n(`hooks/useDashboard.ts:131`), so a null run raises a TypeError inside the hook and\narrives at the component as an *error*. A guard that renders a blank page for a state\nthe code cannot produce is dead code, and the alternative — a rendered message — is one\nuncovered branch, which `apps/web` cannot absorb: this package sits at a floor that was\ndeliberately raised to 98.23, and the branch drops it to 98.10. Making the state\nreachable means optional-chaining the hook first, which is a real change with its own\nrisk and did not belong in the same pass. The guard keeps its original shape, and the\nreason it cannot yet be improved is written where a reader will find it.",
       "confirmed": true,
@@ -1953,14 +1964,15 @@
       "confirmedBy": "kilo:fail-before-verification",
       "evidence": [
         {
-          "path": "apps/web/src/routes/dashboard/run-detail.tsx",
-          "asserts": "A missing run is recognised by `error.status === 404` via an `instanceof ApiError` guard, not by searching the message for \"not found\". A 404 with any prose resolves as missing; a non-404 whose message happens to contain the phrase does not."
+          "path": "apps/web/src/lib/api.ts",
+          "asserts": "`RequestContractError` exists and is distinct from `ResponseContractError`; `createRun` uses `safeParse` and throws before any fetch."
         },
         {
-          "path": "apps/web/src/routes/dashboard/run-detail.test.tsx",
-          "asserts": "The 404 fixture throws a real `ApiError(message, 404)` rather than a plain `Error` whose message contained the matched words. Three cases: a 404 resolves as missing, a 404 with foreign-language prose resolves as missing, and a **500 whose message says \"run not found\"** is reported as a generic error — that last one is the fail-before, and before the change the message won."
+          "path": "apps/web/src/lib/api.test.ts",
+          "asserts": "An unbuildable body rejects with `RequestContractError`, not `ResponseContractError`, and no fetch was made."
         }
-      ]
+      ],
+      "resolution": "The row was partly stale and must not be closed as if all three claims were live. The 404 string-matching was already fixed — `run-detail.tsx` checks `error.status`, with a comment recording that. The `null` render for a missing run is a deliberate decision with a stated reason, not a defect. **The third claim was real**: `createRun` called `CreateRunRequestSchema.parse`, which throws a bare `ZodError`; a `ZodError` *is* an `Error`, so every hook's `caught instanceof Error ? caught : …` passed it through and the UI rendered `error.message`, which for Zod is a JSON dump of every field that disagreed. A reader saw a wall of schema internals for a failure that is a bug in this application. `RequestContractError` now names it, `createRun` uses `safeParse`, and nothing is sent — a request that cannot be built is a client bug, and firing a malformed one would turn it into a server error instead. The two errors stay separate because the distinction is the point: a response the *server* sent is the server's to answer for."
     },
     {
       "id": "W-7",
