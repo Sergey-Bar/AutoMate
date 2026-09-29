@@ -10,16 +10,16 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ---------------- | ---- |
 | `debt`           | 1    |
 | `false-positive` | 4    |
-| `fixed`          | 102  |
-| `open`           | 14   |
+| `fixed`          | 103  |
+| `open`           | 13   |
 
-## Open (14)
+## Open (13)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
 | Major   | 11   |
-| Minor   | 2    |
+| Minor   | 1    |
 
 | ID       | Band    | Finding                                                                                   |
 | -------- | ------- | ----------------------------------------------------------------------------------------- |
@@ -36,6 +36,5 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `RF-11`  | Major   | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does    |
 | `PERF-1` | Major   | The rendering budget exists and has never been measured, so the gate is red by design     |
 | `D-4`    | Minor   | node --test interference between the scripts/lib suites                                   |
-| `C-1`    | Minor   | The plan's verified-fixed list carries no evidence for thirteen of its seventeen rows     |
 
 <!-- /generated -->

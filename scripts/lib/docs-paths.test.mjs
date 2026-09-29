@@ -521,6 +521,57 @@ test('the unused-claim gate can see a claim, or it cannot fail', () => {
   assert.equal(isImported('a-package-nobody-imports'), false);
 });
 
+test('a "verified fixed" claim names something a reader can check', () => {
+  // Ledger C-1. The merged-leftover plan listed seventeen findings as "verified
+  // fixed — do not redo" and named **no evidence for any of them**. Two carried a
+  // path a reader could check; the other fifteen named only a row id — and every
+  // one of those ids (`P-1`, `P-2`, `45`, `R-2`, …) no longer resolves to anything,
+  // because the ledger was renumbered.
+  //
+  // A claim with no path cannot be machine-checked, which is the whole point of a
+  // ledger. So: a document that asserts something is *verified* must either name a
+  // path that exists, or the document must be one this gate already exempts as
+  // historical.
+  //
+  // The alternative — adding evidence to fifteen superseded claims — would be
+  // inventing provenance for fixes nobody re-verified. Marking the list as what it
+  // is, is the honest version.
+  const claims = [];
+  for (const doc of [...DOCS, ...PLAN_DOCS]) {
+    const text = readFileSync(path.join(REPO_ROOT, doc), 'utf8');
+    for (const line of text.split(/\r?\n/)) {
+      if (!/\bverified (?:fixed|resolved|complete|done)\b/i.test(line)) continue;
+      if (/\bnot\b.*\bverified\b/i.test(line)) continue;
+      // A *quoted* phrase is a described one. Decision F7 in the v2 plan is a
+      // finding *about* v3's list — it names the phrase to say that list has no
+      // evidence — and the gate read the description as a fresh claim. Same rule
+      // as the unused-claim gate, and for the same reason: a document must be able
+      // to write down the defect without tripping the check for it.
+      if (line.includes('"') || line.includes('“') || line.includes('”')) continue;
+      // A line that carries at least one existing backticked path satisfies the
+      // claim; a line that carries only identifiers does not.
+      //
+      // No regex for the path. `[\w./@-]+\.[a-z]+` is a quantifier over an
+      // overlapping character class followed by another, which
+      // `security/detect-unsafe-regex` flags — correctly, since which token it
+      // matched is ambiguous. So every backticked token is taken and `existsSync`
+      // decides, which is the question being asked anyway.
+      const cited = [...line.matchAll(/`([^`]+)`/g)]
+        .map((match) => match[1] ?? '')
+        .filter((token) => existsSync(path.join(REPO_ROOT, token.split(':')[0] ?? '')));
+      if (cited.length > 0) continue;
+      claims.push(`${doc}: "${line.trim().slice(0, 90)}"`);
+    }
+  }
+
+  assert.deepEqual(
+    claims,
+    [],
+    'documents asserting something is verified fixed with no checkable evidence:\n' +
+      claims.join('\n'),
+  );
+});
+
 test('no document cites a path that does not exist', () => {
   // Neither of these was in a "planned" section, and both were in documents a
   // reader follows: `AGENTS.md` gave a single-file test command against a file

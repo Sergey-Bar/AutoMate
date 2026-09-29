@@ -2324,9 +2324,20 @@
       "title": "The plan's verified-fixed list carries no evidence for thirteen of its seventeen rows",
       "band": "Minor",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W0.4",
-      "summary": "Plan §3 lists P-1, P-2, P-4, P-15, P-27, 45, 46, 48, 54, 58, F-1, F-2, F-3, R-2, the `makeApi()` typed defaults, the `Table.tsx` keyboard sort and the unknown-`NODE_ENV` rejection as verified fixed, and instructs that they not be redone. Two carry a path a reader can check today — R-2 at `durable-realtime-bus.test.ts` and the keyboard sort at `Table.test.tsx` — and the other fifteen name no evidence at all. A claim with no path cannot be machine-checked, which is the whole point of the ledger, so the claim itself is the open row. Closing it means adding one `fixed` row per finding with the test that proves it."
+      "summary": "Plan §3 lists P-1, P-2, P-4, P-15, P-27, 45, 46, 48, 54, 58, F-1, F-2, F-3, R-2, the `makeApi()` typed defaults, the `Table.tsx` keyboard sort and the unknown-`NODE_ENV` rejection as verified fixed, and instructs that they not be redone. Two carry a path a reader can check today — R-2 at `durable-realtime-bus.test.ts` and the keyboard sort at `Table.test.tsx` — and the other fifteen name no evidence at all. A claim with no path cannot be machine-checked, which is the whole point of the ledger, so the claim itself is the open row. Closing it means adding one `fixed` row per finding with the test that proves it.",
+      "resolution": "The list is withdrawn as evidence, and the general form is a gate. The merged-leftover plan listed seventeen findings as \"verified fixed — do not redo\" and named evidence for two. **Every one of the other fifteen identifiers no longer resolves** — the ledger was renumbered, so `P-1`, `P-2`, `45`, `R-2` and the rest are not rows in `docs/quality/findings-ledger.json` at all. A list that instructs a future reader not to redo work, on the strength of identifiers that point at nothing, is worse than no list: it forecloses the question without answering it. The list is struck through in place, with the withdrawal and the reason beside it, and the current state of those areas is left to the ledger — where a `fixed` row carries its evidence and `findings:check` reopens the claim if that evidence is deleted. Each of the fifteen fixes is deliberately *not* re-asserted: nobody re-verified them now, and claiming otherwise would be inventing provenance, which is the defect the row is about.\n\n`docs:check` now fails on any document asserting something is \"verified fixed\", \"resolved\" or \"done\" with no backticked path that exists. Verified by injecting such a claim into `CONTRIBUTING.md` and watching it fail.\n\nOne false positive on the way, and it is the interesting one: decision F7 in the v2 plan is a finding *about* this list — it names the phrase in order to say the list has no evidence — and the gate read the description as a fresh claim. A document has to be able to write down the defect without tripping the check for it, so a quoted phrase is skipped, the same rule the unused-claim gate uses.",
+      "evidence": [
+        {
+          "path": "scripts/lib/docs-paths.test.mjs",
+          "asserts": "A \"verified fixed\" claim with no checkable path is a finding, across README, AGENTS, CONTRIBUTING, CHANGELOG and every non-historical plan. Quoted phrases are skipped so a document can describe the defect without tripping it."
+        },
+        {
+          "path": ".kilo/plans/1790482134837-automate-merged-leftover-plan.md",
+          "asserts": "The list, struck through with the withdrawal and the reason beside it — including that none of its fifteen identifiers resolve against the current ledger."
+        }
+      ]
     },
     {
       "id": "C-2",
