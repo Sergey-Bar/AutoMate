@@ -83,6 +83,12 @@ jobs:
         run: pnpm typecheck
       - name: Migration check
         run: pnpm db:check
+      - name: Documentation drift
+        # A document citing a file that does not exist, or a JSON row declaring a
+        # key twice, is a claim the tree does not back. Both were invisible: the
+        # first because a reviewer's eye is the only thing that reads prose, the
+        # second because `JSON.parse` silently takes the last of a duplicated key.
+        run: pnpm docs:check
       - name: License check
         run: pnpm license:check
       - name: Audit

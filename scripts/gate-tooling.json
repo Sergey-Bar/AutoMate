@@ -65,6 +65,7 @@
     "license:check": "pr-blocking",
     "duplication": "pr-blocking",
     "complexity": "pr-blocking",
+    "docs:check": "pr-blocking",
     "docs:capability-register": "pr-blocking",
     "findings:check": "pr-blocking",
     "test:e2e": "pr-blocking",

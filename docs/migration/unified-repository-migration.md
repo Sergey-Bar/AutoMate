@@ -64,7 +64,7 @@ The unified repository is the only active development codebase. The pinned Dashb
 - `shared-contracts` has no first-party consumer. API and web maintain local, incompatible schemas.
 - Reporter, realtime, auth, and web symbols have multiple definitions.
 - Conversations, messages, model configuration, connectors, vault state, and agent sessions are not durably wired to the target database.
-- AI chat and test generation are deterministic mocks rather than provider-backed behavior: `apps/api/src/modules/orchestrator/chat.ts`, `apps/api/src/modules/orchestrator/test-gen.ts`, and `apps/api/src/modules/agents/`.
+- AI chat and test generation are not served at all rather than mocked: the provider port and two adapters exist at `packages/automation/src/ai-gateway.ts`, `packages/automation/src/kilo-gateway.ts`, and `packages/automation/src/ollama-gateway.ts`, but no route consumes them. The deterministic mocks this line originally described are gone.
 - The target assumes UUID run IDs while the API and source reporter accept arbitrary strings: `packages/db/src/schema/dashboard.ts:27-30,74-80,89-94` versus `apps/api/src/routes/reporter.ts` and the provisional Dashboard reporter.
 - The migration tool is a prototype row copier. It lacks source-engine adapters, durable checkpoints, transactions across waves, target catalog validation, reconciliation, artifact transfer, vault conversion, and rollback: `tools/migrate-cli/src/migrate.ts:223-278,319-374`.
 - Production config is read in two places and directly bypasses the config facade: `apps/api/src/config.ts:15-27`, `apps/api/src/index.ts:34-55,80-111`.
@@ -1212,7 +1212,7 @@ Each deferred item requires a separate ADR, acceptance criteria, and migration s
 - `apps/api/src/index.ts:34-111` — current composition and in-memory fallbacks.
 - `apps/api/src/config.ts:1-28` — current environment contract.
 - `apps/api/src/routes/reporter.ts` and `apps/api/src/realtime/realtime-bus.ts` — current local protocol and process-local transport.
-- `apps/api/src/modules/orchestrator/chat.ts`, `test-gen.ts`, and `modules/agents/browser.ts` — current mock behavior.
+- `packages/automation/src/ai-gateway.ts` and its two adapters — the current provider-backed chat and completion surface. It is not routed: no `/api/v1/chat` exists, which is the honest state rather than a mock.
 - `packages/db/src/schema/dashboard.ts:27-70,416-625` — current UUID run model and deferred identity/agent tables.
 - `tools/migrate-cli/src/migrate.ts:61-221,223-278,319-374` — current migration coverage and failure model.
 - `.gitignore:34-42` — nested legacy checkout and agent-state patterns that affect tracked routes.
