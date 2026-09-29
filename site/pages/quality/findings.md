@@ -8,18 +8,17 @@ loses its evidence — so a row here is a claim with a path behind it.
 
 | Status           | Rows |
 | ---------------- | ---- |
-| `debt`           | 1    |
+| `debt`           | 2    |
 | `false-positive` | 4    |
 | `fixed`          | 104  |
-| `open`           | 12   |
+| `open`           | 11   |
 
-## Open (12)
+## Open (11)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
 | Major   | 10   |
-| Minor   | 1    |
 
 | ID       | Band    | Finding                                                                                   |
 | -------- | ------- | ----------------------------------------------------------------------------------------- |
@@ -34,6 +33,5 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `RF-10`  | Major   | The E2E suite runs on one engine, so a rendering defect in another is invisible           |
 | `RF-11`  | Major   | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does    |
 | `PERF-1` | Major   | The rendering budget exists and has never been measured, so the gate is red by design     |
-| `D-4`    | Minor   | node --test interference between the scripts/lib suites                                   |
 
 <!-- /generated -->
