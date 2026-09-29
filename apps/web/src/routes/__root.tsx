@@ -1,5 +1,5 @@
 import React from 'react';
-import { Outlet, createRootRoute } from '@tanstack/react-router';
+import { Outlet, createRootRoute, redirect } from '@tanstack/react-router';
 import { NavBar } from '../components/NavBar.js';
 import { Sidebar } from '../components/Sidebar.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
@@ -7,6 +7,24 @@ import { GlobalCommandPalette } from '../components/GlobalCommandPalette.js';
 import { AuthGuard } from '../auth/AuthGuard.js';
 
 export const Route = createRootRoute({
+  /**
+   * `/` has no page; the command center is what a reader wants.
+   *
+   * Decided here, in `beforeLoad`, rather than by a rendered `<Navigate>` on a
+   * child route declared with `path: '/'`. That declaration made `/` match the
+   * child *and* the root, so every navigation re-ran matching, the rendered
+   * redirect re-rendered, and matching ran again — until React threw at fifty
+   * nested updates. `router.test.tsx` failed on a `waitFor` that reported a
+   * timeout, so the loop underneath it was invisible; the same test was observed
+   * at 1.5 s and then 15 s on consecutive runs of an unchanged tree.
+   *
+   * A redirect thrown from `beforeLoad` is a navigation decision rather than a
+   * render, so it happens once and cannot re-trigger itself. It also runs before
+   * the root component mounts, so `/` never paints a redirect at all.
+   */
+  beforeLoad: ({ location }) => {
+    if (location.pathname === '/') throw redirect({ to: '/dashboard' });
+  },
   component: RootComponent,
 });
 

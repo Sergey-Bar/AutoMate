@@ -17,6 +17,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
   const [testTitle, setTestTitle] = useState('');
   const [testFile, setTestFile] = useState('');
   const [reason, setReason] = useState('');
+  const [addError, setAddError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -45,6 +46,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
   const addAsync = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!testTitle || !testFile) return;
+    setAddError(null);
     try {
       await addQuarantine({ testTitle, testFile, reason: reason || undefined });
       setTestTitle('');
@@ -52,7 +54,16 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
       setReason('');
       setIsAdding(false);
     } catch (err) {
-      console.error(err);
+      // Shown, not just logged. This caught the failure with `console.error` and
+      // nothing else, so a rejected add — a 409 because the test is already
+      // quarantined, a 422 on the file path — left the form sitting there with
+      // the reader's text still in it and no indication that anything had been
+      // attempted. Submitting again is the obvious next move, and it fails the
+      // same way for the same invisible reason.
+      //
+      // The form is deliberately left populated: clearing the fields on a failure
+      // would discard the work, which is the second way to lose it.
+      setAddError(err instanceof Error ? err.message : 'Could not add the test to quarantine');
     }
   };
 
@@ -63,7 +74,10 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
         <button
           data-testid="add-quarantine-btn"
           className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700"
-          onClick={() => setIsAdding(!isAdding)}
+          onClick={() => {
+            setIsAdding(!isAdding);
+            setAddError(null);
+          }}
         >
           {isAdding ? 'Cancel' : 'Add to Quarantine'}
         </button>
@@ -133,6 +147,11 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
           >
             Submit
           </button>
+          {addError && (
+            <div role="alert" data-testid="quarantine-add-error" className="text-sm text-error">
+              {addError}
+            </div>
+          )}
         </form>
       )}
 
