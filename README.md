@@ -40,20 +40,21 @@ flowchart LR
     Runner["Runner SDK and OCI boundary"] --> Control["Orchestration and runner routes"]
     Control --> Contracts
 
-    AI["Kilo and Ollama gateway adapters"] -. "bounded local capability" .-> Control
+    AI["Kilo and Ollama gateway adapters"] -. "GET /api/v1/chat/models, POST completions" .-> Control
     Connectors["GitHub, Jira, and Slack adapters"] -. "not production-wired" .-> Control
 ```
 
-| Capability                     | Current state                                                                                             |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| Reporter ingestion             | **Implemented** — canonical, versioned, and legacy events; Playwright JSON and JUnit upload               |
-| Run persistence                | **Implemented** — Drizzle/PostgreSQL with an explicit in-memory development fallback                      |
-| RunExplorer and dashboard APIs | **Implemented** — run detail, tests, suites, analytics, quarantine, and quality gates                     |
-| Realtime                       | **Partial** — versioned SSE and replay boundary exist; API composition currently uses a process-local bus |
-| Authentication                 | **Partial** — revocable sessions and Drizzle storage exist; multi-instance and retention evidence remain  |
-| Runner and orchestration       | **Boundary only** — SDK, state machine, leases, and OCI files exist; production execution is not proven   |
-| AI and connectors              | **Boundary only** — provider/connector adapters exist without durable, provider-backed product flows      |
-| Deployment                     | **Local only** — loopback Compose assets exist; there is no approved production topology                  |
+| Capability                     | Current state                                                                                                                                                                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reporter ingestion             | **Implemented** — canonical, versioned, and legacy events; Playwright JSON and JUnit upload                                                                                                                                                                        |
+| Run persistence                | **Implemented** — Drizzle/PostgreSQL with an explicit in-memory development fallback                                                                                                                                                                               |
+| RunExplorer and dashboard APIs | **Implemented** — run detail, tests, suites, analytics, quarantine, and quality gates                                                                                                                                                                              |
+| Realtime                       | **Partial** — versioned SSE and replay boundary exist; API composition currently uses a process-local bus                                                                                                                                                          |
+| Authentication                 | **Partial** — revocable sessions and Drizzle storage exist; multi-instance and retention evidence remain                                                                                                                                                           |
+| Runner and orchestration       | **Boundary only** — SDK, state machine, leases, and OCI files exist; production execution is not proven                                                                                                                                                            |
+| AI chat                        | **Partial** — `/api/v1/chat/*` streams a completion through the `AiGateway` port; the provider is chosen at startup from `KILO_GATEWAY_URL`/`KILO_API_KEY` or `OLLAMA_BASE_URL`, and an unconfigured installation answers a coded 503 rather than failing to start |
+| Connectors                     | **Boundary only** — GitHub, Jira, and Slack adapters exist without durable, provider-backed product flows                                                                                                                                                          |
+| Deployment                     | **Local only** — loopback Compose assets exist; there is no approved production topology                                                                                                                                                                           |
 
 ## Quick start
 
@@ -173,7 +174,7 @@ Use [`.env.example`](.env.example) as the variable inventory. Never commit real 
 | `packages/reporting`                              | Framework-independent evidence, KPI, and quality-gate policies                                          |
 | `packages/realtime`                               | Versioned event envelopes, replay, and transport boundaries                                             |
 | `packages/orchestration`                          | Automation inventory, schedules, jobs, state transitions, and retry policy                              |
-| `packages/automation`                             | Kilo and Ollama gateway ports/adapters                                                                  |
+| `packages/automation`                             | Kilo and Ollama gateway ports/adapters, served at `/api/v1/chat/*`                                      |
 | `packages/runner-sdk`                             | Runner identity, heartbeat, job, lease, and event protocol                                              |
 | `packages/auth`, `packages/config`, `packages/db` | Identity/session rules, typed configuration, Drizzle schema, and migrations                             |
 | `packages/connectors`                             | GitHub, Jira, and Slack connector SDKs                                                                  |
@@ -230,11 +231,27 @@ Reporter events use their own `REPORTER_SECRET`. Control-plane routes require an
 
 The repository treats tests as part of the capability contract:
 
-- Vitest 4 powers unit and integration coverage with package-level thresholds.
+- Vitest 4 powers unit and integration tests, with **no per-package thresholds** — see
+  [Coverage](#coverage) for why the ratchet is the gate instead.
 - Playwright owns the API/browser vertical slice and product E2E suite.
 - Root Turborepo tasks enforce dependency and coverage boundaries.
 - `.github/workflows/unified-ci.yml` runs formatting, lint, typecheck, tests, security checks, migration checks, E2E, and builds.
 - Release-gate and nightly workflows cover the broader migration and platform checks.
+
+### Coverage
+
+There is no per-package Vitest threshold, and that is deliberate rather than an
+omission. Four packages sit well below the 90/80/90/90 that `STANDARD_THRESHOLDS`
+states, and a threshold that blocks every run gets raised until it means nothing.
+
+The gate is `pnpm coverage:ratchet`, which compares each package's measured
+coverage against `coverage-baseline.json` and **fails only on a regression**. The
+floor therefore only moves up, and lowering one to make room is not available as a
+way to pass. A newly-measured file has to be genuinely covered on the same pull
+request.
+
+`vitest.shared.ts` holds the measurements and the reasoning; `AGENTS.md` holds the
+per-package floors.
 
 Run the local gate before opening a pull request:
 
@@ -275,9 +292,16 @@ pnpm security:verify
 
 1. Branch from `main` and keep changes focused.
 2. Add or update executable evidence for every behavior change.
-3. Run `pnpm verify` and the relevant E2E suite.
+3. Run `pnpm verify` and the relevant E2E suite — or `pnpm verify:local` on a host
+   without `semgrep` and `gitleaks`, which runs the same chain with those two
+   scanners recorded as `not_configured`. It is never run in CI, where the
+   scanners are installed and enforced.
 4. Use Conventional Commit subjects enforced by the root tooling.
 5. Do not weaken tests, delete failing cases, or describe mock behavior as production-ready.
+
+`CONTRIBUTING.md` has the full rules, including the three-commit rule: write the
+test, run it with the defect still present, watch it fail for the reason you
+expect, then fix it. A test written only against fixed code is not evidence.
 
 ## License
 
