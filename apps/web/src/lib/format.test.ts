@@ -35,17 +35,24 @@ describe('formatDate', () => {
     // against "9/25/2026, 12:30" — and this product renders to an international
     // audience whose browser locale is not the author's. The date *value* is what
     // must be constant; the wording may follow the locale.
+    //
+    // The assertion is that the same instant renders to two *different local times*
+    // and that **both name a zone**. The first version asserted only `/:30/` on both,
+    // which any format containing the minute satisfies — so a format that dropped the
+    // zone entirely would have passed, which is the exact defect W-7a is.
     const original = process.env['TZ'];
     try {
       process.env['TZ'] = 'UTC';
       const utc = formatDate(value, 'x');
       process.env['TZ'] = 'Asia/Tokyo';
       const tokyo = formatDate(value, 'x');
-      // Both must still contain the same minute, and both must name a zone. A
-      // format that dropped the zone would make the two differ by nine hours with
-      // nothing in the output to explain it.
-      expect(utc).toMatch(/:30/);
-      expect(tokyo).toMatch(/:30/);
+
+      // Nine hours apart, so a format that silently dropped the zone would show the
+      // same wall-clock reading in both and fail here rather than pass.
+      expect(utc).not.toBe(tokyo);
+      // And each states which zone it is in, so the difference is explicable.
+      expect(utc).toMatch(/[A-Z]{2,5}$|UTC|GMT/);
+      expect(tokyo).toMatch(/[A-Z]{2,5}$|UTC|GMT/);
     } finally {
       if (original === undefined) delete process.env['TZ'];
       else process.env['TZ'] = original;

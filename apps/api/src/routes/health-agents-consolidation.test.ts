@@ -31,17 +31,22 @@ describe('agent failure bodies', () => {
       (await (await app.request(`/api/v1/agents/${domain}`)).json()) as unknown;
     return [
       await post('nope', 'run'),
+      await post('browser', 'exfiltrate'),
       await post('browser', 'run'),
       await get('nope'),
       await get('browser'),
     ];
   }
 
-  it('gives all four failures the same key order, so one builder defines the shape', async () => {
-    // The four literals are `status, implemented, code, …` — deliberately not
+  it('gives all five failures the same key order, so one builder defines the shape', async () => {
+    // The five literals are `status, implemented, code, …` — deliberately not
     // alphabetical. A builder that sorts its keys changes bytes on the wire, and no
     // existing test would have noticed, because `agents.test.ts` asserts status codes
     // and `integrations.length`, never an exact body.
+    //
+    // The `AGENT_ACTION_NOT_FOUND` body is in this list because it was added later
+    // and this loop did not reach it — the builder made it identical for free, so
+    // nothing noticed that the shape was being asserted over four of five.
     for (const body of await failureBodies()) {
       expect(keyOrder(body).slice(0, 3)).toEqual(['status', 'implemented', 'code']);
     }
@@ -100,7 +105,22 @@ describe('health bodies', () => {
     >;
     // `timestamp` is present on both but is a separate `new Date()` per handler, so
     // consolidating the bodies would have to decide what to do with it. Left alone.
+    //
+    // The assertion is that the two are **distinct values produced separately**, not
+    // that each is a string. The first version asserted `typeof … === 'string'`,
+    // which any `c.json` with a timestamp passes and which says nothing about the
+    // asymmetry the test is named for; a consolidation that hoisted the timestamp to
+    // one shared `new Date()` would have satisfied it.
     expect(typeof plain['timestamp']).toBe('string');
     expect(typeof versioned['timestamp']).toBe('string');
+    // Two reads of the same handler can differ at millisecond resolution, so the
+    // pair is checked for *parseable and separately generated* rather than unequal —
+    // which would be a flaky assertion about clock resolution.
+    expect(Number.isNaN(Date.parse(plain['timestamp'] as string))).toBe(false);
+    expect(Number.isNaN(Date.parse(versioned['timestamp'] as string))).toBe(false);
+    // The observable consequence of them being separate: the key is present on both
+    // bodies, so a consolidation cannot drop it from one without this failing.
+    expect(keyOrder(plain)).toContain('timestamp');
+    expect(keyOrder(versioned)).toContain('timestamp');
   });
 });

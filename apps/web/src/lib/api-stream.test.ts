@@ -145,13 +145,21 @@ describe('the run event stream is shared, not duplicated per subscriber', () => 
 
   it('reports connection state once for the connection, not per subscriber', () => {
     const changes: boolean[] = [];
+    const secondChanges: boolean[] = [];
     const reconnects: number[] = [];
     const releaseFirst = api.subscribeToRunEvents({
       onEvent: () => undefined,
       onConnectionChange: (live) => changes.push(live),
       onReconnect: () => reconnects.push(1),
     });
-    const releaseSecond = api.subscribeToRunEvents({ onEvent: () => undefined });
+    // **Both** subscribers carry the callback. The first version gave it only to the
+    // first, so `changes` could not have distinguished "one notification for the
+    // connection" from "one per subscriber" even if the loop had iterated per
+    // subscriber — the assertion was satisfied by a loop that reported N times.
+    const releaseSecond = api.subscribeToRunEvents({
+      onEvent: () => undefined,
+      onConnectionChange: (live) => secondChanges.push(live),
+    });
 
     const source = sources[0];
     source?.onopen?.();
@@ -165,6 +173,8 @@ describe('the run event stream is shared, not duplicated per subscriber', () => 
     // `[true, false]` on the reasoning that a reconnect is not a state change,
     // which is wrong: it is the one a view most needs to hear.
     expect(changes).toEqual([true, true, false]);
+    // The second subscriber heard exactly the same sequence — once each, not twice.
+    expect(secondChanges).toEqual([true, true, false]);
     // The reconnect itself is reported once, because it is a property of the
     // connection rather than of a view.
     expect(reconnects).toHaveLength(1);

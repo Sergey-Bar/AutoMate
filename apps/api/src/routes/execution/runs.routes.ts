@@ -75,16 +75,21 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       if (page.hasMore) c.header('X-Next-Cursor', pageCursor(last));
     }
     if (!options.legacyRepository) return c.json(page.runs.map(toCanonicalRun));
-    // The legacy repository is asked for at most the remaining room on the page,
-    // not for the whole table.
+    // The legacy rows are served on the **first page only**.
     //
-    // It used to be called with no arguments and its entire result concatenated
-    // into the response. The `!ids.has(run.id)` filter removed runs already on the
-    // page and nothing else, so the cap held only when no legacy repository was
-    // mounted — the deployment where nobody would have noticed (ledger Q-50).
+    // `RunRepository.listRuns` takes a `limit` but no `after`, so paging re-read the
+    // head of the legacy table every time: page 1 was `[legacy-0…legacy-9, db-1]`
+    // and page 2 was `[legacy-0…legacy-9, db-2]` — the same ten rows on every page,
+    // forever. The cap that fixed Q-50 made this worse rather than better, because a
+    // truncated page plus a repeating head is worse than a long repeating one.
     //
-    // Two caps, because a caller asking for five gets five: the page is already
-    // `limit` long, and the legacy rows are whatever fills the rest.
+    // Serving them once is also the honest shape. The legacy repository is a
+    // migration bridge over a static historical set, not a second page of a
+    // paginated sequence, and the response carries **one** `X-Next-Cursor` for what
+    // is logically two sources. A second cursor would have to be threaded through a
+    // header the client does not read, to describe rows that do not change.
+    if (cursor) return c.json(page.runs.map(toCanonicalRun));
+    // At most the room left on the page, so a caller asking for five gets five.
     const room = Math.max(0, limit - page.runs.length);
     if (room === 0) return c.json(page.runs.map(toCanonicalRun));
     const legacy = await options.legacyRepository.listRuns({ limit: room });

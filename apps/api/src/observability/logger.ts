@@ -84,10 +84,11 @@ const RESERVED = new Set(['time', 'level', 'msg', 'service', 'fields']);
 /** The default sink: diagnostics on stderr, everything else on stdout. */
 function consoleSink(record: LogRecord): void {
   const line = JSON.stringify(record);
-  // `console.info` rather than `console.log`: both write to stdout, and the lint
-  // rule allows `info` while forbidding `log` in product code. A logger is exactly
-  // the case where the rule's intent — no stray `log` calls to debug with — does
-  // not apply, and picking `info` keeps the exemption at zero.
+  // `console.info` rather than `console.log`: the root `no-console` rule allows
+  // `warn`, `error` and `info` and forbids `log` in product code, and both write to
+  // stdout. A logger is exactly the case where the rule's intent — no stray `log`
+  // calls to debug with — does not apply, and picking an allowed method keeps the
+  // exemption at zero rather than opening a per-file one.
   if (record.level === 'error' || record.level === 'warn') console.error(line);
   else console.info(line);
 }
