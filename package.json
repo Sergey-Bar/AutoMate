@@ -62,6 +62,7 @@
     "test:coverage": "turbo run test -- --coverage && node ./scripts/write-coverage-provenance-all.mjs",
     "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs",
     "docs:capability-register": "node ./scripts/capability-register.mjs",
+    "site:generate": "node ./scripts/build-site-pages.mjs",
     "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/ledger-json.test.mjs",
     "docs:dead-exports": "node --test scripts/lib/dead-exports.test.mjs",
     "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline"

@@ -67,6 +67,7 @@
     "complexity": "pr-blocking",
     "docs:check": "pr-blocking",
     "docs:dead-exports": "pr-blocking",
+    "site:generate": "pr-blocking",
     "docs:capability-register": "pr-blocking",
     "findings:check": "pr-blocking",
     "test:e2e": "pr-blocking",

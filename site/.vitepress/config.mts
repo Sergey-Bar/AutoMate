@@ -21,13 +21,46 @@ export default defineConfig({
   outDir: 'dist',
   cleanUrls: true,
   lastUpdated: true,
+  // `srcDir` points at `site/pages`, not at the package root.
+  //
+  // The home page is `site/index.md` because VitePress resolves `/` from the
+  // srcDir, so it has to be in the same place as everything else — and it is,
+  // because a *generated* file cannot be written into the package root without a
+  // build step that would fight the checkout. `pnpm site:generate` writes the
+  // status pages here; the three of them carry a marker and the generator refuses
+  // to overwrite a page without one, so a hand-written page is a conflict rather
+  // than something a build overwrites.
+  srcDir: '.',
   themeConfig: {
-    // One page exists. VitePress does not validate `themeConfig` links, so a nav
-    // entry pointing at an unwritten page builds green and ships a 404 — which
-    // is how a stub site starts making claims it cannot back. Adding a page and
-    // its entry is one change, on purpose.
-    nav: [{ text: 'Home', link: '/' }],
-    sidebar: [{ text: 'Home', link: '/' }],
+    nav: [
+      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Architecture', link: '/architecture' },
+      { text: 'Operations', link: '/operations' },
+      { text: 'Capabilities', link: '/pages/capabilities' },
+      { text: 'Findings', link: '/pages/quality/findings' },
+      { text: 'Coverage', link: '/pages/quality/coverage' },
+    ],
+    sidebar: [
+      {
+        text: 'Guide',
+        items: [{ text: 'Getting started', link: '/guide/getting-started' }],
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Architecture', link: '/architecture' },
+          { text: 'Operations', link: '/operations' },
+        ],
+      },
+      {
+        text: 'Status',
+        items: [
+          { text: 'Capabilities', link: '/pages/capabilities' },
+          { text: 'Findings', link: '/pages/quality/findings' },
+          { text: 'Coverage', link: '/pages/quality/coverage' },
+        ],
+      },
+    ],
     search: { provider: 'local' },
   },
 });

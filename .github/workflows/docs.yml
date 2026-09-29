@@ -1,0 +1,67 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Without this, two pushes to `main` build the site concurrently and the later
+# deployment can finish first, publishing a *newer* build and then being replaced by
+# an older one. `cancel-in-progress` is false so a build already in flight finishes
+# rather than leaving the published site at whatever the previous successful build
+# left.
+concurrency:
+  group: docs-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.x
+  PNPM_VERSION: 10.30.2
+
+jobs:
+  build:
+    name: Build the documentation site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        # Full history: `pnpm docs:check` reads the ledger and the register, and the
+        # capability register records a baseline commit that must be reachable.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0c17529a66aca453f9227af23103ed11469b1e47
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate the status pages
+        # The capabilities, findings, and coverage pages are generated from
+        # machine-checked sources, so they cannot claim more than the gates prove.
+        # `pnpm docs:check` then fails if the committed pages are stale, which is
+        # the failure mode of a generator that quietly stops running.
+        run: |
+          pnpm site:generate
+          pnpm docs:check
+          pnpm docs:dead-exports
+
+      - name: Build
+        run: pnpm --filter @automate/docs build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: site/dist

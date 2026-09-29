@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -190,6 +191,72 @@ test('the cited path check reaches the documents it claims to', () => {
       ].join(' '),
     ),
     [],
+  );
+});
+
+test('no site navigation entry points at a page that does not exist', () => {
+  // VitePress does not validate `themeConfig` links, so a nav entry pointing at an
+  // unwritten page builds green and ships a 404. The first version of the site had
+  // seven of them, which is how a stub site starts making claims it cannot back.
+  //
+  // Checked against the *page files* rather than the build output, so it runs
+  // without building and fails on the commit that introduced the dangling link
+  // rather than on the next deploy.
+  const config = readFileSync(path.join(REPO_ROOT, 'site', '.vitepress', 'config.mts'), 'utf8');
+  const links = [...config.matchAll(/link:\s*'([^']+)'/g)].map((match) => match[1] ?? '');
+  assert.ok(links.length >= 6, `found only ${String(links.length)} nav links; this is vacuous`);
+
+  const missing = links
+    // `/` is the home page, which is `site/index.md`.
+    .filter((link) => link !== '/')
+    .filter((link) => {
+      const page = link.replace(/^\//, '').replace(/\/$/, '');
+      return !existsSync(path.join(REPO_ROOT, 'site', `${page}.md`));
+    });
+  assert.deepEqual(
+    missing,
+    [],
+    `site nav points at pages that do not exist: ${missing.join(', ')}`,
+  );
+});
+
+test('the generated status pages are current, or a reader is reading a stale claim', () => {
+  // The three status pages are generated from machine-checked sources so they cannot
+  // claim more than the gates prove. That guarantee has one failure mode: the
+  // generator stops running and the committed pages go on being read as live.
+  //
+  // Regenerating and comparing is the check. It is run against a temporary copy
+  // rather than in place, so a failure leaves the working tree alone and the diff
+  // the developer sees is the one `pnpm site:generate` would produce.
+  const before = [
+    'pages/capabilities.md',
+    'pages/quality/findings.md',
+    'pages/quality/coverage.md',
+  ].map((page) => readFileSync(path.join(REPO_ROOT, 'site', page), 'utf8'));
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(REPO_ROOT, 'scripts', 'build-site-pages.mjs')],
+    {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+    },
+  );
+  assert.equal(result.status, 0, `site:generate failed: ${result.stderr}`);
+
+  const after = [
+    'pages/capabilities.md',
+    'pages/quality/findings.md',
+    'pages/quality/coverage.md',
+  ].map((page) => readFileSync(path.join(REPO_ROOT, 'site', page), 'utf8'));
+
+  const stale = ['capabilities', 'findings', 'coverage'].filter(
+    (name, index) => before[index] !== after[index],
+  );
+  assert.deepEqual(
+    stale,
+    [],
+    `these generated pages are stale; run \`pnpm site:generate\` and commit the result: ${stale.join(', ')}`,
   );
 });
 
