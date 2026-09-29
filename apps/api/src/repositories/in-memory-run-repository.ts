@@ -104,6 +104,27 @@ export class InMemoryRunRepository implements RunRepository {
     return Array.from(this._tests.values()).filter((t) => t.runId === runId);
   }
 
+  /**
+   * One pass, grouped.
+   *
+   * The obvious implementation — `await Promise.all(runIds.map((id) => this.listTests(id)))`
+   * — is the same N+1 it replaces: one scan of the whole map per run, which is
+   * what the ledger row counted. One scan with a `Set` lookup per row is linear in
+   * the number of tests, not in runs times tests.
+   */
+  async listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>> {
+    const grouped = new Map<string, TestRecord[]>();
+    if (runIds.length === 0) return grouped;
+    const wanted = new Set(runIds);
+    for (const record of this._tests.values()) {
+      if (!wanted.has(record.runId)) continue;
+      const bucket = grouped.get(record.runId) ?? [];
+      bucket.push(record);
+      grouped.set(record.runId, bucket);
+    }
+    return grouped;
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   private _testKey(testId: string, runId: string): string {

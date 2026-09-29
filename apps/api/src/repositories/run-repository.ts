@@ -233,4 +233,20 @@ export interface RunRepository {
    * Returns an empty array when no tests exist for the run.
    */
   listTests(runId: string): Promise<TestRecord[]>;
+
+  /**
+   * Retrieve test rows for many runs at once, grouped by `runId`.
+   *
+   * Exists because the dashboard aggregations used to loop over runs and call
+   * {@link listTests} once each — one query for the runs and then N for the tests,
+   * so a dashboard with a thousand runs cost a thousand round trips to answer
+   * "what tests exist" (ledger Q-47). One call is one round trip regardless of how
+   * many runs are asked about.
+   *
+   * Returns a `Map` rather than a flat array because both callers need the
+   * grouping: the suites route attributes each test to the run it came from, and a
+   * flat array would make that a second pass over the data the query already
+   * grouped. An empty `runIds` issues no query at all.
+   */
+  listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>>;
 }

@@ -26,11 +26,13 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
   // Aggregated test list across all runs.
   app.get('/api/v1/dashboard/tests', async (c) => {
     const runs = await options.repository.listRuns();
+    // One call for every run, not one per run. Looping `listTests(run.id)` cost
+    // one round trip per run, so the dashboard's answer got slower every time a
+    // run was added — for a question whose result does not depend on how many
+    // runs there are (ledger Q-47).
+    const byRun = await options.repository.listTestsForRuns(runs.map((run) => run.id));
     const allTests = [] as Array<Awaited<ReturnType<RunRepository['listTests']>>[number]>;
-    for (const run of runs) {
-      const tests = await options.repository.listTests(run.id);
-      allTests.push(...tests);
-    }
+    for (const run of runs) allTests.push(...(byRun.get(run.id) ?? []));
     return c.json(allTests);
   });
 
@@ -39,6 +41,8 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
   app.get('/api/v1/dashboard/suites', async (c) => {
     const runs = await options.repository.listRuns();
     const runById = new Map(runs.map((run) => [run.id, run]));
+    // The same single call as above; the loop below no longer awaits.
+    const testsByRun = await options.repository.listTestsForRuns(runs.map((run) => run.id));
     const suiteMap = new Map<
       string,
       {
@@ -52,8 +56,7 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
     >();
 
     for (const run of runs) {
-      const tests = await options.repository.listTests(run.id);
-      for (const test of tests) {
+      for (const test of testsByRun.get(run.id) ?? []) {
         const suiteId = test.file || 'unknown';
         const suiteName = test.file ? (test.file.split('/').pop() ?? test.file) : 'Unknown Suite';
         const existing = suiteMap.get(suiteId) ?? {

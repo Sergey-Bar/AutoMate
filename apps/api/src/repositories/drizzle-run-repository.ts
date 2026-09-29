@@ -4,7 +4,7 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc } from 'drizzle-orm';
+import { eq, and, sql, asc, inArray } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
@@ -203,6 +203,24 @@ export class DrizzleRunRepository implements RunRepository {
   async listTests(runId: string): Promise<TestRecord[]> {
     const rows = await this.db.select().from(tests).where(eq(tests.runId, runId));
     return rows.map((t) => this._mapTest(t));
+  }
+
+  async listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>> {
+    const grouped = new Map<string, TestRecord[]>();
+    if (runIds.length === 0) return grouped;
+    // `inArray` rather than a loop of `listTests`, so the cost is one round trip
+    // whatever the number of runs. An empty `runIds` returns above because
+    // `inArray([])` is a query Postgres rejects, not one it answers.
+    const rows = await this.db
+      .select()
+      .from(tests)
+      .where(inArray(tests.runId, [...runIds]));
+    for (const row of rows) {
+      const bucket = grouped.get(row.runId) ?? [];
+      bucket.push(this._mapTest(row));
+      grouped.set(row.runId, bucket);
+    }
+    return grouped;
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
