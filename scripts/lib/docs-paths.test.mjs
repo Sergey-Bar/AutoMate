@@ -44,6 +44,40 @@ const BASELINE = path.join(REPO_ROOT, 'coverage-baseline.json');
 const DOCS = ['README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'CHANGELOG.md'];
 
 /**
+ * Documents whose claims are about a repository this one no longer contains.
+ *
+ * Declared before the plan list that uses it: a `const` read from a function that
+ * runs at module scope hits the temporal dead zone, and the error names the line
+ * that read it rather than the line that declared it.
+ */
+const HISTORICAL_DOCS = ['1790276458882-unified-repository-migration.md'];
+
+/**
+ * The plans under `.kilo/`, which are documentation too.
+ *
+ * One of them carried the claim that became ledger row RF-12: "`vitest-axe` is
+ * declared and unused", reasoning from there toward removing a package that two
+ * suites depend on. A plan is read by the next person exactly as a README is, and
+ * the only thing that made the difference feel safe was that a plan looks like a
+ * record rather than a description. So the plans are checked for the unused-claim
+ * form below, and for the same reason.
+ *
+ * `HISTORICAL_DOCS` is exempt for the reason the paragraph above this list gives.
+ */
+const PLAN_DOCS = planFiles();
+
+/** @returns {string[]} repository-root-relative paths of the plans that are checked. */
+function planFiles() {
+  const directory = path.join(REPO_ROOT, '.kilo', 'plans');
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory)
+    .filter((name) => name.endsWith('.md'))
+    .filter((name) => !HISTORICAL_DOCS.includes(name))
+    .sort()
+    .map((name) => `.kilo/plans/${name}`);
+}
+
+/**
  * Every backticked token in a document that cites a source file.
  *
  * Narrow on purpose. A first pass accepted any backticked token containing a `/`
@@ -344,6 +378,148 @@ function runGeneratorIn(workingDirectory) {
   assert.equal(result.status, 0, 'site:generate failed against the copy: ' + result.stderr);
   return result.stdout;
 }
+
+test('no document calls something unused while the workspace still imports it', () => {
+  // The general form of two ledger rows, and the durable fix RF-12 asks for.
+  //
+  // A superseded plan recorded `vitest-axe` as "declared and unused" and reasoned
+  // from there toward replacing it. It is used, in two packages, through
+  // `expectNoBlockingAxeViolations` — so the note was handing the next reader a
+  // documented reason to delete working accessibility infrastructure. Nothing was
+  // broken; the risk was entirely in the reader.
+  //
+  // So: a document that calls a named thing unused, deprecated, or dead, while the
+  // workspace still imports it, is a false claim about this repository. A gate
+  // catches the next one; a review note is what did not catch this one.
+  //
+  // Deliberately narrow about the phrasing, because a broad one produces noise and
+  // a gate that cries wolf is switched off. The claim has to be a *named
+  // identifier* next to a "not used" phrase.
+  const UNUSED_CLAIM =
+    /\b[a-z ]{0,12}?(?:unused|not used|never used|no longer used|dead|unreferenced|obsolete)\b/gi;
+
+  const falseClaims = [];
+  for (const doc of [...DOCS, ...PLAN_DOCS]) {
+    // Quoted runs are removed *before* scanning, rather than each match being
+    // checked for an enclosing quote.
+    //
+    // That is the honest reading of the rule: a claim written between quotation
+    // marks is a *recorded* claim, whatever the distance between the quote and the
+    // word. Decision D20 in the v2 plan is "`vitest-axe` stays in both packages",
+    // justified by "v3 §8 Q4 says it is 'declared and unused'" — and three
+    // implementations of the window approach each reported that refutation as the
+    // claim it refutes, because the opening quote is several words from the word
+    // being matched. A document must be able to write down what a superseded plan
+    // wrongly said, or it cannot correct anything without tripping the gate.
+    const text = readFileSync(path.join(REPO_ROOT, doc), 'utf8');
+    // Struck-through text is removed for the same reason: a refutation is recorded
+    // by striking the claim out, and it necessarily repeats the claim it strikes.
+    const scannable = text.replace(/~~[^~]*~~/g, ' ').replace(/["“”'][\s\S]*?["“”']/g, ' ');
+    // Matched in a short window *after* each identifier, not per paragraph.
+    //
+    // A paragraph-scoped version of this gate reported `AGENTS.md`'s own lint rule
+    // — "Unused variables must be prefixed with `_`", with `` `any` `` in the same
+    // paragraph — as a claim that `any` is unused. A claim has to be *about the
+    // identifier*, so the phrase has to sit next to it rather than somewhere in the
+    // same block of prose.
+    for (const span of scannable.matchAll(/`([A-Za-z@][\w./@-]*)`/g)) {
+      const name = span[1] ?? '';
+      // A path is the other test's job; a bare identifier is a package or export.
+      if (name.includes('/')) continue;
+      const after = scannable.slice(span.index, span.index + span[0].length + 60);
+      UNUSED_CLAIM.lastIndex = 0;
+      const phrase = UNUSED_CLAIM.exec(after)?.[0]?.trim() ?? '';
+      if (!phrase) continue;
+      if (isImported(name)) {
+        falseClaims.push(`${doc}: \`${name}\` is called ${phrase} but is imported`);
+      }
+    }
+  }
+
+  assert.deepEqual(
+    falseClaims,
+    [],
+    `documents claiming live code is unused:\n${falseClaims.join('\n')}`,
+  );
+});
+
+/**
+ * Whether a bare name is used by anything other than its own test.
+ *
+ * @param {string} name
+ */
+function isImported(name) {
+  const pattern = new RegExp(
+    `from ['"][^'"]*\\b${escapeRegExp(name)}\\b|require\\(['"][^'"]*${escapeRegExp(name)}`,
+  );
+  // Test files are excluded on purpose, and a declaration is not a use.
+  //
+  // A component imported only by its own `Component.test.tsx` is not used by the
+  // product — which is exactly what the first version of this gate got wrong:
+  // `ThemeToggle` and `RunExplorer` are exported, rendered by their own tests, and
+  // mounted by nothing, and counting the test as a use reported two *correct* claims
+  // as false ones. A gate that reports the truth as false gets switched off, so this
+  // one has to be right on the claims it does report.
+  const declaring = new RegExp(
+    `^export\\s+(?:async\\s+)?(?:function|const|class)\\s+${escapeRegExp(name)}\\b`,
+  );
+  return sourceFiles()
+    .filter((file) => !/\.(test|spec)\.[cm]?[jt]sx?$/.test(file))
+    .some((file) =>
+      readFileSync(file, 'utf8')
+        .split(/\r?\n/)
+        .some((line) => pattern.test(line) && !declaring.test(line.trim())),
+    );
+}
+
+/** @param {string} value */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Every TypeScript/JavaScript source file the workspace could import from. */
+function sourceFiles() {
+  /** @type {string[]} */
+  const found = [];
+  /** @param {string} directory */
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (['node_modules', 'dist', 'coverage', '.turbo', '.git'].includes(entry.name)) continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.[cm]?[jt]sx?$/.test(entry.name)) found.push(full);
+    }
+  };
+  for (const root of ['apps', 'packages', 'tools', 'tests', 'scripts']) {
+    walk(path.join(REPO_ROOT, root));
+  }
+  return found;
+}
+
+test('the unused-claim gate can see a claim, or it cannot fail', () => {
+  // A detector that finds nothing is indistinguishable from a clean repository.
+  // The two real cases, asserted directly, are the point of the whole test above.
+  assert.match(
+    '`vitest-axe` is declared and unused',
+    /\b[a-z ]{0,12}?(?:unused|not used|never used|no longer used|dead|unreferenced|obsolete)\b/i,
+    "the gate's phrase must match the claim that started this",
+  );
+  assert.ok(
+    isImported('vitest-axe'),
+    "vitest-axe is imported today, so the superseded plan's claim is false",
+  );
+  // And the plans are actually in scope — a gate over an empty list passes.
+  assert.ok(
+    PLAN_DOCS.length >= 2,
+    `only ${String(PLAN_DOCS.length)} plan(s) checked; this is vacuous`,
+  );
+  assert.ok(
+    PLAN_DOCS.some((plan) => plan.includes('merged-leftover-plan')),
+    'the plan carrying the refuted claim must be among those checked',
+  );
+  // And a name nothing imports is not reported.
+  assert.equal(isImported('a-package-nobody-imports'), false);
+});
 
 test('no document cites a path that does not exist', () => {
   // Neither of these was in a "planned" section, and both were in documents a
