@@ -3,6 +3,7 @@ import {
   defaultApiClient,
   getArtifactUrl,
   isAbortError,
+  resetRunEventStream,
   resetSessionExpiry,
   ResponseContractError,
   setSessionExpiredResponder,
@@ -55,6 +56,11 @@ class FakeEventSource {
 afterEach(() => {
   vi.unstubAllGlobals();
   FakeEventSource.instance = null;
+  // The run-event stream is a shared, module-level connection. Without dropping
+  // it between cases, a subscriber from an earlier case receives the next case's
+  // events and an unclosed source stops a newly stubbed `EventSource` from ever
+  // being constructed.
+  resetRunEventStream();
   resetSessionExpiry();
   setSessionExpiredResponder(null);
 });

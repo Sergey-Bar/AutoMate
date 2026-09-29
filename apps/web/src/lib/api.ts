@@ -381,6 +381,145 @@ function readLegacyRunUpdate(raw: unknown): LegacyRunUpdate | null {
   return null;
 }
 
+/**
+ * The one run-event connection, shared by every subscriber.
+ *
+ * `subscribeToRunEvents` used to construct an `EventSource` per call, so a page
+ * with both `useRuns` and `useRunDetail` mounted held two open connections to
+ * `/api/v1/events` — the dashboard layout renders an `<Outlet />` while
+ * `CommandCenter` calls `useRuns`, so that is the ordinary case rather than an
+ * edge one (ledger W-5).
+ *
+ * Two connections is not only wasted: each carried its own `lastSequence` map, its
+ * own listener per event type, and its own `onopen` bookkeeping, so a reconnect
+ * reported itself to both and a replayed sequence was filtered independently in
+ * each. Sharing the source makes all of that one thing, which is the point.
+ *
+ * Reference counted, because a bare singleton has the opposite failure: the first
+ * subscriber to unmount would close a connection the others were still reading.
+ */
+type RunEventSubscriber = {
+  onEvent: (event: RunEvent) => void;
+  onRefetch?: () => void;
+  onReconnect?: () => void;
+  onConnectionChange?: (live: boolean) => void;
+};
+
+let runEventSource: EventSource | null = null;
+const runEventSubscribers = new Set<RunEventSubscriber>();
+/** One dedup map for the connection, not one per subscriber. */
+const runEventSequences = new Map<string, number>();
+let runEventOpened = false;
+
+function closeRunEventSource(): void {
+  if (runEventSource === null) return;
+  const source = runEventSource;
+  runEventSource = null;
+  runEventOpened = false;
+  runEventSequences.clear();
+  source.onopen = null;
+  source.onerror = null;
+  for (const type of RunEventTypeSchema.options) {
+    source.removeEventListener(type, handleRunEventMessage as EventListener);
+  }
+  source.removeEventListener(RUN_UPDATED_EVENT_TYPE, handleRunEventMessage as EventListener);
+  source.removeEventListener('message', handleRunEventMessage as EventListener);
+  source.removeEventListener('refetch', handleRunEventRefetch as EventListener);
+  source.close();
+}
+
+function handleRunEventMessage(message: MessageEvent<string>): void {
+  let event: RunEvent;
+  try {
+    const raw: unknown = JSON.parse(message.data);
+    const legacy = readLegacyRunUpdate(raw);
+    if (legacy !== null) {
+      const sequence = (runEventSequences.get(legacy.runId) ?? 0) + 1;
+      runEventSequences.set(legacy.runId, sequence);
+      event = {
+        version: '1',
+        eventId: `${legacy.runId}:${typeof legacy.timestamp === 'string' ? legacy.timestamp : sequence}`,
+        type: 'run.phase_changed',
+        sequence,
+        occurredAt:
+          typeof legacy.timestamp === 'string' ? legacy.timestamp : new Date().toISOString(),
+        runId: legacy.runId,
+        payload: projectLegacyStatus(legacy.status),
+      };
+    } else {
+      const parsed = RunEventEnvelopeSchema.safeParse(raw);
+      if (!parsed.success) return;
+      const previous = runEventSequences.get(parsed.data.runId) ?? 0;
+      if (parsed.data.sequence <= previous) return;
+      runEventSequences.set(parsed.data.runId, parsed.data.sequence);
+      event = parsed.data;
+    }
+  } catch {
+    return;
+  }
+  for (const subscriber of runEventSubscribers) subscriber.onEvent(event);
+}
+
+function handleRunEventRefetch(): void {
+  for (const subscriber of runEventSubscribers) subscriber.onRefetch?.();
+}
+
+function openRunEventSource(): void {
+  if (runEventSource !== null) return;
+  const source = new EventSource('/api/v1/events', { withCredentials: true });
+  runEventSource = source;
+
+  source.onopen = () => {
+    for (const subscriber of runEventSubscribers) subscriber.onConnectionChange?.(true);
+    // A second `open` on the same source is a reconnect, which is a property of
+    // the connection rather than of a view — so every subscriber hears it once.
+    if (runEventOpened) for (const subscriber of runEventSubscribers) subscriber.onReconnect?.();
+    runEventOpened = true;
+  };
+  source.onerror = () => {
+    for (const subscriber of runEventSubscribers) subscriber.onConnectionChange?.(false);
+  };
+
+  for (const type of RunEventTypeSchema.options) {
+    source.addEventListener(type, handleRunEventMessage as EventListener);
+  }
+  source.addEventListener(RUN_UPDATED_EVENT_TYPE, handleRunEventMessage as EventListener);
+  source.addEventListener('message', handleRunEventMessage as EventListener);
+  source.addEventListener('refetch', handleRunEventRefetch as EventListener);
+}
+
+/**
+ * Drops the shared stream and every subscriber. **For tests only.**
+ *
+ * The shared source and its dedup map are module state, which is the point of the
+ * change and the reason three suites cannot simply interleave: a subscriber left
+ * over from an earlier case receives the next case's events, and an unclosed
+ * source makes `openRunEventSource` a no-op so a newly stubbed `EventSource` is
+ * never constructed and the test sees nothing at all.
+ *
+ * Exported rather than worked around per suite because a reset that exists only
+ * inside the file being tested cannot be used by the two other suites that also
+ * subscribe. Named as it is so a reader knows it is not production API — the same
+ * convention as `CommandStore.clear()`.
+ */
+export function resetRunEventStream(): void {
+  runEventSubscribers.clear();
+  closeRunEventSource();
+}
+
+function subscribeToRunEvents(subscription: RunEventSubscriber): () => void {
+  if (typeof EventSource === 'undefined') return () => undefined;
+  runEventSubscribers.add(subscription);
+  openRunEventSource();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    runEventSubscribers.delete(subscription);
+    if (runEventSubscribers.size === 0) closeRunEventSource();
+  };
+}
+
 export const defaultApiClient: ApiClient = {
   getRuns: (options) => getJson('/api/v1/runs', z.array(NormalizedRunSchema), options),
   getRun: (id, options) =>
@@ -493,68 +632,7 @@ export const defaultApiClient: ApiClient = {
       path,
     );
   },
-  subscribeToRunEvents: ({ onEvent, onRefetch, onReconnect, onConnectionChange }) => {
-    if (typeof EventSource === 'undefined') return () => undefined;
-    const source = new EventSource('/api/v1/events', { withCredentials: true });
-    const lastSequence = new Map<string, number>();
-    let opened = false;
-
-    const handleMessage = (message: MessageEvent<string>) => {
-      try {
-        const raw: unknown = JSON.parse(message.data);
-        const legacy = readLegacyRunUpdate(raw);
-        if (legacy !== null) {
-          const sequence = (lastSequence.get(legacy.runId) ?? 0) + 1;
-          lastSequence.set(legacy.runId, sequence);
-          onEvent({
-            version: '1',
-            eventId: `${legacy.runId}:${typeof legacy.timestamp === 'string' ? legacy.timestamp : sequence}`,
-            type: 'run.phase_changed',
-            sequence,
-            occurredAt:
-              typeof legacy.timestamp === 'string' ? legacy.timestamp : new Date().toISOString(),
-            runId: legacy.runId,
-            payload: projectLegacyStatus(legacy.status),
-          });
-          return;
-        }
-        const parsed = RunEventEnvelopeSchema.safeParse(raw);
-        if (!parsed.success) return;
-        const event: RunEvent = parsed.data;
-        const previous = lastSequence.get(event.runId) ?? 0;
-        if (event.sequence <= previous) return;
-        lastSequence.set(event.runId, event.sequence);
-        onEvent(event);
-      } catch {
-        return;
-      }
-    };
-
-    source.onopen = () => {
-      onConnectionChange?.(true);
-      if (opened) onReconnect?.();
-      opened = true;
-    };
-    source.onerror = () => onConnectionChange?.(false);
-
-    for (const type of RunEventTypeSchema.options) {
-      source.addEventListener(type, handleMessage as EventListener);
-    }
-    source.addEventListener(RUN_UPDATED_EVENT_TYPE, handleMessage as EventListener);
-    source.addEventListener('message', handleMessage as EventListener);
-    const handleRefetch = () => onRefetch?.();
-    source.addEventListener('refetch', handleRefetch);
-
-    return () => {
-      for (const type of RunEventTypeSchema.options) {
-        source.removeEventListener(type, handleMessage as EventListener);
-      }
-      source.removeEventListener(RUN_UPDATED_EVENT_TYPE, handleMessage as EventListener);
-      source.removeEventListener('message', handleMessage as EventListener);
-      source.removeEventListener('refetch', handleRefetch);
-      source.close();
-    };
-  },
+  subscribeToRunEvents,
 };
 
 export function getArtifactUrl(artifactId: string): string {

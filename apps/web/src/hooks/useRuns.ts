@@ -49,6 +49,8 @@ export function useRuns(api = defaultApiClient) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [isLive, setIsLive] = useState(false);
+  /** Mirrors `isLive` for the poll interval, whose closure is created once. */
+  const isLiveRef = useRef(false);
   const runsRef = useRef<Run[]>([]);
   const mountedRef = useRef(true);
   const { begin: beginLoad, cancelAll: cancelLoads } = useRequestLifecycle();
@@ -101,10 +103,31 @@ export function useRuns(api = defaultApiClient) {
         if (needsRefresh) void refresh();
       },
       onReconnect: () => void refresh(),
-      onConnectionChange: setIsLive,
+      onConnectionChange: (live) => {
+        isLiveRef.current = live;
+        setIsLive(live);
+      },
     });
 
-    const poll = window.setInterval(() => void refresh(), 5000);
+    // The poller is a safety net, not a second source of truth.
+    //
+    // It used to refresh the whole list every five seconds regardless of whether
+    // the stream was connected — so on a healthy connection every page paid for a
+    // full list fetch to discover what the stream had already pushed, and the
+    // fetch was also a chance for a run added by *another* session to arrive
+    // before it had an event (ledger W-5).
+    //
+    // It now runs only while the stream is down, which is the only case where
+    // polling is the only way to learn anything. Connected, the stream is
+    // authoritative and this does nothing; disconnected, it is what keeps the
+    // page honest.
+    //
+    // A ref rather than the state value, because the interval closure is created
+    // once and would otherwise capture the first render's `false` forever.
+    const poll = window.setInterval(() => {
+      if (isLiveRef.current) return;
+      void refresh();
+    }, 5000);
     return () => {
       mountedRef.current = false;
       cancelLoads();

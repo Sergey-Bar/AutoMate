@@ -470,4 +470,46 @@ describe('useRuns failure and emptiness', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
     expect(result.current.error?.message).toBe('Failed to fetch runs');
   });
+
+  it('polls only while the stream is down, so a live page does not refetch for nothing', async () => {
+    // The poller used to refresh the whole list every five seconds whether or not
+    // the stream was connected, so on a healthy connection every page paid for a
+    // full list fetch to discover what the stream had already pushed (ledger W-5).
+    // It is a safety net for a dropped connection, not a second source of truth.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      let subscription: RunEventSubscription | undefined;
+      const api = makeApi({
+        subscribeToRunEvents: vi.fn((value) => {
+          subscription = value;
+          return () => undefined;
+        }),
+      });
+      const { result } = renderHook(() => useRuns(api));
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      act(() => {
+        subscription?.onConnectionChange?.(true);
+      });
+      expect(result.current.isLive).toBe(true);
+      const connected = vi.mocked(api.getRuns).mock.calls.length;
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      // Fifteen seconds of connected time, and the list is not re-fetched.
+      expect(vi.mocked(api.getRuns).mock.calls.length).toBe(connected);
+
+      act(() => {
+        subscription?.onConnectionChange?.(false);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      // Disconnected, polling is the only way to learn anything, so it must run.
+      expect(vi.mocked(api.getRuns).mock.calls.length).toBeGreaterThan(connected);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
