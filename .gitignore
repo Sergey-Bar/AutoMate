@@ -7,10 +7,13 @@ build/
 .turbo/
 *.tsbuildinfo
 
-# VitePress's dependency-optimizer cache. It sits under `.vitepress/cache` rather
-# than a top-level `cache/`, so the `dist/` rule above does not reach it, and it is
-# minified third-party output regenerated on every build.
-.vitepress/cache/
+# VitePress build output and dependency-optimizer cache. `dist/` already covers the
+# output; the cache resolves to `node_modules/.vitepress`, which `node_modules/`
+# covers. Listed because the first attempt assumed a `.vitepress/cache` path that
+# does not exist, and an ignore rule whose comment states a false fact is worse
+# than no rule.
+site/.vitepress/cache/
+site/.vitepress/dist/
 
 # Environment
 # `.env.*` covers every real environment file, so the two placeholder files have

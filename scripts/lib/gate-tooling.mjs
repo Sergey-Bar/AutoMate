@@ -36,6 +36,37 @@ const root = path.resolve(here, '..', '..');
 export const WORKFLOW_DIR = path.join(root, '.github', 'workflows');
 export const MANIFEST_PATH = path.join(root, 'scripts', 'gate-tooling.json');
 
+/**
+ * Every YAML file under `.github/` that GitHub Actions will execute.
+ *
+ * Deliberately wider than {@link WORKFLOW_DIR}. `.github/actions/install-scanners`
+ * is a *composite* action used by all three workflows, and a composite action can
+ * set a step-scoped `env:` that every later step in the calling job inherits — so
+ * a variable set there is set for the job that runs the security gate. An audit
+ * that read only the workflow directory would clear CI while the gate it guards
+ * was being quietly switched off, which is the direction of error that matters.
+ *
+ * @returns {string[]} paths relative to the repository root, `/`-separated
+ */
+export function listActionFiles() {
+  const found = [];
+  const walk = (directory) => {
+    let entries;
+    try {
+      entries = readdirSync(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.yml') || entry.name.endsWith('.yaml')) found.push(full);
+    }
+  };
+  walk(path.join(root, '.github'));
+  return found.sort();
+}
+
 /** pnpm commands that are not root package scripts. */
 const PNPM_BUILTINS = new Set([
   'add',

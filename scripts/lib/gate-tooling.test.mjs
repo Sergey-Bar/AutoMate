@@ -5,13 +5,13 @@ import test from 'node:test';
 import {
   auditRepository,
   auditWorkflow,
+  listActionFiles,
   listWorkflows,
   parseWorkflow,
   readManifest,
   readRootScriptCommand,
   readRootScripts,
   referencedScripts,
-  WORKFLOW_DIR,
 } from './gate-tooling.mjs';
 import { phaseFor, tierProblems } from './render-gate-phase.mjs';
 
@@ -354,7 +354,7 @@ test('every root script carries a tier, and every tier is one of the four', () =
   );
 });
 
-test('no workflow sets the host-scanner opt-in, and verify:local is never-in-ci', () => {
+test('no CI file sets the host-scanner opt-in, and verify:local is never-in-ci', () => {
   // `AUTOMATE_HOST_SCANNERS=unavailable` turns a missing scanner from a failure
   // into a recorded `not_configured` pass. That is a legitimate trade on a
   // developer laptop with no semgrep and it is a *defect* in a pull request: CI is
@@ -364,13 +364,27 @@ test('no workflow sets the host-scanner opt-in, and verify:local is never-in-ci'
   // Read from the raw source rather than the parsed `env`, because the argument
   // for *not* setting it belongs in a comment beside the job, and a substring
   // search would report that explanation as the violation it forbids.
-  const offenders = listWorkflows().filter((file) =>
-    readFileSync(path.join(WORKFLOW_DIR, file), 'utf8').includes('AUTOMATE_HOST_SCANNERS'),
+  const actionFiles = listActionFiles();
+  assert.ok(
+    actionFiles.length >= 5,
+    `found only ${String(actionFiles.length)} .github YAML files; the audit cannot pass on absence`,
+  );
+  // A composite action sets a step-scoped `env:` that every later step in the
+  // calling job inherits, so `.github/actions/` is in scope and not just
+  // `.github/workflows/`. This list is the evidence that the walk reaches it.
+  assert.ok(
+    actionFiles.some((file) => file.replaceAll('\\', '/').includes('.github/actions/')),
+    'the walk must reach .github/actions/, where install-scanners lives',
+  );
+
+  const offenders = actionFiles.filter((file) =>
+    readFileSync(file, 'utf8').includes('AUTOMATE_HOST_SCANNERS'),
   );
   assert.deepEqual(
     offenders,
     [],
-    'a workflow must never set AUTOMATE_HOST_SCANNERS; the scanners are installed and enforced there',
+    'no .github file may set AUTOMATE_HOST_SCANNERS; the scanners are installed and ' +
+      'enforced in CI',
   );
 
   assert.equal(

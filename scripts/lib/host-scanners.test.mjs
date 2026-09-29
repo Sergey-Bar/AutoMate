@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  DEFAULT_SCAN_TIMEOUT_MS,
   HOST_SCANNERS_ENV,
   HOST_SCANNERS_UNAVAILABLE,
+  MAX_SCAN_TIMEOUT_MS,
+  MIN_SCAN_TIMEOUT_MS,
   exitStatusFor,
   isHostDegradationOptedIn,
   notConfiguredMessage,
+  scanTimeoutMs,
   verifyLocalInvocation,
 } from './host-scanners.mjs';
 
@@ -102,4 +106,33 @@ test('verify:local does not open argument injection on POSIX', () => {
   const posix = verifyLocalInvocation('linux', {});
   assert.equal(posix.command, 'pnpm');
   assert.equal(posix.options.shell, false);
+});
+
+test('the scan ceiling cannot be set small enough to guarantee no scan', () => {
+  // The second way through the same door as the opt-in, and the more dangerous
+  // one because it was unmentioned in the manifest, the policy module, and every
+  // test. A scanner killed at the ceiling is `unavailable`; `unavailable` is
+  // what the opt-in turns into a pass. So a one-millisecond ceiling produced a
+  // green `security:static` in milliseconds with nothing scanned — through a
+  // variable whose only documented purpose was to *raise* the budget on a slow
+  // host.
+  assert.equal(scanTimeoutMs('1'), MIN_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs('0'), MIN_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs('-1'), MIN_SCAN_TIMEOUT_MS);
+  // `setTimeout(fn, NaN)` fires on the next tick, so a non-numeric value is not
+  // an ignored value — it is an instant kill.
+  assert.equal(scanTimeoutMs('abc'), DEFAULT_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs(''), DEFAULT_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs(undefined), DEFAULT_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs('Infinity'), DEFAULT_SCAN_TIMEOUT_MS);
+});
+
+test('the scan ceiling stays a ceiling', () => {
+  // The upper bound exists for the reason the lower one does: `1e18` restores
+  // exactly the unbounded budget `scan-runner.mjs` was extracted to eliminate.
+  assert.equal(scanTimeoutMs('1e18'), MAX_SCAN_TIMEOUT_MS);
+  assert.equal(scanTimeoutMs(String(Number.MAX_SAFE_INTEGER)), MAX_SCAN_TIMEOUT_MS);
+  // And an ordinary override in the middle is honoured, or the clamp would
+  // silently ignore the one thing the variable is for.
+  assert.equal(scanTimeoutMs('900000'), 900_000);
 });

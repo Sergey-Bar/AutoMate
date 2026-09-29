@@ -35,7 +35,15 @@ export default defineConfig(({ mode }) => {
           // API on 3456 — so following the documentation exactly produced a
           // dashboard whose API calls went nowhere, with no error to explain it.
           // `packages/config/src/config.test.ts` fails if a literal returns here.
-          target: apiProxyTarget(process.env),
+          //
+          // Read with an empty prefix, so a `PORT` in a `.env` file is visible
+          // here too. The API has no dotenv loader, so today the two agree only
+          // when the variable is exported in the shell — which is exactly the
+          // condition a reader can silently fail to meet.
+          target: apiProxyTarget({
+            ...loadEnv(mode, process.cwd(), ''),
+            ...process.env,
+          }),
           changeOrigin: true,
         },
       },

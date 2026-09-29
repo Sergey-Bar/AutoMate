@@ -36,6 +36,45 @@ export const HOST_SCANNERS_ENV = 'AUTOMATE_HOST_SCANNERS';
 /** The only value that opts in. `true`/`1` do not, so a stray CI default cannot. */
 export const HOST_SCANNERS_UNAVAILABLE = 'unavailable';
 
+/** The default ceiling for one scanner, and the bounds any override is clamped into. */
+export const DEFAULT_SCAN_TIMEOUT_MS = 10 * 60 * 1000;
+
+/** Below this, a scanner is guaranteed to be killed before it can scan. */
+export const MIN_SCAN_TIMEOUT_MS = 60 * 1000;
+
+/** Above this, the ceiling stops being a ceiling. */
+export const MAX_SCAN_TIMEOUT_MS = 60 * 60 * 1000;
+
+/**
+ * The wall-clock ceiling for one scanner, clamped.
+ *
+ * `AUTOMATE_SCAN_TIMEOUT_MS` exists because `gitleaks detect` over this
+ * repository's full history takes about 24 s and semgrep needs watching on a slow
+ * host.
+ *
+ * The clamp is not fussiness, it is the second way in through the same door. A
+ * scanner killed at the ceiling is `unavailable`, and `unavailable` is what
+ * `AUTOMATE_HOST_SCANNERS` makes exit 0. So `AUTOMATE_SCAN_TIMEOUT_MS=1` — or any
+ * non-numeric value, since `Number('abc')` is `NaN` and `setTimeout(fn, NaN)`
+ * fires on the next tick — turns both scanners into a green, unscanned
+ * `security:static` in milliseconds, through a variable that appears in no
+ * manifest, no policy module, and no test. The opt-in is meant to cover "this
+ * host cannot scan", never "the scan was skipped", and a ceiling small enough to
+ * guarantee a kill is the latter.
+ *
+ * The upper bound exists for the same reason the lower one does: `1e18` restores
+ * exactly the unbounded budget `scripts/lib/scan-runner.mjs` was extracted to
+ * eliminate.
+ *
+ * @param {string | undefined} raw the environment value, verbatim
+ * @returns {number} a ceiling inside [1 minute, 1 hour]
+ */
+export function scanTimeoutMs(raw) {
+  const parsed = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw);
+  if (!Number.isFinite(parsed)) return DEFAULT_SCAN_TIMEOUT_MS;
+  return Math.min(Math.max(Math.trunc(parsed), MIN_SCAN_TIMEOUT_MS), MAX_SCAN_TIMEOUT_MS);
+}
+
 /**
  * @param {Record<string, string | undefined>} env
  * @returns {boolean}

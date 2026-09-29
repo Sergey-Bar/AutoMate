@@ -33,21 +33,13 @@ import {
   exitStatusFor,
   isHostDegradationOptedIn,
   notConfiguredMessage,
+  scanTimeoutMs,
 } from './lib/host-scanners.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * The wall-clock ceiling for one scanner.
- *
- * `gitleaks detect` over this repository's full history takes about 24 s, so the
- * default is generous for it; semgrep is the one that needs watching. Raise it with
- * `AUTOMATE_SCAN_TIMEOUT_MS` if a host is genuinely slower — and record why, because an
- * unbounded budget is the defect this replaced.
- *
- * @type {number}
- */
-const SCAN_TIMEOUT_MS = Number(process.env['AUTOMATE_SCAN_TIMEOUT_MS'] ?? 10 * 60 * 1000);
+/** The default ceiling, and the bounds any override is clamped into. */
+const SCAN_TIMEOUT_MS = scanTimeoutMs(process.env['AUTOMATE_SCAN_TIMEOUT_MS']);
 
 /** @param {string} binary */
 function have(binary) {
@@ -150,17 +142,33 @@ const status = exitStatusFor({
 
 if (result.unavailable.length > 0) {
   if (status === 0) {
-    // The opt-in path. The message names the variable, so a reader of the log can
-    // tell a deliberately degraded host from a broken install.
+    // The opt-in path. The message itself is written to stdout at the end, so
+    // that the last line of the run describes what actually happened; this copy
+    // is on stderr so it interleaves with the other diagnostics.
     console.error(notConfiguredMessage(result.unavailable));
   } else {
+    const found = result.found
+      ? 'At least one scanner ran and reported something, so this is a finding, not only a ' +
+        'missing tool. '
+      : '';
     console.error(
-      `Static analysis: not_configured — ${result.unavailable.join('; ')}. ` +
+      `Static analysis: not_configured — ${found}${result.unavailable.join('; ')}. ` +
         'Install them, or run this step on a host that has them. The structural ' +
         'config check above did run and passed.',
     );
   }
 }
 
+// One outcome message, and only one. The degraded path used to write its
+// `not_configured` line to stderr and then fall through to this `console.log`,
+// so the *last* line of a green-but-unscanned run claimed that semgrep and
+// gitleaks "reported nothing" — a statement about a scan that never happened,
+// printed by the very gate that exists to stop such statements. Whoever read
+// only the tail of a `verify:local` log would have read a clean security scan.
+const degradedPass = status === 0 && result.unavailable.length > 0;
 if (status !== 0) process.exit(status);
-console.log('Static analysis passed: semgrep and gitleaks reported nothing.');
+if (degradedPass) {
+  console.log(notConfiguredMessage(result.unavailable));
+} else {
+  console.log('Static analysis passed: semgrep and gitleaks reported nothing.');
+}

@@ -40,13 +40,41 @@ describe('apiProxyTarget', () => {
     }
   });
 
+  it('refuses a HOST that would move the proxy somewhere else', () => {
+    // The one path that can send traffic somewhere unintended, and it was
+    // interpolating `HOST` into a URL authority with no validation at all.
+    //
+    // `HOST=127.0.0.1:3000@evil.example.com` parses as a URL whose real host is
+    // `evil.example.com`, so every `/api` request — including the login body
+    // carrying `AUTOMATE_API_KEY` — would be proxied off-box, with a proxy target
+    // that still *looks* like loopback in a log. Anything that is not a plain
+    // host or IP literal is refused and falls back to the default.
+    for (const value of [
+      '127.0.0.1:3000@evil.example.com',
+      'evil.example.com/path',
+      'a b c',
+      'host#fragment',
+      'host?query=1',
+      'user@host',
+    ]) {
+      expect(apiProxyTarget({ HOST: value })).toBe('http://127.0.0.1:3000');
+    }
+  });
+
+  it('brackets an IPv6 literal so the URL authority stays parseable', () => {
+    // A bare `::1` in an authority is not a URL — the first colon reads as the
+    // port separator. Bracketed, it is.
+    expect(apiProxyTarget({ HOST: '::1' })).toBe('http://[::1]:3000');
+    expect(apiProxyTarget({ HOST: '0.0.0.0' })).toBe('http://0.0.0.0:3000');
+  });
+
   it('honours a bind address, and falls back only for a blank one', () => {
     // `HOST=0.0.0.0` is a bind address the API is genuinely reachable on, so
     // proxying there is correct. A blank or absent one is not a host, and
     // substituting it would send the proxy to a literal `:0.0.0.0` authority.
-    expect(apiProxyTarget({ HOST: '0.0.0.0' })).toBe('http://0.0.0.0:3000');
     expect(apiProxyTarget({ HOST: '' })).toBe('http://127.0.0.1:3000');
     expect(apiProxyTarget({ HOST: '   ' })).toBe('http://127.0.0.1:3000');
+    expect(apiProxyTarget({ HOST: 'localhost' })).toBe('http://localhost:3000');
   });
 
   it('is what the web dev proxy actually uses', () => {
@@ -57,8 +85,12 @@ describe('apiProxyTarget', () => {
       path.join(import.meta.dirname, '..', '..', '..', 'apps', 'web', 'vite.config.ts'),
       'utf8',
     );
-    expect(source).toContain('apiProxyTarget');
-    expect(source).not.toMatch(/target:\s*['"`]http:\/\/127\.0\.0\.1:\d+/);
+    // Matched as a *call*, not as a name: a comment mentioning `apiProxyTarget`
+    // would satisfy a substring check while the config went on using a literal.
+    expect(source).toMatch(/target:\s*apiProxyTarget\(/);
+    // Any URL literal, not only a loopback one. `http://localhost:3000` and
+    // `http://0.0.0.0:3000` reintroduce exactly the same drift.
+    expect(source).not.toMatch(/target:\s*['"`]http/);
   });
 });
 
@@ -71,7 +103,12 @@ describe('the documented quick start', () => {
   it('does not send the reader to a port of its own', () => {
     // Deriving the proxy is not enough if the document still overrides the port,
     // so this fails the moment a `PORT=` line reappears in the quick start.
-    expect(readme).not.toMatch(/PORT=\s*['"`]?\d+/);
+    //
+    // Whitespace-tolerant on purpose. The README's own PowerShell block spells
+    // every other variable `$env:NAME='value'`, so `/PORT=/` would not match a
+    // re-introduction written `$env:PORT = '3456'` — which is the most likely
+    // way it comes back, and the one that would silently un-fix the defect.
+    expect(readme).not.toMatch(/PORT\s*=\s*['"`]?\d+/i);
   });
 
   it('signs in with the key it tells the reader to set', () => {
@@ -87,6 +124,10 @@ describe('the documented quick start', () => {
     // refuses to start on the documented path with an error naming a secret
     // rather than a port.
     expect(value.length).toBeGreaterThanOrEqual(SECRET_MIN_LENGTH);
+    // This asserts the documented value *matches* the documented instruction. It
+    // deliberately does not assert that a working key stays published — that is a
+    // product decision about the sample, and freezing it here would make a
+    // credential-lifetime change fail an unrelated port test.
   });
 });
 

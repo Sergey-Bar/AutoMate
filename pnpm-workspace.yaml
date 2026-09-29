@@ -61,9 +61,16 @@ overrides:
   # GHSA-fx2h-pf6j-xcff (vite `server.fs.deny` bypass on Windows alternate paths,
   # fixed in 6.4.3) reached through `vitepress`, which pins vite 5. VitePress is a
   # build-time-only dependency of the documentation site, but it runs a dev server
-  # on a contributor's machine and its output is deployed — so "build only" is not
-  # the same as "never executed". 6.4.3 is the same major as the root catalog, so
-  # the override also dedupes the tree rather than adding a second copy.
+  # on a contributor's machine and its output is deployed - so "build only" is not
+  # the same as "never executed".
+  #
+  # **This forces a version outside the range VitePress declares.** Its
+  # `dependencies.vite` is `^5.4.14` - a regular dependency, not a peer with a
+  # widened range - so pnpm's override is suppressing the mismatch signal on every
+  # subsequent install. It works today and `pnpm build` builds the site, so a
+  # future breakage is caught by a gate rather than discovered in production. But
+  # the combination is unsupported upstream, and the honest fix is a VitePress that
+  # takes a patched vite, not a permanent override. Revisit when 2.x stabilises.
   # Reviewed 2026-09-29.
   'vitepress>vite': ^6.4.3
 

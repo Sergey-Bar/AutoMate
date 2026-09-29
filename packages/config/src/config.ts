@@ -97,8 +97,16 @@ function secretSchema(variable: SecretVariable) {
  *
  * So the proxy target reads the same `PORT` the API reads, and when `PORT` is
  * absent or unusable it falls back to the same schema default rather than
- * producing a URL that fails at request time. There is one number in this
- * repository, and it lives in `EnvironmentSchema` above.
+ * producing a URL that fails at request time. The two defaults are declared below
+ * and `EnvironmentSchema` reads *those*, so there is one number in this
+ * repository rather than three that have to agree.
+ *
+ * `HOST` is validated rather than interpolated, because it lands in a URL
+ * authority. Unvalidated, `HOST=127.0.0.1:3000@evil.example.com` produces a
+ * target that reads as loopback in a log and whose real host is
+ * `evil.example.com` — so every `/api` request, including the login body
+ * carrying `AUTOMATE_API_KEY`, is proxied off-box. `EnvironmentSchema` accepts any
+ * non-empty string for `HOST`, so nothing upstream catches it either.
  *
  * Not `parseConfig`: this is called from `vite.config.ts`, which runs before the
  * API's production startup policy and must not fail on a missing `DATABASE_URL`
@@ -111,13 +119,30 @@ export function apiProxyTarget(env: Record<string, string | undefined> = {}): st
   const raw = env['PORT'];
   const parsed = raw === undefined || raw.trim() === '' ? Number.NaN : Number(raw);
   const port = Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : DEFAULT_PORT;
-  // A `HOST` of `0.0.0.0` is a *bind* address and must be honoured verbatim: the
-  // API is reachable there, so proxying to it is correct. Only an absent or blank
-  // value falls back, and it falls back to the loopback the API itself defaults to.
-  const configuredHost = env['HOST'];
-  const host =
-    configuredHost === undefined || configuredHost.trim() === '' ? DEFAULT_HOST : configuredHost;
-  return `http://${host}:${String(port)}`;
+  return `http://${proxyHost(env['HOST'])}:${String(port)}`;
+}
+
+/**
+ * A hostname, IPv4 literal, or bracketed-or-bare IPv6 literal — and nothing else.
+ *
+ * Every character excluded here is one that changes *where* the URL points
+ * rather than naming a host: `@` introduces userinfo, `/` `?` `#` start a path,
+ * query, or fragment, and a second `:` is a port the caller does not own. A bare
+ * IPv6 literal is the one shape that legitimately contains colons, so it is
+ * matched by its own rule and re-bracketed — `http://::1:3000` is not a URL,
+ * because the first colon reads as the port separator.
+ *
+ * @param value the configured `HOST`, verbatim
+ * @returns a host usable in a URL authority, bracketed if it is IPv6
+ */
+function proxyHost(value: string | undefined): string {
+  if (value === undefined || value.trim() === '') return DEFAULT_HOST;
+  const host = value.trim();
+  // A bracketed literal is already in its URL form; re-bracketing would double it.
+  if (/^\[[0-9A-Fa-f:.]+\]$/.test(host)) return host;
+  if (/^[0-9A-Fa-f]*:[0-9A-Fa-f:.]+$/.test(host) && host.includes(':')) return `[${host}]`;
+  if (/^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(host)) return host;
+  return DEFAULT_HOST;
 }
 
 /** The bind address the API uses when `HOST` is unset. */

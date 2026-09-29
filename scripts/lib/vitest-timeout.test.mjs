@@ -85,7 +85,11 @@ test('every vitest config carries a deliberate test timeout', () => {
   const unaccounted = configs.filter((file) => {
     if (file in DOCUMENTED_EXCEPTIONS) return false;
     const source = readFileSync(path.join(REPO_ROOT, file), 'utf8');
-    return !source.includes('STANDARD_TEST_TIMEOUT_MS');
+    // Matched as an *assignment*, not as a name. A substring check is satisfied
+    // by a comment, by an import that is never used, and by a config that sets a
+    // literal 60000 instead of the shared constant — none of which is the thing
+    // being asserted, and all of which still fall back to Vitest's 5s default.
+    return !/testTimeout:\s*STANDARD_TEST_TIMEOUT_MS/.test(source);
   });
   assert.deepEqual(
     unaccounted,
