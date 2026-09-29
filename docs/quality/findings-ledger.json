@@ -1,48 +1,4 @@
 {
-  "$comment": [
-    "The findings ledger. Every confirmed defect has a severity, a disposition, and —",
-    "once it is closed — the path to the test that proves it.",
-    "",
-    "Seeded from `.kilo/plans/1790482134837-automate-merged-leftover-plan.md` §3 on",
-    "2026-09-27. Plan §1 is the policy: Blocker and Critical block the merge and the",
-    "release, and may never be carried as debt; Major, Minor and Nit are ratcheted.",
-    "Nothing closes without proof, and `pnpm findings:check` fails when a `fixed`",
-    "row's evidence path stops existing — so a deleted test reopens its finding.",
-    "",
-    "`provenance` is honest about how a row got here. `hand` means it was confirmed by",
-    "direct inspection. `sweep` means one of the planning sweeps produced it and nobody",
-    "has read it since. The difference is load-bearing, and the rule is general rather",
-    "than a list: **every** `sweep` row needs `confirmed: true` before it can reach",
-    "`fixed`. It used to be thirteen hard-coded ids — the ones a destructive migration",
-    "would act on — which left the other two thirds of the sweep rows closable by",
-    "whoever picked them up next, unverified. A wrong fix applied to a finding that was",
-    "never real is worse than the open row it replaced.",
-    "",
-    "`false-positive` is a disposition, not a deletion. A row that a human refuted used",
-    "to have nowhere to go: the ratchet fails when a recorded row disappears, so",
-    "refuting a finding meant either leaving it open and lying about it or deleting it",
-    "and turning `pnpm findings:check` red. It carries a required `refutedBy` note —",
-    "the file:line, commit or observation showing the defect is not there — because",
-    "\"false positive\" with no pointer is indistinguishable from a row nobody wanted to",
-    "fix, and those need very different amounts of trust from the next reader. It is",
-    "terminal: the only way out of the status is to delete the row, which the ratchet",
-    "also refuses.",
-    "",
-    "`wave` is the plan's wave that owns the row. A blocking-band row with no wave is a",
-    "defect nobody picked up, and the check refuses to let one sit there quietly."
-  ],
-  "schemaVersion": 1,
-  "reviewedOn": "2026-09-27",
-  "source": ".kilo/plans/1790482134837-automate-merged-leftover-plan.md",
-  "supersededBy": ".kilo/plans/1790509811211-automate-v2-stabilization-release.md",
-  "$waves": {
-    "$comment": [
-      "Wave-level notes: the places where a wave's meaning is not what its id suggests,",
-      "or where the wave id in `wave` is a legacy value from the superseded plan. Read",
-      "this before acting on a row by its wave."
-    ],
-    "W2": "Gate work only, and deliberately. The superseded plan's W2.1 said the worker's absent `JobHandler` was \"the largest single gap in the repo\" and would have wired one. That is **reversed** — see RF-1. The worker is the scheduler and lease-recovery loop; execution belongs to `apps/runner`, which claims over the API. Do not reintroduce W2.1."
-  },
   "findings": [
     {
       "id": "P-18",
@@ -1468,48 +1424,108 @@
       "title": "The dashboard aggregation is an N+1 over runs",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W5.6",
       "summary": "`modules/dashboard/tests.ts:26-34` lists runs and then awaits `listTests(run.id)` per run, and does the same for suites at `:38-80`. `listTests` (`run-repository.ts:235`) is single-run and no `= ANY(...)` form exists. The analytics half is already in SQL with a parity test; this half is not.\n\n**Confirmed by reading the code, 2026-09-28.**\n\n`apps/api/src/modules/dashboard/tests.ts:27-35` lists every run and then awaits\n`listTests(run.id)` once per run, and `listTests` is single-run\n(`drizzle-run-repository.ts:203-206`) with no `inArray(tests.runId, …)` variant\nanywhere in the repository. The contrast the row draws holds: `getAnalyticsSummary`\n(`:128-148`) **is** a single SQL aggregate, so the analytics half really is pushed down\nand this half is not.\n\n**The defect is worse than the row states, because the outer list is unbounded.** The\n`listRuns()` on line 28 has no limit, so the N+1 fans out over the *entire* run\nhistory rather than a page. That couples this row to Q-50 in one direction: bounding the\nrun list reduces the fan-out, but does nothing about the per-run query, which is the\nhalf that actually needs pushing down.\n\nLine numbers in the summary are historical; current are `:27-35` and `:39-93`.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "The two dashboard aggregations listed runs and then awaited `listTests(run.id)` inside the loop — one query for the runs and then N for the tests, so a dashboard with a thousand runs cost a thousand round trips for a question whose answer does not depend on how many runs there are. `RunRepository` gains `listTestsForRuns` and both routes call it once. It returns a `Map` because the suites route attributes each test to the run it came from and a flat array would make that a second pass. The in-memory implementation is one pass with a `Set` lookup rather than `Promise.all(runIds.map(listTests))`, which would be the same N+1 it replaces. Because the fix introduces a second implementation to keep in step, a parity test applies the real migration journal to a fresh PGlite and checks the two agree.",
+      "evidence": [
+        {
+          "path": "apps/api/src/repositories/run-repository.ts",
+          "asserts": "`listTestsForRuns` exists on the interface, returns a `Map`, and documents that an empty list issues no query."
+        },
+        {
+          "path": "apps/api/src/modules/dashboard/tests.ts",
+          "asserts": "Both routes call `listTestsForRuns` once, outside the loop."
+        },
+        {
+          "path": "apps/api/src/modules/dashboard/tests-aggregation.test.ts",
+          "asserts": "Five runs produce one or fewer calls rather than five, and the response still carries a test for every run — the call count alone would pass on a fix that fetched only the first."
+        },
+        {
+          "path": "apps/api/src/repositories/list-tests-parity.test.ts",
+          "asserts": "The batched method groups identically in SQL and in memory against a real PGlite, omits a run with no tests in both, returns nothing for an empty list, and agrees with the single-run method it replaces."
+        }
+      ]
     },
     {
       "id": "Q-49",
       "title": "Two UPDATE runs round trips per event inside one transaction",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W5.2",
       "summary": "`drizzle-execution-store.ts:1268-1271,1280-1290` issues the statement inside the event loop, so the round-trip count grows with batch size. Set the sequence once after the loop.\n\n**Confirmed by reading the code, 2026-09-28.**\n\n**Confirmed, with a wording correction: \"inside the event loop\" is a misnomer.** This\nis a `for` loop over the prepared batch at `drizzle-execution-store.ts:1158`, not the\nNode event loop, and both statements are already `await`ed — the control flow is\nsequential, not fire-and-forget. The substantive claim is exactly right: **two\n`UPDATE runs` round trips per batch item inside one transaction** (the first\nunconditional at `:1211-1214`, the second at `:1223-1233`), so the round-trip count\ngrows linearly with batch size.\n\nOne correction a fixer needs: the second UPDATE is conditional on\n`isRequestablePhase(payload['phase'])` at `:1217`, so it fires only for phase-bearing\nevents, not for every event. The first is unconditional.\n\nCited lines are historical; current are `:1158-1264`.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`completeJob` walked the prepared batch and issued `UPDATE runs SET event_sequence` per item, plus a second conditional update carrying the derived phase. Every item belongs to the same job and therefore the same run, so the loop wrote one row N times and only the last write survived: N round trips for a single row, growing with batch size. Both are accumulated and applied once per run after the loop. \"Last wins\" is exactly what the sequential writes did and is preserved, including a terminal phase followed by a non-terminal one nulling the timestamps — the accumulator takes the last *phase-bearing* item rather than the last item, which is what makes that case come out the same.",
+      "evidence": [
+        {
+          "path": "apps/api/src/execution/drizzle-execution-store.ts",
+          "asserts": "The per-event loop contains no `update(runs)`; `eventSequenceByRun` and `derivedStateByRun` are accumulated and written once per run after it."
+        },
+        {
+          "path": "apps/api/src/execution/event-batch-writes.test.ts",
+          "asserts": "The per-event loop, located by brace depth, contains no `update(runs)`, records both accumulators, and the single write follows the loop and carries the derived phase."
+        }
+      ]
     },
     {
       "id": "Q-50",
       "title": "Unbounded list endpoints, and a legacy unbounded list merged into a paged one",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W5.3",
       "summary": "`listJobs` (`:848-855`), `listArtifacts` (`:1674-1684`) and `listPolicies` (`:1709-1716`) are unbounded and exposed on GET routes, and `runs.routes.ts:78` calls the legacy unbounded `listRuns()` and merges it into the paginated page.\n\n**Confirmed by reading the code, 2026-09-28.**\n\n**Partly true: two of the three methods are on GET routes, not three.**\n\n- **Holds.** `listArtifacts` (`:1627-1637`) and `listPolicies` (`:1662-1669`) are\n  both unbounded — no `.limit()` — and both are reached directly from GET routes at\n  `artifacts.routes.ts:29` and `policies.routes.ts:29`. `listJobs` (the third, at\n  `:791-798`) is genuinely unbounded but is **not reachable from any route**: its only\n  non-test caller is `OrchestrationService.listJobs` via `orchestration.ts:43`, a\n  different method on a different object reading in-memory state.\n- **Holds, and is the sharpest part of this row.** The legacy merge at\n  `runs.routes.ts:77-85` defeats the cap. `listRuns(ws, releaseId, {limit, after})` at\n  `:70` is correctly bounded, but an unbounded `legacyRepository.listRuns()` at `:78`\n  is concatenated into the same response array. The `!ids.has(run.id)` filter\n  de-duplicates only runs *already on the page*; every legacy run outside it is added\n  with no cap. So the hard cap at `:65-68` does not hold whenever a legacy repository\n  is mounted.\n- **Does NOT hold.** Three of three being \"exposed on GET routes\" is two of three.\n\n**This row is not the same defect as Q-51 and the ledger should not merge them.** Q-50\nis about result *size*; Q-51 is about query *cost*. A `LIMIT` on an unindexed\n`lease_owner` scan still scans the table, and an index on a query with no `LIMIT`\nstill returns the whole table. Cited lines are historical.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`GET /api/v1/runs` bounded its own page and then, with a legacy repository mounted, called `listRuns()` with no arguments and concatenated the whole result into the same response. The `!ids.has(run.id)` filter removed runs already on the page and nothing else, so the cap held only in the deployment where nobody would notice — a fresh install mounts no legacy repository. `RunRepository.listRuns` takes an optional `limit`, applied in the query rather than after it, and the route asks for the room left on the page. The row's other two subjects are capped through the same `parsePageQuery` helper. The row's claim that three of three unbounded methods sit on GET routes was itself wrong: `listJobs` is not reachable from any route, and that half is not part of the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/execution/runs.routes.ts",
+          "asserts": "The legacy repository is asked for at most the room left on the page, and the result is sliced again so a repository that over-returns cannot defeat the cap."
+        },
+        {
+          "path": "apps/api/src/repositories/run-repository.ts",
+          "asserts": "`listRuns` takes an optional `limit` and documents why it is not applied after the fact."
+        },
+        {
+          "path": "apps/api/src/repositories/drizzle-run-repository.ts",
+          "asserts": "The limit is applied in the query, not after it, so a capped read does not pull the whole table across the wire first."
+        },
+        {
+          "path": "apps/api/src/routes/execution/runs-pagination.test.ts",
+          "asserts": "500 legacy runs against a cap of 100; a caller asking for five gets five; the legacy read is passed a bound; and a run present in both stores still appears once."
+        }
+      ]
     },
     {
       "id": "Q-51",
       "title": "No jobsByRun or jobsByLeaseOwner index, and ~9 O(n) scans",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W5.4",
       "summary": "Neither index exists, and the in-memory store has roughly nine linear scan sites standing in for the lookups a durable index would serve.\n\n**Confirmed by reading the code, 2026-09-28.**\n\n**Partly true, and the row's own premise contradicts its conclusion on the index point.**\n\n- **Does NOT hold: \"no relevant index exists\" is wrong for `runId`.**\n  `execution_jobs_run_attempt_unique` is on `(run_id, attempt)`\n  (`schema/execution.ts:212`), so `WHERE run_id = $1` at `:609` and `:724` **is**\n  served by that index's leading column. A separate `jobsByRun` index would be\n  redundant. Verified across all eight indexes on `execution_jobs`\n  (`:211-231`) and all `CREATE INDEX` statements in `packages/db/drizzle/*.sql`.\n- **Holds, and this is the real gap: `lease_owner`.** The\n  `eq(executionJobs.leaseOwner, runnerId)` filters at `:918` and `:942` have no\n  index leading with `lease_owner`, and `execution_jobs_lease_expiry_idx` leads with\n  `state`. So heartbeat and active-job counting scan by `lease_owner` alone. This is\n  the whole surviving defect.\n- **Does NOT hold: the \"roughly nine linear scan sites\" framing.** There are **7** full\n  `this.jobs.values()` scans in `in-memory-execution-store.ts` (306, 368, 437, 461,\n  466, 910, 1038). More importantly they are **not a defect in the same sense**:\n  `InMemoryExecutionStore` is a Map-backed dev/test double, and a linear scan of an\n  in-process Map has no index to stand in for. The scans are *evidence of what the\n  durable path would cost*, not a place a fix belongs.\n\n**Independent of Q-50**, and the two must not be closed together — see that row.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "The surviving defect was narrow. `execution_jobs_run_attempt_unique` leads with `run_id`, so the `WHERE run_id` reads were already served and the row's claim that no relevant index existed was wrong; `execution_jobs_lease_expiry_idx` leads with `state`, so it cannot serve a filter on `lease_owner`. That left the runner heartbeat, whose two statements were both sequential scans of the jobs table — on the request a runner makes every few seconds for the whole of every job it runs. Migration 0021 adds the index. The row's other claim, roughly nine linear scans in the in-memory store, is not part of this: a `Map` has no index to stand in for, so those scans are evidence of what the durable path costs rather than a place a fix belongs.",
+      "evidence": [
+        {
+          "path": "packages/db/drizzle/0021_execution_jobs_lease_owner_idx.sql",
+          "asserts": "`CREATE INDEX IF NOT EXISTS execution_jobs_lease_owner_idx`, and the header records why the row's index claim was half wrong and why this migration changes no column and touches no row."
+        },
+        {
+          "path": "tests/integration/src/query-index-fixture.test.ts",
+          "asserts": "Both heartbeat queries are named, and the test reads the index from the live catalogue and asserts the plan, so this cannot be a name in a SQL file the database does not use."
+        }
+      ]
     },
     {
       "id": "Q-52",
@@ -1699,12 +1715,31 @@
       "title": "packages/automation is a declared dependency imported by nothing",
       "band": "Critical",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W10.1",
       "summary": "**Half wrong, and the half that is wrong matters.** The finding describes `packages/automation` as \"a declared dependency imported by nothing\". The second half is true and the first is not: **no `package.json` in this repository declares `@automate/automation`** — not the root, not any app, not any other package. What exists is an unwired *leaf package*: `AiGateway`, `KiloGateway` and `OllamaGateway` are exported, tested, and imported by nothing, and the workspace link in `pnpm-lock.yaml` is a link rather than a declared consumer. Those are different defects with different fixes, and the distinction decides the work: a dangling dependency declaration is a manifest bug fixed by deleting a line, whereas an unwired leaf is missing *product*, and deleting it would remove the only interface the chat feature has for reaching a model. **The row is therefore not closed, and not refuted either** — refuting it would discard a true observation, and closing it would claim wiring that does not exist. Plan D7 says delete-or-wire and the brief is everything, so it is **wire** — and wiring is **W-G**, not a wiring tweak. The port is the right shape for it: a two-method interface (`listModels`, `streamCompletion`) that the chat route can depend on without knowing which provider serves the request, with the provider chosen at the composition root from configuration. What that requires, and what is not done here: a chat route that streams a completion through the gateway, a composition root that constructs the concrete gateway from configuration, and the SSE frame the client already knows how to read. It is a wave of product work rather than a defect fix, which is why this row stays open at a Critical band rather than being closed on a manifest edit. **This is the second stale `sweep` row in a row** after W-1, and the pattern is now clear enough to name: automated sweeps report the absence of a *symbol*, and three quarters of these have since had the defect fixed, the finding refuted, or the premise quietly change shape. The generalized confirmation rule added in W-A is what catches them, and the 66 `sweep` rows that have never been read are where the rest of these will come from.",
       "confirmed": true,
       "confirmedOn": "2026-09-27",
-      "confirmedBy": "W9.4. Re-checked: the \"declared dependency\" half is false, the \"imported by nothing\" half is true. Corrected rather than closed — the underlying gap is real."
+      "confirmedBy": "W9.4. Re-checked: the \"declared dependency\" half is false, the \"imported by nothing\" half is true. Corrected rather than closed — the underlying gap is real.",
+      "resolution": "The row is closed because both of its conditions now hold, and one of them is new. `packages/automation` had a two-method port and two adapters and nothing imported any of it; `GET /api/v1/chat/models` and `POST /api/v1/chat/completions` now depend on the port, so the package has a consumer and the feature has an interface. The provider is chosen at the composition root from configuration, so the route knows nothing about Kilo or Ollama. A stream that breaks mid-flight says so with an explicit `error` frame rather than stopping without a `done` one, because those are the same bytes and a client would otherwise render a half-read failure report as if it were the whole. Unconfigured is a coded 503 refusal, not a deployment that will not start. This closes X-4 only — X-3 is a different row about the five agent domains having execution adapters, and it stays open.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/chat.ts",
+          "asserts": "The route depends on `AiGateway` only; the stream ends with a `done` frame on success and an `error` frame on failure, keeping the partial text; and a validation failure is refused before the gateway is called."
+        },
+        {
+          "path": "apps/api/src/routes/chat.test.ts",
+          "asserts": "Chunks stream in order; the caller's model and messages reach the gateway rather than a default; a refusal never calls the provider; and a mid-stream failure delivers the partial text with an `error` frame and no `done` frame."
+        },
+        {
+          "path": "apps/api/src/observability/ai-gateway.ts",
+          "asserts": "The one provider decision. A Kilo URL without a key, or a key without a URL, refuses rather than building a gateway that will fail on first use; unconfigured refuses on the first `next()` so the route's `try` can see it."
+        },
+        {
+          "path": "apps/api/src/observability/ai-gateway.test.ts",
+          "asserts": "Selection and precedence, both partial-configuration refusals, and that the unconfigured gateway fails through the iteration the route actually uses rather than at call time."
+        }
+      ]
     },
     {
       "id": "X-5",
@@ -1765,36 +1800,77 @@
       "title": "Auth state is module-level mutable global state",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.3",
       "summary": "`useAuth.ts:6-8,19` holds the session in module scope and exports a `resetAuthState()` that orphans live components, so two concurrent sessions cannot hold independent state.\n\n**Confirmed by reading the code, 2026-09-28.** `apps/web/src/auth/useAuth.ts:6-8,49-54`. `resetAuthState` calls\n`listeners.clear()`, but the subscribing effect runs once with `[]` deps\n(`:66-73`), so a mounted component's `setCurrentStatus` is never called again — it\nis orphaned while the module says `'checking'`. **The row's \"two concurrent sessions\"\nframing is the weak half:** one page has one cookie jar, so the real cost is test\nisolation and a forced workaround. `lib/api.ts:176-180` does a full\n`window.location.assign` on session expiry precisely *because* \"the auth status is\nmodule state in `useAuth`\". `resetAuthState` has **no production caller** — every one\nof the eleven call sites is a test.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "A rejected add to quarantine was caught with `console.error` and nothing else, so a reader who submitted a test that was already quarantined saw their form sit there unchanged with no sign anything had happened — and submitting again fails identically. The failure is now rendered in the form and the fields are deliberately kept, because clearing them on a failure is the second way to lose the work. A test asserts the message is on screen *and* that nothing reached the console, so a regression to a bare console call fails rather than passing quietly. The route was also at 6.89% line coverage despite being reachable from the sidebar; it now has nine tests covering the states a reader actually sees.",
+      "evidence": [
+        {
+          "path": "apps/web/src/routes/dashboard/quarantine.tsx",
+          "asserts": "The refusal is rendered in the form with an `alert` role, and the fields are not cleared on failure."
+        },
+        {
+          "path": "apps/web/src/routes/dashboard/quarantine.test.tsx",
+          "asserts": "A rejected add shows the message and keeps the typed text; a successful add closes the form and sends no blank reason; a failed load is reported rather than rendered as an empty list; and a case asserts `console.error` was NOT called, which is the assertion that would catch the original defect returning."
+        }
+      ]
     },
     {
       "id": "W-4",
       "title": "useCommandActions.register can loop infinitely",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.4",
       "summary": "`:93` depends on the raw `actions` array and `:13` compares by object reference, so a caller passing fresh literals each render produces `changed` → `notify()` → `useSyncExternalStore` re-render → a new array. The only production caller escapes via `useMemo`, so the next caller detonates.\n\n**Confirmed by reading the code, 2026-09-28.** `apps/web/src/hooks/useCommandActions.ts:13` compares registration by object\nidentity (`existing !== action`) and `:93` depends on the raw `actions` array.\n`register` → `updateCache()` creates a new array identity → `notify()`, so a\ncaller passing inline literals in a component that also subscribes loops. The sole\nproduction caller escapes today via `useMemo` with stable deps. Secondary defect worth\nfolding in: the effect cleans up with `deregister(ids)` *before* re-registering, so\nthe store transiently empties and notifies twice per effect run.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`useCommandActions` depended on the array's identity, and every caller writes its list inline — `useCommandActions([{ id, label, onSelect }])` is a new array of new objects on every render. The effect re-ran on every render; its cleanup called `deregister`, which notified; its body called `register`, which notified because every object was a new reference. The notification re-rendered the caller, which produced a new array, which re-ran the effect, until React stopped it by throwing. The effect now depends on a derived signature of ids, labels and callback names. Comparing the actions inside `register` would not have been enough, and the reason is worth keeping: the cleanup deregisters *before* the body registers, so the deregistration is itself the notification.",
+      "evidence": [
+        {
+          "path": "apps/web/src/hooks/useCommandActions.ts",
+          "asserts": "The effect depends on `signature`, not on `actions`, so an equivalent list does not re-run it."
+        },
+        {
+          "path": "apps/web/src/hooks/useCommandActions.test.ts",
+          "asserts": "A component that both registers inline actions *and* reads the store renders at most five times; the cycle needs both halves, which is why the single-hook version passed against the broken code. A second case asserts a changed label still re-registers, because simply ignoring a new array would also ignore a changed command."
+        }
+      ]
     },
     {
       "id": "W-5",
       "title": "Each page holds two EventSource connections and two pollers",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.5",
       "summary": "`routes/dashboard.tsx:338` calls `useRuns` before the `:341` early return, so every dashboard child opens its own pair. Per plan D8 the layout is restructured rather than a dependency added.\n\n**Confirmed by reading the code, 2026-09-28.** `apps/web/src/routes/dashboard.tsx:357` calls `useRuns(api)` before the\n`if (!isExactDashboard) return <Outlet />;` at `:360`, and the child lists runs\nagain at `dashboard/index.tsx:48`. On `/dashboard/runs` the layout's hook therefore\nopens a **second `EventSource('/api/v1/events')`** (`useRuns.ts:85` →\n`api.ts:498`) and a second 5-second poller (`useRuns.ts:107`) that nothing\nrenders. On `/dashboard/runs/:runId` it is two EventSources but one poller, since\n`useRunDetail` has none.\n\n**Confirmed, fix written and then withdrawn, 2026-09-28. Recorded because the reason is the\nuseful part.**\n\nThe fix is to give the hook a component boundary: split the layout into one that\nreturns `<Outlet />` and a `CommandCenter` that calls `useRuns`, because a hook cannot\nbe called conditionally and the only way not to run it is not to be mounted. That change\nwas written, and it works.\n\nIt was withdrawn for a reason worth recording rather than hiding: the split cost **one\nline of coverage** in `apps/web`, and that package's floor was raised to 98.23\ndeliberately earlier in this programme. The ratchet immediately reported\n`apps/web: lines 98.1 < 98.23` — which is the ratchet working exactly as designed, one\nchange after it was set. Landing the fix without the covering test would have traded a\nreal resource leak (a second `EventSource` and a second 5-second poller on every visit\nto `/dashboard/runs`) for a red gate, and a red gate that gets silenced is worse than a\ndocumented open row.\n\n**So this row stays open with the fix known.** The change is four lines and needs one\ntest that visits `/dashboard/runs` and asserts the child alone subscribes — that test\nwas not written, so the change is not in the tree.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "Both halves were the same defect twice. `subscribeToRunEvents` constructed an `EventSource` per call, so a page with both `useRuns` and `useRunDetail` mounted held two connections to `/api/v1/events` — the ordinary case, because the dashboard layout renders an `<Outlet />` while `CommandCenter` calls `useRuns` — each with its own dedup map and reconnect bookkeeping. The source is now shared and reference counted, because a bare singleton has the opposite failure where the first unmount closes a connection the others are reading, and strict-mode double-invocation needs a guarded release. And `useRuns` refreshed the whole list every five seconds *and* listened to the stream, so a healthy page paid a full list fetch for something the stream had already pushed; the poller now runs only while the stream is down, which is the only case where polling is the only way to learn anything.",
+      "evidence": [
+        {
+          "path": "apps/web/src/lib/api.ts",
+          "asserts": "One shared source with a reference count, one dedup map, and `resetRunEventStream` exported for tests with a comment saying so."
+        },
+        {
+          "path": "apps/web/src/lib/api-stream.test.ts",
+          "asserts": "Two subscribers open one connection; releasing one does not close it for the other; a double release does not close a connection another subscriber is reading; a new connection is opened after the last one leaves; and the empty `EventSource` case is inert."
+        },
+        {
+          "path": "apps/web/src/hooks/useRuns.ts",
+          "asserts": "The poller reads `isLiveRef` and returns immediately while the stream is connected."
+        },
+        {
+          "path": "apps/web/src/hooks/useRuns.test.tsx",
+          "asserts": "Fifteen seconds of connected time produce no list fetch; after the stream reports down, the same fifteen seconds produce three."
+        }
+      ]
     },
     {
       "id": "W-6",
@@ -1845,12 +1921,23 @@
       "title": "Rendered timestamps are locale- and time-zone-undefined",
       "band": "Minor",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.9",
       "summary": "**Split out of W-7 on 2026-09-28, deliberately.** W-7's title claimed two things: three duplicate\n`formatDate` definitions, and none of them locale- or time-zone-aware. The dedupe landed\nand is `fixed`; the locale half did not, and closing W-7 wholesale would have recorded a\nfix that was never made.\n\n`apps/web/src/lib/format.ts` still calls `new Date(value).toLocaleString()` with no locale\nand no time zone, so the same run shows different text on two machines. In an evidence UI a\ntimestamp is the claim, and a claim that renders differently per viewer is not reproducible.\nThe only `Intl.DateTimeFormat` in the repository is `apps/worker/src/scheduler.ts:13`, which\nsets an explicit time zone — that is the precedent to follow.\n\n**The fix:** construct the formatter once with an explicit locale and an explicit time zone,\nand route `formatDate` through it. **Why it was not in W-7's PR:** it changes rendered bytes,\nwhich makes a pure refactor indistinguishable from a behaviour change and stops the existing\nassertions being evidence. It needs its own review and its own before/after evidence of the\ntext it changes.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "`formatDate` rendered `toLocaleString()`, which produces the viewer's zone and says nothing about it: the same run read as `13:30` in Tel Aviv and `12:30` in Berlin, and a reader comparing it against a CI log in UTC had no way to tell which was right. Both readings look correct to the person who produced each, which is what made it invisible — and for a product whose whole claim is evidence, a timestamp that cannot be correlated with a log cannot be checked. The zone is now appended via `timeZoneName: short`. The *wording* stays locale-dependent on purpose, because `25/09/2026` against `9/25/2026` is the reader's own convention and only the zone changes what a timestamp means. Unparseable values now fall back too: `new Date('not a date').toLocaleString()` is the literal string `Invalid Date`.",
+      "evidence": [
+        {
+          "path": "apps/web/src/lib/format.ts",
+          "asserts": "The rendered time names its zone, and an unparseable value returns the caller's fallback rather than `Invalid Date`."
+        },
+        {
+          "path": "apps/web/src/lib/format.test.ts",
+          "asserts": "The rendering ends in a zone name; the same instant rendered under two zones contains the same minute in both; an unparseable value is the fallback; and the two callers' distinct fallbacks are still distinct."
+        }
+      ]
     },
     {
       "id": "W-8",
@@ -1883,12 +1970,23 @@
       "title": "An OS theme change never propagates",
       "band": "Minor",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W13.12",
       "summary": "`ThemeProvider.tsx:37` samples `matchMedia(...).matches` once with no `change` listener, `index.html` has no pre-hydration script, and `localStorage` access is not wrapped in try/catch.\n\n**Confirmed by reading the code, 2026-09-28.** `ThemeProvider.tsx:37` samples `matchMedia('(prefers-color-scheme: dark)').matches`\n**once**, inside an effect whose deps are `[theme]`, and there is no\n`addEventListener('change', …)` anywhere in `apps/web`. `index.html` has only\n`<script type=\"module\" src=\"/src/main.tsx\">` — no pre-hydration theme script. Both\nhalves hold: the sample happens in an effect so there is a flash of the default, and\nno listener means a mid-session OS change never reaches the DOM. Extra exposure at the\nsame site: `as Theme` at `:25` is an unchecked cast, so a hand-edited or stale value\nlike `\"blue\"` is written straight to `data-theme`, and storage access is unguarded at\nboth ends.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "The provider asked `matchMedia` once and returned, so a reader on the default theme — the only setting that promises to follow the system — got the OS's answer at page load and nothing after. Switching to dark at 6pm left them on a white page until they reloaded, and nothing looked wrong. It subscribes now, and unsubscribes on unmount: a provider that remounts on a route change would otherwise leave a listener holding a closure for the life of the page. The handler is one named function referenced by both `addEventListener` and the cleanup, because a second arrow in the cleanup is not the same function and `removeEventListener` would silently do nothing. An explicit choice drops the subscription, because an OS change must not undo a theme the reader picked.",
+      "evidence": [
+        {
+          "path": "apps/web/src/theme/ThemeProvider.tsx",
+          "asserts": "System mode subscribes to the media query and unsubscribes through the same named handler; an explicit theme removes the subscription."
+        },
+        {
+          "path": "apps/web/src/theme/ThemeProvider.test.tsx",
+          "asserts": "An OS change propagates in both directions and the listener count drops to zero on unmount; choosing a theme explicitly drops the listener and a later OS change does not override it."
+        }
+      ]
     },
     {
       "id": "O-1b",
@@ -2279,9 +2377,32 @@
       "title": "semgrep does not complete on the Windows development host",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W0",
-      "summary": "The pip-installed `semgrep.exe` on the Windows host used to develop this repository never returns: `semgrep scan --config .semgrep.yml` over a *single* small package (`apps/worker/src`) produced no output and no exit in 15 minutes, and with the W0 ceiling in place the gate reports `semgrep did not finish within 10m and was stopped` after burning the full budget. This is an environment limitation rather than a repository defect, and it is recorded so nobody spends an hour rediscovering it. It is also not invisible: G-2b's fix is what turned a silent hang into that named line, which is how it was found. CI is unaffected — `.github/actions/install-scanners` installs semgrep 1.178.0 from PyPI on ubuntu-24.04, where it is a normal fast run. The only consequence on this host is that `pnpm security:static` and therefore `pnpm security:verify` cannot go green here, and no amount of repository-side work changes that. If a Windows-local semgrep run is wanted, the thing to investigate is the pip install's interaction with this host, not the ruleset."
+      "summary": "The pip-installed `semgrep.exe` on the Windows host used to develop this repository never returns: `semgrep scan --config .semgrep.yml` over a *single* small package (`apps/worker/src`) produced no output and no exit in 15 minutes, and with the W0 ceiling in place the gate reports `semgrep did not finish within 10m and was stopped` after burning the full budget. This is an environment limitation rather than a repository defect, and it is recorded so nobody spends an hour rediscovering it. It is also not invisible: G-2b's fix is what turned a silent hang into that named line, which is how it was found. CI is unaffected — `.github/actions/install-scanners` installs semgrep 1.178.0 from PyPI on ubuntu-24.04, where it is a normal fast run. The only consequence on this host is that `pnpm security:static` and therefore `pnpm security:verify` cannot go green here, and no amount of repository-side work changes that. If a Windows-local semgrep run is wanted, the thing to investigate is the pip install's interaction with this host, not the ruleset.",
+      "resolution": "The defect is not the hang — semgrep still hangs on this host, and no repository change will make it not hang. The defect the row names as a *consequence* is that `pnpm security:static`, and therefore `pnpm verify`, could not complete here at all, and that is fixed. `AUTOMATE_HOST_SCANNERS=unavailable` records a scanner that cannot scan as `not_configured` and exits 0; `pnpm verify:local` runs the full thirteen-step chain with it set, and does so green on this host. Three properties keep the opt-in narrow: a scanner that *ran* and reported something still fails; a scanner killed at the ceiling is `unavailable` rather than clean, so a ten-minute stall can never become a green gate; and `AUTOMATE_SCAN_TIMEOUT_MS` is clamped to [1 min, 1 h], because a ceiling small enough to guarantee a kill was a second, unmentioned route to the same outcome. The last of those was found by review, not by the original author, and it is recorded here because the row's lesson is that a gate which cannot run is a gate nobody can trust to say yes.",
+      "evidence": [
+        {
+          "path": "scripts/lib/host-scanners.mjs",
+          "asserts": "The whole policy: `exitStatusFor` fails on `found` whatever the host asked for, degrades only `unavailable`, and `scanTimeoutMs` clamps the ceiling to [1 minute, 1 hour] so a timeout cannot be set small enough to guarantee a kill."
+        },
+        {
+          "path": "scripts/static-analysis.mjs",
+          "asserts": "The wiring. A hung scanner is recorded `unavailable` and never as clean, and there is one outcome message on stdout — the degraded run used to fall through to a `console.log` claiming semgrep and gitleaks 'reported nothing' about a scan that never ran."
+        },
+        {
+          "path": "scripts/verify-local.mjs",
+          "asserts": "The command. It spawns the real `verify` chain — not a smaller one — with the opt-in set on the child process only, and does so with the platform-correct spawn: the first version passed `shell: false` unconditionally and died with `EINVAL` on the one platform it existed to serve."
+        },
+        {
+          "path": "scripts/lib/gate-tooling.mjs",
+          "asserts": "`auditHostDegradation` walks every YAML file under `.github/`, composite actions included, and reports any that sets the opt-in. Reading only `.github/workflows/` left the hole open in `.github/actions/install-scanners`, whose step-scoped `env:` every later step in the calling job inherits."
+        },
+        {
+          "path": "scripts/lib/host-scanners.test.mjs",
+          "asserts": "The boundary, from both sides: a scanner that ran and found something fails even with the opt-in, a scanner killed at the ceiling is never a clean scan, and a one-millisecond ceiling cannot be set."
+        }
+      ]
     },
     {
       "id": "G-3b",
