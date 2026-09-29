@@ -123,6 +123,24 @@ const CASES: QueryCase[] = [
     sql: 'SELECT id FROM gate_evaluations WHERE workspace_id = $1 AND evaluated_at >= $2',
     params: ['ws-1', '2020-01-01T00:00:00.000Z'],
   },
+  {
+    // The runner heartbeat. `execution_jobs_lease_expiry_idx` leads with `state`,
+    // and this filters on `lease_owner` alone, so both queries a runner makes on
+    // every heartbeat were full scans of the jobs table — the table that grows with
+    // every run, forever (ledger Q-51).
+    endpoint: 'POST /api/v1/runners/:runnerId/heartbeat',
+    index: 'execution_jobs_lease_owner_idx',
+    sql: 'SELECT id FROM execution_jobs WHERE lease_owner = $1',
+    params: ['00000000-0000-4000-8000-0000000000b1'],
+  },
+  {
+    // The other half of the same request: how many jobs this runner currently has
+    // out. Same column, same absence.
+    endpoint: 'POST /api/v1/runners/:runnerId/heartbeat (active count)',
+    index: 'execution_jobs_lease_owner_idx',
+    sql: 'SELECT count(*) FROM execution_jobs WHERE lease_owner = $1',
+    params: ['00000000-0000-4000-8000-0000000000b1'],
+  },
 ];
 
 let client: PGlite;

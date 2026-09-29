@@ -1,0 +1,31 @@
+-- Q-51 — `execution_jobs.lease_owner` had no index leading with it.
+--
+-- `execution_jobs` had eight indexes. `execution_jobs_run_attempt_unique` leads
+-- with `run_id`, so the `WHERE run_id = $1` reads *are* served — a separate
+-- `jobsByRun` index would be redundant, and the row's original claim that no
+-- relevant index existed was wrong. `execution_jobs_lease_expiry_idx` leads with
+-- `state`, so it cannot serve a filter on `lease_owner`.
+--
+-- That left the runner heartbeat, which the store runs as two statements —
+-- `SELECT id … WHERE lease_owner = $1` and `SELECT count(*) … WHERE lease_owner =
+-- $1`. Both were sequential scans of the jobs table, on the request a runner makes
+-- every few seconds for the whole of every job it runs, against the table that
+-- grows with every run and is never pruned. The cost is linear in all history
+-- rather than in one runner's work (ledger Q-51).
+--
+-- `IF NOT EXISTS` so re-running the migration is a no-op rather than an error, and
+-- the name matches the `execution_jobs_<column>_idx` spelling the catalogue already
+-- uses, so `query-index-fixture.test.ts` names a real object rather than a claim.
+--
+-- **This migration adds an index and nothing else.** No column changes, no data is
+-- touched, and no constraint moves — so a rollback is `DROP INDEX`, with no state
+-- to reconstruct. That is why it is separate from the tenancy migrations around it,
+-- which do rewrite rows and cannot be undone the same way.
+--
+-- An index on a column that is `NULL` for queued jobs costs storage for those rows
+-- too, which is the usual trade; `lease_owner` is populated exactly when a job is
+-- leased, so the index is smallest precisely when the jobs table is largest — the
+-- queued backlog is the part it does not have to carry.
+
+CREATE INDEX IF NOT EXISTS "execution_jobs_lease_owner_idx"
+  ON "execution_jobs" ("lease_owner");
