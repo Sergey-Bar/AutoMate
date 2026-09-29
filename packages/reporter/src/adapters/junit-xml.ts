@@ -147,33 +147,45 @@ export const junitXmlAdapter: ProducerAdapter = {
     });
     parser.write(new TextDecoder().decode(input)).close();
     if (testCases.length === 0) throw new Error('JUnit report contains no test cases');
-    // One attempt per `<testcase>`, so the attempt ordinal is always 1.
+    // The attempt ordinal is *within one test*, so it is counted per `testId` and
+    // not across the document.
     //
-    // This used to be `index + 1` — a running ordinal across every testcase in the
-    // document. That is a different quantity from the one `playwright-json.ts` puts
-    // here (`attemptIndex + 1`, the attempt's ordinal *within one test*) and from the
-    // one `RunExplorer.tsx:36` renders as "attempt N". So a JUnit run whose second
-    // testcase failed claimed its only attempt was attempt 2, and a consumer keying on
-    // `(testId, index)` had no consistent identity across the two producers. The
-    // adapter-parity suite is what a disagreement like this belongs to, and the
-    // contract's attempt-sequence rule is what surfaced it.
-    const attempts = testCases.map((testCase) => ({
-      index: 1,
-      testId: `${testCase.classname ?? 'suite'}:${testCase.name}`,
-      specPath: testCase.file ?? 'unknown.spec.ts',
-      title: testCase.name,
-      suite: testCase.classname,
-      status: testCase.status,
-      rawStatus: testCase.status,
-      startedAt: context.startedAt,
-      finishedAt: context.finishedAt,
-      durationMs: Number.isFinite(testCase.time) ? testCase.time : undefined,
-      error: testCase.message
-        ? { message: testCase.message, ...(testCase.truncated ? { code: TRUNCATED_CODE } : {}) }
-        : undefined,
-      evidence: [],
-      flakiness: testCase.flakiness,
-    }));
+    // It was a running ordinal, which made the second testcase in a report claim its
+    // only attempt was attempt 2; and it was then "always 1", which fixed that case
+    // and broke the one that matters more: **a retry is several `<testcase>` elements
+    // with the same `classname` and `name`**, which is what JUnit XML exists to
+    // express and what every CI reporter emits for a flaky test. Always-1 produced
+    // `[1, 1]` for one `testId`, and `CanonicalRunResultSchema` requires exactly
+    // 1..n with no repeat — so every retried JUnit report in every project was
+    // rejected at the ingestion boundary with an error about a duplicate attempt
+    // index, and nothing about the error named the adapter.
+    //
+    // The existing test used three *distinct* names, so it passed against both wrong
+    // versions. It is a real limitation of the shape, not of the test: a suite with
+    // no retries cannot tell "always 1" from "per test".
+    const attemptOrdinal = new Map<string, number>();
+    const attempts = testCases.map((testCase) => {
+      const testId = `${testCase.classname ?? 'suite'}:${testCase.name}`;
+      const index = (attemptOrdinal.get(testId) ?? 0) + 1;
+      attemptOrdinal.set(testId, index);
+      return {
+        index,
+        testId,
+        specPath: testCase.file ?? 'unknown.spec.ts',
+        title: testCase.name,
+        suite: testCase.classname,
+        status: testCase.status,
+        rawStatus: testCase.status,
+        startedAt: context.startedAt,
+        finishedAt: context.finishedAt,
+        durationMs: Number.isFinite(testCase.time) ? testCase.time : undefined,
+        error: testCase.message
+          ? { message: testCase.message, ...(testCase.truncated ? { code: TRUNCATED_CODE } : {}) }
+          : undefined,
+        evidence: [],
+        flakiness: testCase.flakiness,
+      };
+    });
     // One attempt per `<testcase>`, so the per-test outcome and the per-attempt
     // outcome are the same list. Passed explicitly rather than left to the serialiser
     // to infer, so a future change that gives JUnit several attempts per testcase

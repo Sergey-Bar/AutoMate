@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { CanonicalRunResultSchema } from '@automate/shared-contracts';
 import { junitXmlAdapter, MAX_MESSAGE_CHARS } from './adapters/junit-xml.js';
 
 const context = {
@@ -98,6 +99,60 @@ describe('JUnit adapter', () => {
       context,
     );
     expect(result.attempts.map((attempt) => attempt.index)).toEqual([1, 1, 1]);
+  });
+
+  it('numbers a retried test 1..n, which is what a JUnit report with a retry actually contains', () => {
+    // The test above uses three *distinct* names, and that is why the defect went
+    // unnoticed: with distinct names, "always 1" is correct.
+    //
+    // A retry is several `<testcase>` elements with the same `classname` and `name`
+    // — which is what JUnit XML exists to express, and what every CI reporter emits
+    // for a flaky test. `CanonicalRunResultSchema` requires each `testId`'s indexes to
+    // be exactly 1..n with no repeat, so `[1, 1]` for one test was rejected by
+    // `safeParse` at the API boundary: every retried JUnit run in every project
+    // failed to ingest, with an error about a duplicate attempt index.
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite>' +
+          '<testcase classname="checkout" name="adds to cart" status="failed"/>' +
+          '<testcase classname="checkout" name="adds to cart" status="passed"/>' +
+          '<testcase classname="checkout" name="refunds" status="passed"/>' +
+          '</testsuite>',
+      ),
+      context,
+    );
+
+    // One attempt ordinal per *test*, not per element in the document.
+    const byTest = new Map<string, number[]>();
+    for (const attempt of result.attempts) {
+      byTest.set(attempt.testId, [...(byTest.get(attempt.testId) ?? []), attempt.index]);
+    }
+    expect(byTest.get('checkout:adds to cart')).toEqual([1, 2]);
+    // A test that ran once is still attempt 1, and unaffected by a neighbour's retry.
+    expect(byTest.get('checkout:refunds')).toEqual([1]);
+  });
+
+  it('produces a result the canonical contract accepts, retries and all', () => {
+    // The end of the chain the previous test's failure reached: the ingestion
+    // boundary parses with `safeParse`, so an adapter that produces a sequence the
+    // contract rejects rejects the whole report.
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite>' +
+          '<testcase classname="checkout" name="adds to cart" status="failed"/>' +
+          '<testcase classname="checkout" name="adds to cart" status="passed"/>' +
+          '</testsuite>',
+      ),
+      context,
+    );
+
+    const parsed = CanonicalRunResultSchema.safeParse(result);
+    expect(
+      parsed.success,
+      parsed.success
+        ? ''
+        : `the adapter produced a result the contract rejects: ${JSON.stringify(parsed.error.issues)}`,
+    ).toBe(true);
   });
 
   it('rejects reports without testcases', () => {
