@@ -161,6 +161,50 @@ for (const line of source.split(/\r?\n/)) {
   }
 }
 
+// Every agent domain must have a row, ledger C-2.
+//
+// `AgentDomainSchema` declares `browser`, `api`, `load`, `security` and `mobile`.
+// The register had rows for three of them: `load` and `mobile` were absent, so a
+// reader could not tell whether the capability was missing, deferred, or simply
+// forgotten. A register that enumerates capabilities and silently omits two of the
+// five is not a complete account of itself.
+//
+// The mapping from domain to register id is `quality.<domain>`, which is the
+// convention every existing row already follows.
+const agentDomainSource = readFileSync(
+  path.join(root, 'packages', 'shared-contracts', 'src', 'schemas', 'agents.ts'),
+  'utf8',
+);
+const domainEnum = /AgentDomainSchema\s*=\s*z\.enum\(\s*\[([^\]]*)\]\s*\)/.exec(agentDomainSource);
+// A register that describes no quality domain at all is a fixture, not an omission.
+// The contract suite runs this script against single-row registers to prove each
+// failure mode, and requiring five `quality.*` rows of one would make every one of
+// those cases fail for a reason that has nothing to do with what it is testing. So
+// the check runs when the register claims to describe quality domains, and is inert
+// when it does not — which is also the only way it can be correct about a document
+// scoped to something other than agent quality.
+const hasQualityRows = rows.some((row) => row.id.startsWith('quality.'));
+if (domainEnum === null) {
+  if (hasQualityRows) {
+    failures.push(
+      'could not read AgentDomainSchema from packages/shared-contracts/src/schemas/agents.ts; ' +
+        'the domain check cannot run',
+    );
+  }
+} else if (hasQualityRows) {
+  const domains = [...domainEnum[1].matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
+  const known = new Set(rows.map((row) => row.id));
+  for (const domain of domains) {
+    const id = `quality.${domain}`;
+    if (known.has(id)) continue;
+    failures.push(
+      `${id} has no register row. Every domain in AgentDomainSchema must be accounted for — ` +
+        'a reader who cannot find the row cannot tell whether the capability is missing, ' +
+        'deferred, or was simply forgotten.',
+    );
+  }
+}
+
 // The baseline must be a commit this repository has.
 const baseline = /^\*\*Baseline:\*\* `([0-9a-f]{40})`$/m.exec(source);
 if (baseline === null) {

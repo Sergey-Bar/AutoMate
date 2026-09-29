@@ -2344,9 +2344,20 @@
       "title": "The capability register contradicts itself and two of its real rows cite dead evidence",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W16.4",
-      "summary": "`tool.playwright` is `mock` at `:37` while `quality.browser` is `real` at `:39` for the same execution. Of 39 rows, 15 are real, 14 mock, 6 deferred, 2 missing and 2 obsolete; there is no `quality.mobile` row; and two `real` rows cite dead code (`RunExplorer`) or a CI file. The Evidence column cites paths, not executable commands, so the register's own rule is unmet."
+      "summary": "`tool.playwright` is `mock` at `:37` while `quality.browser` is `real` at `:39` for the same execution. Of 39 rows, 15 are real, 14 mock, 6 deferred, 2 missing and 2 obsolete; there is no `quality.mobile` row; and two `real` rows cite dead code (`RunExplorer`) or a CI file. The Evidence column cites paths, not executable commands, so the register's own rule is unmet.",
+      "resolution": "Two of the row's three complaints were right and one was the row's own error, so the resolution is different for each.\n\n**`tool.playwright` (mock) against `quality.browser` (real)** — the first attempt was a gate forcing the two rows to agree, and it was wrong: the register's own vocabulary says \"a qualification is not a substitute for a status; **split a capability when its pieces have different truth values**\", which is exactly what these two rows are. A gate that forced equality would have forbidden the register from following its own rule, and would have reported a legitimate distinction as a defect. Both titles and qualifications now name which half each measures — isolation of execution, against evidence reaching the dashboard — and each says so in the other's terms.\n\n**Two agent domains had no row at all.** `AgentDomainSchema` declares `browser`, `api`, `load`, `security` and `mobile`; the register described three. A reader could not tell whether `load` and `mobile` were missing, deferred, or simply forgotten, which is the failure the register exists to prevent. Both are now `deferred` rows with the honest reason, and `docs:capability-register` fails when any domain in the schema has no `quality.<domain>` row. Verified by deleting the row and watching it fail.\n\nThat gate initially broke all four contract tests, because the suite runs the script against single-row fixture registers to prove each failure mode — and requiring five `quality.*` rows of one made every case fail for an unrelated reason. It now runs when the register claims to describe quality domains and is inert when it does not, which is the only way it can be correct about a document scoped to something else.\n\n**The dead-evidence half was already closed** by the register's existing path check, which verifies every cited path exists; the row was written before that check or against a register that had drifted since.",
+      "evidence": [
+        {
+          "path": "scripts/capability-register.mjs",
+          "asserts": "Every domain in `AgentDomainSchema` has a `quality.<domain>` row, read from the schema rather than listed here, so adding a domain without a row fails. The check is inert for a register that describes no quality domains, which is what keeps the contract suite's fixtures working."
+        },
+        {
+          "path": "docs/migration/capability-register.md",
+          "asserts": "41 rows: `quality.load` and `quality.mobile` are accounted for, and `tool.playwright` and `quality.browser` each state which half of Playwright capability they measure and name the other row."
+        }
+      ]
     },
     {
       "id": "C-3",
