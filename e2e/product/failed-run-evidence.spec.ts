@@ -32,7 +32,7 @@ test.describe('failed run and its evidence', () => {
   }) => {
     const created = await createRun(request, { branch: 'feat/failed-evidence' });
     const runner = await registerRunner(request);
-    const job = await claimJob(request, runner);
+    const job = await claimJob(request, runner, ['playwright'], created.id);
     expect(job.runId).toBe(created.id);
 
     const descriptor = await uploadArtifact(request, runner, job, {
@@ -135,7 +135,7 @@ test.describe('failed run and its evidence', () => {
   }) => {
     const created = await createRun(request, { branch: 'feat/failed-in-table' });
     const runner = await registerRunner(request);
-    const job = await claimJob(request, runner);
+    const job = await claimJob(request, runner, ['playwright'], created.id);
     await completeJob(request, runner, job, {
       outcome: 'failed',
       summary: { total: 1, passed: 0, failed: 1 },

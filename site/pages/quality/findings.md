@@ -19,15 +19,15 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ----- | ---- |
 | Major | 8    |
 
-| ID       | Band  | Finding                                                                                                                                      |
-| -------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `C-4`    | Major | The execution store is 2 166 lines and holds two of the top complexity offenders                                                             |
-| `C-6`    | Major | A third of the dashboard schema is dormant                                                                                                   |
-| `RF-6`   | Major | Five waves carry a gate obligation that no ledger row tracks                                                                                 |
-| `RF-9`   | Major | The performance gate compares real traffic to thresholds nobody ever measured                                                                |
-| `RF-10`  | Major | The E2E suite runs on one engine, so a rendering defect in another is invisible                                                              |
-| `RF-11`  | Major | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does                                                       |
-| `PERF-1` | Major | The rendering budget exists and has never been measured, so the gate is red by design                                                        |
-| `E2E-3`  | Major | Seven dashboard-rendering E2E tests still fail against a real PostgreSQL, and the lane is therefore `pr-reporting` rather than `pr-blocking` |
+| ID       | Band  | Finding                                                                                                          |
+| -------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
+| `C-4`    | Major | The execution store is 2 166 lines and holds two of the top complexity offenders                                 |
+| `C-6`    | Major | A third of the dashboard schema is dormant                                                                       |
+| `RF-6`   | Major | Five waves carry a gate obligation that no ledger row tracks                                                     |
+| `RF-9`   | Major | The performance gate compares real traffic to thresholds nobody ever measured                                    |
+| `RF-10`  | Major | The E2E suite runs on one engine, so a rendering defect in another is invisible                                  |
+| `RF-11`  | Major | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does                           |
+| `PERF-1` | Major | The rendering budget exists and has never been measured, so the gate is red by design                            |
+| `E2E-3`  | Major | Two of nineteen E2E tests still fail against a real PostgreSQL, and both are product gaps rather than test setup |
 
 <!-- /generated -->

@@ -231,6 +231,20 @@ function assignmentsIn(text: string): Array<{ variable: SecretVariable; value: s
   for (const line of text.split(/\r?\n/)) {
     const variable = SECRET_VARIABLES.find((name) => line.includes(name));
     if (variable === undefined) continue;
+    // A line that only **mentions** the variable is not an assignment, and treating it as
+    // one is how an import line became a secret:
+    // `import { …, RUNNER_REGISTRATION_SECRET, … } from './e2e/support/config.js'` reported
+    // `RUNNER_REGISTRATION_SECRET=./e2e/support/config.js (23 characters)` — a finding
+    // about a module path, produced by scanning every string on a line that merely named
+    // the variable. The gate was right that a 23-character value fails the floor, and
+    // wrong about what the value was.
+    //
+    // `import` and `export` lines are the case that matters, and they are excluded
+    // explicitly rather than by a pattern for "assigns", because the forms in use are
+    // several: `NAME=`, `NAME:`, and `__ENV.NAME || '…'` in `performance/smoke.js`.
+    // Requiring `=` or `:` would have declared that file secretless and quietly turned
+    // the next assertion vacuous — which is the failure this whole test exists to catch.
+    if (/^\s*(?:import|export)\b/.test(line)) continue;
     // Written without a backslash on purpose: `\s` inside this template literal is
     // the letter `s`, which is a silent way to make a reader match nothing.
     for (const literal of line.matchAll(/'([^']+)'|"([^"]+)"/g)) {

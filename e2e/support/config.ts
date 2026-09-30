@@ -35,5 +35,36 @@ export const INSTALLATION_KEY = ['e2e', 'installation', 'key', '32', 'characters
 /** Bearer credential for the same value, for direct-to-API calls. */
 export const API_AUTH_HEADERS = { Authorization: `Bearer ${INSTALLATION_KEY}` };
 
+/**
+ * The runner registration secret, and the header that carries it.
+ *
+ * A separate credential from the installation key on purpose: enrolling a runner is a
+ * different act from reading runs, and a suite that registered with the API key was
+ * refused with `RUNNER_REGISTRATION_UNAUTHORIZED` on every runner-dependent test.
+ *
+ * The refusal was correct. `registrationAuthorized` answers `true` for a *missing*
+ * secret only when `NODE_ENV=test`, because a missing secret is a fixture in a unit
+ * test and a misconfiguration everywhere else — and the E2E lane runs with
+ * `NODE_ENV=development` and no secret configured, so it got the answer for a
+ * misconfigured deployment. The lane had never been able to enrol a runner.
+ *
+ * Assembled from parts, for the same reason as the key, and shared with
+ * `playwright.config.ts` so the server and the client cannot disagree about it.
+ */
+export const RUNNER_REGISTRATION_SECRET = [
+  'e2e',
+  'runner',
+  'registration',
+  'secret',
+  '32',
+  'characters',
+  'long',
+].join('-');
+
+/** The header the register route reads. */
+export const RUNNER_REGISTRATION_HEADERS = {
+  'x-runner-registration-secret': RUNNER_REGISTRATION_SECRET,
+};
+
 /** The session cookie the API sets on a successful login. */
 export const SESSION_COOKIE = 'automate_session';

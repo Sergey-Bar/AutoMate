@@ -1,7 +1,7 @@
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { INSTALLATION_KEY, WEB_BASE } from './e2e/support/config.js';
+import { INSTALLATION_KEY, RUNNER_REGISTRATION_SECRET, WEB_BASE } from './e2e/support/config.js';
 
 /**
  * The ports and URLs the suite's servers bind.
@@ -130,7 +130,21 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'pnpm --filter @automate/api run dev',
+      // The `@automate/db` build is part of the command, not a step in each job.
+      //
+      // `pnpm install` does not build, so `packages/db/dist/` does not exist in a fresh
+      // checkout, and the API's `dev` script imports `@automate/db` — which resolves
+      // through `node_modules` to that `dist`. Without the build the server died with
+      // `Cannot find module '…/node_modules/@automate/db/dist/index.js'` and
+      // `Process from config.webServer was not able to start`, which is how the
+      // `Rendering budget` job failed. It would have failed the two E2E jobs the same way.
+      //
+      // It belongs here rather than in three workflow steps because **Playwright starts
+      // `webServer` before `globalSetup` runs** — so the `globalSetup` that applies the
+      // migration graph cannot be the thing that builds the package the server imports.
+      // One command, one reason, and a developer running the suite locally gets the same
+      // server the runner does.
+      command: 'pnpm --filter @automate/db build && pnpm --filter @automate/api run dev',
       url: `${apiUrl}/api/v1/health`,
       env: {
         PORT: String(apiPort),
@@ -138,6 +152,11 @@ export default defineConfig({
         DATABASE_URL: databaseUrl,
         COOKIE_SECRET: 'e2e-cookie-secret-32-characters-long',
         AUTOMATE_API_KEY: INSTALLATION_KEY,
+        // The lane enrols a runner, and enrolling is a separate act from reading runs.
+        // Without this the register route answered `RUNNER_REGISTRATION_UNAUTHORIZED`:
+        // it treats a *missing* secret as a misconfiguration outside `NODE_ENV=test`, and
+        // this lane runs as `development`.
+        RUNNER_REGISTRATION_SECRET,
         PUBLIC_APP_URL: webUrl,
       },
       reuseExistingServer: !process.env['CI'],

@@ -93,7 +93,7 @@ test.describe('release readiness', () => {
     // refuses a green verdict — because no release was ever attached to it.
     const created = await createRun(request, { branch: 'feat/readiness-fail-closed' });
     const runner = await registerRunner(request);
-    const job = await claimJob(request, runner);
+    const job = await claimJob(request, runner, ['playwright'], created.id);
     const completed = await completeJob(request, runner, job, {
       outcome: 'passed',
       summary: { total: 1, passed: 1, failed: 0 },

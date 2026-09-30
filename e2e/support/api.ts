@@ -7,7 +7,7 @@
  * do through the product's own boundary.
  */
 import { expect, type APIRequestContext } from '@playwright/test';
-import { API_AUTH_HEADERS, API_BASE } from './config.js';
+import { API_AUTH_HEADERS, API_BASE, RUNNER_REGISTRATION_HEADERS } from './config.js';
 
 export interface CanonicalRun {
   id: string;
@@ -218,7 +218,7 @@ export async function registerRunner(
   // reads as "the runner API is broken".
   const runnerId = uniqueRunId();
   const response = await request.post(`${API_BASE}/api/v1/runners/register`, {
-    headers: API_AUTH_HEADERS,
+    headers: { ...API_AUTH_HEADERS, ...RUNNER_REGISTRATION_HEADERS },
     data: {
       runnerId,
       name: `e2e-runner-${runnerId.slice(0, 8)}`,
@@ -240,18 +240,44 @@ export async function claimJob(
   request: APIRequestContext,
   runner: RunnerIdentity,
   capabilities: readonly string[] = ['playwright'],
+  wantRunId?: string,
 ): Promise<JobClaim> {
-  const response = await request.post(`${API_BASE}/api/v1/runners/${runner.runnerId}/jobs/claim`, {
-    headers: jsonHeaders({ Authorization: `Bearer ${runner.token}` }),
-    data: { capabilities: [...capabilities] },
-  });
-  // 204 is the API's "nothing to claim", which is a legitimate answer to a
-  // single attempt and is what a flaky claim would look like.
-  expect(
-    response.status(),
-    `POST /api/v1/runners/${runner.runnerId}/jobs/claim -> ${response.status()}`,
-  ).toBe(200);
-  return (await readJson(response)) as JobClaim;
+  // A runner claims off a **shared** queue, so the first claim a test makes is whatever
+  // job was queued earliest — including one an earlier spec enqueued. Asserting that the
+  // first claim is *this* test's run is asserting that the suite ran in an order, which
+  // is why two of the six failures here reported a `runId` belonging to a different
+  // spec.
+  //
+  // So when the caller says which run it is leasing, the claim loops until it gets that
+  // one. That is what a runner actually does, and it makes the specs order-independent
+  // rather than dependent on a queue that happens to be empty. Bounded, and the message
+  // names the run it was looking for: an unbounded loop here would hang the lane rather
+  // than fail it.
+  const attempts = wantRunId === undefined ? 1 : 25;
+  let last: JobClaim | undefined;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const response = await request.post(
+      `${API_BASE}/api/v1/runners/${runner.runnerId}/jobs/claim`,
+      {
+        headers: jsonHeaders({ Authorization: `Bearer ${runner.token}` }),
+        data: { capabilities: [...capabilities] },
+      },
+    );
+    // 204 is the API's "nothing to claim", which is a legitimate answer to a single
+    // attempt and is what a flaky claim would look like.
+    expect(
+      response.status(),
+      `POST /api/v1/runners/${runner.runnerId}/jobs/claim -> ${response.status()}`,
+    ).toBe(200);
+    const claim = (await readJson(response)) as JobClaim;
+    if (wantRunId === undefined || claim.runId === wantRunId) return claim;
+    last = claim;
+  }
+  throw new Error(
+    `no claim returned run ${String(wantRunId)} after ${String(attempts)} attempt(s); the last ` +
+      `claim was for ${String(last?.runId)}. Either the run's job was never enqueued, or the ` +
+      'queue holds more unclaimed jobs than the attempt bound.',
+  );
 }
 
 export async function uploadArtifact(

@@ -162,8 +162,17 @@ test('vertical slice — invalid event rejected, no run created (API negative)',
   });
   expect(invalidRes.status()).toBe(400);
 
-  const invalidBody = await invalidRes.json();
-  expect(typeof invalidBody.error).toBe('string');
+  const invalidBody = (await invalidRes.json()) as {
+    error?: { code?: string; message?: string };
+  };
+  // The **object** shape, not a string. `AGENTS.md` requires one error boundary and a
+  // stable `code` on every response, so `error` is `{ code, message, requestId }` — a
+  // client branches on the code and cannot be made to by prose. This assertion predated
+  // that rule and asked for `typeof error === 'string'`, so it failed against a correct
+  // response; asserting the code is also stronger, because a string is satisfied by an
+  // empty one.
+  expect(invalidBody.error?.code, 'a rejection must carry a stable code').toBeTruthy();
+  expect(invalidBody.error?.message, 'a rejection must carry a message').toBeTruthy();
 
   // GET runs — assert no run with the invalid payload was created
   const getRes = await request.get(`${API_BASE}/api/v1/runs`, { headers: API_AUTH_HEADERS });

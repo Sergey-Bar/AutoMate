@@ -256,8 +256,23 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      - name: Migration plan
-        run: pnpm migrate:plan
+      # No `migrate:plan` step, and its absence is deliberate.
+      #
+      # `migrate:plan` is the *forward* migration planner: it takes `--from`,
+      # `--source-id`, `--source-commit`, `--target-commit` and `--out`, and refuses to run
+      # without all five — `plan requires --from, --source-id, --source-commit,
+      # --target-commit, and --out`. The job called it bare, so it exited 1 on every run
+      # and took the whole `migration` job with it.
+      #
+      # The arguments are not available because there is nothing to plan **from**: the
+      # migration out of the two legacy repositories is complete (ADR-001, the register,
+      # and the phase-0 decision record all say so), and their history is not in this
+      # repository. Inventing a source and a target to satisfy the argument list would
+      # produce a plan that looks real and describes nothing, which is worse than no plan.
+      #
+      # What the job can still decide is the schema graph, and it does: `migrate:validate`
+      # checks the graph against the journal, and `db:check` (in the quality job) checks
+      # that the journal and the Drizzle schema agree.
       - name: Validate the migration graph
         run: pnpm migrate:validate
       - name: Upload the migration report

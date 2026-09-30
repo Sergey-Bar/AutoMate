@@ -63,5 +63,12 @@ runs:
         curl --fail --silent --show-error --location --retry 3 --output "/tmp/${archive}" "$url"
         echo "${GITLEAKS_SHA256}  /tmp/${archive}" | sha256sum --check --strict
 
-        install --directory /usr/local/bin /tmp/gitleaks
+        # `sudo`, because the runner is not root and `install --directory
+        # /usr/local/bin` sets the mode and ownership of the destination as it copies.
+        # Without it the step died with `install: cannot change permissions of
+        # '/usr/local/bin': Operation not permitted` and the whole `security` job
+        # failed on its first step — so the secret scans, the licence check, the
+        # duplication and complexity gates queued behind it never ran. An unrun
+        # security scan is not a pass, and neither is one that could not be installed.
+        sudo install --directory /usr/local/bin /tmp/gitleaks
         gitleaks version

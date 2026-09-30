@@ -23,7 +23,7 @@ test.describe('cancelling an in-flight run', () => {
   }) => {
     const created = await createRun(request, { branch: 'feat/cancel-in-flight' });
     const runner = await registerRunner(request);
-    const job = await claimJob(request, runner);
+    const job = await claimJob(request, runner, ['playwright'], created.id);
     expect(job.runId, 'the claim must take the run this spec created').toBe(created.id);
 
     // Leased means the run is genuinely in flight, not merely queued.
@@ -81,7 +81,7 @@ test.describe('cancelling an in-flight run', () => {
   test('cancelling from the page persists through the API', async ({ page, context, request }) => {
     const created = await createRun(request, { branch: 'feat/cancel-from-page' });
     const runner = await registerRunner(request);
-    const job = await claimJob(request, runner);
+    const job = await claimJob(request, runner, ['playwright'], created.id);
     expect(job.runId).toBe(created.id);
     await waitForRunPhase(request, created.id, ['assigned', 'preparing', 'running']);
 
