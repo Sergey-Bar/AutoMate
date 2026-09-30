@@ -1,4 +1,7 @@
-import { createCipheriv, createDecipheriv, createHash, pbkdf2Sync, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, pbkdf2, randomBytes } from 'node:crypto';
+import { promisify } from 'node:util';
+
+const pbkdf2Async = promisify(pbkdf2);
 
 export interface VaultEnvelope {
   /**
@@ -66,9 +69,30 @@ const KEY_CACHE_CAPACITY = 256;
 
 const keyCache = new Map<string, Buffer>();
 
+/** The PBKDF2 output width, in bytes. */
+export const DERIVED_KEY_BYTES = 32;
+
+/** The digest PBKDF2 is iterated over. */
+const DIGEST = 'sha256';
+
 /** Derivation cost, as a function of the iteration count, for the test. */
-function derive(secret: string, salt: string): Buffer {
-  return pbkdf2Sync(secret, salt, 100_000, 32, 'sha256');
+function derive(secret: string, salt: string): Promise<Buffer> {
+  // **Async, and that is the whole of ledger Q-53.** The row's headline claim — that
+  // "pbkdf2Sync still runs per request" — was wrong: `openSecret` passes the *stored*
+  // salt, so every repeat open of a given envelope hits the cache and never derives.
+  // And a fresh salt per seal is not the defect either, it is the security property
+  // working: a new envelope needs a new key, so a reusable salt would be the bug.
+  //
+  // What remained is narrower and real. Every *cache miss* — each new seal, and the
+  // first open of each envelope — ran 100 000 SHA-256 iterations synchronously on
+  // the single-threaded server, so one vault write stalled every concurrent request
+  // for tens of milliseconds. The cost scaled with traffic, not with the size of the
+  // vault. `pbkdf2` runs it on the threadpool, so the loop keeps serving.
+  //
+  // The positional order is `password, salt, iterations, keylen, digest` —
+  // iterations *before* keylen. Reversing them throws `RangeError: Invalid key
+  // length`, which names neither argument.
+  return pbkdf2Async(secret, salt, 100_000, DERIVED_KEY_BYTES, DIGEST);
 }
 
 /**
@@ -85,7 +109,7 @@ function derive(secret: string, salt: string): Buffer {
  * dropped when the secret rotates, because a different secret is a different
  * cache key — so a rotation cannot be served a key derived from the old one.
  */
-export function keyFor(secret: string, salt: string): Buffer {
+export function keyFor(secret: string, salt: string): Promise<Buffer> {
   if (secret.length < 32) throw new Error('Vault secret must be at least 32 characters');
   const cacheKey = `${salt}:${secret.length}:${hashOf(secret)}`;
   const cached = keyCache.get(cacheKey);
@@ -93,16 +117,17 @@ export function keyFor(secret: string, salt: string): Buffer {
     // Re-insert so the map keeps insertion order and eviction drops the coldest.
     keyCache.delete(cacheKey);
     keyCache.set(cacheKey, cached);
-    return cached;
+    return Promise.resolve(cached);
   }
-  const key = derive(secret, salt);
-  keyCache.set(cacheKey, key);
-  while (keyCache.size > KEY_CACHE_CAPACITY) {
-    const coldest = keyCache.keys().next();
-    if (coldest.done === true) break;
-    keyCache.delete(coldest.value);
-  }
-  return key;
+  return derive(secret, salt).then((key) => {
+    keyCache.set(cacheKey, key);
+    while (keyCache.size > KEY_CACHE_CAPACITY) {
+      const coldest = keyCache.keys().next();
+      if (coldest.done === true) break;
+      keyCache.delete(coldest.value);
+    }
+    return key;
+  });
 }
 
 /**
@@ -155,20 +180,23 @@ export function aadFor(binding: VaultRowBinding): Buffer {
  * @param binding the row this envelope will live in — required, and not optional
  * @param keyVersion the vault key version, for rotation
  */
-export function sealSecret(
+export async function sealSecret(
   plaintext: string,
   secret: string,
   binding: VaultRowBinding,
   keyVersion = 1,
-): VaultEnvelope {
+): Promise<VaultEnvelope> {
   if (binding.entryId === '' || binding.workspaceId === '' || binding.name === '') {
     throw new Error('A vault envelope must be bound to a complete row identity');
   }
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', keyFor(secret, salt.toString('base64url')), iv);
-  // Authenticated, and never encrypted: GCM covers the AAD without spending ciphertext
-  // on it, so the row identity is guaranteed to be the row the ciphertext belongs to.
+  // Derived and awaited before the cipher is built, rather than synchronously inside
+  // `createCipheriv`. A *fresh* salt per seal is why this path is always a cache
+  // miss — and that is the security property working, not a waste: a new envelope
+  // needs a new key.
+  const key = await keyFor(secret, salt.toString('base64url'));
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
   // Authenticated, and never encrypted: GCM covers the AAD without spending ciphertext
   // on it, so the row identity is guaranteed to be the row the ciphertext belongs to.
   cipher.setAAD(aadFor(binding));
@@ -192,20 +220,20 @@ export function sealSecret(
  * @param binding the row the envelope is expected to be in
  * @throws VaultRowUnboundError for a version 1 envelope, which cannot support the claim
  */
-export function openSecret(
+export async function openSecret(
   envelope: VaultEnvelope,
   secret: string,
   binding: VaultRowBinding,
-): string {
+): Promise<string> {
   if (envelope.version === 1) throw new VaultRowUnboundError(binding.entryId);
   if (envelope.version !== 2 || envelope.algorithm !== 'aes-256-gcm') {
     throw new Error('Unsupported vault envelope');
   }
-  const decipher = createDecipheriv(
-    'aes-256-gcm',
-    keyFor(secret, envelope.salt),
-    Buffer.from(envelope.iv, 'base64url'),
-  );
+  // The *stored* salt, so a repeat open of a given envelope hits the cache and never
+  // derives at all. Only an envelope's first open pays the derivation, and it pays
+  // it off the event loop.
+  const key = await keyFor(secret, envelope.salt);
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64url'));
   decipher.setAAD(aadFor(binding));
   decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
   return Buffer.concat([
@@ -226,16 +254,13 @@ export function openSecret(
  * @param envelope a version 1 envelope
  * @param secret the installation vault secret
  */
-export function openLegacySecret(envelope: VaultEnvelope, secret: string): string {
+export async function openLegacySecret(envelope: VaultEnvelope, secret: string): Promise<string> {
   if (envelope.version !== 1) {
     throw new Error('openLegacySecret is for version 1 envelopes only; this one is bound');
   }
   if (envelope.algorithm !== 'aes-256-gcm') throw new Error('Unsupported vault envelope');
-  const decipher = createDecipheriv(
-    'aes-256-gcm',
-    keyFor(secret, envelope.salt),
-    Buffer.from(envelope.iv, 'base64url'),
-  );
+  const key = await keyFor(secret, envelope.salt);
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64url'));
   decipher.setAuthTag(Buffer.from(envelope.tag, 'base64url'));
   return Buffer.concat([
     decipher.update(Buffer.from(envelope.ciphertext, 'base64url')),

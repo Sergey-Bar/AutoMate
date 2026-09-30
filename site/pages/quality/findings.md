@@ -10,20 +10,19 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ---------------- | ---- |
 | `debt`           | 2    |
 | `false-positive` | 4    |
-| `fixed`          | 105  |
-| `open`           | 10   |
+| `fixed`          | 106  |
+| `open`           | 9    |
 
-## Open (10)
+## Open (9)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
-| Major   | 9    |
+| Major   | 8    |
 
 | ID       | Band    | Finding                                                                                   |
 | -------- | ------- | ----------------------------------------------------------------------------------------- |
 | `RF-5`   | Blocker | The rehearsal harness that blocks the tenancy wave does not exist, and nothing tracked it |
-| `Q-53`   | Major   | PBKDF2 is synchronous on the request path and sealing always misses the cache             |
 | `O-4b`   | Major   | No /metrics endpoint and no metrics library                                               |
 | `C-4`    | Major   | The execution store is 2 166 lines and holds two of the top complexity offenders          |
 | `C-6`    | Major   | A third of the dashboard schema is dormant                                                |

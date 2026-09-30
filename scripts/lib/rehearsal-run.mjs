@@ -49,8 +49,11 @@ import { summarise, verifySealedRows } from './vault-rehearsal.mjs';
  *   the restore
  * @property {() => Promise<Array<{ rowId: string, input: unknown }>>} fetchSealedRows
  *   every sealed row in the restore
- * @property {(row: { rowId: string, input: unknown }) => { ok: true, value: string } | { ok: false, reason: string, detail?: string }} open
- *   attempts one row, and must not throw
+ * @property {(row: { rowId: string, input: unknown }) => ({ ok: true, value: string } | { ok: false, reason: string, detail?: string }) | Promise<{ ok: true, value: string } | { ok: false, reason: string, detail?: string }>} open
+ *   attempts one row, and must not reject. Asynchronous because opening a sealed row
+ *   derives its key off the event loop (ledger Q-53); a synchronous opener is still
+ *   accepted because the verifier awaits, and the rehearsal tests use one to state an
+ *   outcome directly.
  */
 
 /**
@@ -64,7 +67,7 @@ import { summarise, verifySealedRows } from './vault-rehearsal.mjs';
  * @param {RehearsalTransports} transports
  * @param {Record<string, unknown>} [context] echoed into the report so a stored report
  *   says which database and which commit it was about
- * @returns {Promise<{ ok: boolean, phases: PhaseResult[], verification: ReturnType<typeof verifySealedRows> | null, problems: string[] }>}
+ * @returns {Promise<{ ok: boolean, phases: PhaseResult[], verification: Awaited<ReturnType<typeof verifySealedRows>> | null, problems: string[] }>}
  */
 export async function rehearseMigration(transports, context = {}) {
   /** @type {PhaseResult[]} */
@@ -130,7 +133,7 @@ export async function rehearseMigration(transports, context = {}) {
     return { ok: false, phases, verification: null, problems };
   }
 
-  const verification = verifySealedRows(rows, (row) => transports.open(row));
+  const verification = await verifySealedRows(rows, (row) => transports.open(row));
   for (const problem of verification.problems) problems.push(problem);
   phases.push({
     name: 'verify',
@@ -159,7 +162,7 @@ export async function rehearseMigration(transports, context = {}) {
  * phase is `not-run` or `failed` did not perform a rehearsal, whatever the caller
  * believes.
  *
- * @param {{ ok: boolean, phases: PhaseResult[], verification: ReturnType<typeof verifySealedRows> | null, problems: string[] }} result
+ * @param {{ ok: boolean, phases: PhaseResult[], verification: Awaited<ReturnType<typeof verifySealedRows>> | null, problems: string[] }} result
  * @param {Record<string, unknown>} [context]
  */
 export function toReport(result, context = {}) {

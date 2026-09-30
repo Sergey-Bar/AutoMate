@@ -201,7 +201,7 @@ const result = await rehearseMigration(
           };
         });
     },
-    open: (row) => {
+    open: async (row) => {
       // The port's `input` is `unknown` because the verifier is generic over it; here it
       // is always what `fetchSealedRows` above built, so it is narrowed once rather than
       // re-checked on every row.
@@ -210,7 +210,13 @@ const result = await rehearseMigration(
         // The binding is passed, not reconstructed: `openSecret` folds the row identity
         // into the tag check, which is exactly what detects a migration that renamed or
         // re-typed a column the AAD is bound to.
-        return { ok: true, value: openSecret(envelope, vaultSecret, binding) };
+        //
+        // Awaited because the key derivation is off the event loop (ledger Q-53) and
+        // this verifier is sequential — which is right: the rehearsal exists to fail
+        // on the *first* sealed row that will not open, and a rejected promise inside
+        // a `try` would escape the `catch` and abort the run with an unhandled
+        // rejection instead of a recorded `unreadable` row.
+        return { ok: true, value: await openSecret(envelope, vaultSecret, binding) };
       } catch (cause) {
         return {
           ok: false,

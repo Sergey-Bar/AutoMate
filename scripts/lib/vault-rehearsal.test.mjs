@@ -22,12 +22,12 @@ import { FailureReason, summarise, verifySealedRows } from './vault-rehearsal.mj
  */
 const row = (rowId) => ({ rowId, input: { rowId } });
 
-/** An opener that opens everything. */
+/** An opener that opens everything. Returns the verifier's promise, awaited by the caller. */
 const allGood = () =>
   verifySealedRows([row('a'), row('b'), row('c')], () => ({ ok: true, value: 'secret' }));
 
-test('a run where every row opens passes, and says how many it opened', () => {
-  const result = allGood();
+test('a run where every row opens passes, and says how many it opened', async () => {
+  const result = await allGood();
   assert.equal(result.ok, true);
   assert.deepEqual(result.failures, []);
   assert.equal(result.verified, 3);
@@ -35,25 +35,25 @@ test('a run where every row opens passes, and says how many it opened', () => {
   assert.match(summarise(result), /3 row\(s\) opened/);
 });
 
-test('a run that verified nothing fails, rather than passing vacuously', () => {
+test('a run that verified nothing fails, rather than passing vacuously', async () => {
   // The property that makes this a gate. An empty table and a query that matched the
   // wrong shape are indistinguishable from here, and declaring a destructive migration
   // safe on the strength of a rehearsal that opened nothing is precisely the failure
   // this check exists to prevent.
-  const result = verifySealedRows([], () => ({ ok: true, value: 'x' }));
+  const result = await verifySealedRows([], () => ({ ok: true, value: 'x' }));
   assert.equal(result.ok, false);
   assert.equal(result.verified, 0);
   assert.equal(result.problems.length, 1);
   assert.match(String(result.problems[0]), /no rows were verified/);
 });
 
-test('every row is attempted, not just up to the first failure', () => {
+test('every row is attempted, not just up to the first failure', async () => {
   // Stopping at the first failure reports one broken row and hides the other four, and
   // an operator who fixes the first and re-runs then discovers the second — one
   // migration at a time.
   /** @type {string[]} */
   const attempted = [];
-  const result = verifySealedRows([row('a'), row('b'), row('c'), row('d')], (candidate) => {
+  const result = await verifySealedRows([row('a'), row('b'), row('c'), row('d')], (candidate) => {
     attempted.push(candidate.rowId);
     return candidate.rowId === 'b'
       ? { ok: false, reason: FailureReason.UNREADABLE }
@@ -67,12 +67,12 @@ test('every row is attempted, not just up to the first failure', () => {
   assert.equal(result.ok, false);
 });
 
-test('a binding mismatch is distinguished from unreadable bytes', () => {
+test('a binding mismatch is distinguished from unreadable bytes', async () => {
   // The two need different responses — one is a re-key or a column rename, the other
   // is a restore from backup — and a single list of identical-looking errors cannot
   // tell an operator which they have. P-8 is the shape of this failure in the other
   // direction: the ciphertext was readable and belonged to the wrong row.
-  const result = verifySealedRows([row('a'), row('b')], (candidate) =>
+  const result = await verifySealedRows([row('a'), row('b')], (candidate) =>
     candidate.rowId === 'a'
       ? { ok: false, reason: FailureReason.BINDING_MISMATCH }
       : { ok: false, reason: FailureReason.UNREADABLE },
@@ -85,19 +85,22 @@ test('a binding mismatch is distinguished from unreadable bytes', () => {
   assert.match(String(byRow['b']?.advice), /restore the row from backup/);
 });
 
-test('a row that could not even be read is its own class', () => {
+test('a row that could not even be read is its own class', async () => {
   // A read failure points at the query or the column type, not at the encryption, and
   // reporting it as unreadable sends the operator to re-key a key that was fine.
-  const result = verifySealedRows([row('a')], () => ({ ok: false, reason: FailureReason.UNREAD }));
+  const result = await verifySealedRows([row('a')], () => ({
+    ok: false,
+    reason: FailureReason.UNREAD,
+  }));
   assert.equal(result.failures[0]?.reason, FailureReason.UNREAD);
   assert.match(String(result.failures[0]?.advice), /query or the column type/);
 });
 
-test('an opener that throws is a broken harness, not a broken row', () => {
+test('an opener that throws is a broken harness, not a broken row', async () => {
   // A thrown error on the first row would otherwise look like one unreadable row
   // rather than a harness that cannot do its job — and the operator would go looking
   // for a data problem that is not there.
-  const result = verifySealedRows([row('a'), row('b')], () => {
+  const result = await verifySealedRows([row('a'), row('b')], () => {
     throw new Error('the vault secret is not set');
   });
   assert.equal(result.failures.length, 2);
@@ -106,27 +109,29 @@ test('an opener that throws is a broken harness, not a broken row', () => {
   // And because nothing opened, the run says so outright rather than leaving the
   // operator with N identical rows and a guess.
   assert.ok(
-    result.problems.some((problem) => /no row could be opened/.test(problem)),
+    result.problems.some((/** @type {string} */ problem) => /no row could be opened/.test(problem)),
     'a total failure should name the likely cause',
   );
 });
 
-test('nothing opening is reported as a probable key problem, not N broken rows', () => {
+test('nothing opening is reported as a probable key problem, not N broken rows', async () => {
   // A rotated secret fails every row identically. Treating that as N unreadable rows
   // sends the operator after the data when the key is the thing.
-  const result = verifySealedRows([row('a'), row('b'), row('c')], () => ({
+  const result = await verifySealedRows([row('a'), row('b'), row('c')], () => ({
     ok: false,
     reason: FailureReason.UNREADABLE,
   }));
   assert.equal(result.verified, 0);
   assert.ok(
-    result.problems.some((problem) => /vault key is the first thing to check/.test(problem)),
+    result.problems.some((/** @type {string} */ problem) =>
+      /vault key is the first thing to check/.test(problem),
+    ),
   );
   assert.equal(result.ok, false);
 });
 
-test('the summary names the counts and the problems together', () => {
-  const result = verifySealedRows([row('a'), row('b')], (candidate) =>
+test('the summary names the counts and the problems together', async () => {
+  const result = await verifySealedRows([row('a'), row('b')], (candidate) =>
     candidate.rowId === 'a'
       ? { ok: true, value: 's' }
       : { ok: false, reason: FailureReason.BINDING_MISMATCH },
@@ -136,13 +141,16 @@ test('the summary names the counts and the problems together', () => {
   assert.match(line, /1 failed/);
 });
 
-test('the plaintext is handed back, so a rehearsal can assert the value and not only the key', () => {
+test('the plaintext is handed back, so a rehearsal can assert the value and not only the key', async () => {
   // "It decrypted" proves the key still works. It does not prove the value is the one
   // that was stored — a migration that re-sealed under a fresh key would satisfy a
   // decrypt-only check while holding the wrong secrets.
   /** @type {string[]} */
   const seen = [];
-  verifySealedRows([row('a'), row('b')], (candidate) => {
+  // Awaited: the verifier awaits each opener, so without this the assertion runs
+  // before the loop has finished and `seen` is empty — the kind of test that passes
+  // against a broken implementation and is silently vacuous against a working one.
+  await verifySealedRows([row('a'), row('b')], (candidate) => {
     const input = /** @type {{ rowId: string }} */ (candidate.input);
     seen.push(input.rowId);
     return { ok: true, value: `value-of-${candidate.rowId}` };

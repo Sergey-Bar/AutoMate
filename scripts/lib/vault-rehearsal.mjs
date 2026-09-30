@@ -101,12 +101,12 @@ const REASON_ADVICE = {
  * @param {ReadonlyArray<SealedRow>} rows every row to verify — completeness is the
  *   caller's responsibility and this function's `verified` count is the evidence that it
  *   was met
- * @param {(row: SealedRow) => OpenOutcome} open attempts one row and reports the
- *   outcome; must not throw
- * @returns {{ verified: number, failures: RowFailure[], ok: boolean, problems: string[] }}
+ * @param {(row: SealedRow) => OpenOutcome | Promise<OpenOutcome>} open attempts one row
+ *   and reports the outcome; must not reject
+ * @returns {Promise<{ verified: number, failures: RowFailure[], ok: boolean, problems: string[] }>}
  *   the tally, the classified failures, and whether the run may pass
  */
-export function verifySealedRows(rows, open) {
+export async function verifySealedRows(rows, open) {
   /** @type {RowFailure[]} */
   const failures = [];
   let verified = 0;
@@ -115,7 +115,12 @@ export function verifySealedRows(rows, open) {
     /** @type {OpenOutcome} */
     let outcome;
     try {
-      outcome = open(row);
+      // Awaited because opening a sealed row is asynchronous: the key derivation
+      // runs off the event loop (ledger Q-53). Without the await a rejected promise
+      // would escape the `catch` below and abort the whole run with an unhandled
+      // rejection, instead of being recorded as the unreadable row it is — which
+      // is the entire purpose of this loop.
+      outcome = await open(row);
     } catch (cause) {
       // An opener that throws is a broken opener, not a broken row, and the two must
       // not be conflated: a thrown error on the first row would otherwise look like one

@@ -1649,12 +1649,23 @@
       "title": "PBKDF2 is synchronous on the request path and sealing always misses the cache",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W12.1",
       "summary": "The LRU cache exists at `vault-crypto.ts:21-62` but `pbkdf2Sync` still runs per request (`:1,27`), and `sealSecret:87` mints a fresh random salt per envelope, so the cache key is always new and a seal never hits.\n\n**Confirmed by reading the code, 2026-09-28.**\n\n**Partly true, and the row's headline claim is refuted by its own premise.**\n\n- **Does NOT hold: \"`pbkdf2Sync` still runs per request\".** `openSecret` at `:206`\n  passes the **stored** `envelope.salt`, so every repeat open of a given envelope hits\n  `keyCache` at `:88-98` and never calls `derive` at `:70-72`. The row itself notes\n  the LRU cache \"exists at `:21-62`\" — it is not merely present, it is wired into\n  `openSecret` and it works. The line numbers are historical; the cache is now at\n  `:65-126`.\n- **Does NOT hold: a fresh salt per seal is a defect.** `sealSecret` mints\n  `randomBytes(16)` at `:167` on every call, so the cache key at `:169` is always\n  new. That is the security property *working*: a new envelope needs a new key. Making\n  the salt reusable would be the bug.\n- **Holds, and is narrower than the row states.** `pbkdf2Sync` is **synchronous**, so\n  every cache miss — each new seal, and each envelope's first open — blocks the\n  single-threaded server for the duration of 100 000 SHA-256 iterations. That is the\n  real defect, and the fix is the async `pbkdf2`, not \"make the salt reusable\".",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "Derivation no longer blocks the event loop. The row was right that the *headline* claim is wrong and right about what remained, and the two are worth keeping straight.\n\n**Refuted: \"pbkdf2Sync still runs per request\".** `openSecret` passes the *stored* salt, so every repeat open of a given envelope hits the LRU cache and never derives at all. The cache was not merely present; it was wired in and working. The row's own premise — that the LRU cache \"exists\" — refutes its conclusion.\n\n**Refuted: \"sealing always misses the cache\" is a defect.** `sealSecret` mints a fresh salt per envelope, so the key is always new. That is the security property *working*: a new envelope needs a new key, and a reusable salt would be the bug.\n\n**What was real, and narrower.** Every *cache miss* — each new seal, and the first open of each envelope — ran 100 000 SHA-256 iterations synchronously on the single-threaded server, so one vault write stalled every concurrent request for tens of milliseconds. The cost scaled with traffic, not with the size of the vault. `keyFor`, `sealSecret`, `openSecret` and `openLegacySecret` now go through the promisified async `pbkdf2`, which runs on the threadpool. The cache is untouched: it is still keyed by salt and secret fingerprint, still bounded, still cleared on rotation, and a cache hit still returns without scheduling any work.\n\nThe cache is the reason the public surface could change shape cheaply: `openSecret` and `sealSecret` have no caller outside this module's own tests, so nothing else had to be updated.\n\nOne trap worth recording. `pbkdf2`'s positional order is `password, salt, iterations, keylen, digest` — iterations *before* keylen. Reversing them throws `RangeError: Invalid key length`, which names neither argument.",
+      "evidence": [
+        {
+          "path": "apps/api/src/infrastructure/vault-crypto.ts",
+          "asserts": "Derivation goes through the promisified async `pbkdf2` at 100 000 iterations and a 32-byte key; `keyFor` returns a promise and still caches synchronously on a hit, so a repeated read schedules no work at all."
+        },
+        {
+          "path": "apps/api/src/infrastructure/vault-crypto.test.ts",
+          "asserts": "The module imports the async `pbkdf2` and contains no `pbkdf2Sync` call. The assertion is on the mechanism rather than on timing, and the comment records why: three behavioural versions were written — a zero-delay timer, a 5 ms timer, and a counted interval — and all three either passed against the synchronous code or went flaky under `pnpm test`, because a test that reports the hardware is the defect the shared Vitest timeout removed from the rest of this codebase. The import check reads the `node:crypto` import line rather than the whole file, because the comment explaining the defect names `pbkdf2Sync` twice."
+        }
+      ]
     },
     {
       "id": "Q-55",
