@@ -130,21 +130,24 @@ export default defineConfig({
   },
   webServer: [
     {
-      // The `@automate/db` build is part of the command, not a step in each job.
+      // `@automate/api`'s workspace dependencies are built here, not in a step per job.
       //
-      // `pnpm install` does not build, so `packages/db/dist/` does not exist in a fresh
-      // checkout, and the API's `dev` script imports `@automate/db` — which resolves
-      // through `node_modules` to that `dist`. Without the build the server died with
-      // `Cannot find module '…/node_modules/@automate/db/dist/index.js'` and
-      // `Process from config.webServer was not able to start`, which is how the
-      // `Rendering budget` job failed. It would have failed the two E2E jobs the same way.
+      // `pnpm install` does not build, so `packages/db/dist` and
+      // `packages/shared-contracts/dist` do not exist in a fresh checkout, and the API's
+      // `dev` script imports both through `node_modules` to exactly those `dist`s.
+      // Without the build the server died with `Cannot find module
+      // '…/node_modules/@automate/db/dist/index.js'` — and once that was fixed, with
+      // `@automate/shared-contracts` instead. A list of packages to build is a list to keep
+      // in step with the dependency graph.
+      //
+      // `--filter @automate/api...` is pnpm's own answer: the package *and its
+      // dependencies*, read from the graph rather than from a hand-written list.
       //
       // It belongs here rather than in three workflow steps because **Playwright starts
-      // `webServer` before `globalSetup` runs** — so the `globalSetup` that applies the
-      // migration graph cannot be the thing that builds the package the server imports.
-      // One command, one reason, and a developer running the suite locally gets the same
-      // server the runner does.
-      command: 'pnpm --filter @automate/db build && pnpm --filter @automate/api run dev',
+      // `webServer` before `globalSetup` runs** — so the setup that applies the migration
+      // graph cannot be the thing that builds what the server imports. One command, one
+      // reason, and a developer running the suite locally gets the server the runner does.
+      command: 'pnpm --filter @automate/api... build && pnpm --filter @automate/api run dev',
       url: `${apiUrl}/api/v1/health`,
       env: {
         PORT: String(apiPort),

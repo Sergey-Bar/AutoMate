@@ -218,6 +218,7 @@ if (domainEnum === null) {
 // else: not checked, with the reason printed. When the history *is* complete, a missing
 // commit is a real finding and stays one.
 const baseline = /^\*\*Baseline:\*\* `([0-9a-f]{40})`$/m.exec(source);
+let baselineChecked = false;
 if (baseline === null) {
   failures.push('no `**Baseline:**` line with a full commit hash');
 } else {
@@ -225,6 +226,7 @@ if (baseline === null) {
   const shallow = sh('git', ['rev-parse', '--is-shallow-repository']).stdout.trim() === 'true';
   const known = sh('git', ['cat-file', '-e', `${commit}^{commit}`]).status === 0;
   if (known) {
+    baselineChecked = true;
     console.log('  baseline commit is present in this clone');
   } else if (shallow) {
     console.log(
@@ -252,8 +254,18 @@ if (failures.length > 0) {
 
 const byStatus = new Map();
 for (const row of rows) byStatus.set(row.status, (byStatus.get(row.status) ?? 0) + 1);
+const counts = [...byStatus.entries()].map(([status, count]) => `${count} ${status}`).join(', ');
+// The verdict follows the baseline. `baselineChecked` is false on a shallow clone, where
+// the baseline commit is present in the repository but absent from the object database —
+// and printing "the baseline is a real commit" there would be a claim the run did not
+// check. A verdict that overstates what was verified is the failure this whole file
+// exists to prevent, and it would have been introduced by the fix for exactly that
+// failure.
 console.log(
-  `Capability register verified: ${rows.length} row(s), ` +
-    [...byStatus.entries()].map(([status, count]) => `${count} ${status}`).join(', ') +
-    '. Every cited path exists and the baseline is a real commit.',
+  baselineChecked
+    ? `Capability register verified: ${rows.length} row(s), ${counts}. Every cited path ` +
+        'exists and the baseline is a real commit.'
+    : `Capability register NOT fully verified: ${rows.length} row(s), ${counts}. Every cited ` +
+        'path exists, but the baseline commit could not be checked because this clone is ' +
+        'shallow — not claimed either way. A full clone decides it.',
 );

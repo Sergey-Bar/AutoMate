@@ -63,16 +63,27 @@ runs:
         curl --fail --silent --show-error --location --retry 3 --output "/tmp/${archive}" "$url"
         echo "${GITLEAKS_SHA256}  /tmp/${archive}" | sha256sum --check --strict
 
-        # The **binary**, to the directory on PATH — not the extracted directory, which
-        # `install --directory` would have copied to `/usr/local/bin/gitleaks/gitleaks` and
-        # left `gitleaks: command not found` on the very next line. And `sudo`, because the
-        # runner is not root and `install` sets the mode and ownership of the destination
-        # as it copies; without it the step died with `install: cannot change permissions
-        # of '/usr/local/bin': Operation not permitted`.
+        # Extract, which this step never did. It downloaded the tarball, verified the
+        # checksum against a **pinned** hash — correctly, so the bytes are known — and then
+        # went looking for a binary inside a directory it had never created. Every failure
+        # below this line was that: `install: cannot stat '/tmp/gitleaks/gitleaks'`.
         #
-        # Both of those were the `security` job failing on its first step, which meant the
-        # secret scans, the licence check, the duplication and complexity gates queued
-        # behind it never ran. An unrun security scan is not a pass, and neither is one
-        # that could not be installed.
+        # Three failures stacked on one step, each hiding the one under it, and the step had
+        # never been read end to end by anyone:
+        #   1. no extraction, so nothing to install;
+        #   2. `install --directory /usr/local/bin /tmp/gitleaks` copies the *directory*, so
+        #      even with extraction the binary landed at `/usr/local/bin/gitleaks/gitleaks`,
+        #      one level below PATH — hence `gitleaks: command not found` once (1) was fixed;
+        #   3. and the runner is not root, so `install` needed `sudo` to write
+        #      `/usr/local/bin` at all.
+        #
+        # The `security` job failed on this step alone, which means the working-tree and
+        # history secret scans, the licence check, the duplication gate and the complexity
+        # gate — every one of them queued behind it — had never run in CI. An unrun
+        # security scan is not a pass.
+        tar --extract --gzip --file "/tmp/${archive}" --directory /tmp
+
+        # The **binary**, to the directory on PATH. `-m 0755` because the tarball's mode is
+        # not something to depend on, and `sudo` for the reason in the note above.
         sudo install -m 0755 "/tmp/gitleaks/gitleaks" /usr/local/bin/gitleaks
         gitleaks version
