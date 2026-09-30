@@ -574,15 +574,25 @@ test('the unused-claim gate can see a claim, or it cannot fail', () => {
     isImported('vitest-axe'),
     "vitest-axe is imported today, so the superseded plan's claim is false",
   );
-  // And the plans are actually in scope — a gate over an empty list passes.
+  // And the corpus is actually in scope — a gate over an empty list passes, which is
+  // the failure mode this whole test exists to rule out.
+  //
+  // `>= 1`, not `>= 2`. The plans are local session artefacts: `.kilo/` is excluded in
+  // `.git/info/exclude`, so a clone sees only the plans that were force-added, and CI
+  // sees exactly one. The earlier `>= 2` passed on the machine that wrote it and failed on
+  // every runner — the same "works where it was written" defect as the typecheck's and
+  // the cache directory's, and the third one in this file. The property worth asserting
+  // is that the gate has something to read, not how many files the author happened to
+  // have locally.
   assert.ok(
-    PLAN_DOCS.length >= 2,
-    `only ${String(PLAN_DOCS.length)} plan(s) checked; this is vacuous`,
+    PLAN_DOCS.length >= 1,
+    `no plan(s) checked; this is vacuous. The corpus is whatever is committed under ` +
+      '`.kilo/plans/` — if it is empty, this gate checks nothing and passes.',
   );
-  assert.ok(
-    PLAN_DOCS.some((plan) => plan.includes('merged-leftover-plan')),
-    'the plan carrying the refuted claim must be among those checked',
-  );
+  // The refuted plan is *not* asserted to be present. It was, and the assertion was
+  // redundant with the `some()` in its own condition — a test that cannot fail, which is
+  // worse than no test. What proves the detector can see a claim is the two assertions
+  // above: the phrase matches the real claim, and the real claim's subject is imported.
   // And a name nothing imports is not reported.
   assert.equal(isImported('a-package-nobody-imports'), false);
 });
