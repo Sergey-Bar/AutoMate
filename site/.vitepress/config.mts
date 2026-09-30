@@ -39,6 +39,7 @@ export default defineConfig({
       { text: 'Capabilities', link: '/pages/capabilities' },
       { text: 'Findings', link: '/pages/quality/findings' },
       { text: 'Coverage', link: '/pages/quality/coverage' },
+      { text: '10/10', link: '/pages/quality/ten' },
     ],
     sidebar: [
       {
@@ -58,6 +59,7 @@ export default defineConfig({
           { text: 'Capabilities', link: '/pages/capabilities' },
           { text: 'Findings', link: '/pages/quality/findings' },
           { text: 'Coverage', link: '/pages/quality/coverage' },
+          { text: '10/10', link: '/pages/quality/ten' },
         ],
       },
     ],

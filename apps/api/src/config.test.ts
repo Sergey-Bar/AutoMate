@@ -173,9 +173,18 @@ const SECRET_VARIABLES = [
   'RUNNER_REGISTRATION_SECRET',
 ] as const satisfies readonly SecretVariable[];
 
-describe('documented credentials are usable by the policy', () => {
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+/**
+ * The repository root, at module scope.
+ *
+ * It was declared inside the `describe` block, which meant the module-level
+ * `exportedConst` — added so the audit can follow `AUTOMATE_API_KEY: INSTALLATION_KEY`
+ * to the file that declares the value — could not reach it. Hoisted rather than passed
+ * as an argument, because three functions below already want it and threading a path
+ * through all three to save one constant is not a trade worth making.
+ */
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
+describe('documented credentials are usable by the policy', () => {
   /** Files that hand a real secret value to a process, or tell an operator to set one. */
   const SOURCES = [
     '.env.example',
@@ -245,10 +254,58 @@ function assignmentsIn(text: string): Array<{ variable: SecretVariable; value: s
   return found;
 }
 
-function auditSource(text: string): string[] {
+/**
+ * A named export from a repository file, evaluated.
+ *
+ * `playwright.config.ts` passes `AUTOMATE_API_KEY: INSTALLATION_KEY` — an identifier,
+ * not a literal — because the value lives in one place (`e2e/support/config.ts`) and the
+ * two files holding it disagreed, which is what made every authenticated E2E call answer
+ * 401. `auditSource` measures the *value*, so it has to follow a reference to find it;
+ * measuring the identifier instead reports `AUTOMATE_API_KEY=INSTALLATION_KEY (17
+ * characters)`, which is a finding about a name rather than about a secret.
+ *
+ * The expression is read from a file in this repository and evaluated, so the scope of
+ * what can run here is the scope of what we wrote. It is deliberately not a general
+ * TypeScript evaluator: one `export const NAME = <expression>;` line, and anything else
+ * is a resolution failure rather than a silent `undefined`.
+ */
+function exportedConst(name: string, relativePath: string): string | undefined {
+  const source = readFileSync(path.join(repoRoot, relativePath), 'utf8');
+  const declaration = new RegExp(`export const ${name} = ([^;]+);`).exec(source);
+  if (declaration === null) return undefined;
+  const value = new Function(`return (${declaration[1] ?? ''});`)();
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** The value behind a reference the audited file uses, when it is one we can resolve. */
+function referenceResolver(): (identifier: string) => string | undefined {
+  const cache = new Map<string, string | undefined>();
+  return (identifier) => {
+    if (cache.has(identifier)) return cache.get(identifier);
+    const value = exportedConst(identifier, 'e2e/support/config.ts');
+    cache.set(identifier, value);
+    return value;
+  };
+}
+
+function auditSource(text: string, resolve?: (identifier: string) => string | undefined): string[] {
+  const resolved = resolve ?? referenceResolver();
   /** @type {string[]} */
   const found = [];
-  for (const { variable, value } of assignmentsIn(text)) {
+  for (const { variable, value: written } of assignmentsIn(text)) {
+    // A bare value in an object literal carries its trailing comma, so
+    // `AUTOMATE_API_KEY: INSTALLATION_KEY,` reaches here as `INSTALLATION_KEY,` — which
+    // matches no identifier and would be measured as a 17-character secret. The comma is
+    // punctuation around the value, never part of it.
+    const trimmed = written.replace(/,$/, '');
+    // A bare identifier is a reference, not a secret. Follow it, and if it cannot be
+    // followed, say so — an unresolved reference is a hole in the audit, and a hole that
+    // reports clean is the failure this file's other test guards against.
+    const value = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? resolved(trimmed) : trimmed;
+    if (value === undefined) {
+      found.push(`${variable}=${trimmed} (a reference this audit cannot resolve)`);
+      continue;
+    }
     if (value.length < SECRET_MIN_LENGTH) {
       found.push(`${variable}=${value} (${String(value.length)} characters)`);
     }

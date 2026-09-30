@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { sql } from 'drizzle-orm';
 import { createDbResources } from '@automate/db';
 import { AGENT_DOMAINS, agentAvailability } from './agent-registry.js';
+import { PROMETHEUS_CONTENT_TYPE, collect, renderExposition } from '../observability/metrics.js';
 
 export interface HealthRouteOptions {
   databaseUrl?: string;
@@ -127,12 +128,36 @@ export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
     // added to `AgentDomainSchema` is advertised the moment the contract changes.
     //
     // `available` is what a client can act on: no domain has a configured
-    // execution adapter, so every entry is `false`. That is the honest answer and
-    // it is derived from the same registry the dispatch uses, not typed in twice.
+    // execution adapter, so every entry is `false`. That is the honest answer and it
+    // is derived from the same registry the dispatch uses, not typed in twice.
     const features: Record<string, boolean> = {};
     for (const domain of AGENT_DOMAINS) features[`agent.${domain}`] = agentAvailability(domain);
     return c.json({ features, version: '1' });
   });
+
+  /**
+   * `/metrics` — the Prometheus text exposition format.
+   *
+   * Mounted beside health rather than under `/api/v1`, because a scraper is not an API
+   * client: it has no workspace, no run, and no session, and putting it on the versioned
+   * surface would imply those exist. The content decision — process state and two
+   * in-memory counters, no run or tenant data, and no database query — is written down
+   * at `apps/api/src/observability/metrics.ts` and in the register row
+   * `ops.metrics-endpoint`, which is the authority. A scrape costs a memory read.
+   *
+   * Unauthenticated on purpose, and the reason that is defensible is the content
+   * decision rather than the route: there is nothing here to authenticate for. The first
+   * metric that would need a scope of its own goes on its own path with its own gate,
+   * which is a decision to make with evidence rather than a policy to pre-empt here.
+   */
+  // The third argument to `c.body` is a headers *object*. Passing the content-type
+  // string itself — which is the shape `res.send` takes — silently leaves Hono's own
+  // `text/plain;charset=UTF-8` in place, so the route answers without the version a
+  // scraper negotiates on. `health.test.ts` asserts the exact string, because the
+  // failure is invisible in a browser.
+  health.get('/metrics', (c) =>
+    c.body(renderExposition(collect()), 200, { 'content-type': PROMETHEUS_CONTENT_TYPE }),
+  );
 
   return health;
 }

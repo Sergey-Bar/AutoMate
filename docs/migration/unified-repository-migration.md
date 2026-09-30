@@ -1,5 +1,36 @@
 # Unified Repository Migration Specification
 
+> **This document is the plan of record for a merge that has already happened, and
+> is kept as a historical record.** It is exempt from the prose drift gate in
+> `scripts/lib/docs-drift.mjs` — and says so here rather than only there, because a
+> silently exempted document is a hole a later document falls into. Its citations
+> name the repository this one was merged _from_: two pinned legacy sources, the
+> ports they ran on, and the layout before the cutover. **The current authority on
+> what this repository can do is
+> [`docs/migration/capability-register.md`](./capability-register.md); the current
+> decisions are [`docs/adr/`](../adr/README.md).** The past tense of this document is
+> not a claim about the tree.
+
+## 14. Out of scope for v1.0.0
+
+Recorded here because this is the document a reader consults for scope, and because
+the question "what did we decide _not_ to build yet" currently has no answer
+anywhere else.
+
+**Not in v1.0.0:**
+
+| Item                                                                                                                   | Where it is tracked                                            | Why it is not in v1.0.0                                                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The tenancy wave (W7) — `WORKSPACE_ID` becoming a real isolation boundary across every workspace-scoped read and write | Roadmap §7, decision **D1**                                    | **Blocked by evidence, not by scope.** Ten reversible migrations sit behind `pnpm migrate:rehearse`, which has never been performed on a real installation. Ledger **RF-5** carries it, and a harness is not a run. W7 must not start until RF-5 has one. |
+| The five execution engines — browser, API, load, security, mobile                                                      | Ledger **BK-1**, row `X-3` (`debt`)                            | Four of the five answer an explicit `501 NOT_CONFIGURED` naming the domain and the action, and the features endpoint reports `available: false` for every domain. That is the honest answer today; a runner that silently did nothing would not be.       |
+| Multi-tenant isolation beyond `WORKSPACE_ID`, iOS device execution, Redis/Kafka/Kubernetes, and a second language      | [ADR-006](../adr/006-single-node-single-tenant-self-hosted.md) | Decisions, not omissions. Recorded so a later reader finds the reasoning rather than re-deriving it.                                                                                                                                                      |
+
+**In v1.0.0, with a measurement behind it:** every capability the register marks
+`real`. `pnpm status:10` reports §17's twelve points as `pass`, `fail` or
+`not_configured`, and the state this repository can honestly claim today is **zero
+`fail`** — with each `not_configured` carrying a reason and a command. `not_configured`
+is a shippable state under decision **D15**; it is not a pass, and it is not hidden.
+
 ## 1. Executive summary
 
 The repository is already a partial pnpm/Turborepo consolidation, but it is not a reliable unified product. Structural cutover happened before behavioral parity, data compatibility, governance, and deployment convergence. The current tree contains real run ingestion and basic dashboard persistence alongside in-memory domain state, mock AI/agent endpoints, incompatible contracts, stale legacy files, and multiple conflicting deployment definitions.

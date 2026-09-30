@@ -1,107 +1,136 @@
-# API Versioning Strategy — Decision Document
+# API Versioning Strategy
 
-**Status:** Proposed
-**Last Updated:** 2026-04-16
-**Products:** Automate, Automate
+> **Rewritten 2026-09-30.** The previous version chose **header-based** versioning
+> (`X-API-Version`) and justified it from "Fastify compatibility" and a two-server
+> topology on ports 3000, 4000 and 4001. None of that is this repository. The API is
+> Hono (ADR-001), there is one server on `127.0.0.1:3000`, and no code anywhere in
+> the workspace read `X-API-Version`.
+>
+> The API that shipped versions itself **by path**, so the decision now matches the
+> code. The record is [ADR-005](../adr/005-path-versioning.md). The superseded
+> header-based proposal is kept below, because a decision's reasoning is worth more
+> than its conclusion, and nobody should re-derive it.
+
+## Status
+
+Accepted. The decision is path versioning, and the API implements it.
 
 ## Context
 
-Currently, both Automate and Automate APIs are unversioned. They serve several critical consumers including web clients, CLI tools, and a reporter package. As the ecosystem matures, we need a formal versioning strategy to prevent breaking changes from disrupting users while allowing rapid iteration.
+The product has one API, three kinds of client — the web dashboard, reporter
+adapters, and runners — and a public surface that a customer writes against. A
+breaking change with no version boundary is a breaking change for all three at once.
 
-### API Consumers
+Versioning has to be visible in the tree, because a version that is negotiated at
+run time is a version that nothing in the repository records.
 
-- **Automate Web Client:** React SPA communicating with the server on `:3000`.
-- **Dashboard Web Client:** React SPA communicating with the server on `:4000`.
-- **Reporter Package:** `@automate/reporter` npm package used in Playwright tests to stream results to the dashboard on `:4001`.
-- **CLI Tool:** `@automate/cli` setup wizard.
-- **Webhook Integrations:** Outgoing notifications to Slack, Jira, and GitHub.
-- **MCP Server:** Model Context Protocol server for AI tool integration in the Dashboard.
+## Decision: path prefix, one version scheme
 
-## Decision: Header-Based Versioning (MVP)
+**The version is the `/v1` in the path.** One choice, not a hybrid.
 
-For the MVP, we'll adopt **header-based versioning** using the `X-API-Version` header.
-
-### Rationale
-
-- **Zero URL disruption:** Existing clients can continue using current endpoints without path changes.
-- **Granular control:** Headers allow for versioning specific requests without bloating the URL space.
-- **Fastify compatibility:** Header-based versioning is trivial to implement via Fastify hooks and doesn't require complex route prefixing for the initial rollout.
-- **Roadmap alignment:** This approach matches the specified requirement for a lightweight MVP versioning mechanism.
-
-## Specification
-
-### Versioning Scheme
-
-We'll use **Semantic Versioning (SemVer)** for API versions:
-
-- `1.0.0` (Major.Minor.Patch)
-- Clients should generally request a major version (e.g., `1`) or a specific point release if needed.
-
-### Request Header
-
-Clients SHOULD include the following header:
-`X-API-Version: 1.0.0`
-
-If omitted, the server will default to the latest stable version (currently `1.0.0`).
-
-### Response Header
-
-The server MUST include the `X-API-Version` header in all responses to indicate which version processed the request.
-
-## MVP Implementation Plan (Fastify)
-
-To implement this across both products, we'll use a `preHandler` or `onSend` hook in Fastify.
-
-### Step 1: Add Version Constant
-
-Each server will define its current API version in a central constants file.
-
-```typescript
-// src/constants.ts
-export const API_VERSION = '1.0.0';
+```
+/health                              unversioned probe
+/ready                               unversioned probe
+/api/v1/health                       versioned probe, body carries version: '1'
+/api/v1/ready                        versioned readiness
+/api/v1/features                     derived capability catalogue
+/api/v1/agents/:domain/:action       501 NOT_CONFIGURED naming the domain and action
+/api/v1/runs                         create, list, cancel, retry
+/api/v1/runs/:runId/gate             the gate verdict
+/api/v1/events                       SSE, cursor-based replay
+/api/v1/reporter/*                   producer ingestion
+/runner/v1/enroll, /runner/v1/*      runner control plane
 ```
 
-### Step 2: Global Version Header Hook
+**No `X-API-Version` header is read.** Accepting both a path version and a header
+version is two sources of truth for one fact, and a request that sends both has no
+defined precedence.
 
-Register a hook to inject the version header into every response.
+### What is deliberately unversioned
 
-```typescript
-// src/plugins/versioning.ts
-import { FastifyInstance } from 'fastify';
-import { API_VERSION } from '../constants.js';
+`/health` and `/ready` are unversioned because a load balancer, a container
+orchestrator and a human with `curl` all need one address that never moves. The
+versioned `/api/v1/health` exists beside it and answers `{"version":"1"}`; the
+unversioned one **omits the key entirely** rather than answering `undefined`, and
+that asymmetry is pinned by `apps/api/src/routes/health.ts` and its test. The comment
+in that file says why: a version field that appears and disappears with a flag is a
+thing a reader can be misled by, so the difference is a decision somebody makes
+rather than a diff.
 
-export async function registerVersioning(app: FastifyInstance) {
-  app.addHook('onSend', async (_request, reply, _payload) => {
-    reply.header('X-API-Version', API_VERSION);
-  });
-}
-```
+`/runner/v1/*` carries its own version segment because the runner control plane has
+a different lifecycle from the dashboard API: it is explicitly disabled with `503` in
+production until a durable control plane replaces it
+(`docs/migration/capability-register.md`, row `runner.control-plane`).
 
-### Step 3: Register Plugin
+## Breaking change policy
 
-Register this plugin early in the `buildServer` (Automate) or `bootstrap` (Dashboard) functions.
+A change is breaking if it removes an endpoint, renames a required request field,
+changes the type of a response field, removes a field a consumer depends on, or
+changes the status code for an error a consumer handles.
 
-## Breaking Change Policy
+Breaking changes go into a **new** prefix. `/api/v1/` and `/api/v2/` are mounted
+side by side for the deprecation window; they are never aliases of each other,
+because an alias makes the two versions indistinguishable at run time and the point
+of a version is that it is a different thing.
 
-### What Constitutes a Breaking Change?
+An **additive** change — a new endpoint, a new optional request field, a new
+response field — is not breaking and does not need a new version. The contracts are
+Zod schemas in `packages/shared-contracts`, so an additive change is a schema change
+and the contract suite under `tests/contract` is what proves both sides agree.
 
-- Removing an endpoint.
-- Renaming a required field in a request body.
-- Changing the data type of a response field.
-- Removing a field from a response that consumers depend on.
-- Changing HTTP status codes for specific error conditions (e.g., `400` to `403`).
+## Deprecation
 
-### Deprecation Timeline
+- A deprecated version is announced in the release notes, with the replacement path
+  written out, not with a `Warning` header nobody reads.
+- A version is removed only after the contract suite has stopped exercising it and
+  the capability register has been updated. The register is the authority on what the
+  product can do, so a removed endpoint is a register change first.
 
-- **Major Versions:** Supported for at least 6 months after a new major version is released.
-- **Deprecation Warnings:** Responses for deprecated versions will include a `Warning` header (RFC 7234) and log a server-side warning.
+## Enforcement
 
-## Future Path: URL-Prefix Versioning
+`apps/api/src/route-manifest.test.ts` enumerates every mounted route. A route added
+without a version prefix is a diff in one readable file, and the test was written
+after two documents each claimed a `GET /api/v1/runs` existed — one live and one
+dead — with both their own tests passing.
 
-When we reach a point where multiple major versions must be maintained simultaneously for extended periods, or when structural changes make header-based routing too complex, we will transition to URL-prefix versioning (`/api/v1/`).
+`pnpm test:contract` asserts the web client, the reporter adapters and the runner
+SDK all parse through the same shared schemas, so a response shape cannot change
+under one of them alone.
 
-This transition will be handled by:
+---
 
-1. Aliasing `/api/v1/*` to the existing root routes.
-2. Introducing `/api/v2/*` for the new implementation.
-3. Maintaining the header-based check as a secondary validation mechanism.
+## Superseded proposal, kept for the record
+
+The decision this replaces, in full, because the reasoning is what a later reader
+needs and the conclusion was wrong.
+
+> ### Versioning Scheme
+>
+> Semantic Versioning for API versions: `1.0.0` (Major.Minor.Patch). Clients should
+> generally request a major version.
+>
+> ### Request Header
+>
+> Clients SHOULD include `X-API-Version: 1.0.0`. If omitted, the server defaults to
+> the latest stable version.
+>
+> ### Response Header
+>
+> The server MUST include `X-API-Version` in all responses.
+>
+> ### Rationale (as written)
+>
+> - **Zero URL disruption** — existing clients keep current endpoints.
+> - **Granular control** — version specific requests without bloating the URL space.
+> - **Fastify compatibility** — trivial via Fastify hooks, no route prefixing.
+> - **Roadmap alignment** — matches the specified lightweight MVP mechanism.
+>
+> ### Future Path: URL-Prefix Versioning
+>
+> "When we reach a point where multiple major versions must be maintained
+> simultaneously for extended periods, or when structural changes make header-based
+> routing too complex, we will transition to URL-prefix versioning (`/api/v1/`)."
+>
+> That transition is what the API shipped with. The deprecation window it was
+> deferring arrived before the header was ever read, because a client cannot
+> negotiate a version it never sends and a server cannot answer one it never reads.

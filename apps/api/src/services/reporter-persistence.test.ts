@@ -15,6 +15,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -116,8 +117,19 @@ describe('run:start', () => {
     expect(runWritten).toBe(true);
     // Counters start at zero rather than at `total`: a run that has started has run
     // no tests, and the counters only move through `test:end`.
+    //
+    // `workspaceId` is asserted rather than omitted: this expectation is a whole-object
+    // comparison, so it is the one place in this suite where a missing field is
+    // guaranteed to be noticed, and a reporter run written without one is a run the
+    // product cannot list.
     expect(await repository.getRun(RUN_ID)).toEqual({
       id: RUN_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      // A started run is *under way*, and the phase says so. This field was absent from
+      // the write and stayed at the column default of `queued`, so a run that had
+      // finished still read as queued — the dashboard renders `phase`, not `status`.
+      phase: 'running',
+      outcome: null,
       startedAt: TIMESTAMP,
       finishedAt: null,
       status: 'running',

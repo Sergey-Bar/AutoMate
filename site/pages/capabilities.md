@@ -5,7 +5,7 @@
 Generated from `docs/migration/capability-register.md`, which is the source of
 truth for this page. A capability is not promoted because a page says it is.
 
-- **real** — 15
+- **real** — 16
 - **mock** — 14
 - **missing** — 2
 - **deferred** — 8
@@ -13,6 +13,7 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Capability                                                            | Status     |
 | --------------------------------------------------------------------- | ---------- |
+| Prometheus metrics endpoint                                           | `real`     |
 | Reporter lifecycle ingestion                                          | `real`     |
 | Run and test persistence                                              | `real`     |
 | Run list, detail, quarantine, and quality gates                       | `real`     |

@@ -1,6 +1,22 @@
-# ADR 002: Unified Platform Migration Strategy
+# Unified Platform — design record (superseded)
 
-> **Superseded proposal:** This document records an earlier proposal. The approved target and phase gates are maintained in `docs/migration/unified-repository-migration.md`.
+> **Retitled 2026-09-30.** This document was written as "ADR 002" against the
+> pre-merge layout, and so was `db-migration.md` as "ADR-003" — two of them
+> claiming ADR-003, and no ADR-001 anywhere. Numbers now live in
+> [`docs/adr/`](../adr/README.md) and are claimed once.
+>
+> **Superseded proposal:** this records an earlier proposal. The approved target and
+> phase gates are maintained in `docs/migration/unified-repository-migration.md`, and
+> the decisions that were taken from it are
+> [ADR-001](../adr/001-hono-modular-monolith.md),
+> [ADR-002](../adr/002-sse-over-a-durable-outbox.md) and
+> [ADR-003](../adr/003-postgres-only-durable-queue.md).
+>
+> Everything below describes the layout **before** the merge and is kept as the
+> record of why the merge happened. It is not a description of this tree: the
+> package boundaries have changed, `db:push` is not a script, and there is no
+> WebSocket transport (see
+> [ADR-002](../adr/002-sse-over-a-durable-outbox.md)).
 
 ## Status
 

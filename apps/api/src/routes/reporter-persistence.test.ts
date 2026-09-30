@@ -19,6 +19,7 @@ import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
+import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,6 +64,68 @@ async function sendVersionedEvent(
 // ---------------------------------------------------------------------------
 
 describe('Reporter persistence — run:start creates a run record', () => {
+  it('writes the run into the workspace the listing reads, so a reported run is visible', async () => {
+    // The regression this test exists for, and the reason the E2E suite could not pass.
+    //
+    // `RunRecord` had no workspace, so `upsertRun` wrote NULL for every run a reporter
+    // created. `GET /api/v1/runs` filters on the caller's workspace — `'default-workspace'`
+    // for a single-tenant install — so a run reported by a real producer was persisted,
+    // visible to `psql`, and **absent from the product**. Nothing failed: the insert
+    // succeeded and the read reported there was nothing there.
+    //
+    // Eleven of the nineteen E2E tests failed on this, and the first version of the
+    // diagnosis blamed the newest-first ordering change and then the stale build before
+    // a query against the container showed two workspace populations: 38 NULL and 15
+    // `'default-workspace'`. The E2E suite was right; three separate explanations were
+    // wrong, and the container was the only one that could settle it.
+    const repository = new InMemoryRunRepository();
+    const app = withErrorBoundary(
+      new Hono().route(
+        '/',
+        createReporterRoutes(undefined, {
+          repository,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+        }),
+      ),
+    );
+
+    const runId = crypto.randomUUID();
+    const response = await app.request('/api/v1/reporter/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        type: 'run:start',
+        runId,
+        payload: { total: 1, branch: 'main' },
+      }),
+    });
+    expect(response.status).toBe(202);
+
+    const row = await repository.getRun(runId);
+    expect(row).not.toBeNull();
+    // The value the listing filters on, asserted rather than assumed: a test that only
+    // checked the row exists passed while the product could not see it.
+    expect(row?.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
+  });
+
+  it('defaults the workspace rather than writing null when the route is given none', async () => {
+    // The defensive half. A caller that forgets to pass `workspaceId` gets the
+    // single-tenant default, not the NULL that made reported runs invisible.
+    const repository = new InMemoryRunRepository();
+    const app = withErrorBoundary(
+      new Hono().route('/', createReporterRoutes(undefined, { repository })),
+    );
+
+    const runId = crypto.randomUUID();
+    await app.request('/api/v1/reporter/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'run:start', runId, payload: { total: 1 } }),
+    });
+
+    expect((await repository.getRun(runId))?.workspaceId).toBe(DEFAULT_WORKSPACE_ID);
+  });
+
   it('persists a run row with expected id and status=running', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildApp(undefined, repo);

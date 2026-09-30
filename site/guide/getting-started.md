@@ -9,6 +9,25 @@ an evidence bundle. This page gets you to a running dashboard. Everything it cla
 about the product's limits is recorded on [Capabilities](/pages/capabilities), which
 is generated from the repository's own register rather than written by hand.
 
+## The ten-minute path
+
+A budget, and a promise about what it buys. From a clean checkout with Node 24 and
+pnpm 10 installed, following the "without a database" path below:
+
+| When      | What happens                    | How you know                                                                  |
+| --------- | ------------------------------- | ----------------------------------------------------------------------------- |
+| 0:00      | `pnpm install`                  | It finishes without an error.                                                 |
+| 1:00–2:00 | Start the API in terminal 1     | `GET http://127.0.0.1:3000/api/v1/health` answers `{"status":"healthy",...}`. |
+| 2:00–3:00 | Start the web app in terminal 2 | `http://localhost:5173` loads.                                                |
+| 3:00–4:00 | Sign in with the key above      | The dashboard shows the runs view.                                            |
+| 4:00–5:00 | Create a run from the dashboard | The run appears, with a state and a lease.                                    |
+
+If a step does not do what its column says, stop there — every later step depends on
+it, and the table is ordered so the failure is the first unexplained thing you see.
+The "with the full stack" path below takes longer and is what you want when you need
+PostgreSQL, because the in-memory store keeps state in the process and loses it on
+restart.
+
 ## Without a database
 
 The API runs in development with an in-memory store, so nothing else has to be

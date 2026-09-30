@@ -1,4 +1,10 @@
-# ADR 003: Universal QA Vertical Slice Architecture
+# Universal QA Vertical Slice Architecture
+
+> **Retitled 2026-09-30.** This document was written as "ADR 003", and so was
+> `db-migration.md` — the collision the ADR register was created to end. The content
+> is the record of the vertical slice's contract shape; the number now belongs to
+> [ADR-003](../adr/003-postgres-only-durable-queue.md). See
+> [`docs/adr/README.md`](../adr/README.md).
 
 ## Status
 

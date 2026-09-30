@@ -15,7 +15,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@automate/db';
 import { DrizzleRunRepository } from './drizzle-run-repository.js';
-import type { RunRecord, TestRecord } from './run-repository.js';
+import { DEFAULT_WORKSPACE_ID, RunRecord, TestRecord } from './run-repository.js';
 
 // ---------------------------------------------------------------------------
 // Shared SQL to create the minimal tables needed for tests
@@ -134,6 +134,11 @@ async function createTestContext(): Promise<TestContext> {
 function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
     id: '550e8400-e29b-41d4-a716-446655440001',
+    // Required on `RunRecord` since the E2E run found the reporter writing neither a
+    // workspace nor a phase: the row was persisted and the dashboard listed nothing.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'running',
+    outcome: null,
     startedAt: '2026-05-05T10:00:00.000Z',
     finishedAt: null,
     status: 'running',

@@ -2,14 +2,14 @@
  * Generates the status pages of the documentation site from the repository's own
  * machine-checked sources.
  *
- * These three pages are generated rather than written, and that is the whole point.
+ * These four pages are generated rather than written, and that is the whole point.
  * A hand-written capability table is a claim that a human agreed with once; a
  * generated one cannot claim more than the gate that produced it, so a row that
  * stops being true stops being published. The alternative — a status page that says
  * "6 missing" because it said so in March — is worse than no page, because a reader
  * has no way to tell it from a live one.
  *
- * The three sources, and what each is authoritative about:
+ * The four sources, and what each is authoritative about:
  *
  *   - `docs/migration/capability-register.md` — what the product can do, and the
  *     qualification each capability carries. Hand-maintained by design: it is a
@@ -20,6 +20,9 @@
  *     compares against. Reading the *floor* rather than a measured run is
  *     deliberate: the floors only move up, so a page generated from them cannot
  *     report a number that has not been earned.
+ *   - `pnpm status:10` — the roadmap's §17 twelve points. A measurement of the
+ *     committed tree, reported as `pass` / `fail` / `not_configured`, and the only
+ *     number in this repository that would otherwise have had no command behind it.
  *
  * The generator writes a `<!-- generated -->` marker into each page and refuses to
  * overwrite a page that has hand-written content below the marker, so an edit made
@@ -29,6 +32,15 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+/**
+ * Prettier aligns table columns to their widest cell, and a generator that emits
+ * `| a | b |` without that padding produces different bytes on every run relative to
+ * `pnpm format`. The implementation is in `scripts/lib/markdown-table.mjs` and is
+ * shared with the twelve-point page, so a change to the alignment rule is one edit
+ * rather than two that can drift.
+ */
+import { table } from './lib/markdown-table.mjs';
+import { twelvePage } from './lib/site-ten-page.mjs';
 
 // `dirname(import.meta.url)` is `<root>/scripts`, so one `..` is the repository
 // root. The first version had two, and read `C:/VS-Code-Projects/Github/docs/...` —
@@ -131,12 +143,29 @@ function readFileSyncSafe(file) {
   }
 }
 
+/**
+ * Headings for the pages whose slug is not the page's name.
+ *
+ * Applied only when the page does not exist yet, so a heading somebody has since
+ * rewritten by hand above the marker is left alone — the marker is the boundary, and
+ * a generator that edits outside it would clobber a page it is meant to be a
+ * section of.
+ *
+ * @type {Record<string, string>}
+ */
+const TITLES = {
+  'quality/ten': 'Definition of done, as measured',
+  'quality/findings': 'Findings ledger',
+  'quality/coverage': 'Coverage floors',
+};
+
 /** @param {string} slug @returns {string} */
 function titleOf(slug) {
+  const named = TITLES[slug];
+  if (named !== undefined) return named;
   const last = slug.split('/').pop() ?? slug;
   return last.charAt(0).toUpperCase() + last.slice(1);
 }
-
 // ── Capabilities ───────────────────────────────────────────────────────────
 
 /**
@@ -165,33 +194,6 @@ function readRegister() {
 }
 
 const STATUS_ORDER = ['real', 'mock', 'missing', 'deferred', 'obsolete'];
-
-/**
- * A markdown table whose columns are already padded.
- *
- * Prettier aligns table columns to their widest cell. A generator that emits
- * `| a | b |` without that padding produces different bytes on every run relative
- * to `pnpm format`, so the two tools overwrite each other: the formatter reflows
- * what the generator wrote, the generator overwrites what the formatter wrote, and
- * `format:check` and the staleness gate disagree forever. Emitting the aligned
- * form is what makes the output stable under both.
- *
- * @param {string[]} headers
- * @param {string[][]} rows
- * @returns {string[]}
- */
-function table(headers, rows) {
-  const widths = headers.map((header, column) =>
-    Math.max(header.length, ...rows.map((row) => (row[column] ?? '').length)),
-  );
-  const line = (/** @type {string[]} */ cells) =>
-    `| ${cells.map((cell, i) => cell.padEnd(widths[i] ?? 0)).join(' | ')} |`;
-  return [
-    line(headers),
-    line(widths.map((width) => '-'.repeat(width))),
-    ...rows.map((row) => line(headers.map((_header, column) => row[column] ?? ''))),
-  ];
-}
 
 function capabilityPage() {
   const rows = readRegister();
@@ -306,12 +308,49 @@ function coveragePage() {
   ];
 }
 
+// ── The twelve points ───────────────────────────────────────────────────────
+
+// The body lives in `scripts/lib/site-ten-page.mjs`, not here, because a page whose
+// source is the whole tree cannot be checked by copying this script and its four
+// data files. That module's comment is the reason, and `docs-paths.test.mjs`
+// implements the consequence: this page is compared by recomputation, the other
+// three by running this generator against a copy.
+
 // What this run produced, as a count — the number a caller compares against the
-// three pages it asked for. The first version listed `site/pages` and called it
-// "what was written", so a page that stopped being generated would still have been
-// reported as written; the list is the calls themselves.
-const written = ['capabilities.md', 'quality/findings.md', 'quality/coverage.md'];
-writePage('capabilities', capabilityPage());
-writePage('quality/findings', findingsPage());
-writePage('quality/coverage', coveragePage());
+// pages it asked for. The first version listed `site/pages` and called it "what was
+// written", so a page that stopped being generated would still have been reported as
+// written; the list is the calls themselves.
+//
+// `--only` exists for the staleness gate, not for humans. Three of the four pages
+// read a single data file each, so the gate copies the script and those files into a
+// scratch directory and runs it there — and the fourth reads the whole tree, so
+// copying it would mean copying the repository. The gate therefore asks for the
+// three it can reproduce, and checks the fourth by recomputing it in process
+// (`docs-paths.test.mjs`). Without this flag the copy-based check would either need
+// the entire tree beside it or would silently generate a page from a tree of five
+// files.
+const requested = new Set(
+  (process.argv.find((argument) => argument.startsWith('--only=')) ?? '')
+    .replace('--only=', '')
+    .split(',')
+    .filter((slug) => slug !== ''),
+);
+/** @param {string} slug */
+const wanted = (slug) => requested.size === 0 || requested.has(slug);
+
+/** @type {Array<[string, string, () => string[]]>} */
+const GENERATED = [
+  ['capabilities', 'capabilities.md', capabilityPage],
+  ['quality/findings', 'quality/findings.md', findingsPage],
+  ['quality/coverage', 'quality/coverage.md', coveragePage],
+  ['quality/ten', 'quality/ten.md', () => twelvePage(root)],
+];
+
+/** @type {string[]} */
+const written = [];
+for (const [slug, name, build] of GENERATED) {
+  if (!wanted(slug)) continue;
+  writePage(slug, build());
+  written.push(name);
+}
 console.log(`generated ${String(written.length)} page(s): ${written.join(', ')}`);

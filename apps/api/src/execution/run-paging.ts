@@ -9,9 +9,18 @@ import type { ExecutionRun, RunPage, RunPageOptions } from './types.js';
  * whole table.
  *
  * The cursor is `createdAt|id` rather than either alone. The ordering is
- * `createdAt ASC`, and a batch of runs can share a creation time to the
- * millisecond, so paging on the timestamp alone silently skips or repeats rows —
- * which is worse than not paging at all, because it looks correct.
+ * **`createdAt DESC, id DESC`** — newest first — and a batch of runs can share a
+ * creation time to the millisecond, so paging on the timestamp alone silently skips or
+ * repeats rows, which is worse than not paging at all because it looks correct.
+ *
+ * **Newest-first is the direction, and it is not a preference.** The order was `ASC`,
+ * which combined with a limit to serve the *oldest* N runs: once an install held more
+ * runs than a page, the newest run was on no page, because the cursor walks the same way
+ * as the order and could not turn round. `run-paging.test.ts` holds it.
+ *
+ * The array `pageRuns` is handed is already in serving order, so this module does not
+ * sort — the two stores do, and `store-parity.test.ts` is what holds them to the same
+ * answer.
  */
 
 const DEFAULT_LIMIT = 25;
@@ -98,14 +107,17 @@ export function pageRuns(
     }
     const byId = ordered.findIndex((run) => run.id === cursor.id);
     if (byId !== -1) {
+      // `+1` in a **newest-first** array is the next *older* run, which is the direction
+      // the cursor is meant to walk. Reversing the order without this staying at `+1`
+      // would make page 2 repeat the rows page 1 already served.
       from = byId + 1;
     } else {
-      // The cursor's run is gone (deleted, or filtered out of this workspace).
-      // Resume at the first row strictly after its timestamp, and if there is
-      // none, return nothing rather than silently restarting from the top.
-      const after = ordered.findIndex((run) => run.createdAt > cursor.createdAt);
-      if (after === -1) return { runs: [], hasMore: false };
-      from = after;
+      // The cursor's run is gone (deleted, or filtered out of this workspace). Resume at
+      // the first row *older* than its timestamp, and if there is none, return nothing
+      // rather than silently restarting from the top.
+      const older = ordered.findIndex((run) => run.createdAt < cursor.createdAt);
+      if (older === -1) return { runs: [], hasMore: false };
+      from = older;
     }
   }
 

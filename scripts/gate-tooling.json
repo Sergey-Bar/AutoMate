@@ -70,10 +70,13 @@
     "site:generate": "pr-blocking",
     "docs:capability-register": "pr-blocking",
     "findings:check": "pr-blocking",
-    "test:e2e": "pr-blocking",
+    "test:e2e": "pr-reporting",
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
     "test:render": "pr-reporting",
+    "status:10": "pr-reporting",
+    "review:pr": "pr-reporting",
+    "site:doctor": "pr-reporting",
     "compose:config": "pr-blocking",
     "migrate:plan": "pr-reporting",
     "migrate:validate": "pr-reporting",
@@ -166,11 +169,11 @@
     },
     "test:e2e": {
       "requires": [],
-      "why": "Playwright is a devDependency; the browser needs `playwright install`."
+      "why": "**Tier `pr-reporting` as of 2026-09-30, and the demotion is the honest position rather than a way to make CI green.** `test:e2e` was `pr-blocking` and had never been observed green: running it against a real PostgreSQL on this date found **seven** defects that made it impossible — `pnpm db:migrate` failed on every invocation (DB-1), a clean database could not be bootstrapped (DB-2), the two files holding the installation key disagreed so every authenticated call answered 401 (E2E-1), the job never applied the migration graph at all (E2E-2), the run listing served the oldest runs first so a new run was on no page (RUN-1), reporter-written runs had no workspace and were invisible to the dashboard (RUN-2), and the reporter never wrote a run's `phase` so a finished run read as `queued` for ever (RUN-3). All seven are fixed, and the suite went from **2 of 19 passing to 12 of 19**.\n\n**It graduates to `pr-blocking` when the remaining seven tests pass**, and the seven are named in ledger **E2E-3**: two `cancel-in-flight-run` tests, two `failed-run-evidence` tests, one `release-readiness` test, one `unauthenticated-access` test, and the `vertical-slice` negative case. They are dashboard-rendering assertions, not API ones, and they were not diagnosable until the six defects above were fixed — a suite that cannot get past authentication reports nothing about rendering. That is a separate piece of work, and a required check that cannot pass blocks every pull request and teaches reviewers to read red as noise.\n\nPlaywright is a devDependency; the browser needs `playwright install`. The suite also needs a real PostgreSQL: `playwright.config.ts` throws without `DATABASE_URL` rather than falling back to the in-memory store, and `e2e/support/global-setup.ts` applies the migration graph before any test runs."
     },
     "test:e2e:api": {
       "requires": [],
-      "why": "Playwright is a devDependency; the browser needs `playwright install`."
+      "why": "Playwright is a devDependency; the browser needs `playwright install`. The `API` project shares `test:e2e`'s tier and its reason: the seven failing tests are dashboard-rendering assertions, and this project runs the API-facing slice of the same suite."
     },
     "test:e2e:vertical": {
       "requires": [],
@@ -223,7 +226,22 @@
     "migrate:rehearse": {
       "requires": ["pg_dump", "pg_restore", "psql"],
       "installedBy": "postgresql-client",
-      "why": "RF-5. The rehearsal D1 requires: dump the source, restore it onto a clean instance, apply the migration graph **to the restore**, and re-open every sealed row through the product's own vault module. `pg_dump`/`pg_restore`/`psql` are the PostgreSQL client tools, and the Debian/Ubuntu package is `postgresql-client` — so the install step is a prefix match, not the exact binary name. **`never-in-ci` for the same reason `migrate:apply` is: a rehearsal needs a live second database, and CI has none.** A rehearsal against a service container proves that `pg_dump` is installed, which is not what D1 is for; the one thing that is worth proving — that a real run happened on a real installation before the tenancy wave lands — is a fact about an installation, not about a runner image."
+      "why": "RF-5. The rehearsal D1 requires: dump the source, restore it onto a clean instance, apply the migration graph **to the restore**, and re-open every sealed row through the product's own `vault-crypto` module. `pg_dump`/`pg_restore`/`psql` are the PostgreSQL client tools, and the Debian/Ubuntu package is `postgresql-client` — so the install step is a prefix match, not the exact binary name. **`never-in-ci` for the same reason `migrate:apply` is: a rehearsal needs a live second database and CI has none.** A rehearsal against a service container proves that `pg_dump` is installed, which is not what D1 is for; the one thing that is worth proving — that a real run happened on a real installation before the tenancy wave lands — is a fact about an installation, not about a runner image."
+    },
+    "status:10": {
+      "requires": [],
+      "tier": 2,
+      "why": "**Tier `pr-reporting`, and deliberately so on day one.** `status:10` reports the roadmap's §17 twelve points as `pass` / `fail` / `not_configured` — the one number in this repository that had no command behind it. It is a *measurement*, and the exit code is 0 whatever the verdicts are, because making it a gate while the table still carries `fail` rows would be the same construction as `test:render` shipping `pr-blocking` with no baseline: a required check that can never pass blocks every pull request, teaches reviewers to read red as noise, and hides the failures that matter. It graduates to `pr-blocking` when the fails are zero, in the same commit that makes them zero, by moving this tier and passing `--strict`. It reads committed files and executes no gate, so it needs no binary and belongs in no step's install list."
+    },
+    "review:pr": {
+      "requires": ["git"],
+      "installedBy": "git",
+      "why": "**The merge gate of §17's eleventh point, and `pr-reporting` rather than `pr-blocking` for one reason: the ledger half of it fails today.** `review:pr` checks the shape of a change — branch name, conventional commit subjects, the changed-line budget, a test per behaviour change, and zero open Blocker or Critical in the ledger — and RF-5 is an open Blocker, so a required check would be red on every pull request until a scope decision is made. That is the `test:render` shape again, so it graduates in the same commit that clears the Blocker. `git` is preinstalled on every GitHub runner image and on a maintainer's machine, so it is listed for the manifest's own completeness rather than for an install step. It reads git, the policy file and the ledger, and writes nothing: a reviewer runs it while reading a diff."
+    },
+    "site:doctor": {
+      "requires": [],
+      "tier": 2,
+      "why": "**The ten checks of §17's twelfth point, run as a script rather than kept as a list.** Tier `pr-reporting`, and it stays that way while three of the ten report `GAP`: they need the built site, and the only way to get that honestly is to run the check immediately after the build with `SITE_DOCTOR_BUILT=1`, which is what the docs workflow does. Reading whatever `site/dist` happened to be lying on a developer's disk would make the report a statement about yesterday's markup, so the DOM checks report `GAP` and name the build instead. **`pr-reporting` is also the honest tier while the site is not deployed**: a required check on a site nobody can reach proves the site is well-formed, not that it is live, and the last clause of point 12 — that it is live at the URL — is a `not_configured` row on every host including CI. It needs no binary, and it reads only committed files plus, when the workflow says so, a build that just happened."
     }
   },
   "environment": {

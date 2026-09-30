@@ -17,17 +17,22 @@ function run(id: string, createdAt: string): ExecutionRun {
 }
 
 describe('run paging window', () => {
+  // **Newest first**, which is the order the stores hand over. The fixture used to be
+  // ascending, so every assertion in this block described a sequence the product never
+  // serves — and `pageRuns` does not sort, it windows whatever it is given. The
+  // assertions are unchanged and now mean what they say: the first two of this page are
+  // the two most recent runs.
   const ordered = [
-    run('a', '2026-01-01T00:00:00.000Z'),
-    run('b', '2026-01-01T00:00:00.000Z'),
-    run('c', '2026-01-02T00:00:00.000Z'),
-    run('d', '2026-01-03T00:00:00.000Z'),
     run('e', '2026-01-04T00:00:00.000Z'),
+    run('d', '2026-01-03T00:00:00.000Z'),
+    run('c', '2026-01-02T00:00:00.000Z'),
+    run('b', '2026-01-01T00:00:00.000Z'),
+    run('a', '2026-01-01T00:00:00.000Z'),
   ];
 
   it('caps the page and reports that more remain', () => {
     const page = pageRuns(ordered, { limit: 2 });
-    expect(page.runs.map((entry) => entry.id)).toEqual(['a', 'b']);
+    expect(page.runs.map((entry) => entry.id)).toEqual(['e', 'd']);
     expect(page.hasMore).toBe(true);
   });
 
@@ -51,17 +56,18 @@ describe('run paging window', () => {
       if (!page.hasMore) break;
       cursor = encodeRunCursor(page.runs[page.runs.length - 1] as ExecutionRun);
     }
-    expect(seen).toEqual(['a', 'b', 'c', 'd', 'e']);
+    expect(seen).toEqual(['e', 'd', 'c', 'b', 'a']);
   });
 
   it('distinguishes two runs sharing a creation time', () => {
-    // `a` and `b` have the same timestamp to the millisecond. A cursor on the
-    // timestamp alone would loop between them forever.
+    // `a` and `b` have the same timestamp to the millisecond, and in newest-first order
+    // `b` sorts *before* `a` — the id breaks the tie in the serving direction. A cursor
+    // on the timestamp alone would loop between them forever.
     const page = pageRuns(ordered, {
       limit: 1,
-      after: encodeRunCursor(ordered[0] as ExecutionRun),
+      after: encodeRunCursor(ordered[3] as ExecutionRun),
     });
-    expect(page.runs.map((entry) => entry.id)).toEqual(['b']);
+    expect(page.runs.map((entry) => entry.id)).toEqual(['a']);
   });
 
   it('clamps a hostile or nonsensical page size', () => {
@@ -95,6 +101,102 @@ describe('run paging window', () => {
 });
 
 describe('both stores page identically', () => {
+  it('serves the newest run first, so the page an operator opens shows the latest run', async () => {
+    // The regression this test exists for, found by running the E2E suite against a real
+    // database rather than by reading this file.
+    //
+    // Both stores ordered the listing `createdAt ASC` and applied the limit in the same
+    // query, so `GET /api/v1/runs` returned the **oldest** N runs in the install. Once
+    // an install had more runs than a page, the newest run was not on the first page at
+    // all — and because the cursor walks *forward* in time, it could not appear on a
+    // later page either. An operator opening the dashboard after an incident saw the
+    // oldest runs in their install.
+    //
+    // The E2E suite could not see it either: `vertical-slice.spec.ts` seeds a run and
+    // then looks for it on page one, so with more than 25 runs seeded the run never
+    // appeared and the test reported "not persisted" — which was true of the *page*, and
+    // false of the *database*. The run was in PostgreSQL the whole time; a direct query
+    // against the container is what proved it.
+    // A clock that advances by a millisecond per read, so every run has a distinct
+    // `createdAt`. Without it the 30 runs share one timestamp to the millisecond, the
+    // id becomes the tiebreak, and "newest" is not a thing the assertion can mean —
+    // the test would then be checking the tiebreak rather than the order, and would
+    // pass or fail on the shape of a random UUID.
+    let tick = 0;
+    const store = new InMemoryExecutionStore({
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, 0, tick++)),
+    });
+    const created: string[] = [];
+    for (let index = 0; index < 30; index += 1) {
+      const result = await store.createRun(
+        {
+          externalId: `ext-newest-${index}`,
+          source: 'api',
+          testType: 'browser',
+          framework: 'playwright',
+          timeoutMs: 1_000,
+          requiredCapabilities: [],
+          labels: [],
+          configuration: {},
+        } as never,
+        `newest-key-${index}`,
+        'ws-newest',
+      );
+      created.push(result.run.id);
+    }
+
+    const first = await store.listRuns('ws-newest', undefined, { limit: 5 });
+
+    // The newest run, first. Not "the last five" — the *newest*, because that is the one
+    // a person opening the dashboard is looking for.
+    expect(first.runs[0]?.id).toBe(created.at(-1));
+    expect(first.runs.map((entry) => entry.id)).toContain(created.at(-1));
+
+    // And the order is descending across the page, so "newest first" is a property of
+    // the sequence rather than a lucky first element.
+    const times = first.runs.map((entry) => (entry as ExecutionRun).createdAt);
+    expect(times).toEqual([...times].sort().reverse());
+  });
+
+  it('still walks every row exactly once when the order is newest-first', async () => {
+    // The other half of the same change. Reversing the order without reversing the
+    // cursor would page *towards* newer runs, so page 2 would repeat rows the caller has
+    // already seen — the failure that looks like a correct page that repeats.
+    const store = new InMemoryExecutionStore();
+    for (let index = 0; index < 7; index += 1) {
+      await store.createRun(
+        {
+          externalId: `ext-walk-${index}`,
+          source: 'api',
+          testType: 'browser',
+          framework: 'playwright',
+          timeoutMs: 1_000,
+          requiredCapabilities: [],
+          labels: [],
+          configuration: {},
+        } as never,
+        `walk-key-${index}`,
+        'ws-walk',
+      );
+    }
+
+    /** @type {string[]} */
+    const seen = [];
+    /** @type {string | undefined} */
+    let cursor = undefined;
+    for (let page = 0; page < 10; page += 1) {
+      const result = await store.listRuns('ws-walk', undefined, {
+        limit: 3,
+        after: cursor,
+      });
+      seen.push(...result.runs.map((entry) => entry.id));
+      if (!result.hasMore) break;
+      cursor = encodeRunCursor(result.runs[2] as ExecutionRun);
+    }
+    expect(seen).toHaveLength(7);
+    expect(new Set(seen).size).toBe(7);
+  });
+
   it('gives the same page from the in-memory store as from the window above', async () => {
     const store = new InMemoryExecutionStore();
     for (let index = 0; index < 5; index += 1) {

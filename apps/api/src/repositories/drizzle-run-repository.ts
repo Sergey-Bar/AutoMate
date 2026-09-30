@@ -36,6 +36,9 @@ export class DrizzleRunRepository implements RunRepository {
       .insert(runs)
       .values({
         id: run.id,
+        workspaceId: run.workspaceId,
+        phase: run.phase,
+        outcome: run.outcome,
         startedAt: new Date(run.startedAt),
         finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
         status: toPersistedStatus(run.status),
@@ -52,6 +55,15 @@ export class DrizzleRunRepository implements RunRepository {
       .onConflictDoUpdate({
         target: runs.id,
         set: {
+          // On conflict as well as on insert. A run first written by a path that omitted
+          // the workspace, and then updated through the reporter, must be *moved* into
+          // the workspace rather than keeping the NULL it was born with — otherwise the
+          // repair only happens on first write and the row stays invisible.
+          workspaceId: run.workspaceId,
+          // Coherent on update as well as insert: a run first written by a path that
+          // left the phase at its default must be repaired here, not on the next create.
+          phase: run.phase,
+          outcome: run.outcome,
           startedAt: new Date(run.startedAt),
           finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
           status: run.status,
@@ -80,6 +92,11 @@ export class DrizzleRunRepository implements RunRepository {
       .update(runs)
       .set({
         ...(patch.status !== undefined && { status: patch.status }),
+        // The phase and its outcome move together or not at all: the CHECK requires the
+        // pair to agree, so a caller that patched one without the other would get a 500
+        // for a request that was merely malformed.
+        ...(patch.phase !== undefined && { phase: patch.phase }),
+        ...(patch.outcome !== undefined && { outcome: patch.outcome }),
         ...(patch.finishedAt !== undefined && {
           finishedAt: patch.finishedAt ? new Date(patch.finishedAt) : null,
         }),
@@ -231,6 +248,14 @@ export class DrizzleRunRepository implements RunRepository {
   private _mapRun(row: typeof runs.$inferSelect): RunRecord {
     return {
       id: row.id,
+      // A row written before `workspace_id` was required, or by a path that omitted
+      // it, reads back as NULL. It is surfaced as the empty string rather than
+      // silently dropped, so a caller filtering on a workspace sees an empty-workspace
+      // row it can account for instead of a run that vanishes from a query it should
+      // have matched.
+      workspaceId: row.workspaceId ?? '',
+      phase: row.phase,
+      outcome: row.outcome,
       startedAt: row.startedAt.toISOString(),
       finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
       // No cast: `row.status` comes straight from the column, whose type is

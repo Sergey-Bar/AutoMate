@@ -9,9 +9,9 @@ import {
   listWorkflows,
   parseWorkflow,
   readManifest,
-  readRootScriptCommand,
   readRootScripts,
   referencedScripts,
+  tierRegisterProblems,
 } from './gate-tooling.mjs';
 import { phaseFor, tierProblems } from './render-gate-phase.mjs';
 import { HOST_SCANNERS_ENV } from './host-scanners.mjs';
@@ -310,7 +310,7 @@ test('an unparseable workflow raises rather than being silently misread', () => 
   );
 });
 
-test('every root script carries a tier, and every tier is one of the four', () => {
+test('every root script carries a tier, and every tier is one of the five', () => {
   // Plan D6: "new scripts are classified `pr-blocking`, `pr-reporting`, `nightly` or
   // `release` before they are written". Declared in a comment it is a convention;
   // declared in the manifest and asserted here it is a gate. An unclassified script
@@ -320,32 +320,90 @@ test('every root script carries a tier, and every tier is one of the four', () =
   // — `dev`, `db:migrate`, and the `*:baseline` writers that rewrite a recorded
   // floor. A `*:baseline` script in a workflow would let a job raise a floor instead
   // of measuring against it, which is the same class of defect as lowering one.
-  const manifest = readManifest();
-  const scripts = readRootScripts();
-  const tiers = manifest.tiers ?? {};
-  const ALLOWED = new Set(['pr-blocking', 'pr-reporting', 'nightly', 'release', 'never-in-ci']);
-  const unclassified = [...scripts.keys()].filter((name) => tiers[name] === undefined);
-  assert.deepEqual(unclassified, [], 'every root script needs a tier in gate-tooling.json');
-  for (const [name, tier] of Object.entries(tiers)) {
-    if (typeof tier !== 'string') continue; // the `$comment` key
-    assert.ok(ALLOWED.has(tier), `${name} has the unknown tier "${tier}"`);
-    assert.ok(scripts.has(name), `gate-tooling.json tiers "${name}", which is not a root script`);
-  }
-  // `verify` itself must not have outgrown its budget. Plan D6: 13 steps today, at
-  // most 20. This is the count that has to be edited deliberately rather than
-  // discovered when the PR queue turns red.
-  const steps = readRootScriptCommand('verify')
-    .split('&&')
-    .map((step) => step.trim())
-    .filter(Boolean);
-  assert.ok(
-    steps.length <= 20,
-    `verify has ${String(steps.length)} steps, over the plan's budget of 20. Move the new ` +
-      'one to nightly rather than raising the budget.',
+  //
+  // The rule itself lives in `gate-tooling.mjs` as `tierRegisterProblems`, because
+  // `scripts/lib/status-ten.mjs` reports the same facts as the twelve-point
+  // measurement and a second copy of this rule is a second place for the
+  // classification to be wrong. This test asserts the shared implementation.
+  assert.deepEqual(
+    tierRegisterProblems(readManifest(), readRootScripts()),
+    [],
+    'every root script needs a tier in gate-tooling.json, every tier must be one of the five, ' +
+      'and verify must stay inside its 20-step budget',
+  );
+});
+
+test('a tolerated failure around a pr-blocking gate is a finding, and one around a reporting job is not', () => {
+  // W0.9's `no-silent-skip` rule, and the reason it is tier-aware rather than
+  // absolute. `continue-on-error` on a `pr-reporting` or `nightly` job is a
+  // deliberate classification — `migration-report` and the migration-rehearsal job
+  // both carry it, with the reasoning in a comment beside the job. A rule that
+  // forbade it outright would push those jobs to be deleted rather than demoted.
+  //
+  // The defect is the same flag on a job that runs a gate the manifest says blocks
+  // the merge: the job reports green whether the gate ran or not.
+  /** @param {string} script @param {string} [extra] */
+  const fixture = (script, extra = '') =>
+    [
+      'name: Fixture',
+      'on: workflow_dispatch',
+      'concurrency:',
+      '  group: fixture',
+      'jobs:',
+      '  probe:',
+      '    runs-on: ubuntu-24.04',
+      '    timeout-minutes: 5',
+      ...extra.split('\n').filter(Boolean),
+      '    steps:',
+      `      - run: pnpm ${script}`,
+    ].join('\n');
+
+  const blocking = auditWorkflow(
+    'fixture.yml',
+    fixture('lint', '    continue-on-error: true'),
+    readManifest(),
+    readRootScripts(),
   );
   assert.ok(
-    !steps.some((step) => step.includes('migrate:apply')),
-    'migrate:apply must never enter verify: CI has no persistent database',
+    blocking.some((finding) => /continue-on-error[\s\S]*`pnpm lint`/.test(finding)),
+    `a tolerated failure around a pr-blocking gate must be a finding; got: ${blocking.join(' | ')}`,
+  );
+
+  // The same flag on a tier that already reports is the deliberate case, and a
+  // rule that reported it would make the two indistinguishable.
+  const reporting = auditWorkflow(
+    'fixture.yml',
+    fixture('migrate:plan', '    continue-on-error: true'),
+    readManifest(),
+    readRootScripts(),
+  );
+  assert.deepEqual(
+    reporting.filter((finding) => /continue-on-error/.test(finding)),
+    [],
+    'continue-on-error on a pr-reporting job is a classification, not a silent pass',
+  );
+
+  // And `|| true` is the same statement written in the shell.
+  const shell = auditWorkflow(
+    'fixture.yml',
+    [
+      'name: Fixture',
+      'on: workflow_dispatch',
+      'concurrency:',
+      '  group: fixture',
+      'jobs:',
+      '  probe:',
+      '    runs-on: ubuntu-24.04',
+      '    timeout-minutes: 5',
+      '    steps:',
+      '      - run: pnpm lint || true',
+    ].join('\n'),
+    readManifest(),
+    readRootScripts(),
+  );
+  assert.ok(
+    shell.some((finding) => /\|\| true/.test(finding)),
+    `a shell that discards a pr-blocking gate's result must be a finding; got: ${shell.join(' | ')}`,
   );
 });
 

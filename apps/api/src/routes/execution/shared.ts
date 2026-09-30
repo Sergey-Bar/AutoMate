@@ -17,7 +17,7 @@ import { DomainError } from '../../errors/domain-error.js';
 import path from 'node:path';
 import type { Context } from 'hono';
 import { z } from 'zod/v4';
-import type { RunRecord } from '../../repositories/run-repository.js';
+import { DEFAULT_WORKSPACE_ID, type RunRecord } from '../../repositories/run-repository.js';
 import type { CanonicalRealtimeEvent, RealtimeBus } from '../../realtime/realtime-bus.js';
 import { defaultPolicy } from '../../execution/quality-gate.js';
 import { bearerToken } from '../../http/bearer-token.js';
@@ -79,7 +79,9 @@ export interface ExecutionRouteContext {
 }
 
 export function workspace(options: ExecutionRoutesOptions): string {
-  return options.workspaceId ?? 'default-workspace';
+  // The shared constant, not a literal: the reporter path resolves the same value and
+  // the two disagreeing is what made a reported run invisible to this listing.
+  return options.workspaceId ?? DEFAULT_WORKSPACE_ID;
 }
 
 export function requestId(_c: Context): string {
@@ -270,7 +272,7 @@ export function legacyRun(record: RunRecord): ExecutionRun {
     metadata: {},
     policyId: null,
     idempotencyKey: `legacy:${record.id}`,
-    workspaceId: 'default-workspace',
+    workspaceId: DEFAULT_WORKSPACE_ID,
     attempt: 1,
     retryOfRunId: null,
     phase,

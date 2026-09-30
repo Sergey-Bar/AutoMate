@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import { IntegrationMaturitySchema } from '@automate/shared-contracts';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
+import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
 import {
   InMemoryExecutionStore,
   createRunnerToken,
@@ -437,6 +438,11 @@ describe('canonical execution store and routes', () => {
     for (const status of ['running', 'passed', 'failed', 'interrupted'] as const) {
       await legacy.upsertRun({
         id: `legacy-${status}`,
+        // Required on `RunRecord`: the legacy projection reads the workspace, and a row
+        // without one is a row the projection would not have matched.
+        workspaceId: DEFAULT_WORKSPACE_ID,
+        phase: 'complete',
+        outcome: status === 'passed' ? 'passed' : status === 'failed' ? 'failed' : null,
         startedAt: '2026-01-01T00:00:00.000Z',
         finishedAt: status === 'running' ? null : '2026-01-01T00:00:01.000Z',
         status,

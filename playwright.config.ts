@@ -1,11 +1,22 @@
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+import { INSTALLATION_KEY, WEB_BASE } from './e2e/support/config.js';
 
+/**
+ * The ports and URLs the suite's servers bind.
+ *
+ * `WEB_BASE` is imported rather than restated for the same reason `INSTALLATION_KEY`
+ * is: the web dev server and the browser flow have to agree, and two literals in two
+ * files is how they stopped agreeing — silently, and only at run time.
+ */
 const apiPort = 3000;
-const webPort = 5173;
 const apiUrl = `http://127.0.0.1:${apiPort}`;
-const webUrl = `http://127.0.0.1:${webPort}`;
+// The web port now lives in `e2e/support/config.ts` as part of `WEB_BASE`, so there is
+// one place that says where the browser goes. `webPort` was left behind as an unused
+// local, which is the same class of drift as the two copies of the key: a value that
+// nobody reads, left in the file to look like it still does something.
+const webUrl = WEB_BASE;
 
 /**
  * The E2E suite exists to prove the product works against a real database.
@@ -104,6 +115,10 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
+  // Applies the migration graph before any test runs. See the file for why this is here
+  // and not as a step in the workflow: a clean database was never prepared, and the two
+  // defects that hid each other meant the required E2E job could not have passed.
+  globalSetup: './e2e/support/global-setup.ts',
   forbidOnly: Boolean(process.env['CI']),
   retries: process.env['CI'] ? 1 : 0,
   workers: 1,
@@ -122,7 +137,7 @@ export default defineConfig({
         NODE_ENV: 'development',
         DATABASE_URL: databaseUrl,
         COOKIE_SECRET: 'e2e-cookie-secret-32-characters-long',
-        AUTOMATE_API_KEY: 'e2e-installation-key-32-characters-long',
+        AUTOMATE_API_KEY: INSTALLATION_KEY,
         PUBLIC_APP_URL: webUrl,
       },
       reuseExistingServer: !process.env['CI'],

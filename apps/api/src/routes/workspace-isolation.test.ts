@@ -115,6 +115,22 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'ingestion services',
     files: ['services/drizzle-reporter-ingestion.ts', 'services/reporter-ingestion.ts'],
   },
+  {
+    // Both reporter write paths, claimed for the same reason: they now *write* a
+    // workspace id. Before this gate's change they wrote NULL, and a run reported by a
+    // real producer was persisted and invisible to `GET /api/v1/runs` — the reporter →
+    // API → browser path end to end, which eleven E2E tests were asserting and could not
+    // see. `reporter-persistence.test.ts` pins the stamped value to the one the listing
+    // filters on, and `run-repository.ts` holds the field and the single-tenant default.
+    family: 'reporter persistence',
+    files: [
+      'services/reporter-persistence.ts',
+      'routes/reporter.ts',
+      'repositories/drizzle-run-repository.ts',
+      'repositories/in-memory-run-repository.ts',
+      'repositories/run-repository.ts',
+    ],
+  },
   { family: 'orchestration service', files: ['services/orchestration-service.ts'] },
 ];
 

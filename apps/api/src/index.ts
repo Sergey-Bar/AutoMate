@@ -35,7 +35,7 @@ import type { ExecutionStore } from './execution/types.js';
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
 import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
-import type { RunRepository } from './repositories/run-repository.js';
+import { DEFAULT_WORKSPACE_ID, type RunRepository } from './repositories/run-repository.js';
 // Realtime transport: durable outbox-backed bus in production, in-memory for
 // development/test. Post-MVP: Add WebSocket transport (issue #TBD).
 import { InMemoryRealtimeBus } from './realtime/realtime-bus.js';
@@ -237,9 +237,9 @@ function mountReportingRoutes(): void {
   const reporterStore = databaseResources
     ? new DrizzleReporterIngestionService(
         databaseResources.db,
-        runtimeConfig.workspaceId ?? 'default-workspace',
+        runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
       )
-    : new ReporterIngestionService(runtimeConfig.workspaceId ?? 'default-workspace');
+    : new ReporterIngestionService(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID);
   app.route(
     '/',
     createReporterResultsRoute(reporterStore, {
@@ -477,6 +477,10 @@ app.route(
   '/',
   createReporterRoutes(runtimeConfig.reporterSecret, {
     repository: runRepository,
+    // The same workspace the execution routes resolve for a read. Without it the
+    // reporter wrote NULL and every run a producer reported was invisible to
+    // `GET /api/v1/runs` — persisted, and absent from the product.
+    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
     bus: realtimeBus,
     artifactStore: { putAt: (key, bytes) => artifactBytesStore.put(key, bytes) },
     allowQueryToken: false,

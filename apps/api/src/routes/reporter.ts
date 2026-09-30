@@ -46,6 +46,8 @@ import {
   TEST_STARTED_EVENT_TYPE,
 } from '@automate/shared-contracts';
 import {
+  DEFAULT_WORKSPACE_ID,
+  phaseForReportedStatus,
   toPersistedStatus,
   type RunRepository,
   type RunStatus,
@@ -628,6 +630,7 @@ async function persistUploadPayload(
   payload: ReporterUploadPayload,
   repository: RunRepository,
   bus?: RealtimeBus,
+  workspaceId: string = DEFAULT_WORKSPACE_ID,
 ): Promise<{ runId: string; status: RunStatus; ingestedTests: number }> {
   const derived = countStatuses(payload.tests);
   const summary = payload.summary ?? {};
@@ -640,9 +643,20 @@ async function persistUploadPayload(
       : (payload.status ?? evidenceStatus);
   const nowIso = new Date().toISOString();
   const startedAt = payload.startedAt ?? nowIso;
+  // The lifecycle phase and its outcome, derived from the narrowed status — the
+  // dashboard renders `phase`, and this write used to set only `status`, so an uploaded
+  // run sat at `phase: 'queued'` for ever however it had finished.
+  const persistedStatus = toPersistedStatus(status);
+  const state = phaseForReportedStatus(persistedStatus);
 
   await repository.upsertRun({
     id: payload.runId,
+    // The workspace the listing filters on. Without it this wrote NULL, and a run
+    // reported by a real producer was persisted and then invisible to
+    // `GET /api/v1/runs` — which is the reporter → API → browser path end to end.
+    workspaceId,
+    phase: state.phase,
+    outcome: state.outcome,
     startedAt,
     finishedAt: payload.finishedAt ?? (status === 'running' ? null : nowIso),
     // Narrowed at the write. `status` is typed as the wider contract union because
@@ -651,7 +665,7 @@ async function persistUploadPayload(
     // as a 500. The upload schema no longer admits `queued` (it is
     // `PERSISTED_RUN_STATUS_VALUES`), so this cannot throw in practice — and if it
     // ever does, it says so rather than writing something plausible.
-    status: toPersistedStatus(status),
+    status: persistedStatus,
     total: summary.total ?? derived.total,
     passed: summary.passed ?? derived.passed,
     failed: summary.failed ?? derived.failed,
@@ -744,6 +758,14 @@ export interface ReporterRouteOptions {
    * InMemoryRunRepository for in-process verification.
    */
   repository?: RunRepository;
+  /**
+   * The workspace reporter-written runs belong to.
+   *
+   * Absent, this uses {@link DEFAULT_WORKSPACE_ID}, which is what
+   * `GET /api/v1/runs` resolves for a single-tenant install — so the two agree without
+   * either being told about the other. Set it to `WORKSPACE_ID` and both move together.
+   */
+  workspaceId?: string;
   /**
    * Realtime broadcast seam (T15).
    * When provided, a `run:updated` event is published after every successful
@@ -871,7 +893,9 @@ export function createReporterRoutes(
 
     // T14: persist normalized event to repository (if one is configured)
     if (options?.repository) {
-      const runUpdated = await persistReporterEvent(normalized, options.repository);
+      const runUpdated = await persistReporterEvent(normalized, options.repository, {
+        workspaceId: options.workspaceId,
+      });
 
       // T15: broadcast a safe run:updated event after every run-level persistence
       // operation.  Only fires when:

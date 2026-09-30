@@ -163,6 +163,7 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/ready'],
   ['GET', '/ready'],
   ['GET', '/api/v1/features'],
+  ['GET', '/metrics'],
   // Sessions.
   ['POST', '/api/v1/auth/login'],
   ['GET', '/api/v1/auth/session'],

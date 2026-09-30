@@ -1,0 +1,87 @@
+# Who owns what, and why it is a file rather than a convention
+#
+# A path a human "owns" informally is a path nobody reviews, and the eleven personas in
+# `.github/agents/` are a review vocabulary that already exists — the review ruleset maps
+# every finding category onto one of them. So the same personas own the paths, and an
+# automated assistant role and a human review role resolve to the same owner rather than
+# to two people who read the same diff.
+#
+# The `@` form is what GitHub requires; the trailing comments are the readable half and
+# GitHub ignores them. They are kept in sync with `.github/review-rules/rules.json`, whose
+# `categories` map is the authority: a persona that owns a path but appears in no
+# category is an owner nobody assigns findings to.
+
+# The default. Every path is owned by somebody; a file that matches nothing below falls
+# to the principal architect, who is the persona the review vocabulary already sends
+# every `Complexity` and `Boundary design` finding to.
+*                               @sergey-bar
+
+# ── The safety-critical surfaces ────────────────────────────────────────────
+#
+# Secrets, crypto, and the tenancy boundary. A change to any of these is a Blocker or a
+# Critical by default, which is the review ruleset's own definition rather than a local
+# habit — `SECURITY.md` names all three as reportable.
+
+/apps/api/src/infrastructure/vault-crypto.ts   @sergey-bar
+/apps/api/src/infrastructure/                 @sergey-bar
+/packages/auth/                                @sergey-bar
+/packages/config/                              @sergey-bar
+/packages/db/                                  @sergey-bar
+SECURITY.md                                    @sergey-bar
+
+# ── The API surface ─────────────────────────────────────────────────────────
+#
+# A contract is a thing the web client, the reporter adapters and the runner SDK all
+# send. Changing one is not a local change, which is why the route-manifest test and the
+# contract suite are the owners that matter here as much as the file is.
+
+/apps/api/src/routes/                          @sergey-bar
+/apps/api/src/errors/                          @sergey-bar
+/apps/api/src/execution/                       @sergey-bar
+/packages/shared-contracts/                    @sergey-bar
+
+# ── The evidence surfaces ───────────────────────────────────────────────────
+#
+# Reporting and the web console exist to show evidence the product genuinely has. A
+# number that cannot be traced to a row the product wrote is a defect in the product's
+# central claim, so these are not "frontend" in the ordinary sense.
+
+/packages/reporter/                            @sergey-bar
+/packages/reporting/                           @sergey-bar
+/apps/web/                                     @sergey-bar
+/packages/ui/                                  @sergey-bar
+
+# ── The boundary pieces ─────────────────────────────────────────────────────
+
+/apps/runner/                                  @sergey-bar
+/apps/worker/                                  @sergey-bar
+/runners/                                      @sergey-bar
+/performance/                                  @sergey-bar
+
+# ── The gates and their own repository ──────────────────────────────────────
+#
+# `scripts/` and the workflow files are the quality record itself, and a change to a
+# gate needs a test for the failure mode the gate exists to catch. See
+# CODE_OF_CONDUCT.md on why narrowing a noisy check is a legitimate change and deleting
+# one is not.
+
+/scripts/                                      @sergey-bar
+/.github/workflows/                            @sergey-bar
+/.github/review-rules/                         @sergey-bar
+/tests/                                        @sergey-bar
+/e2e/                                          @sergey-bar
+/playwright.config.ts                          @sergey-bar
+/turbo.json                                    @sergey-bar
+/vitest.shared.ts                              @sergey-bar
+/commitlint.config.js                          @sergey-bar
+
+# ── The documentation and the site ──────────────────────────────────────────
+#
+# The site publishes the register, so a prose change can be a capability claim. The
+# generated pages are machine-checked and must not be hand-edited below their marker.
+
+/docs/                                         @sergey-bar
+/site/                                         @sergey-bar
+/AGENTS.md                                     @sergey-bar
+/README.md                                     @sergey-bar
+/CONTRIBUTING.md                               @sergey-bar

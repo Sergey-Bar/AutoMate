@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
-import { and, asc, desc, eq, gt, inArray, isNotNull, ne, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
@@ -655,19 +655,24 @@ export class DrizzleExecutionStore implements ExecutionStore {
     const afterFilter =
       cursor === undefined
         ? undefined
-        : // Strictly after the cursor: a later timestamp, or the same timestamp
-          // with a *greater* id. `id != cursor.id` would re-include a row that
-          // shares the timestamp and sorts before the cursor, so the page would
-          // repeat it — the same failure the in-memory window guards against.
+        : // Strictly *older* than the cursor, in the same newest-first direction the
+          // order below establishes: an earlier timestamp, or the same timestamp with a
+          // *smaller* id. `id != cursor.id` would re-include a row that shares the
+          // timestamp and sorts before the cursor, so the page would repeat it — the
+          // same failure the in-memory window guards against.
           or(
-            gt(runs.createdAt, new Date(cursor.createdAt)),
-            and(eq(runs.createdAt, new Date(cursor.createdAt)), gt(runs.id, cursor.id)),
+            lt(runs.createdAt, new Date(cursor.createdAt)),
+            and(eq(runs.createdAt, new Date(cursor.createdAt)), lt(runs.id, cursor.id)),
           );
     const rows = await this.db
       .select()
       .from(runs)
       .where(and(...(filters as never[]), ...(afterFilter === undefined ? [] : [afterFilter])))
-      .orderBy(asc(runs.createdAt), asc(runs.id))
+      // Newest first. This was `asc`, and with `limit` on the same query it served the
+      // oldest N runs in the install — so once an install held more than a page, the
+      // newest run appeared on no page at all, and the forward-walking cursor could not
+      // reach it. See `run-paging.ts` for the shared reasoning.
+      .orderBy(desc(runs.createdAt), desc(runs.id))
       .limit(limit + 1);
     const page = rows.slice(0, limit);
     return {

@@ -1,0 +1,34 @@
+{
+  "$comment": "The merge gate's policy, separate from review-rules/rules.json on purpose. rules.json is the *reviewer's* vocabulary — severities, categories, and the rules an emitter may produce — and its contract test pins its shape exactly. The merge gate's questions are different ones: what a branch may be called, what a commit may say, how large a change may be, and what must come with it. Mixing them would mean changing a file whose contract is checked in both directions every run, to add a section nothing about severities reads. One policy, one file, one owner.",
+  "schemaVersion": 1,
+  "branch": {
+    "$comment": "A branch name is `<type>/<description>`, lower-case kebab-case, and the type must be one of these. The list is a closed set rather than a pattern so a typo is a named failure instead of a branch nobody can categorise.",
+    "pattern": "^(?<type>[a-z]+)(?:\\/(?<scope>[a-z0-9-]+(?:\\/[a-z0-9-]+)*))?\\/[a-z0-9]+(?:-[a-z0-9]+)*$",
+    "types": ["feat", "fix", "chore", "docs", "refactor", "test", "perf", "build", "ci"],
+    "exempt": ["main", "master", "develop"]
+  },
+  "commit": {
+    "$comment": "A conventional-commit subject, checked on every commit in the range. The subject rather than a pull request title, because the title is GitHub's field and a local script cannot read it without a token; the commits are the part a merge gate can actually verify, and a range with no conventional subject is a range nobody can bisect by message.",
+    "pattern": "^(?<type>[a-z]+)(?:\\((?<scope>[a-z0-9./-]+)\\))?(?<breaking>!)?: (?<subject>.+)$",
+    "types": ["feat", "fix", "chore", "docs", "refactor", "test", "perf", "build", "ci", "revert"],
+    "maxSubjectLength": 72
+  },
+  "budget": {
+    "$comment": "The changed-line budget. 300 for a single file is the roadmap's own number, and it is a per-file ceiling rather than a total because the defect it catches is one unreviewable file in an otherwise careful pull request — a total would let a 2 000-line pull request through by spreading itself evenly. The total exists as a second, looser signal, because a change that is evenly spread is still a change nobody reviewed line by line.",
+    "maxChangedLinesPerFile": 300,
+    "maxTotalChangedLines": 1500,
+    "exemptPaths": ["**/*.snap", "**/fixtures/**", "**/*.json", "pnpm-lock.yaml"]
+  },
+  "tests": {
+    "$comment": "A behaviour change needs a test. The check is: every changed source file under apps/ or packages/ has at least one changed test file in the same package, unless the file carries a `review:no-test <reason>` marker. A marker rather than a flag file because it is next to the code it excuses, it is visible in the diff, and grep finds it — the same reason this repository's other opt-outs are inline.",
+    "sourceRoots": ["apps/", "packages/", "tools/"],
+    "marker": "review:no-test",
+    "testPathPattern": "(?:\\.test|\\.spec)\\.[cm]?[jt]sx?$",
+    "minMarkerReasonLength": 20
+  },
+  "ledger": {
+    "$comment": "The ledger half of the gate. §17's eleventh point is 'zero Blocker or Critical', and a merge gate that does not check it is a merge gate that only checks the easy half. `debt` is excluded deliberately: a deferred finding has an owner and a removal condition, which is the state §1 permits, and the fact that a point is deferred is visible on `pnpm status:10` rather than here.",
+    "blockingBands": ["Blocker", "Critical"],
+    "blockingStatuses": ["open"]
+  }
+}

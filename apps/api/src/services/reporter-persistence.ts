@@ -15,7 +15,12 @@
 import { z } from 'zod/v4';
 import { safeRelativePath } from '../http/safe-path.js';
 import type { NormalizedReporterEvent } from '../routes/reporter.js';
-import type { RunRepository, TestStatus } from '../repositories/run-repository.js';
+import {
+  DEFAULT_WORKSPACE_ID,
+  phaseForReportedStatus,
+  type RunRepository,
+  type TestStatus,
+} from '../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
 // Path-safety helper (mirrors safe-path.ts from Dashboard)
@@ -114,16 +119,28 @@ const RunEndPayloadSchema = z
 export async function persistReporterEvent(
   event: NormalizedReporterEvent,
   repo: RunRepository,
+  options: { workspaceId?: string } = {},
 ): Promise<boolean> {
   const { type, runId, timestamp } = event;
+  // Explicit, defaulted, and the same constant the listing filters on. Omitting it used
+  // to write NULL, and the row was then invisible to `GET /api/v1/runs` — persisted,
+  // queryable with psql, and absent from the product.
+  const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
 
   switch (type) {
     case 'run:start': {
       const parsed = RunStartPayloadSchema.safeParse(event.payload);
       if (!parsed.success) return false;
       const p = parsed.data;
+      // The phase and outcome, derived from the status rather than written beside it.
+      // Leaving `phase` at its column default is what made a reported run look queued
+      // for ever; see `phaseForReportedStatus`.
+      const state = phaseForReportedStatus('running');
       await repo.upsertRun({
         id: runId,
+        workspaceId,
+        phase: state.phase,
+        outcome: state.outcome,
         startedAt: timestamp,
         finishedAt: null,
         status: 'running',
@@ -182,8 +199,13 @@ export async function persistReporterEvent(
       const parsed = RunEndPayloadSchema.safeParse(event.payload);
       if (!parsed.success) return false;
       const p = parsed.data;
+      // The phase and outcome travel with the status. Patching only `status` is what
+      // left every reported run at `phase: 'queued'` after it had finished.
+      const state = phaseForReportedStatus(p.status);
       await repo.patchRun(runId, {
-        status: p.status,
+        status: state.status,
+        phase: state.phase,
+        outcome: state.outcome,
         finishedAt: new Date().toISOString(),
         durationMs: p.durationMs ?? null,
       });

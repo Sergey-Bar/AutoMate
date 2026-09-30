@@ -275,11 +275,17 @@ export class InMemoryExecutionStore implements ExecutionStore {
     const ordered = [...this.runs.values()]
       .filter((run) => workspaceId === undefined || run.workspaceId === workspaceId)
       .filter((run) => releaseId === undefined || run.releaseId === releaseId)
-      // Ordered by id as well as time, because a batch of runs can share a
-      // creation time and paging on a non-unique key skips or repeats rows.
+      // **Newest first.** Ordered by id as well as time, because a batch of runs can
+      // share a creation time and paging on a non-unique key skips or repeats rows.
+      //
+      // This was `ASC`, and the limit was applied to the same query, so the listing
+      // served the *oldest* N runs in the install. Once an install held more runs than a
+      // page, the newest run was on no page: the cursor walks in the same direction as
+      // the order, so it could not turn round. An operator opening the dashboard after
+      // an incident saw the oldest runs they had.
       .sort((left, right) => {
-        const byTime = left.createdAt.localeCompare(right.createdAt);
-        return byTime === 0 ? left.id.localeCompare(right.id) : byTime;
+        const byTime = right.createdAt.localeCompare(left.createdAt);
+        return byTime === 0 ? right.id.localeCompare(left.id) : byTime;
       })
       .map((run) => clone(run));
     // The same window the Drizzle store applies, so a page means the same thing

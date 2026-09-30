@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 import type { MiddlewareHandler } from 'hono';
+import { recordRequest } from './metrics.js';
 
 /**
  * One request, one id, for the whole execution.
@@ -90,16 +91,23 @@ export function runWithRequestId<T>(requestId: string, work: () => T): T {
 }
 
 /**
- * Establish the request id for the rest of the chain, and echo it back.
+ * The request id for the rest of the chain, the response header, and the request count.
  *
  * The response header matters as much as the context: a client that cannot see the id
  * it got cannot quote it in a bug report, and a generated id it never sees is useless
- * for correlation from the outside.
+ * for correlation from the outside. Registered before anything that logs, so the
+ * earliest failure already has an id.
  *
- * Registered before anything that logs, so the earliest failure already has an id.
+ * The count is here rather than in a separate middleware because this one already runs
+ * once per request on every path, and a second one would be a second registration order
+ * to reason about for the sake of a number. It reads the status *after* `next()`
+ * resolves, so a handler that throws is not counted as a success — and an error the
+ * error boundary turns into a 500 is counted as the 500 it became, which is the number
+ * an operator alerts on.
  */
 export const requestContext: MiddlewareHandler = async (c, next) => {
   const requestId = normaliseRequestId(c.req.header('x-request-id'));
   c.header('x-request-id', requestId);
   await runWithRequestId(requestId, () => next());
+  recordRequest(c.res.status);
 };

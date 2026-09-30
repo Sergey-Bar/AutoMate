@@ -164,25 +164,25 @@ Use [`.env.example`](.env.example) as the variable inventory. Never commit real 
 
 ## Repository map
 
-| Path                                              | Responsibility                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `apps/api`                                        | Hono control-plane API, ingestion, reporting, auth, dashboard, orchestration, and runner routes         |
-| `apps/web`                                        | React 19 dashboard, TanStack Router routes, run explorer, analytics, quarantine, and quality-gate views |
-| `apps/runner`                                     | Independently deployable runner process boundary                                                        |
-| `packages/shared-contracts`                       | Canonical Zod schemas for reporting, realtime, orchestration, sessions, and runner traffic              |
-| `packages/reporter`                               | Producer adapters and normalized reporter protocols                                                     |
-| `packages/reporting`                              | Framework-independent evidence, KPI, and quality-gate policies                                          |
-| `packages/realtime`                               | Versioned event envelopes, replay, and transport boundaries                                             |
-| `packages/orchestration`                          | Automation inventory, schedules, jobs, state transitions, and retry policy                              |
-| `packages/automation`                             | Kilo and Ollama gateway ports/adapters, served at `/api/v1/chat/*`                                      |
-| `packages/runner-sdk`                             | Runner identity, heartbeat, job, lease, and event protocol                                              |
-| `packages/auth`, `packages/config`, `packages/db` | Identity/session rules, typed configuration, Drizzle schema, and migrations                             |
-| `packages/connectors`                             | GitHub, Jira, and Slack connector SDKs                                                                  |
-| `runners`                                         | Pinned OCI execution definitions for future tool workloads                                              |
-| `tools/migrate-cli`                               | Deterministic migration planning, rehearsal, and reconciliation primitives                              |
-| `tests`, `e2e`                                    | Contract, integration, vertical-slice, and browser tests                                                |
-| `infra`                                           | Local Compose, Docker, nginx, and deployment assets                                                     |
-| `docs`                                            | Architecture, migration evidence, deployment, provider, API, and database guidance                      |
+| Path                                              | Responsibility                                                                                                                               |
+| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api`                                        | Hono control-plane API, ingestion, reporting, auth, dashboard, orchestration, and runner routes                                              |
+| `apps/web`                                        | React 19 dashboard, TanStack Router routes, run explorer, analytics, quarantine, and quality-gate views                                      |
+| `apps/runner`                                     | Rootless runner process boundary; the OCI images are stubs and the manifests carry `null` digests, so the register marks `runner.oci` `mock` |
+| `packages/shared-contracts`                       | Canonical Zod schemas for reporting, realtime, orchestration, sessions, and runner traffic                                                   |
+| `packages/reporter`                               | Producer adapters and normalized reporter protocols                                                                                          |
+| `packages/reporting`                              | Framework-independent evidence, KPI, and quality-gate policies                                                                               |
+| `packages/realtime`                               | Versioned event envelopes, replay, and transport boundaries                                                                                  |
+| `packages/orchestration`                          | Automation inventory, schedules, jobs, state transitions, and retry policy                                                                   |
+| `packages/automation`                             | Kilo and Ollama gateway ports/adapters, served at `/api/v1/chat/*`                                                                           |
+| `packages/runner-sdk`                             | Runner identity, heartbeat, job, lease, and event protocol                                                                                   |
+| `packages/auth`, `packages/config`, `packages/db` | Identity/session rules, typed configuration, Drizzle schema, and migrations                                                                  |
+| `packages/connectors`                             | GitHub, Jira, and Slack connector SDKs                                                                                                       |
+| `runners`                                         | Pinned OCI execution definitions for future tool workloads                                                                                   |
+| `tools/migrate-cli`                               | Deterministic migration planning, rehearsal, and reconciliation primitives                                                                   |
+| `tests`, `e2e`                                    | Contract, integration, vertical-slice, and browser tests                                                                                     |
+| `infra`                                           | Local Compose, Docker, nginx, and deployment assets                                                                                          |
+| `docs`                                            | Architecture, migration evidence, deployment, provider, API, and database guidance                                                           |
 
 ## Common commands
 

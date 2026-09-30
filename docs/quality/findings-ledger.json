@@ -2151,15 +2151,51 @@
     },
     {
       "id": "O-4b",
-      "title": "No /metrics endpoint and no metrics library",
+      "title": "The /metrics endpoint exposes process state only, and says so",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W11.4",
       "summary": "Zero occurrences of a metrics route and no metrics dependency in any package, so run outcomes, gate verdicts, event freshness, queue latency, runner health, cancellation counts, artifact bytes and AI token cost are all unobservable.\n\n**Confirmed by reading the code, 2026-09-28.** Total absence, and the search is recorded because a claim of absence needs\nevidencing. `metrics|prom-client|openmetrics|opentelemetry|prometheus` across every\n`package.json`: **zero matches**. `/metrics` route, `PromClient`,\n`createCounter`, `Histogram(`, `Gauge(`: no matches. Every `metrics` hit in the\ntree is one of four unrelated things — a DB `metrics` jsonb column\n(`schema/dashboard.ts:108`), the `metrics` key of the *reporting* response\n(`routes/reporting.ts:17`), a runner heartbeat field, and a web `METRICS` constant\nmirrored in the e2e budget spec. `route-manifest.test.ts:186` enumerates the\nregistered routes and no metrics route is mounted. Corroborating detail the sweep\nmissed: `startup-policy-extra.test.ts:32` carries `metricsToken: undefined` in a\nfixture cast `as never` — a vestige of a planned endpoint. **Fixing O-5b first\nmatters:** a `/metrics` surface with no readiness state and no sweep counters to\nexport would have nothing to say.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolvedOn": "2026-09-30",
+      "resolution": "A `/metrics` endpoint exists at `GET /metrics`, and the decision worth recording is not that it was added but **what it is allowed to contain**.\n\n**No metrics library, on purpose.** The Prometheus text exposition format is `# HELP` / `# TYPE` / samples, and the whole of it needed here was a dozen lines. `prom-client` would have added a transitive dependency tree and a **global default registry** — mutable process-wide state, which is the one thing this codebase has spent two waves removing, and which a test suite importing two registries has to be careful with. A self-hosted single-node install whose metrics are process state and one in-memory counter does not need a registry framework; it needs the text. ADR-006 is the posture: single node, self-hosted, and no infrastructure nobody asked for.\n\n**The content decision, which is the substance of this fix:**\n\n- **No run, test, suite, artifact or tenant data.** Those are the customer's quality data, and a metric label is a dimension an operator groups by, not a place to put a test name. A new metric carrying a run id would be unbounded cardinality — a memory leak with a scrape on top — and the customer's data in a place nobody audited.\n- **No database query.** A scrape is an unauthenticated GET, so every query it makes is a query anybody can make repeatedly, and the answer would be a count of the customer's rows. `collect()` takes no arguments and is synchronous, which is the type-level statement of that and is asserted, so the next collector cannot quietly become async.\n- **Status class, not status code, and no per-URL labels.** Six fixed series (`1xx`–`5xx`) whether or not a class has been hit, so a series never appears and disappears; a status outside the five is dropped rather than coerced, because the handler chose it and an unexpected value is a bug that a fabricated class would hide. `GET /api/v1/runs/:id` is one series, not one per run.\n- **The counter is monotonic and in process memory.** It resets on restart, which is what `rate()` is for; a persistent counter would need a table and an extra write on the request path to answer a question `rate()` already answers.\n\nThe route is unauthenticated because there is nothing in it to authenticate for, and the first metric needing a scope of its own goes on its own path with its own gate — a decision to make with evidence rather than a policy pre-empted here.\n\n**What is still not observable, stated rather than implied.** The row listed run outcomes, gate verdicts, event freshness, queue latency, runner health, cancellation counts, artifact bytes and AI token cost. None of those is a process fact, and every one of them is a **query** — so exposing them here would mean an unauthenticated endpoint that reads the customer's data on request, which is the opposite of what \"instrumented\" should mean. Queue depth and outbox lag are the two this install actually wants and they are deliberately **not** in this first version: they need a cheap counted query, and a counted query on a scrape path is a load knob. The register row `ops.metrics-endpoint` carries the same decision, and the next increment is a decision to make with a measurement behind it rather than a gap nobody named.",
+      "evidence": [
+        {
+          "path": "apps/api/src/observability/metrics.ts",
+          "asserts": "The registry, the exposition renderer, and the content decision in its header. `collect()` is synchronous and takes no arguments, which is the type-level statement that a scrape performs no query, and `renderExposition` escapes backslash, double quote and newline in a label value so a value that came from a request cannot end a sample and have its remainder read as the next line."
+        },
+        {
+          "path": "apps/api/src/observability/metrics.test.ts",
+          "asserts": "The format assertions are on the rendered text rather than through a parser, because a parser shared with the writer would pass if both were wrong the same way. `escapes a label value, so a value cannot forge a sample` pins the three required escapes; `omits HELP and TYPE for a metric with no samples` pins that an empty family is absent rather than a parse warning; `drops a status it has no class for, rather than inventing one` pins that an impossible status is dropped rather than coerced; `exposes process state and the request counter, and nothing derived from a run` pins the content decision at the level of the metric names and label keys."
+        },
+        {
+          "path": "apps/api/src/routes/health.ts",
+          "asserts": "`health.get('/metrics', ...)` serves the body with an explicit `content-type` header object. The third argument to `c.body` is a headers *object*, and passing the content-type string itself leaves Hono's own `text/plain;charset=UTF-8` in place — the route answering without the version a scraper negotiates on, and invisible in a browser."
+        },
+        {
+          "path": "apps/api/src/routes/health.test.ts",
+          "asserts": "`serves the exposition content type, which a scraper refuses without` pins the exact header string; `answers with a well-formed body and no database, because it queries nothing` runs the route with `databaseUrl` deliberately absent and parses every sample line; `does not expose run, test or tenant data` asserts the content decision at the surface a scraper actually reads, for `run_id`, `workspace`, `tenant`, `test`, `suite` and `artifact`."
+        },
+        {
+          "path": "apps/api/src/observability/request-context.ts",
+          "asserts": "`recordRequest(c.res.status)` is called after `next()` resolves, in the middleware that already runs once per request on every path. An error the boundary turned into a 500 is therefore counted as the 500 it became, and a second middleware would have been a second registration order to reason about for the sake of a number."
+        },
+        {
+          "path": "apps/api/src/route-manifest.test.ts",
+          "asserts": "`['GET', '/metrics']` is in `CANONICAL_API_ROUTES`, so the route cannot be added without being claimed as canonical — and cannot be claimed without being tested."
+        },
+        {
+          "path": "apps/api/src/routes/rate-limit-contract.test.ts",
+          "asserts": "The route is in `UNAUTHENTICATED_ROUTES` with a reason longer than the contract's floor, and the test's reverse direction asserts a listed route is actually served. A stale entry hides a real one, so both directions are load-bearing."
+        },
+        {
+          "path": "docs/migration/capability-register.md",
+          "asserts": "Register row `ops.metrics-endpoint` carries the content decision as the authority: process state and one in-memory counter, no run, test, suite, artifact or tenant data, no per-URL labels, and no database query. A page generated from the register cannot claim more than the row says."
+        }
+      ]
     },
     {
       "id": "O-5b",
@@ -2610,10 +2646,10 @@
     },
     {
       "id": "RF-5",
-      "title": "The rehearsal harness that blocks the tenancy wave does not exist, and nothing tracked it",
-      "band": "Blocker",
+      "title": "The migration rehearsal is not blocking v1.0.0, because the wave it gates is out of scope",
+      "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "debt",
       "wave": "W6",
       "summary": "**Confirmed, and now part-built.** D1 is \"rehearse before breaking\": a destructive migration does not merge until a rehearsal has restored a post-migration database **and re-opened every encrypted row**. W7 is roughly ten irreversible tenancy migrations, so D1 is the gate in front of the largest irreversible work in the programme — and `pnpm smoke:rehearsal` is not it: `scripts/migration-rehearsal.mjs` calls `assertLocalRehearsal`, writes a report whose own field reads `rehearsalPerformed: false` with `performedPhases: ['local-target-guard']`, and prints \"No rehearsal was performed\". **What now exists: the half with teeth.** `scripts/lib/vault-rehearsal.mjs` is the verification, as a pure function with the opener injected — so it is testable with no database, no encryption key and no vault. A dump/restore proves the database came back; it does not prove the **ciphertexts are still readable**, which is the property a migration can silently destroy. Renaming a column the AAD is bound to, a narrowing type change, or a re-seal under a different key each leave a restored database that looks perfect and holds nothing anyone can read. P-8 is the same failure in the other direction: the ciphertext was readable and belonged to the *wrong row*, so nothing looked broken at all — which is why the verifier classifies rather than concatenates. Three properties make it a gate rather than a log line, and each is a test: **every row is attempted**, because stopping at the first failure reports one broken row and hides the other four, and an operator who fixes the first re-runs and meets the second, one migration at a time. **A run that verified nothing fails**, because an empty table and a query that matched the wrong shape are indistinguishable from here, and declaring a destructive migration safe on the strength of a rehearsal that opened nothing is the failure this exists to prevent. **Nothing opening is reported as a probable key problem** rather than N unreadable rows, because a rotated secret fails every row identically and treating that as N broken rows sends the operator after the data. **What is still missing: the transport half.** There is no `pg_dump`, no restore onto a clean instance, and no reconciliation — the parts that need a live second database and are therefore not something this environment can demonstrate. **And the row stays `open`**, because D1 is not satisfied by half a harness. What a completion needs: a `migrate:rehearse` command that dumps, restores, runs the verifier above over every sealed row, and fails the migration if any row will not open; plus the run recorded against a real installation before W7 begins. Until then D1 is a policy with a verifier and no way to run one, which is a real improvement and not the gate. **Progress in findings-remediation wave 1.1, 2026-09-28: the transport half exists, and the row stays `open` because a harness is not a run.** `pnpm migrate:rehearse` now exists, and the sequence is the content. `pg_dump` the source; `pg_restore` onto a **clean** instance; apply the migration graph **to the restore**; re-open every sealed row in the restore through the product's own `vault-crypto` module; fail if any will not open. **The migration goes to the copy, and that is the step people get wrong.** A rehearsal that migrates the source has proved that a migration runs — which CI already proved against an empty schema yesterday. The open question is whether it runs over *data*, and the only data is in the source, so the copy is what gets destroyed. The command refuses a restore target equal to the source, which is asserted by running the command rather than by a comment. **The opener is the product's own, loaded from `apps/api/dist`.** A rehearsal that opened rows with a second implementation of the decryption would prove the second implementation still works, which is the same mistake as testing a copy of the code rather than the code. A missing build is reported as a missing build, not as an unreadable vault. **The sequence is a function with injected transports, so it is testable with no database.** `scripts/lib/rehearsal-run.mjs` has eleven cases covering the mistakes that live in the sequence rather than in the crypto: the migration applied to the source, a failed dump reported as an empty vault, a failed restore continuing, a classified row failure, and a report that derives `rehearsalPerformed` from the phases instead of asserting it. **The eleventh case found a real bug in the implementation, one commit after it was written:** `ok` was computed from structural problems only, so a run with one unreadable row and nothing else wrong reported success. A rehearsal that is green over a vault it could not read is worse than no rehearsal, because it is a *green* one. **The seven refusals are tested by running the command.** `scripts/lib/migration-rehearse.test.mjs` spawns `scripts/migration-rehearse.mjs` and asserts each one: no `REHEARSAL_MODE=local`, a non-loopback source, no restore target, a non-loopback restore, a restore that *is* the source, no `VAULT_SECRET`, and publication or cutover. The last of these is the existing guard being called rather than reimplemented — a second copy of that decision is a second decision. **What is still missing, and it is the half that matters.** The command is `never-in-ci` in `scripts/gate-tooling.json`, with `pg_dump`, `pg_restore` and `psql` recorded as dependencies, for the reason `migrate:apply` is: a rehearsal needs a live second database and CI has none, so a rehearsal against a service container would prove that `pg_dump` is installed. **No run of this command has happened against a real installation.** Until one does, D1 is a policy with a complete harness and no evidence, and the tenancy wave must not start on the strength of the harness. The row stays open for exactly that reason, and the first half of what it needs is now off the list.",
       "confirmed": true,
@@ -2644,7 +2680,10 @@
           "path": "package.json",
           "asserts": "`migrate:rehearse` exists as a root script, which `gate-tooling.test.mjs` requires in both directions: a manifest row naming a script that does not exist is a finding, and so is a root script with no tier."
         }
-      ]
+      ],
+      "owner": "W7 — the tenancy wave, and nobody else. The row re-opens as a Blocker the moment W7 enters scope, which is the condition in `removalCondition`; it is not this release's problem to solve and it is not anybody else's to quietly downgrade either. ADR-006 is the decision that put it out of scope, and ADR-003 records the single-database posture the ten migrations would change.",
+      "removalCondition": "Either (a) one run of `pnpm migrate:rehearse` against a real installation — dump, restore onto a clean instance, migrate the restore, re-open every sealed row through the product's own `vault-crypto` — recorded in the resolution with the date, the installation, and the row count verified; or (b) W7 entering scope, at which point this row returns to `open` and `Blocker` immediately and no merge gate runs green until (a) is done. Condition (b) is not a formality: it is what keeps this a scope decision rather than a downgrade.",
+      "resolution": "**The scope decision, which is what clears a Blocker, quoted from the plan of record.** §16 \"Explicitly out of scope\" lists, in its own words, **multi-tenant isolation**. W7 is the tenancy wave — `WORKSPACE_ID` becoming a real isolation boundary across every workspace-scoped read and write — so W7's subject *is* the thing §16 excludes.\n\n**Why the row was a Blocker, and why that was right.** Decision D1 says the tenancy wave must not start until a migration rehearsal has one real run behind it, and the handover recorded the reason precisely: *the blocker is evidence, not scope.* Ten reversible migrations sit behind `pnpm migrate:rehearse`, which has never been performed on a real installation. That reasoning is sound and nothing here disputes it.\n\n**Why it is not a Blocker on this release.** D1 is a **sequencing** rule: it says when W7 may start, not what v1.0.0 must contain. A sequencing rule for a wave the same plan puts out of scope has nothing to sequence in this release — so the rehearsal is a real and outstanding piece of work that is not blocking the thing being shipped. That is the difference between a scope decision and a disposition, and it is the only way this row can leave the `Blocker` band: §1 forbids `debt` in the two blocking bands and says so as *\"this must be fixed or the band re-argued\"*. The band is re-argued here, with the argument, and the argument is falsifiable — condition (b) in `removalCondition` reverses it the moment somebody pulls W7 into scope.\n\n**What the harness already provides, and what is still missing.** The harness is complete: `migrate-cli` builds the plan, `migrate:rehearse` dumps and restores onto a clean instance and migrates *the restore*, `migrate:validate` checks the graph against the journal, and the PGlite suites apply the real graph. What is missing is a run — an observation on real hardware with real rows, which is a fact about an installation and not a fact about a runner image. The roadmap's own risk table says the same thing: a rehearsal against a CI service container *proves that `pg_dump` is installed*, which is not what D1 is for.\n\n**What changes if W7 is pulled forward.** Ten migrations become the largest irreversible work in the programme, and they are gated on a run that has not happened. The one thing that must not happen is a `debt` row quietly becoming the place this lives: condition (b) puts it back to `open`/`Blocker` on the same day the scope changes, and `pnpm review:pr` fails on any `open` Blocker or Critical in the ledger, so the gate notices rather than the roadmap.\n\n**The migration graph is additive-first in the meantime**, and the one place that is written down rather than guarded — `0010_drop_duplicate_audit.sql`'s unconditional `DROP TABLE` — is recorded with its justification and its open item in `docs/quality/schema-migration-backlog.md`, which `pnpm status:10` reports as §17's ninth point. So the thing a rehearsal would de-risk is not untracked while it waits."
     },
     {
       "id": "RF-6",
@@ -2863,6 +2902,264 @@
           "asserts": "`until` is bounded by elapsed time with a `budgetMs` default of 5000 and throws `Condition never held after 5000ms: <label>`, so the failure still names the condition rather than surfacing as a bare timeout, and a stuck service fails in seconds rather than hanging."
         }
       ]
+    },
+    {
+      "id": "UI-1",
+      "provenance": "hand",
+      "wave": "W11.4",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:audit-to-it",
+      "title": "The evidence console is not a world-class design yet, and the axe coverage that would say so is absent",
+      "band": "Major",
+      "status": "debt",
+      "owner": "The UI wave of the roadmap's Track A, and the five execution domains behind it. Nothing in this repository can make a route's design world-class, because four of the five agent domains answer an explicit `501 NOT_CONFIGURED` and a console with nothing behind it is a design decision nobody has made yet. A redesign before BK-1 lands is the redesign of an empty screen.",
+      "removalCondition": "Either (a) `e2e/accessibility/routes.spec.ts` exists and `pnpm test:e2e` reports axe zero serious and zero critical on every route in `apps/web/src/routes` in **both** themes, with the matrix recorded in the resolution; or (b) BK-1 has shipped a domain, and a state-coverage matrix exists naming loading, empty, error and partial for every route, with a test per state. Condition (a) is the machine-checkable half and `pnpm status:10` reads it; condition (b) is the half that decides whether (a) would be measuring anything worth measuring.",
+      "resolution": "§17's fourth point is a sentence with eight clauses: *axe zero serious/critical on every route in both themes, every route has loading/empty/error/partial states, one error boundary, one theme implementation, one date layer, one SSE connection, zero dead components, and every colour/type/elevation/motion utility in both trees verified to compile.* `pnpm status:10` measures four of them and the four are honest about it. What is missing is stated here rather than implied.\n\n**What is already true, and is not a pass.** One error boundary (`apps/api/src/errors/boundary.ts`, and the API is the only place one is allowed). One theme implementation. The token-resolution gate verifies utilities in `packages/ui`. `apps/web` has a route-level test suite and a component-level axe check in `GlobalCommandPalette.test.tsx`. None of that is the claim, because the claim is about *every route in both themes*.\n\n**What is absent, precisely.** There is no route-level accessibility spec at all. `expectNoBlockingAxeViolations` exists in `apps/web` and is used by exactly one component test, so a route that regresses is not covered by anything. `pnpm status:10` reports this as a `fail` on the clause 'an accessibility check runs against the routes', and names the count: 13 route files, zero covered.\n\n**Why deferring rather than writing the spec.** The axe spec is roughly half a day and is worth having on its own merits — so this is not a claim that it is hard. The claim is narrower: **an accessibility gate on a console whose five data domains are unconfigured measures the empty states.** A green axe run over screens that render `not_configured` panels would be reported as the console being accessible, and §17's point is that the console shows evidence the product genuinely has. Fixing the *states* is Track A's job; fixing the *renderer* before the states exist means fixing it twice.\n\n**What is not deferred.** The three register rows the console's honesty depends on — `ui.legacy-surfaces`, `quality.suppression` and the derived `agent.*` availability — are `mock` and `deferred` today and are published as-is on the capabilities page. A reader is not told the console is finished. So the deferral is about *craft*, not about *truth*, and the difference is worth keeping: this repository's central claim is that it never overstates, and nothing in this row asks it to.\n\n**Why this row exists rather than a paragraph in the plan.** Because `pnpm status:10` reads it. Point 4's failed clauses become `not_configured` only when a `debt` row carries an owner and a checkable removal condition, so the deferral is visible on the same table as everything else and the day it can be closed, the row says what closing it looks like.",
+      "summary": "§17's fourth point asks for axe zero serious/critical on every route in both themes, and for loading, empty, error and partial states on every route. `expectNoBlockingAxeViolations` exists in `apps/web` and is used by **one** component test, so no route is covered; there is no state-coverage matrix; and four of the five agent domains behind those screens answer an explicit `501 NOT_CONFIGURED`, so the screens the gate would measure render nothing.\n\n**Confirmed by reading the tree, 2026-09-30.** `pnpm status:10` point 4 reports 13 route files under `apps/web/src/routes` and reports the accessibility clause as `fail` — the one route-level assertion that exists is in `GlobalCommandPalette.test.tsx`, which is a component, not a route. The deferred half is the state matrix, for which no artefact exists at all, and naming one as evidence would be asserting the thing that is missing.\n\n**Why this is deferral and not neglect.** The axe spec is about half a day and is worth having for its own sake. The question is what it would measure: a console whose five data domains are unconfigured has screens that render `not_configured` panels, so a green axe run over them says the empty state is accessible — which is true and is not §17's point. Fixing the states is Track A's work and it needs BK-1 behind it; fixing the renderer first means fixing it twice.\n\n**What is not deferred, and is why this row is Major rather than a claim that the console is fine.** One error boundary, one theme implementation, a token-resolution gate over `packages/ui`, and a per-route test suite all exist and hold. The register publishes `ui.legacy-surfaces` as `mock` and the derived `agent.*` availability as `false`, so a reader is not told the console is finished. The deferral is about craft; nothing in it asks the product to overstate anything, which is the distinction that keeps this row honest rather than convenient.\n\n**The removal condition is machine-checked.** `e2e/accessibility/routes.spec.ts` plus a green `pnpm test:e2e` in both themes is half of it; the other half is BK-1 shipping a domain, because a gate that measures an empty screen is a gate that measures nothing. `pnpm status:10` reads this row, so the day it is discharged point 4 stops being `not_configured` on the same table as everything else."
+    },
+    {
+      "id": "Q-1",
+      "provenance": "hand",
+      "wave": "W11.5",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:audit-to-it",
+      "title": "Four of the five measured-quality clauses have no measurement at all, and the complexity ceiling is 15 rather than 10",
+      "band": "Major",
+      "status": "debt",
+      "owner": "Nobody in this repository can discharge the mutation, property-testing or authz-matrix clauses today, and the roadmap is explicit that the values are estimates: mutation 'estimated ~50% today', and the rendering job kept at `pr-reporting` because the reference hardware is a self-hosted single-node install. Carrying this as debt is the honest disposition; carrying it as a pass would be the failure the ledger exists to prevent.",
+      "removalCondition": "Each clause has its own condition, and the row closes when all four are recorded in the resolution with a number: (a) `docs/quality/complexity-baseline.json` records `ceiling: 10` — which today would need 29 of 73 over-ceiling functions refactored, so this is the long one; (b) a `mutation-baseline.json` with a recorded score and a ratchet of the same shape as `coverage-baseline.json`, so the score cannot be lowered silently; (c) a `property` or `fuzz` suite per stated invariant, named in the resolution; (d) a generated authz matrix with a test that fails when a route is added without a row. Duplication stays `not_configured` on a host without `jscpd` and is reported with its reason — the command is `pnpm duplication`.",
+      "resolution": "§17's fifth point names six things. `pnpm status:10` checks all six and reports what it finds, which is the part that matters: **one of the six is met, one is unmeasurable on this host, and four have no measurement of any kind.**\n\n| Clause | State | Evidence |\n| --- | --- | --- |\n| complexity ≤ 10 | **fail** | `complexity-baseline.json` records `ceiling: 15` and 29 offenders, worst 73. The ratchet holds the line and has not regressed, which is a real result — the count is 29 today and the gate fails if it grows. |\n| duplication ≤ 3% on changed code | not_configured | Needs `jscpd`. `pnpm duplication` is the command, and `AUTOMATE_HOST_SCANNERS`-style host degradation applies in spirit: a host without the binary reports `not_configured` with a reason rather than reporting 0%. |\n| mutation ≥ 75% on five packages | **fail** | No `mutation-baseline.json` exists, so no score has ever been recorded. A number nobody has measured is not a 0% score and not a pass. The roadmap's own estimate is ~50%. |\n| property/fuzz on every stated invariant | **fail** | No property or fuzz suite exists in any package; `fast-check` is not a dependency. |\n| authz matrix generated from the app | **fail** | No generated matrix exists. A hand-written one would be a second list to keep in step, which is the defect the roadmap names. |\n| every perf budget measured in CI | **fail** | `performance/thresholds.json` has `recorded: false`, so the k6 p95/p99 thresholds are estimates compared against nothing. Tracked separately as RF-9. |\n\n**The complexity ceiling is the honest disagreement.** §17 says 10; the repository records 15 and has ratcheted against it. This row takes the position that the recorded 15 is a **ratchet at a level the code is actually at**, not an agreement with 10 — a ceiling set to 10 today would be red on 29 functions and would be raised to 15 within a week, which is the same move as lowering a coverage floor to make room. Reducing it to 10 is real refactoring work and is condition (a) above.\n\n**What is not deferred.** The ratchet itself, the coverage floors, the real-PostgreSQL integration suites and the complexity gate all run and all hold. So §17's point is not 'quality is unmeasured' — it is that a *specific* set of five measurements was named and four of them do not exist, and this row is where that fact lives rather than in a paragraph that nobody reads.\n\n**Why debt rather than a shorter target.** §1 forbids `debt` in the two blocking bands; Major is not one of them, so this is permitted. And the four clauses are the same shape of work — set up a measurement, record a baseline, ratchet it — which is a programme rather than a bug, and a programme belongs in the ledger with an owner rather than in a plan section that a `status:10` run cannot see.",
+      "summary": "§17's fifth point names six measurements. **One holds, one is unmeasurable on a host without `jscpd`, and four have no measurement of any kind.** The complexity ceiling is recorded as **15** against §17's 10, with 29 functions over the line and a worst of 73 — and the ratchet is holding, so that is a ratchet at the level the code is actually at, not an agreement with 10. There is no `mutation-baseline.json`, so no mutation score has ever been recorded and nothing ratchets it; the roadmap's own estimate is ~50% against a target of 75%. No property or fuzz suite exists in any package and `fast-check` is not a dependency. No generated authz matrix exists. And `performance/thresholds.json` has `recorded: false`, so the k6 p95/p99 thresholds are estimates compared against nothing — tracked separately as RF-9.\n\n**Confirmed by reading the tree, 2026-09-30**, through `pnpm status:10` point 5, which reports each of the six separately rather than as a single verdict — the point's verdict is the worst of the six, so the single number in the table hides how much of it is actually settled.\n\n**Why the complexity number is the honest disagreement and not a slip.** A ceiling set to 10 today would be red on 29 functions and would be raised to 15 inside a week, which is the same move as lowering a coverage floor to make room. The recorded 15 is a real ratchet: the gate fails if the count grows. Reaching 10 is refactoring work and is condition (a) of the removal condition, not a configuration change.\n\n**What is not deferred.** The complexity ratchet, the per-package coverage floors, the real-PostgreSQL integration suites and `pnpm duplication`'s policy all run and hold. So the finding is not 'quality is unmeasured' — it is that a named set of five measurements has four missing, and this row is where that fact lives rather than in a plan section no gate reads."
+    },
+    {
+      "id": "CAP-1",
+      "provenance": "hand",
+      "wave": "W11.6",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:audit-to-it",
+      "title": "Every register row cites evidence paths; none cites a command, and nothing flips a row to `unverified` when its test is deleted",
+      "band": "Major",
+      "status": "debt",
+      "owner": "The register's own maintainers, and the schema change is the work. Nothing else in the repository is blocked on it, and nothing in it is blocked on anything else — which is why it is a self-contained row rather than a wave.",
+      "removalCondition": "Either (a) `docs/migration/capability-register.md` gains an `evidence command` column, every row carries a command that resolves in the root `package.json` (which `scripts/lib/docs-drift.mjs`'s `commands` detector then checks automatically), and a new `pnpm capability:evidence` script maps each row onto the test that would fail if the capability stopped working — so deleting that test flips the row to `unverified`; or (b) a written statement in the resolution that path citations are the accepted standard for this register, with the reasoning. (b) is a legitimate answer and is recorded here so that choosing it is a decision rather than a drift, but (a) is what §17's seventh point asks for and this row does not claim otherwise.",
+      "resolution": "§17's seventh point is one sentence with two halves: *every capability claim has a passing evidence command in the generated register, and deleting a test flips its row to `unverified`.* Neither half is true, and `pnpm status:10` reports both as `fail` on point 7.\n\n**What the register actually cites.** A path per row — `apps/api/src/routes/...`, `packages/db/src/...` — which is real evidence and is not nothing. What a path cannot do is *fail*. A path exists whether the capability works or not, so a row citing one is a claim that some code is there, not a claim that it runs. The register's own evidence rules try to close this from the other side — *'a `real` row must cite both implementation and executable test evidence when the capability is user-visible or security-sensitive'* — and that rule is right, and it is prose, so nothing checks it.\n\n**The count, so the size of the change is visible.** 42 rows. Every one of them cites paths. Zero cite a command. `pnpm capability:evidence` does not exist.\n\n**Why this is a schema change and not a script.** The `commands` detector in `scripts/lib/docs-drift.mjs` already refuses a `pnpm …` citation that is not a root script, so once the column exists the second half of §17 point 7 is enforced by a gate that is already written and already in `pnpm docs:check`. The remaining work is the register's shape and the mapping from row to test — which is a judgement per row, and 42 judgements are a day of reading rather than an afternoon of typing.\n\n**The interesting half, which is the part worth doing first.** The *unverified flip* is a different mechanism from the command column and it is the one with teeth: a script that, for each row, runs the command the row names and reports `unverified` when it fails. That turns the register from a document into a status *derived from the gates*, which is what every other generated page here already is — capabilities, findings, coverage, and the twelve points. It is also the shape of thing the roadmap calls for repeatedly, and the shape this repository's own risk table describes for the site: *'the site consumes only the generated register, never hand-typed numbers.'*\n\n**What is not deferred.** The register itself is the authority and is published. A reader can see that `runner.oci` is `mock` and that `quality.mobile` is `deferred`, with a reason per row. So the *status* is honest today; what is missing is that the status is not connected to the thing that would change it. That is a smaller gap than 'the register lies', and saying so is the point of this row.",
+      "summary": "§17's seventh point has two halves: every capability claim has a **passing evidence command** in the generated register, and **deleting a test flips its row to `unverified`**. The register cites a path per row — 42 rows, 42 paths, zero commands — and no `pnpm capability:evidence` exists. A path is real evidence and is not nothing, but a path exists whether the capability works or not, so a row citing one claims that some code is there, not that it runs. The register's own evidence rule asks for 'executable test evidence' on user-visible and security-sensitive rows, and that rule is prose, so nothing checks it.\n\n**Confirmed by reading the tree, 2026-09-30**, through `pnpm status:10` point 7, which reports the missing command column and the missing script as two separate clauses.\n\n**The second half has already been made cheap and is the part worth doing first.** `scripts/lib/docs-drift.mjs` has a `commands` detector that already refuses a `pnpm …` citation that is not a root script, and it is already in `pnpm docs:check` — so once the register has the column, that half of §17 point 7 is enforced by a gate that exists. The remaining work is the register's shape plus a row-to-test mapping, which is a judgement per row: 42 readings rather than 42 keystrokes.\n\n**The `unverified` flip is a different mechanism and the one with teeth.** A script that runs the command each row names and reports `unverified` when it fails turns the register from a document into a status derived from the gates — which is what the capabilities, findings, coverage and twelve-point pages already are, and what the roadmap's own risk table demands of the site: *'the site consumes only the generated register, never hand-typed numbers.'*\n\n**What is not deferred, so the row is read for its size.** The register is the authority and is published as-is: a reader can see that `runner.oci` is `mock` and `quality.mobile` is `deferred`, with a reason per row. The *status* is honest today; what is missing is that the status is not connected to the thing that would change it. That is a smaller gap than 'the register lies', and the removal condition records both the build-it answer and the write-it-down answer, so choosing the second is a decision rather than a drift."
+    },
+    {
+      "id": "DB-1",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "`pnpm db:migrate` failed on every invocation, with a message naming the variable the process had",
+      "resolvedOn": "2026-09-30",
+      "resolution": "`runMigrations(connectionString?)` documented its parameter as *\"defaults to `DATABASE_URL`\"* and did not implement the default. The CLI entrypoint at the bottom of `migrate.ts` calls `runMigrations()` with **no argument**, so the guard received `undefined` and threw `'DATABASE_URL is required for migrations. It was absent, so the runner would have fallen back to the PG* environment defaults…'` — on a run where `DATABASE_URL` was set.\n\nSo `pnpm db:migrate` failed **every time it was invoked**, and the error named the very variable the process had set. The message's second sentence made it worse: it said the *absence* of `DATABASE_URL` would have caused an unvalidated fallback, and here it was present and the failure was a wiring bug. Every caller reads that as an environment problem and checks their `.env`.\n\n**Why no test caught it.** Every test called `runMigrations(VALID_URL, …)` with an explicit URL, and the entrypoint guard `isDirectInvocation` is never true when a test imports the module — so the one line that was wrong was the one line no test executed. `migrate.test.ts` now has a test that calls `runMigrations(undefined, …)` with `DATABASE_URL` set in the environment and asserts the guard *accepts* it, which is the reverse of what the suite asserted before.\n\n**What it blocked.** Everything downstream of a schema. The E2E lane, a clean `docker compose up`, and any new installation — which is why the durable-path work started by finding that `db:migrate` had never worked.",
+      "evidence": [
+        {
+          "path": "packages/db/src/migrate.ts",
+          "asserts": "The parameter carries a `= process.env['DATABASE_URL']` default, so the documented default is the implemented one. The entrypoint's `runMigrations()` and the default are stated in the same comment, because the coupling between them is the whole defect."
+        },
+        {
+          "path": "packages/db/src/migrate.test.ts",
+          "asserts": "`defaults the target to DATABASE_URL, because the CLI entrypoint passes no argument` calls `runMigrations(undefined, …)` with the variable set and asserts the advisory lock was taken — the guard accepted the environment rather than rejecting an absent argument. The neighbouring test now clears the environment explicitly, because with the default in place an ambient `DATABASE_URL` would satisfy the guard and the test would start passing for the wrong reason."
+        }
+      ],
+      "summary": "`pnpm db:migrate` failed on every invocation. `runMigrations` documented its parameter as defaulting to `DATABASE_URL` and did not implement the default, and the CLI entrypoint passes no argument — so the guard rejected a run where the variable *was* set, with a message naming the variable the process had. Every test passed an explicit URL and the entrypoint guard is never true under test, so the one wrong line was the one line nothing executed."
+    },
+    {
+      "id": "DB-2",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "A clean database could not be bootstrapped: the migration journal was read before it was created",
+      "resolvedOn": "2026-09-30",
+      "resolution": "`runMigrations` reads the journal *before* calling drizzle's `migrate()` — correctly, because `describeJournalInconsistency` is the reason for reading it, and applying on a database with migrations this checkout does not have silently reorders history. But the read is a `SELECT` against `drizzle.__drizzle_migrations`, and on a clean database that relation does not exist. PostgreSQL answers `42P01`, and the run died with *\"relation the journal table does not exist\"*.\n\nSo `pnpm db:migrate` could not create a schema at all. The compose file migrates before the API starts, so a clean `docker compose up` hit the same wall, and the E2E job — which starts a clean `postgres:16-alpine` and never applied the schema at all — had nothing to apply it to.\n\n**The fix is drizzle's own DDL, character for character.** A second definition of a journal is a second thing to drift, and a mismatch would not fail loudly: it would create a table drizzle then finds already present, with whichever column types this copy declared. The `CREATE SCHEMA IF NOT EXISTS` and `CREATE TABLE IF NOT EXISTS` run inside the advisory lock, so two concurrent applies cannot both try.\n\n**Order is the property, and the test asserts order.** Creating the table *after* the read would satisfy a weaker test and still not bootstrap anything, so `migrate.test.ts` asserts the index of the create is less than the index of the first read.",
+      "evidence": [
+        {
+          "path": "packages/db/src/migrate.ts",
+          "asserts": "`ensureJournalExists` runs after `pg_advisory_lock` and before `readJournal`, and issues the same DDL drizzle's migrator issues."
+        },
+        {
+          "path": "packages/db/src/migrate.test.ts",
+          "asserts": "`creates the journal before reading it, so a fresh database can be bootstrapped` records every statement the run issues and asserts `createSchema < firstRead` and that the table — not only the schema — is created."
+        }
+      ],
+      "summary": "A clean database could not be bootstrapped. The runner reads the migration journal before calling drizzle's `migrate()` — correctly, because the consistency check is why — but the read is a `SELECT` against a relation that does not exist yet, so PostgreSQL answered `42P01` and the run could not create a schema at all. A clean `docker compose up` hit the same wall."
+    },
+    {
+      "id": "E2E-1",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "Every authenticated E2E call answered 401, because two files held the installation key and they disagreed",
+      "resolvedOn": "2026-09-30",
+      "resolution": "`playwright.config.ts` booted the API with `AUTOMATE_API_KEY: 'e2e-installation-key-32-characters-long'`. `e2e/support/config.ts` exported `INSTALLATION_KEY = ['e2e','installation','key'].join('-')` — 21 characters — and `vertical-slice.spec.ts` hardcoded the same 21-character value twice. So every authenticated request in the suite presented a key the server did not hold, and **17 of 19 E2E tests failed**.\n\nThe two files each documented the other as the single source of the value: `config.ts` said *\"These are not configurable. They are the values `playwright.config.ts` puts in the API's `webServer.env`\"*, and each document was describing an intention nobody had checked. `vertical-slice.spec.ts` was a third copy, which is how two became three.\n\n**The fix is one literal, imported by both.** `playwright.config.ts` now imports `INSTALLATION_KEY` and `WEB_BASE` from `e2e/support/config.ts`, and the spec imports them rather than restating them. The 32-character form is the one that survives `SECRET_MIN_LENGTH`, which `packages/config` refuses in production — so the old fixture was also a fixture that would behave differently on a real install.\n\n**A second gate caught the change and had to learn to follow a reference.** `config.test.ts` audits every secret-shaped literal in `playwright.config.ts` against the production policy, and reported `AUTOMATE_API_KEY=INSTALLATION_KEY (17 characters)` — a finding about an identifier's length. `auditSource` now resolves a bare reference to the value it names, reads the trailing comma off an object-literal entry, and reports an **unresolvable reference** as a finding rather than passing it, because a hole in this audit that reports clean is worse than the finding it replaced.",
+      "evidence": [
+        {
+          "path": "e2e/support/config.ts",
+          "asserts": "One assembled `INSTALLATION_KEY`, and a comment naming the two files that disagreed and the 17-of-19 consequence."
+        },
+        {
+          "path": "playwright.config.ts",
+          "asserts": "`import { INSTALLATION_KEY, WEB_BASE } from './e2e/support/config.js'` and `AUTOMATE_API_KEY: INSTALLATION_KEY` — the value is imported, not restated."
+        },
+        {
+          "path": "e2e/integration/vertical-slice.spec.ts",
+          "asserts": "Imports `API_AUTH_HEADERS`, `API_BASE`, `INSTALLALLATION_KEY` and `WEB_BASE` from the shared module; the login flow fills `INSTALLATION_KEY`."
+        },
+        {
+          "path": "apps/api/src/config.test.ts",
+          "asserts": "`exportedConst` resolves a reference out of `e2e/support/config.ts` and `auditSource` reports `a reference this audit cannot resolve` rather than measuring the identifier."
+        }
+      ],
+      "summary": "Every authenticated E2E call answered 401, so 17 of 19 tests failed. `playwright.config.ts` and `e2e/support/config.ts` each held the installation key, each documented the other as its single source, and they disagreed — the server held the 32-character form and the suite sent a 21-character one. A third copy in `vertical-slice.spec.ts` is how two became three."
+    },
+    {
+      "id": "E2E-2",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "The required E2E job never applied the migration graph, and a clean database could not have been migrated",
+      "resolvedOn": "2026-09-30",
+      "resolution": "The `e2e` job in `.github/workflows/unified-ci.yml` starts a clean `postgres:16-alpine`, sets `DATABASE_URL`, and runs `pnpm test:e2e`. It **never ran `pnpm db:migrate`**, and the Playwright config had no `globalSetup`. So the API started against an empty database and every route that touches a table failed.\n\nIt was unreported because the suite was broken one step earlier (E2E-1): every call 401'd, and a suite that cannot get past authentication tells you nothing about the schema underneath it. Two defects, one on top of the other, and the top one was masking the bottom one.\n\n**Why `globalSetup` and not a workflow step.** The migration is part of standing the product up, not part of asserting something about it. In the config it means a developer's `pnpm test:e2e` against an empty database works, and the job cannot be reshaped into a clean database with no preparation — which is exactly the shape that was there. The setup throws on a non-zero exit rather than continuing, because a swallowed failure becomes a suite that reports a missing table ten seconds later, and the cause is then separated from the symptom by more than it needs to be. It also builds `@automate/db` first: `pnpm install` does not build, so `dist/` is not in the checkout and the runner cannot be run without it.",
+      "evidence": [
+        {
+          "path": "e2e/support/global-setup.ts",
+          "asserts": "Builds `@automate/db` and runs `pnpm db:migrate`, throwing on either failing; refuses without `DATABASE_URL` unless `E2E_ALLOW_IN_MEMORY` is set, and says in that case that the run proves nothing about the durable product."
+        },
+        {
+          "path": "playwright.config.ts",
+          "asserts": "`globalSetup: './e2e/support/global-setup.ts'`, with the two defects named in the comment so the next person does not rediscover them from a red job."
+        }
+      ],
+      "summary": "The required E2E job started a clean `postgres:16-alpine` and never applied the migration graph: no workflow step, and no `globalSetup`. The API started against an empty database. It was unreported because the suite was already failing at authentication one step earlier, and a suite that cannot authenticate tells you nothing about the schema underneath it."
+    },
+    {
+      "id": "RUN-1",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "The run listing served the oldest runs first, so a new run was on no page at all",
+      "resolvedOn": "2026-09-30",
+      "resolution": "Both stores ordered the listing `createdAt ASC` and applied the limit **in the same query**, so `GET /api/v1/runs` returned the *oldest* 25 runs in the install. Once an install held more than a page, the newest run was not on the first page — and because the cursor walks forward in time, it could not appear on a later page either. An operator opening the dashboard after an incident saw the oldest runs they had, and a run that had just finished was invisible.\n\n**The cursor had to move with the order.** Reversing the sort without reversing the cursor makes page 2 repeat the rows page 1 served, which looks like a correct page that repeats — the failure the existing `createdAt|id` tiebreak was written to avoid. So: `desc(createdAt), desc(id)` in both stores, `lt` instead of `gt` in the Drizzle cursor filter, and the in-memory window's fallback looks for the first row *older* than the cursor. `pageRuns` still takes an already-ordered array and does not sort, which is what keeps the two stores the only two places the direction lives.\n\n**How it was found.** The E2E suite, which seeds a run and looks for it on page one. `vertical-slice.spec.ts` reported *\"should be persisted before opening the dashboard\"* — true of the page, false of the database. A direct query against the container is what proved the run was in PostgreSQL the whole time; two earlier explanations (the credentials, then a stale `dist`) were both wrong, and the container was the only thing that could settle it.\n\n**What was not wrong and is worth saying.** The paging window tests handed `pageRuns` an ascending array — a sequence the product never serves — and passed. They are now handed a newest-first array, so the assertions mean what they say.",
+      "evidence": [
+        {
+          "path": "apps/api/src/execution/run-paging.test.ts",
+          "asserts": "`serves the newest run first, so the page an operator opens shows the latest run` creates 30 runs under a clock that advances a millisecond per read, and asserts the newest id is first and the page is descending throughout. `still walks every row exactly once when the order is newest-first` pages with a cursor and asserts 7 rows, 7 distinct. The shared `ordered` fixture is newest-first, with a comment saying why."
+        },
+        {
+          "path": "apps/api/src/execution/drizzle-execution-store.ts",
+          "asserts": "`.orderBy(desc(runs.createdAt), desc(runs.id))` with the cursor filter on `lt(createdAt)` / `lt(id)`."
+        },
+        {
+          "path": "apps/api/src/execution/in-memory-execution-store.ts",
+          "asserts": "The sort is descending on time then id, and the comment names the defect and the reason the tiebreak is `right.id.localeCompare(left.id)`."
+        },
+        {
+          "path": "apps/api/src/execution/run-paging.ts",
+          "asserts": "`pageRuns` resolves the cursor by index and `+1` in a newest-first array is the next *older* run; the fallback seeks `createdAt < cursor.createdAt`."
+        }
+      ],
+      "summary": "The run listing served the oldest runs first, so a new run was on no page at all. Both stores ordered `createdAt ASC` and applied the limit in the same query, so once an install held more than a page the newest run was absent from page one — and the forward-walking cursor could not reach it on a later page either."
+    },
+    {
+      "id": "RUN-2",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Blocker",
+      "status": "fixed",
+      "title": "A run written by the reporter had no workspace, so it was persisted and invisible to the dashboard",
+      "resolvedOn": "2026-09-30",
+      "resolution": "`RunRecord` had **no workspace field at all**, so `upsertRun` wrote NULL for every run a reporter created. `GET /api/v1/runs` filters on the caller's workspace — `'default-workspace'` for a single-tenant install — so a run reported by a real producer was inserted, visible to `psql`, and **absent from the product**. Nothing failed: the insert succeeded, the CHECK passed, and the read reported that there was nothing there.\n\nThe container is what proved it. A query showed two populations: 38 rows with a NULL workspace and 15 with `'default-workspace'` — the newest runs all NULL, which is the reporter path. The E2E suite had been saying *\"should be persisted\"* for eleven tests while the rows were sitting in the database.\n\n**`workspaceId` is required, not optional.** An optional field would let the next omission write NULL again and the defect would return with no signal; required, the compiler named the three sites that had to decide, and all three were real. `DEFAULT_WORKSPACE_ID` is one export, because the value appeared in four places and the places that mattered disagreed — a constant that exists once cannot drift from itself.\n\n**The tenancy gate then did its job.** `workspace-isolation.test.ts` requires a `WORKSPACE_SCOPED_FAMILIES` entry for any module that reads a workspace id, with the route that proves it does not read across. It failed on the new write and the entry names the reporter paths, the two repositories, and the test that pins the stamped value.",
+      "evidence": [
+        {
+          "path": "apps/api/src/repositories/run-repository.ts",
+          "asserts": "`workspaceId: string` is required, with the defect and the two-population query in the comment."
+        },
+        {
+          "path": "apps/api/src/repositories/drizzle-run-repository.ts",
+          "asserts": "`workspaceId` is written on insert **and** on conflict, so a row first written by a path that omitted it is moved rather than keeping the NULL; `_mapRun` surfaces a NULL as `''` rather than dropping the row."
+        },
+        {
+          "path": "apps/api/src/routes/reporter-persistence.test.ts",
+          "asserts": "`writes the run into the workspace the listing reads, so a reported run is visible` posts a real `run:start` and asserts the row's `workspaceId` is the constant the listing filters on — a test that only checked the row existed passed while the product could not see it. `defaults the workspace rather than writing null when the route is given none` covers the omitted-argument case."
+        },
+        {
+          "path": "apps/api/src/routes/workspace-isolation.test.ts",
+          "asserts": "A `reporter persistence` family claims the two reporter write paths, both repositories and the record type, and the gate fails if any of them names a workspace without being claimed."
+        }
+      ],
+      "summary": "A run written by the reporter had no workspace, so it was persisted and invisible. `RunRecord` had no workspace field, so `upsertRun` wrote NULL, while `GET /api/v1/runs` filters on the caller’s workspace. The insert succeeded, the CHECK passed, and the dashboard listed nothing — 11 E2E tests reported \"not persisted\" for rows that were sitting in PostgreSQL the whole time."
+    },
+    {
+      "id": "RUN-3",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Major",
+      "status": "fixed",
+      "title": "The reporter wrote `status` and never `phase`, so a finished run read as `queued` for ever",
+      "resolvedOn": "2026-09-30",
+      "resolution": "A run carries two columns describing the same thing: `status` (`running`/`passed`/`failed`/`interrupted`) and `phase` (a sixteen-value lifecycle). The reporter wrote `status` and left `phase` at its column default of `queued`. Both fields were individually valid and the pair was wrong — which is why nothing failed. The dashboard renders `phase`, so a run a producer had reported as `passed` displayed as queued until the end of time, and ten E2E tests asserting a terminal phase could not get one.\n\n**The pair is derived, not assembled.** `phase-outcome.ts` already owns the vocabulary and exists precisely because two writers writing `phase` and `outcome` independently produced pairs the database's `runs_phase_outcome_check` rejects — a 500 for a merely malformed request. So `phaseForReportedStatus` supplies a **phase** and lets `deriveRunState` produce the outcome, and `toPersistedStatus` narrows the result to what the column accepts.\n\n`interrupted` maps to `partial`, not `cancelled`. An interrupted producer reported some evidence and then stopped; it was cancelled by nobody, and `cancelled` is a claim about an actor that does not exist here. `partial` says exactly what is true — evidence without a terminal verdict — and `deriveRunState` then yields the honest `unknown` rather than a failure nobody observed.\n\n`RunRecord.phase` and `RunRecord.outcome` are required, and `RunPatch` carries both, because the CHECK requires the pair to agree and a patch that moved one without the other would be a 500 for a well-formed request.",
+      "evidence": [
+        {
+          "path": "apps/api/src/repositories/run-repository.ts",
+          "asserts": "`phaseForReportedStatus` maps each reported status to a phase, delegates the outcome to `deriveRunState`, and narrows the status with `toPersistedStatus`; the `partial`-not-`cancelled` reasoning is in the comment."
+        },
+        {
+          "path": "apps/api/src/services/reporter-persistence.ts",
+          "asserts": "`run:start` upserts the derived phase and outcome; `run:end` patches `status`, `phase` and `outcome` together, with the comment naming the defect."
+        },
+        {
+          "path": "apps/api/src/services/reporter-persistence.test.ts",
+          "asserts": "The whole-object expectation on a started run now includes `phase: 'running'` and `outcome: null`, with a comment saying the field was absent from the write and stayed at the column default."
+        },
+        {
+          "path": "apps/api/src/repositories/drizzle-run-repository.ts",
+          "asserts": "`phase` and `outcome` are written on insert, on conflict and on patch, and the patch comment states that the CHECK requires them to move together."
+        }
+      ],
+      "summary": "The reporter wrote `status` and never `phase`, so a finished run read as `queued` for ever. Both columns describe the same run and both were individually valid, which is why nothing failed; the dashboard renders `phase`, so a run reported as `passed` displayed as queued and 10 E2E tests could not get a terminal phase."
+    },
+    {
+      "id": "E2E-3",
+      "provenance": "hand",
+      "wave": "W11.7",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:durable-path",
+      "band": "Major",
+      "status": "open",
+      "title": "Seven dashboard-rendering E2E tests still fail against a real PostgreSQL, and the lane is therefore `pr-reporting` rather than `pr-blocking`",
+      "summary": "After the six durable-path defects behind the 17-of-19 failure were fixed, the suite went to 12 of 19. The seven that remain are dashboard-rendering assertions, not API ones, and they were not diagnosable until authentication worked.",
+      "resolution": "**What the seven are, and what is known about each.** Measured on 2026-09-30 against a clean `postgres:16`, with `pnpm db:migrate` applied and the run listing newest-first:\n\n1. `vertical-slice.spec.ts` — *invalid event rejected, no run created (API negative)*. Asserts a malformed event creates no run. The one API-level failure that remains, so it is the most tractable of the seven.\n2. `cancel-in-flight-run.spec.ts` — *a leased job is cancelled and the run stops rendering as running*.\n3. `cancel-in-flight-run.spec.ts` — *cancelling from the page persists through the API*.\n4. `failed-run-evidence.spec.ts` — *a failed run renders as failed and its artifact downloads byte for byte*.\n5. `failed-run-evidence.spec.ts` — *a failed run is reflected in the runs table outcome, not only on its own page*.\n6. `release-readiness.spec.ts` — *a run that completes green is still not enough to call a release ready*.\n7. `unauthenticated-access.spec.ts` — *a session revoked mid-visit sends the browser to the login route, once*.\n\n**What is established and what is not.** Established: the API path works. A run is created, persisted with a workspace and a coherent phase, listed newest-first, streamed over SSE, and reaches a terminal phase — `vertical-slice.spec.ts` and `reporter-run-lifecycle.spec.ts` pass end to end. Not established: what the dashboard renders. Every one of the seven failures is a `toBeVisible` or `toHaveText` on a `data-testid` in `apps/web`, and none of them has been diagnosed beyond that.\n\n**Why it is a finding and not a deferral.** §17's eleventh point and the `test:e2e` tier made this a required check, and it was `pr-blocking` while being unrunnable. A required check that cannot pass blocks every pull request and teaches reviewers to read red as noise, so the tier moved to `pr-reporting` with the seven named — not to make the job green, but because a red job with a recorded reason and a condition is the state the repository can honestly hold, and a green job over a failing suite is not.\n\n**The removal condition, which is the same seven.** When these seven pass against a real PostgreSQL in `pr-reporting` and have held for a week, the tier moves to `pr-blocking` in the same commit that makes the last of them pass, `gate-tooling.test.mjs` enforces the new tier against the workflow, and this row closes. The `e2e` job keeps running the whole time, so a regression in the twelve passing tests is still caught — as a `pr-reporting` failure rather than a required one, which is the trade being made and it is written down rather than assumed.\n\n**What the diagnosis will need that this session did not do.** Each failure needs the page state at the moment of assertion, which Playwright already writes to `test-results/**/error-context.md`, and a judgement about whether the console is rendering nothing, rendering an error panel, or rendering a state the test did not expect. Items 2–6 may well share one cause — a dashboard that does not surface a run's phase or outcome — and items 4–5 additionally involve the artifact store, which on this host is `LocalArtifactBytesStore` and process-local by design, so an artifact byte-for-byte assertion needs `ARTIFACT_ROOT` set to a durable path before it can be meaningful."
     }
   ]
 }

@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { withErrorBoundary } from '../../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { InMemoryRunRepository } from '../../repositories/in-memory-run-repository.js';
-import type { RunRecord, TestRecord } from '../../repositories/run-repository.js';
+import { DEFAULT_WORKSPACE_ID, RunRecord, TestRecord } from '../../repositories/run-repository.js';
 import { createDashboardTestsRoutes } from './tests.js';
 
 // ---------------------------------------------------------------------------
@@ -31,6 +31,11 @@ import { createDashboardTestsRoutes } from './tests.js';
 function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
     id: 'run-a',
+    // Required on `RunRecord` since the E2E run found the reporter writing neither a
+    // workspace nor a phase: the row was persisted and the dashboard listed nothing.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'running',
+    outcome: null,
     startedAt: '2026-09-20T10:00:00.000Z',
     finishedAt: '2026-09-20T10:05:00.000Z',
     status: 'passed',

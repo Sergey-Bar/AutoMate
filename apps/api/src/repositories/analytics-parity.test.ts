@@ -7,7 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
 import { DrizzleRunRepository } from './drizzle-run-repository.js';
 import { InMemoryRunRepository } from './in-memory-run-repository.js';
-import { aggregateRuns, type PersistedRunStatus, type RunRecord } from './run-repository.js';
+import {
+  DEFAULT_WORKSPACE_ID,
+  aggregateRuns,
+  type PersistedRunStatus,
+  type RunRecord,
+} from './run-repository.js';
 
 /**
  * The dashboard's three numbers, and the query that produces them.
@@ -68,6 +73,11 @@ function makeRun(
 ): RunRecord {
   return {
     id,
+    // Required on `RunRecord` since the E2E run found the reporter writing neither a
+    // workspace nor a phase: the row was persisted and the dashboard listed nothing.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'running',
+    outcome: null,
     startedAt,
     finishedAt: durationMs === null ? null : startedAt,
     status,

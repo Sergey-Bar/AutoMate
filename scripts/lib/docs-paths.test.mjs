@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { twelvePage } from './site-ten-page.mjs';
 
 /** The repository root, for the committed data file this suite also reads. */
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -22,6 +23,17 @@ const SITE_PAGES = path.join(REPO_ROOT, 'site', 'pages');
 const REGISTER = path.join(REPO_ROOT, 'docs', 'migration', 'capability-register.md');
 const LEDGER = path.join(REPO_ROOT, 'docs', 'quality', 'findings-ledger.json');
 const BASELINE = path.join(REPO_ROOT, 'coverage-baseline.json');
+
+/**
+ * The generated pages the copy-based check reproduces.
+ *
+ * Three, not four. Each reads exactly one data file — the register, the ledger, the
+ * coverage baseline — so a scratch copy of the script, the shared library and those
+ * three files is a faithful reproduction. The fourth, `quality/ten.md`, reads the
+ * whole tree, so a copy of five files would generate a page describing a repository
+ * of five files; it is checked by recomputation instead, in the next test.
+ */
+const COPIED_PAGES = ['capabilities.md', 'quality/findings.md', 'quality/coverage.md'];
 
 /**
  * Documentation a person reads to decide whether to trust this product.
@@ -305,6 +317,12 @@ test('the generated status pages are current, or a reader is reading a stale cla
     // and because that one resolves Prettier through the module system, the copy
     // still finds the installed package by walking up from itself.
     copyFileSync(FORMATTER, path.join(temporary, 'scripts', 'format-generated.mjs'));
+    // And the shared library, because the generator imports its table helper and the
+    // twelve-point page builder at module scope. Importing *loads* them and reads
+    // nothing; `--only` below keeps the one builder that reads the whole tree from
+    // running, so a copy of five data files is a faithful reproduction of the three
+    // pages this check compares.
+    copyTree(path.join(REPO_ROOT, 'scripts', 'lib'), path.join(temporary, 'scripts', 'lib'));
     copyTree(SITE_PAGES, path.join(temporary, 'site', 'pages'));
     // The generator reads the register, the ledger and the baseline, so a copy of
     // those has to sit beside it or the copy is not a faithful reproduction.
@@ -316,8 +334,7 @@ test('the generated status pages are current, or a reader is reading a stale cla
 
     const output = runGeneratorIn(temporary);
 
-    const stale = ['capabilities.md', 'findings.md', 'coverage.md'].filter((name) => {
-      const relative = name === 'capabilities.md' ? name : 'quality/' + name;
+    const stale = COPIED_PAGES.filter((relative) => {
       const produced = path.join(temporary, 'site', 'pages', relative);
       // A page the generator did not produce at all is stale in the strongest way.
       if (!existsSync(produced)) return true;
@@ -338,6 +355,43 @@ test('the generated status pages are current, or a reader is reading a stale cla
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
+});
+
+test('the twelve-point page is current, and is checked by recomputation rather than by a copy', () => {
+  // `quality/ten.md` is generated from the *whole tree* — the workflows, the gate
+  // manifest, the package scripts, the migration graph, the route files, the ledger
+  // and the register — so the copy approach above cannot reproduce it, and a check
+  // that pretended otherwise would compare five files' worth of state against a page
+  // that describes three thousand. The first version did exactly that and failed with
+  // ERR_MODULE_NOT_FOUND on `scripts/lib/status-ten.mjs`, which is a check that
+  // crashes rather than one that passes for the wrong reason.
+  //
+  // So the builder is imported and both sides are computed in this process. The
+  // property is the same: the committed bytes are read from disk, the expectation is
+  // derived from the current tree, and a tree that moved without a regeneration
+  // produces a difference. Nothing is written, so the read-only property that
+  // `docs.yml` broke the first time round still holds.
+  const page = path.join(SITE_PAGES, 'quality', 'ten.md');
+  assert.ok(existsSync(page), 'site/pages/quality/ten.md has not been generated yet');
+
+  const committed = readFileSync(page, 'utf8');
+  const start = committed.indexOf('<!-- generated: do not edit this block by hand -->');
+  const end = committed.indexOf('<!-- /generated -->');
+  assert.notEqual(start, -1, 'the ten page has no opening marker');
+  assert.notEqual(end, -1, 'the ten page has no closing marker');
+
+  const expected = `${[
+    '<!-- generated: do not edit this block by hand -->',
+    ...twelvePage(REPO_ROOT),
+    '',
+    '<!-- /generated -->',
+  ].join('\n')}\n`;
+  assert.equal(
+    committed.slice(start),
+    expected,
+    'site/pages/quality/ten.md is stale; run pnpm site:generate and commit the result. A reader is ' +
+      'looking at a measurement of an older tree.',
+  );
 });
 
 /**
@@ -369,7 +423,10 @@ function copyTree(from, to) {
 function runGeneratorIn(workingDirectory) {
   const result = spawnSync(
     process.execPath,
-    [path.join(workingDirectory, 'scripts', 'build-site-pages.mjs')],
+    [
+      path.join(workingDirectory, 'scripts', 'build-site-pages.mjs'),
+      `--only=${COPIED_PAGES.map((relative) => relative.replace(/\.md$/, '')).join(',')}`,
+    ],
     {
       cwd: workingDirectory,
       encoding: 'utf8',

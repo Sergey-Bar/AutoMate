@@ -1,7 +1,13 @@
 # Database Migration Policy and Baseline
 
-> **ADR-003** | Status: Accepted | Date: 2026-05-05
-> Related: [ADR-002 Unified Platform](./unified-platform.md)
+> **Retitled 2026-09-30.** This document was written as "ADR-003", and so was
+> `003-universal-qa-vertical-slice.md` — two records claiming one number, which is
+> the shape of a decision nobody made. The content here is still the policy; the
+> number is not claimed any more. Decisions with numbers live in
+> [`docs/adr/`](../adr/README.md): this one is
+> [ADR-003](../adr/003-postgres-only-durable-queue.md) (one database, PostgreSQL,
+> for state and the durable queue), and the related unification strategy was
+> ADR-002, now superseded.
 
 ---
 
@@ -13,46 +19,59 @@ This ADR defines the migration tooling policy for the Automate monorepo: all cur
 
 ## 1. Migration Policy
 
-### 1.1 `db:push` is **FORBIDDEN** for production
+### 1.1 There is no schema-push script, and that is the rule
 
-`drizzle-kit push` (i.e., `pnpm db:push`) **MUST NOT** be used in any production, staging, or CI environment.
+`drizzle-kit push` is **not** wired up as a script in this repository, and it must
+not become one. The previous version of this section described a `db:push` script
+that "MAY remain in `package.json` for developer convenience" — it was not there,
+and the sentence was asking a reader to trust a state of the tree that did not
+exist.
 
-`db:push` compares the Drizzle schema to the live database and applies schema changes without generating versioned SQL files. This means:
+A schema push compares the Drizzle schema to a live database and applies the
+difference with no versioned SQL and no history. That is fine for a scratch
+database and wrong for every other case, because:
 
-- No migration history is recorded in git.
-- Rollback is impossible.
-- Data loss can occur silently (e.g., when columns are dropped or types change).
-- Deployed databases diverge from any reproducible baseline.
+- no migration is recorded in git, so a deployed database cannot be reconstructed
+  from the repository;
+- there is nothing to roll back to;
+- a column drop or a type change lands silently on whatever the table held;
+- the database diverges from every other installation, and the divergence is
+  invisible until it matters.
 
-`db:push` is **development-only**: allowed only in a local developer environment where the database is ephemeral or throwaway.
+So the rule is stated as an absence rather than a prohibition: **there is no
+push script.** A schema change goes through §1.2, and a contributor who finds
+themselves wanting a push is describing a case the migration graph should cover.
 
 ### 1.2 Permitted production migration workflow
 
-The **only** permitted flow for schema changes in production is:
+The **only** flow for schema changes:
 
 ```
-1. Edit Drizzle schema file (schema.ts)
-2. pnpm db:generate     → creates a versioned .sql migration file in drizzle/
-3. Commit the .sql file to git
-4. pnpm db:migrate      → applies un-applied migrations tracked in __drizzle_migrations
+1. Edit the Drizzle schema in packages/db/src/schema/
+2. pnpm db:generate     → creates a versioned .sql migration in packages/db/drizzle/
+3. Commit the .sql file in the same change as the schema edit
+4. pnpm db:migrate      → applies un-applied migrations in journal order
 ```
 
-Both legacy products already implement this contract:
+`pnpm migrate:plan` reports what is pending without touching a database, and
+`pnpm migrate:validate` checks the graph against the journal. `pnpm db:check` asserts
+the journal and the schema have not parted company.
 
-| Product            | Migration runner                      | Migrations folder      | Migration count |
-| ------------------ | ------------------------------------- | ---------------------- | --------------- |
-| `@automate/api`    | `drizzle-orm/better-sqlite3/migrator` | `apps/server/drizzle/` | 8 (0000–0007)   |
-| `@automate/server` | `drizzle-orm/better-sqlite3/migrator` | `apps/server/drizzle/` | 1 (0000)        |
+### 1.3 Migration on startup
 
-### 1.3 Migration-on-startup
-
-Both legacy servers support `AUTO_MIGRATE=true` to run `pnpm db:migrate` automatically at startup. This is the recommended pattern for Docker deployments.
+The compose file runs migrations before the API starts, and takes an advisory lock
+first: two instances applying the same journal concurrently is the failure the lock
+prevents. See [ADR-003](../adr/003-postgres-only-durable-queue.md).
 
 ### 1.4 Enforcement
 
-- The `db:push` script MAY remain in `package.json` for developer convenience, but CI must never call it.
-- All future packages under the unified platform (`@automate/db` and beyond) must follow the same `db:generate` → `db:migrate` pattern from day one.
-- Any new Drizzle schema change requires a matching SQL migration file committed in the same PR.
+- **No push script exists**, and `gate-tooling.test.mjs` audits CI wiring, so adding
+  one is a visible diff rather than a convenience.
+- Every new Drizzle schema change requires its SQL migration committed in the same
+  change. A schema edit with no migration fails `pnpm db:check`.
+- A destructive statement is either guarded by a `RAISE EXCEPTION` row count or
+  written down in `docs/quality/schema-migration-backlog.md` with its expand step.
+  `pnpm status:10` reports §17's ninth point from exactly that check.
 
 ---
 
@@ -205,11 +224,11 @@ The import will be implemented as a one-off Node.js script in `packages/db/scrip
 5. Report any skipped rows (due to constraint violations or type coercion)
 ```
 
-**Never use `db:push` for the import** — schema is applied via `db:migrate`, data is inserted via the script.
+**Never use `drizzle-kit push` for the import** — schema is applied via `pnpm db:migrate`, data is inserted via the script.
 
 ### 4.3 Zero-SQLite-destruction guarantee
 
-- The `DATA_DIR` environment variable in both legacy products continues to point to the original SQLite files.
+- The legacy products' own data directories continue to point at the original SQLite files. This repository does not read them: the predecessor services' configuration is not part of this tree, and naming a variable here that no longer exists would be a claim nobody could check.
 - Legacy services remain bootable against SQLite even after the Postgres import completes.
 - SQLite is only decommissioned after the unified platform is in production and parity is verified (Task 12+).
 
@@ -217,19 +236,28 @@ The import will be implemented as a one-off Node.js script in `packages/db/scrip
 
 ## 5. Tooling Reference
 
-| Command            | When to use                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------- |
-| `pnpm db:generate` | After editing `schema.ts` — generates a new versioned `.sql` file                               |
-| `pnpm db:migrate`  | Before/at startup in CI, staging, production — applies pending SQL files                        |
-| `pnpm db:push`     | **Development only** — direct schema sync without migration files (**FORBIDDEN in production**) |
-| `pnpm db:studio`   | Local database inspection via Drizzle Studio                                                    |
+| Command            | When to use                                                              |
+| ------------------ | ------------------------------------------------------------------------ |
+| `pnpm db:generate` | After editing `schema.ts` — generates a new versioned `.sql` file        |
+| `pnpm db:migrate`  | Before/at startup in CI, staging, production — applies pending SQL files |
+| `pnpm db:check`    | In CI — asserts the migration graph and the journal agree                |
+
+`drizzle-kit push` is **not** a script in this repository and must not become one. It
+compares the Drizzle schema to a live database and applies the difference with no
+history and no rollback, so a pull request that used it would leave a schema nobody
+could reconstruct. `drizzle-kit studio` is likewise not wired up; a local database
+can be inspected with any PostgreSQL client.
 
 ### 5.1 CI enforcement
 
 CI pipelines must:
 
-1. Run `pnpm db:migrate` (not `db:push`) before starting integration tests.
-2. Fail if there are un-committed migration files (i.e., schema was changed but `db:generate` was not run).
+1. Run `pnpm db:migrate` (not a schema push) before starting integration tests.
+2. Run `pnpm db:check`, which fails if the journal and the schema have parted company.
+3. Never run `pnpm migrate:apply`: CI has no persistent database, so applying a
+   migration there proves nothing about the migration and only produces a schema
+   nobody keeps. That is why the script is `never-in-ci` in
+   `scripts/gate-tooling.json`.
 
 ---
 

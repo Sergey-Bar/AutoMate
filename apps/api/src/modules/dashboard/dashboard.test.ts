@@ -47,7 +47,7 @@ import { createDashboardTestsRoutes } from './tests.js';
 import { createDashboardAnalyticsRoutes } from './analytics.js';
 import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
 import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
-import type { RunRecord, TestRecord } from '../../repositories/run-repository.js';
+import { DEFAULT_WORKSPACE_ID, RunRecord, TestRecord } from '../../repositories/run-repository.js';
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -68,6 +68,11 @@ function buildDashboardApp(repo: InMemoryRunRepository): Hono {
 function makeRun(overrides: Partial<RunRecord> = {}): RunRecord {
   return {
     id: 'run-001',
+    // Required on `RunRecord` since the E2E run found the reporter writing neither a
+    // workspace nor a phase: the row was persisted and the dashboard listed nothing.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'running',
+    outcome: null,
     startedAt: new Date().toISOString(),
     finishedAt: null,
     status: 'running',

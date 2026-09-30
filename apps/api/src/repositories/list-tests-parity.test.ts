@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
 import { DrizzleRunRepository } from './drizzle-run-repository.js';
 import { InMemoryRunRepository } from './in-memory-run-repository.js';
-import type { PersistedRunStatus, RunRecord } from './run-repository.js';
+import { DEFAULT_WORKSPACE_ID, PersistedRunStatus, RunRecord } from './run-repository.js';
 
 /**
  * Two implementations of one method, and they must agree.
@@ -57,6 +57,11 @@ const RUN_C = '00000000-0000-4000-8000-0000000000c1';
 function makeRun(id: string): RunRecord {
   return {
     id,
+    // Required on `RunRecord` since the E2E run found the reporter writing neither a
+    // workspace nor a phase: the row was persisted and the dashboard listed nothing.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'running',
+    outcome: null,
     startedAt: '2026-01-01T00:00:00.000Z',
     finishedAt: '2026-01-01T00:01:00.000Z',
     status: 'passed' as PersistedRunStatus,

@@ -11,6 +11,8 @@
 // ---------------------------------------------------------------------------
 
 import { PERSISTED_RUN_STATUS_VALUES, RUN_STATUS_VALUES } from '@automate/shared-contracts';
+import { deriveRunState } from '../execution/phase-outcome.js';
+import type { RunOutcome, RunPhase } from '../execution/types.js';
 
 /**
  * The run statuses this repository persists.
@@ -47,8 +49,99 @@ export function toPersistedStatus(status: RunStatus): PersistedRunStatus {
   );
 }
 
+/**
+ * The workspace a single-tenant install writes and reads under.
+ *
+ * One export, because this value appeared in four places and the places that mattered
+ * disagreed: `GET /api/v1/runs` resolved `'default-workspace'` and the reporter ingest
+ * path wrote NULL, so a run created by a reporter was persisted and then invisible to
+ * the listing that is supposed to show it. A constant that exists once cannot drift
+ * from itself; the fix for that class of defect is not to be careful but to have
+ * nothing to be careful about.
+ *
+ * `WORKSPACE_ID` in the configuration overrides it. Tenancy beyond this is W7 and is
+ * out of scope for v1.0.0 (ADR-006).
+ */
+export const DEFAULT_WORKSPACE_ID = 'default-workspace';
+
+/**
+ * The lifecycle phase a reported status implies, and the state derived from it.
+ *
+ * **The two columns describe one run, and only one of them was being written.** The
+ * reporter set `status` and left `phase` at its column default, so a run a producer had
+ * reported as `passed` sat at `phase: 'queued'` for ever. Both fields were individually
+ * valid and the pair was wrong, which is why nothing failed: the row was inserted, the
+ * CHECK passed, and the dashboard — which renders `phase` — showed a reported run as
+ * queued until the end of time. Ten of the nineteen E2E tests were asserting a terminal
+ * phase and could not get one.
+ *
+ * `interrupted` maps to `partial` rather than `cancelled` deliberately. An interrupted
+ * producer reported some evidence and then stopped; it was cancelled by nobody, and
+ * `cancelled` is a claim about an actor that does not exist here. `partial` says exactly
+ * what is true — evidence without a terminal verdict — and `deriveRunState` then yields
+ * the honest `unknown` outcome rather than a failure nobody observed.
+ *
+ * The pair is derived, never assembled by a caller: the database enforces
+ * `runs_phase_outcome_check`, and a caller that wrote both fields could produce a
+ * combination the CHECK rejects as a 500 for a request that was merely malformed.
+ *
+ * @param status the reported status
+ * @returns the phase, and the coherent state derived from it
+ */
+export function phaseForReportedStatus(status: RunStatus): {
+  phase: RunPhase;
+  outcome: RunOutcome;
+  status: PersistedRunStatus;
+} {
+  const phase: RunPhase =
+    status === 'running' || status === 'queued'
+      ? 'running'
+      : status === 'interrupted'
+        ? 'partial'
+        : 'complete';
+  // `deriveRunState` returns the wider `RunStatus`; `toPersistedStatus` narrows it to
+  // what the column accepts, and reports rather than coerces a value the column would
+  // reject. The two are applied in that order so the narrowing has the last word.
+  const derived = deriveRunState(phase, status);
+  return {
+    phase: derived.phase,
+    outcome: derived.outcome,
+    status: toPersistedStatus(derived.status),
+  };
+}
+
 export interface RunRecord {
   id: string;
+  /**
+   * The workspace this run belongs to, and **required**.
+   *
+   * It was absent, and the reporter ingest path wrote every run with a NULL workspace
+   * while `GET /api/v1/runs` filtered on the caller's workspace. A run created by a
+   * reporter was therefore persisted, visible in the database, and invisible to the
+   * dashboard that lists it — which is the whole reporter → API → browser path the
+   * vertical slice claims to prove, and the reason eleven of the E2E tests could not
+   * pass. Nothing failed loudly: the insert succeeded, and the read said there was
+   * nothing there.
+   *
+   * Required rather than optional so the compiler names every site that has to decide
+   * which workspace it is writing to. An optional field would let the next omission
+   * write NULL again and the defect would return with no signal.
+   */
+  workspaceId: string;
+  /**
+   * The lifecycle phase, and **required**.
+   *
+   * The reporter wrote `status` and left `phase` at its column default of `queued`, so a
+   * run a producer had reported as `passed` sat at `phase: 'queued'` forever. The two
+   * columns describe the same run, the dashboard renders `phase`, and nothing failed: the
+   * row was correct on both fields separately and wrong together. `deriveRunState` owns
+   * the pair — the database enforces `runs_phase_outcome_check` — so a caller supplies a
+   * phase and lets the vocabulary derive the outcome, rather than writing both and
+   * hoping.
+   */
+  phase: import('../execution/types.js').RunPhase;
+  /** Derived from `phase`; never written independently. */
+  outcome: import('../execution/types.js').RunOutcome;
   startedAt: string; // ISO-8601
   finishedAt: string | null;
   /** The persisted subset: this is written straight to `runs.status`. */
@@ -101,6 +194,18 @@ export interface TestRecord {
 export interface RunPatch {
   /** The persisted subset: this becomes a `runs.status` write. */
   status?: PersistedRunStatus;
+  /**
+   * The lifecycle phase, and the outcome that goes with it.
+   *
+   * `run:end` patched `status` and nothing else, so a run that finished kept the
+   * `phase: 'queued'` it was inserted with. The dashboard renders `phase`, so a
+   * completed run was shown as queued for ever — and ten E2E tests asserting a terminal
+   * phase could not get one. Both fields are written together because
+   * `runs_phase_outcome_check` requires the pair to agree: a terminal phase with a null
+   * outcome is rejected as a 500 for a request that was merely malformed.
+   */
+  phase?: RunPhase;
+  outcome?: RunOutcome;
   finishedAt?: string | null;
   durationMs?: number | null;
   /** Increment passed counter by this amount */

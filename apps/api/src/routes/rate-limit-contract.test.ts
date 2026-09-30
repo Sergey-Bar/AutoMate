@@ -92,6 +92,12 @@ const UNAUTHENTICATED_ROUTES: ReadonlyArray<{
     limited: false,
     why: 'a static capability manifest with no per-caller data',
   },
+  {
+    method: 'GET',
+    path: '/metrics',
+    limited: false,
+    why: 'a scraper has no credential to present, and the body is process state plus one in-memory counter with no query behind it, so a 429 would break monitoring without protecting anything; `collect()` is synchronous and reads no store, which is what makes the exemption safe rather than merely convenient',
+  },
 ];
 
 /** The reporter ingestion routes, which are credentialed and limited. */

@@ -137,12 +137,19 @@ export interface MigrationApplyResult {
  * @returns exactly which migrations this call applied
  */
 export async function runMigrations(
-  connectionString?: string,
+  connectionString: string | undefined = process.env['DATABASE_URL'],
   options: { folder?: string; pool?: pg.Pool } = {},
 ): Promise<MigrationApplyResult> {
   // Throws on a malformed or non-local database URL. The host and name it returns
   // are not needed here — the call is the check — so they are not destructured
   // into two variables that then read as unused.
+  //
+  // The `DATABASE_URL` default above is **load-bearing**, not documentation. The
+  // entrypoint at the bottom of this file calls `runMigrations()` with no argument,
+  // so before the default existed the guard received `undefined` and threw
+  // "DATABASE_URL is required for migrations" on a run where the variable *was* set —
+  // and `pnpm db:migrate` failed every time it was invoked, with a message that named
+  // the very variable the process had. `migrate.test.ts` pins the default.
   assertMigrationDatabaseUrl(connectionString);
   const startedAt = process.hrtime.bigint();
   const pool = options.pool ?? new pg.Pool({ connectionString: connectionString?.trim() });
@@ -157,6 +164,7 @@ export async function runMigrations(
     try {
       await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK_KEY.toString()]);
       locked = true;
+      await ensureJournalExists(client);
       const before = await readJournal(client);
       const inconsistency = describeJournalInconsistency(
         before,
@@ -184,6 +192,32 @@ export async function runMigrations(
   } finally {
     if (options.pool === undefined) await pool.end();
   }
+}
+
+/**
+ * Create the migration journal if it is not there yet.
+ *
+ * **A fresh database cannot otherwise be bootstrapped.** The runner reads the journal
+ * *before* calling drizzle's `migrate()`, because the consistency check is the reason
+ * for reading it — an apply on a database with migrations this checkout does not have
+ * silently reorders history. But the read is a `SELECT` against
+ * `drizzle.__drizzle_migrations`, and on a clean database that relation does not
+ * exist, so the read failed with `42P01` and `pnpm db:migrate` could not create a
+ * schema at all. The compose file runs migrations before the API starts, so a clean
+ * `docker compose up` hit the same wall.
+ *
+ * The DDL is drizzle's own, character for character, because drizzle's `migrate()`
+ * creates the same table a few lines later and a second definition of a journal is a
+ * second thing to drift. A mismatch here would not fail loudly: it would create a table
+ * drizzle then finds already present, with whichever column types this copy declared.
+ * It is inside the lock, so two concurrent applies cannot both try to create it.
+ */
+async function ensureJournalExists(client: pg.PoolClient): Promise<void> {
+  await client.query('CREATE SCHEMA IF NOT EXISTS drizzle');
+  await client.query(
+    'CREATE TABLE IF NOT EXISTS drizzle.__drizzle_migrations (' +
+      'id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)',
+  );
 }
 
 /** Migration hashes already recorded in the journal, oldest first. */

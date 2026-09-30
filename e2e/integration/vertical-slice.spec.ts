@@ -24,6 +24,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { API_AUTH_HEADERS, API_BASE, INSTALLATION_KEY, WEB_BASE } from '../support/config.js';
 
 // ---------------------------------------------------------------------------
 // Evidence directories
@@ -55,9 +56,12 @@ function saveEvidenceT29(filename: string, content: string): void {
 // Constants
 // ---------------------------------------------------------------------------
 
-const API_BASE = 'http://127.0.0.1:3000';
-const WEB_BASE = 'http://localhost:5173';
-const API_AUTH_HEADERS = { Authorization: 'Bearer e2e-installation-key' };
+// The API base, the web base and the installation key all come from
+// `e2e/support/config.ts`, which `playwright.config.ts` also imports. This file used to
+// restate all three, and the key it restated did not match the one the API was booted
+// with — so every authenticated call in this spec answered 401 and the suite was red for
+// a reason that had nothing to do with what it was asserting. One source, imported by
+// both, is the whole fix.
 
 /**
  * A run id the API will actually accept.
@@ -102,7 +106,7 @@ async function waitForRunInApi(
 
 async function authenticateBrowser(page: Page): Promise<void> {
   await page.goto(`${WEB_BASE}/login?return=%2Fdashboard`);
-  await page.getByRole('textbox', { name: 'API Key' }).fill('e2e-installation-key');
+  await page.getByRole('textbox', { name: 'API Key' }).fill(INSTALLATION_KEY);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL('**/dashboard');
 }

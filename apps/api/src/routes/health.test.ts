@@ -71,6 +71,73 @@ describe('health and readiness routes', () => {
   });
 });
 
+/**
+ * `/metrics`, the two things a scraper needs, and the one thing it must never get.
+ *
+ * The route is a thin wrapper over `observability/metrics.ts`, so the format itself is
+ * proved there. What can only be proved here is that the route serves it — the content
+ * type a scraper refuses without, and a body that answers without a database.
+ */
+
+/**
+ * Whether a line is a well-formed sample: `name value` or `name{labels} value`.
+ *
+ * Parsed rather than matched. A regular expression for this is two quantified groups
+ * around an optional one, which is the shape `security/detect-unsafe-regex` flags, and
+ * the flag would then have to be suppressed — for a test whose whole job is to state a
+ * shape that a scraper will parse. Splitting on the last space and checking the two
+ * halves says the same thing with no pattern to be ambiguous about.
+ */
+function isSampleLine(line: string): boolean {
+  const lastSpace = line.lastIndexOf(' ');
+  if (lastSpace <= 0) return false;
+  const head = line.slice(0, lastSpace);
+  const value = line.slice(lastSpace + 1);
+  if (!/^-?[0-9.]+$/.test(value)) return false;
+  const brace = head.indexOf('{');
+  if (brace === -1) return /^[a-z_]+$/.test(head);
+  if (!head.endsWith('}')) return false;
+  return /^[a-z_]+$/.test(head.slice(0, brace)) && head.slice(brace + 1, -1).length > 0;
+}
+
+describe('the metrics route', () => {
+  it('serves the exposition content type, which a scraper refuses without', async () => {
+    const app = createHealthRoutes();
+    const response = await app.request('/metrics');
+
+    expect(response.status).toBe(200);
+    // A scraper negotiates on this exact string; `text/plain` alone is rejected by some
+    // clients, and a JSON body is silently parsed as one metric that does not exist.
+    expect(response.headers.get('content-type')).toBe('text/plain; version=0.0.4; charset=utf-8');
+  });
+
+  it('answers with a well-formed body and no database, because it queries nothing', async () => {
+    // `databaseUrl` is deliberately absent. A metrics endpoint that needed the database
+    // would be an unauthenticated query anybody could repeat, and the answer would be a
+    // count of the customer's rows. The module's header says so; this asserts it.
+    const app = createHealthRoutes({ databaseUrl: undefined });
+    const body = await (await app.request('/metrics')).text();
+
+    expect(body).toContain('# HELP process_resident_memory_bytes');
+    expect(body).toContain('# TYPE automate_http_requests_total counter');
+    expect(body.endsWith('\n')).toBe(true);
+    // Every sample line is `name{labels} value` or `name value` — nothing else.
+    for (const line of body.split('\n').filter((candidate) => candidate !== '')) {
+      expect(line.startsWith('#') || isSampleLine(line), line).toBe(true);
+    }
+  });
+
+  it('does not expose run, test or tenant data', async () => {
+    const body = await (await createHealthRoutes().request('/metrics')).text();
+    // The content decision, asserted at the surface a scraper actually reads. A metric
+    // carrying a run id or a test title is unbounded cardinality and the customer's
+    // quality data in a place nobody audited.
+    for (const forbidden of ['run_id', 'workspace', 'tenant', 'test', 'suite', 'artifact']) {
+      expect(body).not.toContain(forbidden);
+    }
+  });
+});
+
 describe('the readiness alias', () => {
   it('answers both paths identically when the database is reachable', async () => {
     const app = createHealthRoutes({

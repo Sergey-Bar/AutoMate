@@ -569,6 +569,69 @@ export function listWorkflows() {
 }
 
 /**
+ * The tiers a root script may carry, and the four D6 named plus the fifth the
+ * baseline writers need.
+ *
+ * `never-in-ci` is a first-class value rather than a compromise: `dev`,
+ * `db:migrate` and the `*:baseline` writers are run by hand on purpose, and a
+ * `*:baseline` script inside a workflow is a way of making a gate agree with the
+ * tree instead of with the code.
+ */
+export const TIERS = new Set(['pr-blocking', 'pr-reporting', 'nightly', 'release', 'never-in-ci']);
+
+/**
+ * Every way the tier register disagrees with the root scripts, as findings.
+ *
+ * Exported rather than inlined in the test because two callers need it and one
+ * implementation is the point: `gate-tooling.test.mjs` asserts it, and
+ * `scripts/lib/status-ten.mjs` reports the same facts as the twelve-point
+ * measurement. A second copy of this rule is a second place for the classification
+ * to be wrong, and the whole reason this is in `gate-tooling.json` rather than in
+ * a convention is that a convention is not checkable.
+ *
+ * @param {GateToolingManifest} manifest
+ * @param {Set<string>} rootScripts
+ * @returns {string[]}
+ */
+export function tierRegisterProblems(manifest, rootScripts) {
+  const tiers = manifest.tiers ?? {};
+  /** @type {string[]} */
+  const findings = [];
+
+  for (const name of [...rootScripts].sort()) {
+    if (tiers[name] === undefined) {
+      findings.push(`${name}: a root script with no tier in scripts/gate-tooling.json`);
+    }
+  }
+  for (const [name, tier] of Object.entries(tiers)) {
+    if (typeof tier !== 'string') continue; // the `$comment` key
+    if (!TIERS.has(tier)) findings.push(`${name}: unknown tier "${tier}"`);
+    if (!rootScripts.has(name)) {
+      findings.push(`${name}: gate-tooling.json tiers "${name}", which is not a root script`);
+    }
+  }
+
+  // `verify` must not have outgrown its budget. D6: 13 steps today, at most 20.
+  // This is the count that has to be edited deliberately rather than discovered
+  // when the PR queue turns red.
+  const steps = readRootScriptCommand('verify')
+    .split('&&')
+    .map((step) => step.trim())
+    .filter(Boolean);
+  if (steps.length > 20) {
+    findings.push(
+      `verify has ${String(steps.length)} steps, over the plan's budget of 20. Move the new ` +
+        'one to nightly rather than raising the budget.',
+    );
+  }
+  if (steps.some((step) => step.includes('migrate:apply'))) {
+    findings.push('migrate:apply must never enter verify: CI has no persistent database');
+  }
+
+  return findings;
+}
+
+/**
  * The argv index of the token a `pnpm` invocation is really about.
  *
  * Skips flags, and — crucially — the package selectors that follow
@@ -675,6 +738,7 @@ function installsTool(text, tool) {
  * @typedef {object} WorkflowStep
  * @property {string} [uses]
  * @property {string} [run]
+ * @property {string} [name]
  * @property {string} [with]
  */
 
@@ -897,8 +961,118 @@ export function auditWorkflow(file, source, manifest, rootScripts) {
         ...auditScript(label, script, job, jobEnv, services, rootScripts, requirements, manifest),
       );
     }
+
+    findings.push(...silentSkipFindings(label, job, manifest, rootScripts));
   }
 
+  return findings;
+}
+
+/**
+ * A `pr-blocking` gate that a workflow is allowed to fail.
+ *
+ * W0.9's `no-silent-skip` rule, and the reason it is tier-aware rather than
+ * absolute. `continue-on-error` on a `nightly` or `pr-reporting` job is a
+ * deliberate classification — `migration-report` and the migration-rehearsal job
+ * both carry it, with the reasoning in a comment beside the job — and a rule that
+ * forbade it would push those jobs to be deleted rather than demoted, which is a
+ * worse outcome than the one it prevents.
+ *
+ * The same `continue-on-error` on a job running a `pr-blocking` script is the
+ * defect: the gate is required, it is the gate the tier says blocks the merge,
+ * and the workflow says its result does not matter. `|| true` in a `run:` is the
+ * same statement written in the shell, and it is read from the parsed `run` value
+ * rather than the raw text so a comment explaining the choice is not reported as
+ * the choice.
+ *
+ * @param {string} label
+ * @param {Record<string, unknown>} job
+ * @param {GateToolingManifest} manifest
+ * @param {Set<string>} rootScripts
+ * @returns {string[]}
+ */
+function silentSkipFindings(label, job, manifest, rootScripts) {
+  const tiers = manifest.tiers ?? {};
+  /** @type {string[]} */
+  const findings = [];
+  const steps = /** @type {WorkflowStep[]} */ (job.steps ?? []);
+
+  /**
+   * @param {string} where
+   * @param {string} how the tolerance, or `''` when the step tolerates nothing
+   * @param {string} run
+   */
+  const report = (where, how, run) => {
+    if (how === '') return;
+    const blocking = referencedScripts(run).filter(
+      (script) => rootScripts.has(script) && tiers[script] === 'pr-blocking',
+    );
+    if (blocking.length === 0) return;
+    findings.push(
+      `${where}: ${how} around ${blocking.map((s) => `\`pnpm ${s}\``).join(', ')}, which ` +
+        'gate-tooling.json tiers `pr-blocking`. A required gate whose result a workflow is ' +
+        'allowed to discard reports green whether it ran or not.',
+    );
+  };
+
+  /**
+   * Whether a value is the workflow's `true`.
+   *
+   * The parser here is a YAML subset that keeps every scalar as a string, so
+   * `continue-on-error: true` arrives as `"true"` and a strict `=== true` would
+   * clear every finding this function exists to raise — which is the direction of
+   * error that matters, because the check would then report a clean repository.
+   *
+   * @param {unknown} value
+   * @returns {boolean}
+   */
+  const tolerated = (value) => value === true || value === 'true';
+
+  /**
+   * The step's `continue-on-error`, read through a cast.
+   *
+   * The key is not an identifier, so a JSDoc property cannot declare it and
+   * `checkJs` rejects the bracket access without one. A cast is the narrowest
+   * thing that type-checks; the alternative is a parser that camel-cases the key,
+   * which would put a spelling choice between this check and every other reader of
+   * the parsed workflow.
+   *
+   * @param {WorkflowStep} step
+   * @returns {unknown}
+   */
+  const stepTolerance = (step) =>
+    /** @type {{ 'continue-on-error'?: unknown }} */ (step)['continue-on-error'];
+
+  for (const step of steps) {
+    const run = typeof step.run === 'string' ? step.run : '';
+    const where = `${label} step "${String(step.name ?? '(unnamed)')}"`;
+    if (tolerated(stepTolerance(step))) {
+      report(where, '`continue-on-error: true`', run);
+    }
+    if (run.includes('|| true')) report(where, '`|| true` in the step', run);
+  }
+  // Job-level `continue-on-error` is inherited by every step, so it is reported
+  // once against the job and names every blocking script the job runs.
+  //
+  // Only when the job runs **nothing that already reports**. `nightly.yml`'s smoke
+  // job carries the flag and also runs `pnpm build`, which is `pr-blocking` — but
+  // `build` there is a prerequisite for `smoke:local`, whose tier is `nightly` and
+  // whose non-blocking is the decision the flag records. Reporting it would have
+  // been a false positive on a real workflow, and a gate that reports a correct
+  // decision as a defect gets switched off rather than refined.
+  //
+  // The residual gap is deliberate: a job that runs a `pr-blocking` gate *and* a
+  // reporting gate under one flag is not reported, because telling those two apart
+  // needs to know which script the job is for, and that is a judgement rather than
+  // a fact about the file.
+  if (tolerated(job['continue-on-error'])) {
+    const run = scriptsRunByJob(job);
+    const reports = run.some(
+      (script) => tiers[script] === 'pr-reporting' || tiers[script] === 'nightly',
+    );
+    if (!reports)
+      report(label, '`continue-on-error: true`', run.map((s) => `pnpm ${s}`).join(' && '));
+  }
   return findings;
 }
 
