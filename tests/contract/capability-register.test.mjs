@@ -151,11 +151,32 @@ describe('the capability-register check', () => {
         );
         expect(check(file).stdout).toContain('Capability register verified');
 
-        // …and a hash this repository has never heard of is a failure, because a
-        // baseline that cannot be resolved is a baseline nobody can trust.
+        // …and a hash this repository has never heard of is refused, because a baseline
+        // that cannot be resolved is a baseline nobody can trust.
+        //
+        // **Two answers, both refusals, and the clone decides which.** `git cat-file`
+        // cannot tell a forged hash from a real commit that a shallow clone never
+        // fetched, so `capability-register.mjs` now reports the second as *not checked*
+        // with the reason printed — which is the honest answer on CI, where the clone is
+        // depth 1 and every baseline but `HEAD` is unfetched. This test asserts both
+        // shapes, so the falsifiability proof survives either: a check that only failed
+        // on a full clone would be a check that reported nothing on every runner.
         writeFileSync(file, readFileSync(file, 'utf8').replace(head, '0'.repeat(40)), 'utf8');
         const forged = check(file);
-        expect(forged.stdout + forged.stderr).toMatch(/is not a commit/);
+        const output = forged.stdout + forged.stderr;
+        const shallow =
+          spawnSync('git', ['rev-parse', '--is-shallow-repository'], {
+            cwd: repoRoot,
+            encoding: 'utf8',
+          }).stdout.trim() === 'true';
+        if (shallow) {
+          expect(output).toMatch(/clone is shallow/);
+          expect(output).toMatch(/not checked/);
+        } else {
+          expect(output).toMatch(/is not a commit/);
+        }
+        // Either way the run must not claim the register is verified.
+        expect(output).not.toContain('Capability register verified');
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }

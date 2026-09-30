@@ -2729,15 +2729,7 @@
       "evidence": [
         {
           "path": "scripts/lib/docs-paths.test.mjs",
-          "asserts": "A document calling an identifier unused, dead, unreferenced or obsolete is a finding when that identifier is still used — across README, AGENTS, CONTRIBUTING, CHANGELOG and every non-historical plan. Quoted and struck-through runs are removed before scanning, so a recorded refutation is not read as the claim it refutes; a component's own test is not a use; and the test asserts the gate can see the claim that started the row, that the plans are actually in scope, and that an unimported name is not reported."
-        },
-        {
-          "path": ".kilo/plans/1790482134837-automate-merged-leftover-plan.md",
-          "asserts": "The original claim, struck through with the refutation beside it and pointing at the two helpers that use `vitest-axe`."
-        },
-        {
-          "path": ".kilo/plans/1790399792791-automate-final-qa-excellence-roadmap.md",
-          "asserts": "The `Toast` claim, struck through with the count that refutes it — a second false claim the gate found on its first run."
+          "asserts": "A document calling an identifier unused, dead, unreferenced or obsolete is a finding when that identifier is still used — across README, AGENTS, CONTRIBUTING, CHANGELOG and every non-historical plan. Quoted and struck-through runs are removed before scanning, so a recorded refutation is not read as the claim it refutes; a component's own test is not a use; and the test asserts the gate can see the claim that started the row, that the plans are actually in scope, and that an unimported name is not reported. The plans this was written against (2 files under `.kilo/plans/`) are local session artefact excluded by `.git/info/exclude`, so they have never been committed and cannot be cited. The ledger rule that a closed finding must name an existing path is right and refused them; the gate is the durable proof and the plans were the example."
         }
       ]
     },

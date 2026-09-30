@@ -240,7 +240,15 @@ jobs:
     # `migrate:apply` is deliberately absent and must stay absent. CI has no
     # persistent database, so applying a migration there proves nothing about the
     # migration and only produces a throwaway schema.
-    continue-on-error: true
+    #
+    # `continue-on-error` is gone, and its absence is the point. It was here because the
+    # job's steps were the two legacy commands that could not run, and a tolerated job
+    # reporting a tolerated failure is a job that reports nothing. The job now runs
+    # `db:check`, which `gate-tooling.json` tiers `pr-blocking`, so tolerating it would
+    # mean a required check whose result the workflow is allowed to discard — and the
+    # repository's own `gate-tooling.test.mjs` says so: *"a required gate whose result a
+    # workflow is allowed to discard reports green whether it ran or not."* It failed that
+    # audit the moment the job's contents changed, which is the audit doing its job.
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -256,25 +264,24 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      # No `migrate:plan` step, and its absence is deliberate.
+      # The legacy source-migration steps are gone, and both of them were failing.
       #
-      # `migrate:plan` is the *forward* migration planner: it takes `--from`,
-      # `--source-id`, `--source-commit`, `--target-commit` and `--out`, and refuses to run
-      # without all five — `plan requires --from, --source-id, --source-commit,
-      # --target-commit, and --out`. The job called it bare, so it exited 1 on every run
-      # and took the whole `migration` job with it.
+      # `migrate:plan` requires `--from --source-id --source-commit --target-commit
+      # --out` and `migrate:validate` requires `--plan`; this job called both bare, so each
+      # exited 1 with `plan requires …` and `validate requires --plan` and took the job
+      # with it. The arguments are not available because there is nothing to migrate
+      # *from*: the merge out of the two legacy repositories is complete (ADR-001, the
+      # capability register, and the phase-0 decision record all say so) and their history
+      # is not in this repository. Inventing a source and a target to satisfy an argument
+      # list would produce a plan that looks real and describes nothing.
       #
-      # The arguments are not available because there is nothing to plan **from**: the
-      # migration out of the two legacy repositories is complete (ADR-001, the register,
-      # and the phase-0 decision record all say so), and their history is not in this
-      # repository. Inventing a source and a target to satisfy the argument list would
-      # produce a plan that looks real and describes nothing, which is worse than no plan.
-      #
-      # What the job can still decide is the schema graph, and it does: `migrate:validate`
-      # checks the graph against the journal, and `db:check` (in the quality job) checks
-      # that the journal and the Drizzle schema agree.
-      - name: Validate the migration graph
-        run: pnpm migrate:validate
+      # What this repository *can* decide about its schema is the journal: every applied
+      # migration in order, and the Drizzle schema in agreement with it. That is what the
+      # job now runs, and it is a real check rather than a renamed one — `db:check` reads
+      # `packages/db/drizzle/meta/_journal.json` and the schema, and fails if they have
+      # parted company.
+      - name: Check the migration journal against the schema
+        run: pnpm db:check
       - name: Upload the migration report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
