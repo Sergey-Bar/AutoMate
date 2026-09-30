@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { assertLocalRehearsal } from './lib/local-rehearsal-guard.mjs';
 import { rehearseMigration, toReport } from './lib/rehearsal-run.mjs';
 
@@ -107,19 +108,50 @@ function run(command, args, extraEnv) {
 }
 
 /**
- * The vault opener, from the product's own module rather than a reimplementation of it.
+ * The vault module, as this script uses it.
+ *
+ * Declared rather than inferred, because the runtime import below is a **computed**
+ * path. `tsc` follows a string literal in `import()` and reports `TS2307` when the target
+ * is a build artefact that has not been built — which is every CI machine and every
+ * fresh checkout, and is why `pnpm typecheck:scripts` was red on `main` through five
+ * consecutive commits. Computing the specifier is what makes it a runtime path, and this
+ * typedef is what puts the checking back: the signature is the product's, written out
+ * rather than inferred, so a change to `openSecret` is a change here too.
  *
  * A rehearsal that opened rows with a second implementation of the decryption would
- * prove the second implementation still works. Built output, so `pnpm build` is a
- * prerequisite and a missing build says so rather than failing as an unreadable vault.
+ * prove the second implementation still works, so the module is loaded from the product's
+ * own build — `pnpm build` is a prerequisite, and a missing build says so rather than
+ * failing as an unreadable vault.
+ *
+ * @typedef {object} VaultModule
+ * @property {(
+ *   envelope: import('../apps/api/src/infrastructure/vault-crypto.js').VaultEnvelope,
+ *   secret: string,
+ *   binding: import('../apps/api/src/infrastructure/vault-crypto.js').VaultRowBinding,
+ * ) => Promise<string>} openSecret
+ * @property {new (entryId: string) => Error} VaultRowUnboundError
  */
-const { openSecret, VaultRowUnboundError } =
-  await import('../apps/api/dist/infrastructure/vault-crypto.js').catch((cause) => {
-    throw new Error(
-      'The vault module could not be loaded from apps/api/dist, so nothing here could prove a ' +
-        `row is readable. Run "pnpm build" first. (${String(cause)})`,
-    );
-  });
+
+/**
+ * The built module's specifier.
+ *
+ * `pathToFileURL` rather than `new URL(..., import.meta.url)`, because URL is not a
+ * declared global for the lint rules this file is checked against and a bare 
+ew URL failed
+ * `no-undef`. The path is still resolved against this file rather than the working
+ * directory, so the rehearsal works from any cwd.
+ */
+const VAULT_MODULE = pathToFileURL(
+  path.resolve(import.meta.dirname, '../apps/api/dist/infrastructure/vault-crypto.js'),
+).href;
+
+/** @type {VaultModule} */
+const { openSecret, VaultRowUnboundError } = await import(VAULT_MODULE).catch((cause) => {
+  throw new Error(
+    'The vault module could not be loaded from apps/api/dist, so nothing here could prove a ' +
+      `row is readable. Run "pnpm build" first. (${String(cause)})`,
+  );
+});
 
 /**
  * Every sealed row, read through `psql` so this script needs no database driver.
@@ -134,9 +166,16 @@ FROM vault_entries
 ORDER BY id;`;
 
 /**
+ * One sealed row as `psql` returns it, beside the shapes the product's own vault module
+ * uses.
+ *
+ * The two `import()` types resolve to **`src/`, not `dist/`**. A type is a property of
+ * the source and the source is always present; the build artefact is not, which is the
+ * other half of the fix described on `VaultModule` above.
+ *
  * @typedef {object} SealedInput
- * @property {import('../apps/api/dist/infrastructure/vault-crypto.js').VaultEnvelope} envelope
- * @property {import('../apps/api/dist/infrastructure/vault-crypto.js').VaultRowBinding} binding
+ * @property {import('../apps/api/src/infrastructure/vault-crypto.js').VaultEnvelope} envelope
+ * @property {import('../apps/api/src/infrastructure/vault-crypto.js').VaultRowBinding} binding
  */
 
 const result = await rehearseMigration(
