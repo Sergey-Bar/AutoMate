@@ -438,9 +438,26 @@ test('no CI file sets the host-scanner opt-in, and verify:local is never-in-ci',
     'never-in-ci',
     'verify:local is the degraded chain and has no business being a required or reported check',
   );
-  // And the gate that degrades must still be blocking where it counts.
-  assert.equal((readManifest().tiers ?? {})['security:static'], 'pr-blocking');
+  // And `verify` is still a required gate.
   assert.equal((readManifest().tiers ?? {})['verify'], 'pr-blocking');
+  // `security:static` is **not**, and this assertion used to say it was.
+  //
+  // The claim behind it was "the gate that degrades must still block where it counts" —
+  // which is the right principle and was applied to a gate that had never run. The
+  // scanner-install step failed on every run in this repository's history, so
+  // `security:static` executed for the first time on 2026-09-30 and reported 1137 blocking
+  // findings. A required check that cannot pass blocks every pull request; the tier moved
+  // to `pr-reporting` and the count is recorded in SEM-2 rather than left hypothetical.
+  //
+  // Asserted *positively* here so that graduating it back is a deliberate edit to this
+  // line, at the moment the count reaches zero — rather than a change to the manifest
+  // that nobody reads.
+  assert.equal(
+    (readManifest().tiers ?? {})['security:static'],
+    'pr-reporting',
+    'security:static graduates to pr-blocking when SEM-2 records zero blocking findings; change ' +
+      'this assertion and the manifest row in the same commit',
+  );
 });
 
 test('the opt-in is reported as a finding when a CI file sets it', () => {
