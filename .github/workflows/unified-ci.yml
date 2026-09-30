@@ -583,6 +583,19 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
+      # `pnpm install` does not build, and `pnpm test:integration` runs the PGlite
+      # suites, which import `@automate/shared-contracts` — resolved through
+      # `node_modules` to its `dist`, which does not exist in a fresh checkout. Two
+      # suites failed to load with `Failed to resolve entry for package
+      # "@automate/shared-contracts"` while all 50 tests that did run passed, which is
+      # the shape of a job that reports coverage for the part of the tree it managed to
+      # load.
+      #
+      # `--filter "@automate/integration-tests..."` is pnpm's own answer: the package
+      # *and its dependencies*, from the graph, so this cannot drift when a dependency is
+      # added.
+      - name: Build the packages the integration suites import
+        run: pnpm --filter "@automate/integration-tests..." build
       - name: Local integration checks
         run: pnpm test:integration
 
