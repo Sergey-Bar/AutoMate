@@ -53,7 +53,7 @@ import {
   type RunStatus,
   type TestStatus,
 } from '../repositories/run-repository.js';
-import { persistReporterEvent } from '../services/reporter-persistence.js';
+import { normaliseFailure, persistReporterEvent } from '../services/reporter-persistence.js';
 import { bearerToken } from '../http/bearer-token.js';
 import { safeRelativePath } from '../http/safe-path.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
@@ -155,6 +155,22 @@ const UploadedTestSchema = z
       'queued',
     ]),
     durationMs: z.number().nonnegative().nullable().optional(),
+    // **Why the test failed**, as the producer stated it.
+    //
+    // An upload has always been able to carry this — `AgentTestItemSchema` in
+    // `@automate/shared-contracts` has declared `error: { message, code? }` from the
+    // start — and `persistUploadPayload` dropped it, because `TestRecord` had nowhere
+    // to put it. The same defect as the event path, arrived at by a different door:
+    // two doors, one gap, and the field was declared in the contract for neither.
+    //
+    // Optional, and optional means optional: a producer that does not send one is not
+    // rejected, and the row stores `null` so the dashboard can say so.
+    error: z
+      .object({
+        message: z.string().optional(),
+        code: z.string().optional(),
+      })
+      .optional(),
   })
   .refine((value) => Boolean(value.id ?? value.testId), {
     message: 'id or testId is required',
@@ -687,6 +703,11 @@ async function persistUploadPayload(
       file: sanitizePath(test.file),
       status: normalizeTestStatus(test.status),
       durationMs: test.durationMs ?? null,
+      // The upload contract has declared `error: { message, code? }` on a test for as
+      // long as it has existed, and this write dropped it — the same defect as the
+      // event-driven path, arrived at by a different door. Both paths now store it, and
+      // both bound it.
+      ...normaliseFailure(test.error),
     });
   }
 

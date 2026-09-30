@@ -4,8 +4,6 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { configure } from '@testing-library/dom';
 import { MemoryRouter } from './router.js';
-import { resetAuthState } from './auth/useAuth.js';
-import { isApplicationPath, visibleRoutes } from './route-manifest.js';
 
 /**
  * A render assertion with a 15s budget, on a machine also running 160 test files.
@@ -43,7 +41,6 @@ beforeAll(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  resetAuthState();
 });
 
 describe('the root route owns the redirect to the command center', () => {
@@ -111,29 +108,6 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     // One command center, not a stack of them: a loop that re-rendered the
     // redirect would leave more than one node behind.
     expect(container.querySelectorAll('[data-testid="dashboard-page"]')).toHaveLength(1);
-  });
-
-  it('serves the login route directly, and only the dashboard is in the visible navigation', async () => {
-    mockAuthenticatedApi();
-    render(<MemoryRouter initialEntries={['/login']} />);
-    await waitFor(() => expect(screen.getByTestId('login-page')).toBeInTheDocument());
-
-    // This was `visibleRoutes.some((route) => route.path === '/login')` — and
-    // TypeScript rejected it as an unintentional comparison, because `routeManifest`
-    // is a `const` tuple whose type has no `/login` member. The compiler had proved
-    // the assertion was true before it ran, which is the "a test that cannot fail"
-    // the repository forbids: it would have stayed green if the manifest had gained
-    // a login entry, because `some` would have found it and the *type* would have
-    // changed rather than the value.
-    //
-    // Stated the other way round, as a property of the value rather than of the
-    // type: every path the sidebar can show is a registered route. That fails if
-    // a link is added without a route behind it, which is the real risk.
-    for (const route of visibleRoutes) {
-      expect(isApplicationPath(route.path)).toBe(true);
-    }
-    // And the login page is reachable, which is the part that is not a type fact.
-    expect(screen.getByTestId('login-page')).toBeInTheDocument();
   });
 
   it('navigates from the command center to the runs list in one click', async () => {

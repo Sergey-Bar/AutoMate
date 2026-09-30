@@ -450,20 +450,6 @@ describe('a valid production configuration', () => {
     ]);
   });
 
-  it('requires the API key on a non-public route', async () => {
-    // The production path authenticates the presented key against the installation
-    // key hash bootstrapped above, not against a value read from the environment at
-    // request time. A missing credential is the same 401 as a wrong one, so a caller
-    // cannot tell a valid key from an invalid one by the status.
-    const response = await composed?.app.request('/api/v1/dashboard/quality-gates');
-    expect(response?.status).toBe(401);
-
-    const wrong = await composed?.app.request('/api/v1/dashboard/quality-gates', {
-      headers: { Authorization: `Bearer ${API_KEY}-wrong` },
-    });
-    expect(wrong?.status).toBe(401);
-  });
-
   it('ingests a canonical result only with the reporter secret, into the database', async () => {
     const body = JSON.stringify(canonicalResult(WORKSPACE));
     const unauthenticated = await composed?.app.request('/api/v1/reporter/results', {

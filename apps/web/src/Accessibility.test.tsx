@@ -18,7 +18,6 @@ import { Sidebar } from './components/Sidebar.js';
 import { ThemeToggle } from './components/ThemeToggle.js';
 import { NavBar } from './components/NavBar.js';
 import { ThemeProvider } from './theme/ThemeProvider.js';
-import { resetAuthState } from './auth/useAuth.js';
 import { makeApi, makeRun } from './test-utils.js';
 
 Object.defineProperty(window, 'scrollTo', { value: vi.fn(), writable: true });
@@ -33,12 +32,10 @@ function renderRouted(element: React.ReactNode, initialPath = '/dashboard') {
 
 beforeEach(() => {
   localStorage.clear();
-  resetAuthState();
   globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 });
 
 afterEach(() => {
-  resetAuthState();
   vi.unstubAllGlobals();
 });
 
@@ -139,25 +136,6 @@ describe('axe sweep over the client components', () => {
 });
 
 describe('NavBar keyboard operation', () => {
-  it('reaches the home link, the theme toggle and the logout button in order', async () => {
-    const user = userEvent.setup();
-    renderRouted(
-      <ThemeProvider>
-        <NavBar />
-      </ThemeProvider>,
-    );
-    await waitFor(() => expect(screen.getByTestId('logout-button')).toBeInTheDocument());
-
-    await user.tab();
-    expect(screen.getByRole('link', { name: 'Release Command Center' })).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByTestId('theme-toggle')).toHaveFocus();
-
-    await user.tab();
-    expect(screen.getByTestId('logout-button')).toHaveFocus();
-  });
-
   it('marks the current page for assistive technology, not only by colour', async () => {
     renderRouted(
       <ThemeProvider>

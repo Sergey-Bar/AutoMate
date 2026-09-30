@@ -6,7 +6,6 @@ import { Route as analyticsRoute } from './routes/dashboard/analytics.js';
 import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
-import { Route as loginRoute } from './routes/login.js';
 
 const dashboardTree = dashboardRoute.addChildren([
   runsListRoute,
@@ -29,8 +28,12 @@ const dashboardTree = dashboardRoute.addChildren([
  * to the command center. A child declared with `path: '/'` made `/` match twice —
  * that child and the root — and a rendered redirect between two matching routes is
  * a cycle; see the comment in `routes/__root.tsx`.
+ *
+ * **No login route.** The install is open: one tenant, one operator, self-hosted,
+ * and nothing behind this to authenticate *to* (ADR-006). The route and its
+ * `AuthGuard` are gone rather than unreachable, so there is no second way back in.
  */
-export const routeTree = rootRoute.addChildren([dashboardTree, loginRoute]);
+export const routeTree = rootRoute.addChildren([dashboardTree]);
 
 export const router = createRouter({ routeTree });
 

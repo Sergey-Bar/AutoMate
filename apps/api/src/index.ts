@@ -49,8 +49,9 @@ import {
   DrizzleQuarantineStore,
   DrizzleQualityGateStore,
 } from './modules/dashboard/drizzle-stores.js';
-// Auth middleware — guards all non-public routes with AUTOMATE_API_KEY
-import { createAuthMiddleware } from './middleware/auth.js';
+// No auth middleware: the install is open. See the note where it used to be mounted,
+// and ADR-006 for the posture. The session and key routes stay mounted — they mint
+// nothing anybody is required to hold.
 import { createRequestDeadline } from './middleware/request-deadline.js';
 import { createSecurityHeaders } from './middleware/security-headers.js';
 import { getConfig } from './config.js';
@@ -421,17 +422,29 @@ app.use(
   }),
 );
 
-// Apply auth middleware globally. Auth, health, and feature routes are public by policy.
-// The default getter reads the typed runtime configuration at request time.
-app.use(
-  '/*',
-  createAuthMiddleware(
-    () => getConfig().installationApiKey,
-    (token) => authRoutes.sessions.validate(token),
-    databaseResources ? installationKeyHash : undefined,
-    authCookieSecret,
-  ),
-);
+/**
+ * **No authentication middleware.** The install is open.
+ *
+ * Removed rather than bypassed, on 2026-09-30. A self-hosted, single-tenant install
+ * has one operator and no second party to authenticate *to*: `WORKSPACE_ID` is the
+ * only tenancy boundary the product has, and ADR-006 puts multi-tenant isolation
+ * out of scope for v1.0.0. A credential in front of it would be an obstacle with
+ * nothing behind it — and one that had already produced three defects of its own:
+ * two files holding the key and disagreeing (E2E-1), a runner secret the lane never
+ * had (E2E-1's sibling), and a "this route is not public" check that was itself
+ * authenticated and proved nothing.
+ *
+ * **What this means, stated plainly rather than left to be discovered.** Anything
+ * that can reach the API can read every run, download every artifact, and cancel
+ * runs. That is the correct posture for a box on an operator's own network, and it
+ * is the wrong posture for the same box on a public interface. The boundary is the
+ * network, so **bind the API to loopback** — `HOST=127.0.0.1`, which is already the
+ * default — and put a reverse proxy in front of it if it must be reachable from
+ * anywhere else.
+ *
+ * The session and key routes are still mounted: they mint nothing and are no longer
+ * required, and a client that happens to send a credential is not refused for it.
+ */
 
 /**
  * The readiness probe's view of the durable bus, or nothing when there is none.

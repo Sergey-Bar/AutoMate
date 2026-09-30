@@ -328,6 +328,25 @@ export const tests = pgTable(
     retryCount: integer('retry_count').default(0),
     expectedStatus: text('expected_status'),
     workerIndex: integer('worker_index'),
+    // **Why a test failed**, as the reporter stated it.
+    //
+    // These two columns did not exist, and the reporter has been sending them the whole
+    // time: `TestEndPayloadSchema` is `.passthrough()`, so `error: { code, message }` was
+    // *accepted* and then written nowhere, because `upsertTest`/`patchTest` had nowhere to
+    // put it. The product therefore knew a test failed and had no idea why — and the
+    // dashboard, whose entire purpose is showing the evidence, rendered a red row with no
+    // reason on it.
+    //
+    // Additive, nullable, no backfill: a row written before this migration has no
+    // message, which is the honest state for a row that was recorded without one. The
+    // UI renders absence as "no message reported" rather than as a blank.
+    //
+    // Capped in the handler, not here — see `normaliseFailure` in
+    // `apps/api/src/services/reporter-persistence.ts`, which is where an untrusted
+    // producer's payload is bounded. A `text` column with no length is a place a
+    // producer can write a megabyte into a row that a dashboard then renders.
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
   },
   (t) => [
     // SQLite: primaryKey({ columns: [t.id, t.runId] })

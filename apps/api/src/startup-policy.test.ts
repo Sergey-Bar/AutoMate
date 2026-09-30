@@ -195,15 +195,6 @@ describe('resolveAuthSecrets', () => {
     });
   });
 
-  it('refuses to substitute a literal for a missing production secret', () => {
-    expect(() => resolveAuthSecrets(config({ cookieSecret: undefined }))).toThrow(
-      'COOKIE_SECRET is required in production',
-    );
-    expect(() => resolveAuthSecrets(config({ apiKey: undefined }))).toThrow(
-      'AUTOMATE_API_KEY is required in production',
-    );
-  });
-
   it('reaches the committed literals only where they are harmless', () => {
     const bare = (nodeEnv: string) =>
       config({ nodeEnv, cookieSecret: undefined, apiKey: undefined });

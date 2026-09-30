@@ -182,6 +182,22 @@ export interface TestRecord {
   file: string;
   status: TestStatus;
   durationMs: number | null;
+  /**
+   * Why the test failed, as the reporter stated it — `null` when it reported none.
+   *
+   * These did not exist, and the reporter has been sending them throughout:
+   * `TestEndPayloadSchema` is `.passthrough()`, so `error: { code, message }` was
+   * *accepted* and then written nowhere. A failed run recorded *that* a test failed and
+   * not *why*, which is the one piece of evidence an operator cannot work without, and
+   * which `RUN-3`'s sibling complaint is about: both columns are individually valid and
+   * the record is useless.
+   *
+   * `null` rather than `''` for "no message", because the difference between "the
+   * reporter said there was no message" and "we have never looked" is exactly the kind
+   * of ambiguity this repository's status vocabulary exists to remove.
+   */
+  errorCode: string | null;
+  errorMessage: string | null;
 }
 
 /**
@@ -326,13 +342,18 @@ export interface RunRepository {
   upsertTest(test: TestRecord): Promise<void>;
 
   /**
-   * Apply a status/duration patch to a test row.
-   * No-op if test does not exist.
+   * Apply a status/duration/failure patch to a test row. No-op if the test does not
+   * exist.
+   *
+   * The failure fields are patchable rather than write-once because a reporter may
+   * report a retry: `test:begin` writes `null` for both, and the final `test:end`
+   * writes the reason. A retry that failed differently therefore records its own
+   * message rather than the first attempt's.
    */
   patchTest(
     testId: string,
     runId: string,
-    patch: Partial<Pick<TestRecord, 'status' | 'durationMs'>>,
+    patch: Partial<Pick<TestRecord, 'status' | 'durationMs' | 'errorCode' | 'errorMessage'>>,
   ): Promise<void>;
 
   /** Retrieve a test by (testId, runId). Returns null when not found. */

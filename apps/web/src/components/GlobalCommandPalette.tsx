@@ -1,14 +1,12 @@
 import { CommandPalette } from '@automate/ui';
 import { useCommandStore, useCommandActions } from '../hooks/useCommandActions.js';
 import { useTheme } from '../theme/ThemeProvider.js';
-import { useAuth } from '../auth/useAuth.js';
 import { useNavigate } from '@tanstack/react-router';
 import { useMemo } from 'react';
 
 export function GlobalCommandPalette() {
   const actions = useCommandStore();
   const { theme, setTheme } = useTheme();
-  const { logout } = useAuth();
   const navigate = useNavigate();
 
   const builtInActions = useMemo(
@@ -28,15 +26,11 @@ export function GlobalCommandPalette() {
         label: 'Toggle Theme',
         onSelect: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
       },
-      {
-        id: 'auth-signout',
-        label: 'Sign Out',
-        onSelect: () => {
-          void logout().finally(() => void navigate({ to: '/login' }));
-        },
-      },
+      // **No "Sign Out" action.** There is no session to end on an open install, and a
+      // palette entry that navigated to a route which no longer exists would leave the
+      // user on a dead link.
     ],
-    [logout, navigate, setTheme, theme],
+    [navigate, setTheme, theme],
   );
 
   useCommandActions(builtInActions);

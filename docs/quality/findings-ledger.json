@@ -3215,6 +3215,41 @@
           "asserts": "no-server-timing-side-channel constrains the field name inside the metavariable-pattern that binds it, with the reason, the 1137-to-17 numbers and the semgrep --validate requirement in the file. no-hardcoded-secret-literal excludes an ALL-CAPS underscore-separated identifier, with the 31-character error code that motivated it and the 40-character mixed-case key that still fires."
         }
       ]
+    },
+    {
+      "id": "OPEN-1",
+      "provenance": "hand",
+      "wave": "W12",
+      "confirmed": true,
+      "band": "Major",
+      "status": "fixed",
+      "title": "The install had a login screen and a required API key in front of an open product",
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:owner-decision",
+      "summary": "A self-hosted, single-tenant product had an `AuthGuard` that redirected every unauthenticated visit to a sign-in form, and an API key the API refused to serve without. There was nothing behind either: ADR-006 puts multi-tenant isolation out of scope for v1.0.0, and `WORKSPACE_ID` is the only tenancy boundary the system has.",
+      "resolution": "**The decision.** The install is open. One tenant, one operator, self-hosted, and no second party to authenticate *to*. Removed rather than bypassed:\n\n- **`apps/web/src/auth/AuthGuard.tsx`, `useAuth.ts`, `routes/login.tsx` deleted.** The guard redirected every unauthenticated visit to `/login`; the login route and its form are gone, so there is no second way back in and nothing to re-enable by accident.\n- **`NavBar` has no Logout button** and the **command palette has no Sign Out action.** A button that appeared to end a session on an install with no sessions would be worse than no button.\n- **`createAuthMiddleware` is no longer mounted.** A credential that *is* presented is accepted, so an existing script or CI job holding a stale key keeps working; a caller with none is served.\n- **`AUTOMATE_API_KEY` no longer fails a production start.** Requiring it would refuse to boot for a value nothing reads. `COOKIE_SECRET` still is required, because sessions are still *minted* and signing one with a published literal is a real defect even when nothing requires a session.\n\n**What this means, stated rather than left to be discovered.** Anything that can reach the API can read every run, download every artifact and cancel runs. **The boundary is the network**: bind the API to loopback, which is already the default (`HOST=127.0.0.1`), and put a reverse proxy in front of it if it must be reachable from elsewhere. That is the posture the product already assumed: the roadmap's section 11 lists denial of service by volume on a public interface as out of threat-model scope, because the model assumes an operator's own network.\n\n**The tests that asserted the removed boundary were deleted, not inverted.** About 69 assertions across 15 files said a route answers 401 without a credential. Inverting them would have meant writing 69 new assertions about what an unauthenticated caller receives, which is a different body of work with opinions in it. Deleting leaves the tree stating only what is true. **Kept, because they are still enforced:** the reporter secret, the runner token, lease ownership, the tenancy filter on every workspace-scoped read, and the vault's AAD binding.\n\n**One of the deleted assertions was passing for the wrong reason, which is worth naming.** `failed-run-evidence.spec.ts` asserted that artifact bytes must require a credential — by reusing the `request` fixture, which carries the installation key in its default headers. The API correctly answered 200 and the test read that as the product publishing its evidence. **A security assertion that passes for the wrong reason is worse than no assertion**, because it is a green check that will never notice the day it matters.\n\n**The replacement is `e2e/product/open-access.spec.ts`**: the dashboard loads with no cookie and no key, no sign-in UI exists anywhere, an API caller with no headers is served, and a credential that is wrong is still served. Four assertions, all of which would fail if a credential were ever required again.\n\n**What was not lost:** the login route still exists server-side and still mints a session for anything that asks — it is simply no longer required, and nothing in the UI points at it.",
+      "evidence": [
+        {
+          "path": "apps/web/src/routes/__root.tsx",
+          "asserts": "RootComponent renders NavBar, Sidebar and the outlet directly, with no AuthGuard around them, so there is no code path from a page to a sign-in screen."
+        },
+        {
+          "path": "apps/web/src/router.ts",
+          "asserts": "The route tree is root + dashboard only; the login route is not imported, so it cannot be navigated to."
+        },
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "createAuthMiddleware is not imported and not registered. A credential that is present is still accepted by the routes that verify one."
+        },
+        {
+          "path": "apps/api/src/startup-policy.ts",
+          "asserts": "resolveAuthSecrets refuses a missing COOKIE_SECRET in production and no longer refuses a missing AUTOMATE_API_KEY, with the reason in the comment."
+        },
+        {
+          "path": "e2e/product/open-access.spec.ts",
+          "asserts": "Four assertions: the dashboard loads with no cookie and no key and every call it makes is served; no sign-in UI exists anywhere; an API caller built with no headers gets 200; and a credential that is not the installation key is still served. Each would fail if a credential were ever required again."
+        }
+      ]
     }
   ]
 }

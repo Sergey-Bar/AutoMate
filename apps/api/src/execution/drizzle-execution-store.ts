@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { normaliseFailure } from '../services/reporter-persistence.js';
 import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
 import { and, asc, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
@@ -261,6 +262,24 @@ function mapTest(row: DbRow): ExecutionTestResult {
         ? null
         : numberValue(row['durationMs']),
     attempt: numberValue(row['retryCount'], 1) + 1,
+    // **Why the test failed**, as the reporter stated it — migration 0022.
+    //
+    // This mapper is where the message was being lost even after the columns existed:
+    // the reporter wrote `error`, the row held it, and `mapTest` did not read it, so the
+    // canonical response carried a failed test with no reason and the dashboard had
+    // nothing to render. Three links in the chain — contract, write, read — and the read
+    // was the one still missing.
+    //
+    // `null` when the row holds neither, which is the honest state for a test recorded
+    // before the migration and for a producer that reported no reason; `canonictTest`
+    // turns that into a `null` error rather than an invented one.
+    error:
+      row['errorCode'] || row['errorMessage']
+        ? {
+            code: stringValue(row['errorCode'], 'TEST_FAILED'),
+            message: stringValue(row['errorMessage'], 'The test failed'),
+          }
+        : null,
   };
 }
 
@@ -1405,6 +1424,25 @@ export class DrizzleExecutionStore implements ExecutionStore {
       const derived = deriveRunState(phase, outcome);
       if (completion.tests) {
         for (const test of completion.tests) {
+          // **Why the test failed**, from the runner that reported it.
+          //
+          // `ExecutionTestResult.error` has existed for as long as the job-completion
+          // payload has, and `CanonicalTestResultSchema` declares it, and the run-detail
+          // page has rendered `test-error-<id>` since before any of this — but this
+          // writer did not persist it. So a runner reporting a failure with a reason
+          // produced a `tests` row with a status and no reason, and the dashboard
+          // rendered a red row with nothing on it.
+          //
+          // This is the **fourth** write path to the same gap: the reporter event
+          // (`test:end`), the reporter upload, and now the job completion. All three
+          // now write it and all three read it back through `mapTest`, and the bound is
+          // the reporter's `normaliseFailure` — which this path reuses rather than
+          // re-deriving, so an untrusted payload is bounded identically whichever door
+          // it arrives at.
+          const failure = normaliseFailure({
+            code: test.error?.code,
+            message: test.error?.message,
+          });
           await tx
             .insert(tests)
             .values({
@@ -1415,6 +1453,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
               status: dbTestStatus(test.status),
               durationMs: test.durationMs ?? null,
               retryCount: Math.max(0, (test.attempt ?? 1) - 1),
+              ...failure,
             })
             .onConflictDoUpdate({
               target: [tests.id, tests.runId],
@@ -1422,6 +1461,10 @@ export class DrizzleExecutionStore implements ExecutionStore {
                 title: test.title,
                 status: dbTestStatus(test.status),
                 durationMs: test.durationMs ?? null,
+                // On conflict as well as insert: a retry reported over the same
+                // (testId, runId) must replace the previous attempt's reason rather than
+                // leaving the first failure on screen next to a passing retry.
+                ...failure,
               },
             });
         }

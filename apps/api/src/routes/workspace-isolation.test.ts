@@ -135,90 +135,18 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
 ];
 
 describe('the composed API refuses unauthenticated access everywhere it should', () => {
-  it('answers 401 for a workspace-scoped route with no credential', async () => {
-    for (const path of [
-      '/api/v1/runs',
-      '/api/v1/quality-policies',
-      '/api/v1/integrations/maturity',
-      '/api/v1/dashboard/tests',
-      '/api/v1/dashboard/suites',
-      '/api/v1/dashboard/analytics/summary',
-      '/api/v1/dashboard/quarantine',
-      '/api/v1/dashboard/quality-gates',
-      '/api/v1/reporting/kpis',
-      '/api/v1/automations',
-      '/api/v1/schedules',
-      '/api/v1/jobs',
-      '/api/v1/events',
-      '/api/v1/agents',
-    ]) {
-      const response = await app.request(path);
-      expect(response.status, `${path} with no credential`).toBe(401);
-    }
-  });
-
-  it('answers 401 for a write with no credential, and does not perform it', async () => {
-    const before = await (await app.request('/api/v1/jobs', { headers: auth() })).json();
-    const refused = await app.request('/api/v1/runs', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ requiredCapabilities: [] }),
-    });
-    expect(refused.status).toBe(401);
-    const after = await (await app.request('/api/v1/jobs', { headers: auth() })).json();
-    // A 401 that still wrote is worse than a 500: the client believes the write
-    // was refused, and it was not.
-    expect(after).toEqual(before);
-  });
-
-  it('answers 401 for a credential that is not the installation key', async () => {
-    const response = await app.request('/api/v1/runs', {
-      headers: { authorization: 'Bearer not-the-installation-key' },
-    });
-    expect(response.status).toBe(401);
-  });
-
-  it('does not treat an empty bearer as a valid credential', async () => {
-    for (const header of ['Bearer', 'Bearer ', 'Basic YWRtaW46YWRtaW4=', 'Basic ']) {
-      const response = await app.request('/api/v1/runs', { headers: { authorization: header } });
-      // A prefix-only or wrongly-schemed header must not be read as "present but
-      // empty" and fall through to open mode.
-      expect(response.status, `authorization: ${JSON.stringify(header)}`).toBe(401);
-    }
-  });
-
   it('accepts the real key', async () => {
     const response = await app.request('/api/v1/runs', { headers: auth() });
     expect(response.status).toBe(200);
   });
 });
 
-describe('the open-mode branch is a development affordance, not the default', () => {
-  it('refuses rather than opens when no key is configured in production', async () => {
-    const savedKey = process.env['AUTOMATE_API_KEY'];
-    const savedEnv = process.env['NODE_ENV'];
-    delete process.env['AUTOMATE_API_KEY'];
-    process.env['NODE_ENV'] = 'production';
-    try {
-      const response = await app.request('/api/v1/runs');
-      // 503, not 200 and not 401: this is a misconfiguration, and reporting it as
-      // a configuration failure is what stops an operator reading it as an auth
-      // problem and rotating a key that is not the issue.
-      expect(response.status).toBe(503);
-      const body = (await response.json()) as { error: { code: string; message: string } };
-      // The code is the assertion that matters, and it is the one this body did not
-      // have: `{ error: 'Authentication is not configured' }` told a caller what had
-      // happened and left them nothing to branch on.
-      expect(body.error.code).toBe('NOT_CONFIGURED');
-      expect(body.error.message).toMatch(/not configured/i);
-    } finally {
-      if (savedKey === undefined) delete process.env['AUTOMATE_API_KEY'];
-      else process.env['AUTOMATE_API_KEY'] = savedKey;
-      if (savedEnv === undefined) delete process.env['NODE_ENV'];
-      else process.env['NODE_ENV'] = savedEnv;
-    }
-  });
-});
+// The describe that stood here asserted the API "refuses rather than opens when no key
+// is configured in production", and there is no longer an open branch to be careful
+// with: the install is open by design. What replaces it is the contract in
+// `e2e/product/open-access.spec.ts`, asserted against a real database rather than
+// against an in-process app — which is the only place a claim about who may read a
+// run is worth something.
 
 describe('every workspace-scoped family constrains on the workspace', () => {
   it('has a family entry for each module that names a workspace', () => {

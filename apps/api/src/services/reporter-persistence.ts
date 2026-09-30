@@ -71,8 +71,70 @@ const TestEndPayloadSchema = z
     testId: z.string().min(1),
     status: z.enum(['passed', 'failed', 'flaky', 'skipped', 'timedOut']),
     durationMs: z.number().optional(),
+    // **Declared rather than passed through.** The field was always accepted, because
+    // the schema is `.passthrough()` — and then written nowhere, so a failed test was
+    // recorded as failed with no reason. Declaring it is what makes it a value this
+    // function has to do something with, rather than a key that quietly disappears.
+    error: z
+      .object({
+        code: z.string().optional(),
+        message: z.string().optional(),
+      })
+      .optional(),
   })
   .passthrough();
+
+/**
+ * The most of a failure message this product will store, and the most it will render.
+ *
+ * **8 KiB**, which is a generous stack trace and a small row. The payload arrives from
+ * a producer over HTTP, is untrusted, and lands in a column the dashboard renders — so
+ * an unbounded message is a producer's megabyte in a table a customer pays to store and
+ * a browser has to parse. The bound belongs here, at the read of the untrusted payload,
+ * rather than as a `varchar` in the schema: a length constraint in the database turns a
+ * truncation into an error, and a producer with a legitimate long stack trace would get a
+ * rejected batch instead of a bounded prefix of it.
+ *
+ * Truncation is **recorded, not silent**: the stored value ends with a marker saying it
+ * was cut, so a reader can tell "the producer said no more" from "we kept the first
+ * 8 KiB".
+ */
+const MAX_FAILURE_MESSAGE = 8 * 1024;
+const MAX_FAILURE_CODE = 128;
+const TRUNCATION_MARKER = '… [truncated]';
+
+/**
+ * Normalise a reporter's failure into what gets stored, bounded and non-null.
+ *
+ * Exported because the **upload** path needs the same rule as the event path: the
+ * reporter contract declares `error` on a test in both, so an upload has always been
+ * able to carry a reason and has always had it dropped by a different piece of code. Two
+ * doors, one rule — otherwise the bound, the truncation marker and the `null`-for-none
+ * convention exist twice and drift.
+ *
+ * @param error the `error` member of a payload, if any
+ * @returns the two columns, or `null`/`null` when the producer reported no reason
+ */
+export function normaliseFailure(
+  error: { code?: string | undefined; message?: string | undefined } | undefined,
+): { errorCode: string | null; errorMessage: string | null } {
+  const message = error?.message?.trim() ?? '';
+  const code = error?.code?.trim() ?? '';
+  if (message === '' && code === '') return { errorCode: null, errorMessage: null };
+  return {
+    errorCode: code === '' ? null : truncate(code, MAX_FAILURE_CODE),
+    errorMessage: message === '' ? null : truncate(message, MAX_FAILURE_MESSAGE),
+  };
+}
+
+/**
+ * @param {string} value
+ * @param {number} limit
+ * @returns {string}
+ */
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit)}${TRUNCATION_MARKER}`;
+}
 
 /** The status a `test:end` payload can carry, before it is stored. */
 type IncomingTestStatus = z.infer<typeof TestEndPayloadSchema>['status'];
@@ -169,6 +231,11 @@ export async function persistReporterEvent(
         file: sanitizeAttachmentPath(p.file),
         status: 'running',
         durationMs: null,
+        // A test that has not finished has no reason. Written explicitly rather than
+        // left to a default, so `test:begin` after a retry clears the previous
+        // attempt's message instead of showing it against a test now running.
+        errorCode: null,
+        errorMessage: null,
       });
       // test:begin only creates a test row — run record unchanged.
       return false;
@@ -187,6 +254,10 @@ export async function persistReporterEvent(
       await repo.patchTest(p.testId, runId, {
         status: next,
         durationMs: p.durationMs ?? null,
+        // The reason, bounded and normalised. This is the write that was missing: the
+        // reporter has always sent it and the product has always dropped it, so a
+        // failed run recorded *that* a test failed and nothing about why.
+        ...normaliseFailure(p.error),
       });
       if (previous && previous.status !== next) {
         const delta = transitionDelta(previous.status, next);

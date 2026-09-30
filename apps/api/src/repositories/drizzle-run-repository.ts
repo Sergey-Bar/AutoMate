@@ -177,6 +177,8 @@ export class DrizzleRunRepository implements RunRepository {
         file: test.file,
         status: test.status,
         durationMs: test.durationMs ?? null,
+        errorCode: test.errorCode,
+        errorMessage: test.errorMessage,
       })
       .onConflictDoUpdate({
         target: [tests.id, tests.runId],
@@ -185,6 +187,10 @@ export class DrizzleRunRepository implements RunRepository {
           file: test.file,
           status: test.status,
           durationMs: test.durationMs ?? null,
+          // Cleared on conflict as well as set: a retry reported over the same
+          // (testId, runId) must not keep the previous attempt's reason.
+          errorCode: test.errorCode,
+          errorMessage: test.errorMessage,
         },
       });
   }
@@ -192,7 +198,7 @@ export class DrizzleRunRepository implements RunRepository {
   async patchTest(
     testId: string,
     runId: string,
-    patch: Partial<Pick<TestRecord, 'status' | 'durationMs'>>,
+    patch: Partial<Pick<TestRecord, 'status' | 'durationMs' | 'errorCode' | 'errorMessage'>>,
   ): Promise<void> {
     const existing = await this.db
       .select({ id: tests.id })
@@ -206,6 +212,8 @@ export class DrizzleRunRepository implements RunRepository {
       .set({
         ...(patch.status !== undefined && { status: patch.status }),
         ...(patch.durationMs !== undefined && { durationMs: patch.durationMs }),
+        ...(patch.errorCode !== undefined && { errorCode: patch.errorCode }),
+        ...(patch.errorMessage !== undefined && { errorMessage: patch.errorMessage }),
       })
       .where(and(eq(tests.id, testId), eq(tests.runId, runId)));
   }
@@ -282,6 +290,8 @@ export class DrizzleRunRepository implements RunRepository {
       file: row.file,
       status: row.status as TestStatus,
       durationMs: row.durationMs ?? null,
+      errorCode: row.errorCode ?? null,
+      errorMessage: row.errorMessage ?? null,
     };
   }
 }

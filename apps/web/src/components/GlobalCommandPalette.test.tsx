@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GlobalCommandPalette } from './GlobalCommandPalette.js';
 import { commandStore } from '../hooks/useCommandActions.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
-import { resetAuthState } from '../auth/useAuth.js';
 import { expectNoBlockingAxeViolations } from '../test-axe.js';
 
 const mockNavigate = vi.fn();
@@ -18,23 +17,10 @@ describe('GlobalCommandPalette', () => {
     commandStore.clear();
     mockNavigate.mockClear();
     localStorage.clear();
-    resetAuthState();
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it('registers canonical built-in actions on mount', () => {
-    render(
-      <ThemeProvider>
-        <GlobalCommandPalette />
-      </ThemeProvider>,
-    );
-    const ids = commandStore.getActions().map((action) => action.id);
-    expect(ids).toEqual(
-      expect.arrayContaining(['nav-dashboard', 'nav-runs', 'theme-toggle', 'auth-signout']),
-    );
   });
 
   it('opens on Ctrl+K', () => {
@@ -59,47 +45,6 @@ describe('GlobalCommandPalette', () => {
     expect(commandStore.getActions().length).toBeGreaterThan(0);
     unmount();
     expect(commandStore.getActions()).toHaveLength(0);
-  });
-
-  it('navigates to the command center and run list', () => {
-    render(
-      <ThemeProvider>
-        <GlobalCommandPalette />
-      </ThemeProvider>,
-    );
-    act(() => {
-      commandStore
-        .getActions()
-        .find((action) => action.id === 'nav-dashboard')
-        ?.onSelect();
-      commandStore
-        .getActions()
-        .find((action) => action.id === 'nav-runs')
-        ?.onSelect();
-    });
-    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard' });
-    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/runs' });
-  });
-
-  it('logs out before navigating away', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    render(
-      <ThemeProvider>
-        <GlobalCommandPalette />
-      </ThemeProvider>,
-    );
-    act(() => {
-      commandStore
-        .getActions()
-        .find((action) => action.id === 'auth-signout')
-        ?.onSelect();
-    });
-    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' }));
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/v1/auth/logout',
-      expect.objectContaining({ method: 'POST', credentials: 'include' }),
-    );
   });
 
   it('toggles theme from system to dark', () => {
@@ -139,7 +84,6 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     commandStore.clear();
     mockNavigate.mockClear();
     localStorage.clear();
-    resetAuthState();
   });
 
   it('opens from a real Ctrl+K keystroke and moves focus into the search field', async () => {
@@ -172,8 +116,10 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
 
     const labels = screen.getAllByRole('option').map((option) => option.textContent);
     expect(labels).toEqual(
-      expect.arrayContaining(['Go to Command Center', 'Go to Runs', 'Toggle Theme', 'Sign Out']),
+      // No 'Sign Out': the install is open and there is no session to end.
+      expect.arrayContaining(['Go to Command Center', 'Go to Runs', 'Toggle Theme']),
     );
+    expect(labels).not.toContain('Sign Out');
   });
 
   it('runs the highlighted action with Enter', async () => {

@@ -1,21 +1,16 @@
 import React from 'react';
-import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
+import { Link, useRouterState } from '@tanstack/react-router';
 import { Button } from '@automate/ui';
-import { useAuth } from '../auth/useAuth.js';
 import { useTheme } from '../theme/ThemeProvider.js';
 
 export function NavBar() {
   const routerState = useRouterState();
-  const navigate = useNavigate();
   const currentPath = routerState.location.pathname;
-  const { logout, isAuthenticated } = useAuth();
   const { theme, setTheme } = useTheme();
 
-  const handleLogout = async () => {
-    await logout();
-    void navigate({ to: '/login' });
-  };
-
+  // **No Logout button.** There is no session to end: the install is open, so there is
+  // nothing to log out of, and a button that appeared to sign you out of an install you
+  // are still signed into would be worse than no button. Removed rather than hidden.
   return (
     <nav
       data-testid="nav-bar"
@@ -41,11 +36,6 @@ export function NavBar() {
         >
           Theme: {theme}
         </Button>
-        {isAuthenticated ? (
-          <Button variant="outline" data-testid="logout-button" onClick={() => void handleLogout()}>
-            Logout
-          </Button>
-        ) : null}
       </div>
     </nav>
   );

@@ -24,7 +24,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { API_AUTH_HEADERS, API_BASE, INSTALLATION_KEY, WEB_BASE } from '../support/config.js';
+import { API_AUTH_HEADERS, API_BASE, WEB_BASE } from '../support/config.js';
 
 // ---------------------------------------------------------------------------
 // Evidence directories
@@ -104,11 +104,18 @@ async function waitForRunInApi(
   return run!;
 }
 
-async function authenticateBrowser(page: Page): Promise<void> {
-  await page.goto(`${WEB_BASE}/login?return=%2Fdashboard`);
-  await page.getByRole('textbox', { name: 'API Key' }).fill(INSTALLATION_KEY);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.waitForURL('**/dashboard');
+/**
+ * Open the dashboard directly.
+ *
+ * There is no sign-in step any more: the install is open, so a browser with no cookie
+ * and no API key lands on the command center and every call it makes is served. This
+ * function used to drive a login form, and the first run after the login route was
+ * removed failed waiting for an `API Key` textbox that no longer exists — which is the
+ * shape of a test that documents a product rather than a behaviour.
+ */
+async function openDashboard(page: Page): Promise<void> {
+  await page.goto(`${WEB_BASE}/dashboard`);
+  await expect(page.getByTestId('auth-loading')).toBeHidden();
 }
 
 // ---------------------------------------------------------------------------
@@ -210,19 +217,16 @@ test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', asyn
     signal: AbortSignal.timeout(10_000),
   });
 
-  expect(response.status, 'SSE endpoint must answer 200 to an authenticated caller').toBe(200);
+  expect(response.status, 'the SSE endpoint must answer 200').toBe(200);
   expect(response.headers.get('content-type')).toContain('text/event-stream');
 
-  // A refused stream is still 401, not 200: the endpoint is reachable, and it is
-  // not open.
-  const refused = await fetch(`${API_BASE}/api/v1/events`, {
-    signal: AbortSignal.timeout(10_000),
-  });
-  expect(refused.status, 'SSE must not be open to an anonymous caller').toBe(401);
+  // **No anonymous-refusal check here any more.** The install is open, so a stream with
+  // no credential is served exactly as one with a credential is — and the previous
+  // version asserted it was refused, which is a boundary the product does not have.
+  // The replacement contract lives in `e2e/product/open-access.spec.ts`.
 
-  // Both are left dangling by design; the abort above already fired.
+  // Left dangling by design; the abort above already fired.
   await response.body?.cancel();
-  await refused.body?.cancel();
 });
 
 // ---------------------------------------------------------------------------
@@ -247,7 +251,7 @@ test('vertical slice — browser shows exact seeded run-item (T29)', async ({ pa
   await waitForRunInApi(request, RUN_ID);
 
   // Navigate to the dashboard
-  await authenticateBrowser(page);
+  await openDashboard(page);
   await page.goto(`${WEB_BASE}/dashboard`);
 
   // Wait for the exact run item — this MUST appear.
@@ -290,7 +294,7 @@ test('vertical slice — SSE live update: run:end changes status to passed witho
   await waitForRunInApi(request, RUN_ID);
 
   // Step 2: Navigate to dashboard and wait for the run item to appear
-  await authenticateBrowser(page);
+  await openDashboard(page);
   await page.goto(`${WEB_BASE}/dashboard`);
   await page.waitForSelector(`[data-testid="run-item-${RUN_ID}"]`, { timeout: 15000 });
 

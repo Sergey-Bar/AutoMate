@@ -141,6 +141,7 @@
     "E2E-3": "open",
     "TS-1": "fixed",
     "SEM-1": "fixed",
-    "SEM-2": "open"
+    "SEM-2": "open",
+    "OPEN-1": "fixed"
   }
 }

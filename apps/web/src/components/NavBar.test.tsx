@@ -2,7 +2,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { NavBar } from './NavBar';
-import { resetAuthState } from '../auth/useAuth.js';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import {
   createMemoryHistory,
@@ -27,32 +26,12 @@ function makeRouter(initialPath = '/') {
 
 describe('NavBar', () => {
   beforeEach(() => {
-    resetAuthState();
     localStorage.clear();
     globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
   });
 
   afterEach(() => {
-    resetAuthState();
     vi.unstubAllGlobals();
-  });
-
-  it('renders logout button when authenticated', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 } as Response);
-    render(<RouterProvider router={makeRouter()} />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('logout-button')).toBeInTheDocument();
-    });
-  });
-
-  it('does not render logout button when unauthenticated', async () => {
-    // sessionStorage is clean (cleared in beforeEach)
-    render(<RouterProvider router={makeRouter()} />);
-    await waitFor(() => {
-      expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
-    });
-    expect(screen.queryByTestId('logout-button')).toBeNull();
   });
 
   it('toggles theme', async () => {
@@ -93,26 +72,6 @@ describe('NavBar', () => {
       expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
     });
     expect(screen.getByText('Release Command Center')).toBeInTheDocument();
-  });
-
-  it('clicking logout button triggers logout API call', async () => {
-    const mockFetch = vi.fn().mockResolvedValue({ ok: true } as Response);
-    vi.stubGlobal('fetch', mockFetch);
-
-    render(<RouterProvider router={makeRouter()} />);
-    await waitFor(() => {
-      expect(screen.getByTestId('logout-button')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('logout-button'));
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/v1/auth/logout',
-        expect.objectContaining({ method: 'POST', credentials: 'include' }),
-      );
-    });
-
-    vi.unstubAllGlobals();
   });
 
   it('renders nav-bar element', async () => {

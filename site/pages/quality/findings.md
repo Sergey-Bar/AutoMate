@@ -10,7 +10,7 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ---------------- | ---- |
 | `debt`           | 6    |
 | `false-positive` | 4    |
-| `fixed`          | 116  |
+| `fixed`          | 117  |
 | `open`           | 9    |
 
 ## Open (9)

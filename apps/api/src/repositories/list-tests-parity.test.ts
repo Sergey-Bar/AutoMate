@@ -93,6 +93,10 @@ const testsFor = (runId: string, titles: string[]) =>
     file: 'tests/checkout.spec.ts',
     status: 'passed' as const,
     durationMs: 5,
+    // Required on `TestRecord` since migration 0022; these fixtures are about grouping,
+    // so the reason is absent rather than invented.
+    errorCode: null,
+    errorMessage: null,
   }));
 
 /** Two tests on A, one on B, none on C — so "missing key" and "empty list" differ. */

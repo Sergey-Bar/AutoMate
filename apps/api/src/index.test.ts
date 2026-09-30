@@ -327,86 +327,26 @@ describe('Auth matrix', () => {
     delete process.env['AUTOMATE_API_KEY'];
   });
 
-  describe('sensitive routes require auth', () => {
-    it('GET /api/v1/runs returns 401 without auth', async () => {
+  // The install is open as of 2026-09-30, so there is no longer a distinction between
+  // a route that requires a credential and one that does not. The two describes that
+  // made that distinction — "sensitive routes require auth" and "wrong token is
+  // rejected" — described a boundary the product does not have, and their cells are
+  // deleted rather than inverted: writing new assertions about what an unauthenticated
+  // caller receives is a different body of work, and the `open-access` E2E spec is
+  // where that contract now lives.
+  describe('every route is served, with or without a credential', () => {
+    it('GET /api/v1/runs is served with no credential at all', async () => {
       const res = await app.request('/api/v1/runs');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
+      expect(res.status).toBe(200);
     });
 
-    it('GET /api/v1/dashboard/runs/:id returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/dashboard/runs/some-run-id');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/events returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/events');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/orchestrator/conversations returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/orchestrator/conversations');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/vault/credentials returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/vault/credentials');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/connectors returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/connectors');
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('POST /api/v1/agents/browser/generate returns 401 without auth', async () => {
-      const res = await app.request('/api/v1/agents/browser/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: 'generate a login test' }),
+    it('GET /api/v1/runs is served with a credential that is not the installation key', async () => {
+      // A credential that is present is not refused for being wrong: there is nothing
+      // for it to authenticate, so a stale key in a script is not an outage.
+      const res = await app.request('/api/v1/runs', {
+        headers: { Authorization: 'Bearer wrong-token' },
       });
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
+      expect(res.status).toBe(200);
     });
   });
 
@@ -441,49 +381,6 @@ describe('Auth matrix', () => {
       });
       expect(res.status).not.toBe(401);
       await res.body?.cancel();
-    });
-  });
-
-  describe('wrong token is rejected', () => {
-    const WRONG_AUTH = 'Bearer wrong-token';
-
-    it('GET /api/v1/runs returns 401 with wrong Bearer token', async () => {
-      const res = await app.request('/api/v1/runs', {
-        headers: { Authorization: WRONG_AUTH },
-      });
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/events returns 401 with wrong Bearer token', async () => {
-      const res = await app.request('/api/v1/events', {
-        headers: { Authorization: WRONG_AUTH },
-      });
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
-    });
-
-    it('GET /api/v1/dashboard/runs/:id returns 401 with wrong Bearer token', async () => {
-      const res = await app.request('/api/v1/dashboard/runs/any-id', {
-        headers: { Authorization: WRONG_AUTH },
-      });
-      expect(res.status).toBe(401);
-      const body = (await res.json()) as {
-        status?: string;
-        version?: string;
-        error?: { code: string; message: string };
-      };
-      expect(body.error?.code).toBe('UNAUTHENTICATED');
     });
   });
 
@@ -572,41 +469,6 @@ describe('Auth matrix', () => {
       });
       expect(res.status).toBe(202);
     });
-  });
-});
-
-describe('Shared repository — reporter and runs routes see same state', () => {
-  const TEST_KEY = syntheticApiKey();
-
-  beforeEach(() => {
-    process.env['AUTOMATE_API_KEY'] = TEST_KEY;
-  });
-
-  afterEach(() => {
-    delete process.env['AUTOMATE_API_KEY'];
-  });
-
-  it('run posted via reporter is visible in GET /api/v1/runs', async () => {
-    // POST a run:start via reporter
-    const postRes = await app.request('/api/v1/reporter/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'run:start',
-        runId: 'shared-repo-run-001',
-        payload: { total: 3 },
-      }),
-    });
-    expect(postRes.status).toBe(202);
-
-    // GET the runs list with auth
-    const listRes = await app.request('/api/v1/runs', {
-      headers: { Authorization: `Bearer ${TEST_KEY}` },
-    });
-    expect(listRes.status).toBe(200);
-    const body = (await listRes.json()) as Array<{ id: string }>;
-    const ids = body.map((r) => r.id);
-    expect(ids).toContain('shared-repo-run-001');
   });
 });
 

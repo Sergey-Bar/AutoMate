@@ -84,7 +84,7 @@ export class InMemoryRunRepository implements RunRepository {
   async patchTest(
     testId: string,
     runId: string,
-    patch: Partial<Pick<TestRecord, 'status' | 'durationMs'>>,
+    patch: Partial<Pick<TestRecord, 'status' | 'durationMs' | 'errorCode' | 'errorMessage'>>,
   ): Promise<void> {
     const key = this._testKey(testId, runId);
     const existing = this._tests.get(key);
@@ -93,6 +93,12 @@ export class InMemoryRunRepository implements RunRepository {
     const updated: TestRecord = { ...existing };
     if (patch.status !== undefined) updated.status = patch.status;
     if (patch.durationMs !== undefined) updated.durationMs = patch.durationMs;
+    // `undefined` rather than a falsy check, so a reporter that reports **no** reason
+    // clears a previous attempt's. `store-parity.test.ts` holds this store and the
+    // Drizzle one to the same answer, and `||` here would make the in-memory store
+    // disagree with the durable one on exactly the retry case that matters.
+    if (patch.errorCode !== undefined) updated.errorCode = patch.errorCode;
+    if (patch.errorMessage !== undefined) updated.errorMessage = patch.errorMessage;
 
     this._tests.set(key, updated);
   }

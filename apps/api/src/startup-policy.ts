@@ -144,19 +144,23 @@ export interface AuthSecrets {
  * Now the literal is reachable only where it is harmless: a test run, or a
  * developer's own machine with `AUTOMATE_ALLOW_DEV_SECRETS=1`. Everywhere else
  * a missing secret is a startup failure, not a silent fallback.
+ *
+ * **`AUTOMATE_API_KEY` no longer fails a production start.** The install is open as
+ * of 2026-09-30 — there is no credential in front of it to check — so requiring one
+ * at boot would refuse to start an install for the sake of a value nothing reads.
+ * `COOKIE_SECRET` still is required in production, because sessions are still *minted*
+ * and a session signed with a published literal is a real defect even when nothing
+ * requires a session to view anything.
  */
 export function resolveAuthSecrets(
   config: AppConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): AuthSecrets {
-  if (isProduction(config)) {
-    if (!config.cookieSecret) {
-      throw new Error('COOKIE_SECRET is required in production');
-    }
-    if (!config.apiKey) {
-      throw new Error('AUTOMATE_API_KEY is required in production');
-    }
+  if (isProduction(config) && !config.cookieSecret) {
+    throw new Error('COOKIE_SECRET is required in production');
   }
+  // No `AUTOMATE_API_KEY` check: the install is open, so there is nothing for the key
+  // to authenticate and requiring one would refuse to start for a value nothing reads.
   const allowLiterals = config.nodeEnv === 'test' || devSecretsAllowed(env);
   if (!config.cookieSecret && !allowLiterals) {
     throw new Error(

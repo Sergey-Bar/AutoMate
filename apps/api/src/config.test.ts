@@ -226,43 +226,75 @@ describe('documented credentials are usable by the policy', () => {
  * The variable's own name is skipped, because `process.env['COOKIE_SECRET']` is a
  * lookup and its text is a name, not a value.
  */
+/**
+ * Whether a line assigns the variable, or merely names it.
+ *
+ * Split out of `assignmentsIn` because that function was over the ceiling once it
+ * learned the distinction, and the fix is to name the rule rather than to raise the
+ * ceiling.
+ *
+ * **An `import` or `export` line is not an assignment.** Treating one as an assignment is
+ * how an import became a secret: `import { …, RUNNER_REGISTRATION_SECRET, … } from
+ * './e2e/support/config.js'` reported
+ * `RUNNER_REGISTRATION_SECRET=./e2e/support/config.js (23 characters)` — a finding about
+ * a module path, produced by scanning every string on a line that merely named the
+ * variable. The gate was right that a 23-character value fails the floor and wrong about
+ * what the value was.
+ *
+ * Those two keywords are excluded explicitly rather than by a pattern for "assigns",
+ * because the forms in use are several: `NAME=`, `NAME:`, and `__ENV.NAME || '…'` in
+ * `performance/smoke.js`. Requiring `=` or `:` would have declared that file secretless
+ * and quietly turned the next assertion vacuous — the failure this whole test exists to
+ * catch.
+ *
+ * @param line one line of the audited file
+ * @param variable the setting this line was matched on
+ */
+function assignsRatherThanMentions(line: string, variable: SecretVariable): boolean {
+  if (/^\s*(?:import|export)\b/.test(line)) return false;
+  return new RegExp(`\\b${variable}\\s*(?:=|:)`).test(line) || /\|\|/.test(line);
+}
+
+/**
+ * The values beside one variable on one line.
+ *
+ * Split out of `assignmentsIn`, which was over the complexity ceiling once it learned to
+ * tell an assignment from a mention. Two forms, because the two are two shapes:
+ * a quoted literal, and the bare `NAME=value` a `.env` file and a workflow `env:` block
+ * use.
+ *
+ * @param line one line of the audited file
+ * @param variable the setting this line was matched on
+ */
+function valuesOnLine(line: string, variable: SecretVariable): string[] {
+  const values: string[] = [];
+  for (const literal of line.matchAll(/'([^']+)'|"([^"]+)"/g)) {
+    const value = literal[1] ?? literal[2] ?? '';
+    if (value === '' || (SECRET_VARIABLES as readonly string[]).includes(value)) continue;
+    values.push(value);
+  }
+  // Written with an escaped backslash on purpose: `\s` inside a template literal is the
+  // letter `s`, which is a silent way to make a reader match nothing.
+  for (const pattern of [
+    new RegExp(`\\b${variable}=([^\\s#]+)`),
+    new RegExp(`\\b${variable}:\\s+([^\\s#]+)`),
+  ]) {
+    const bare = pattern.exec(line)?.[1];
+    // `NAME: process.env['NAME'] ?? 'value'` is the one shape where the text right after
+    // the name is a lookup rather than a value, so it is skipped by name.
+    if (bare !== undefined && !bare.startsWith('process.env[')) values.push(bare);
+  }
+  return values;
+}
+
 function assignmentsIn(text: string): Array<{ variable: SecretVariable; value: string }> {
   const found: Array<{ variable: SecretVariable; value: string }> = [];
   for (const line of text.split(/\r?\n/)) {
     const variable = SECRET_VARIABLES.find((name) => line.includes(name));
     if (variable === undefined) continue;
-    // A line that only **mentions** the variable is not an assignment, and treating it as
-    // one is how an import line became a secret:
-    // `import { …, RUNNER_REGISTRATION_SECRET, … } from './e2e/support/config.js'` reported
-    // `RUNNER_REGISTRATION_SECRET=./e2e/support/config.js (23 characters)` — a finding
-    // about a module path, produced by scanning every string on a line that merely named
-    // the variable. The gate was right that a 23-character value fails the floor, and
-    // wrong about what the value was.
-    //
-    // `import` and `export` lines are the case that matters, and they are excluded
-    // explicitly rather than by a pattern for "assigns", because the forms in use are
-    // several: `NAME=`, `NAME:`, and `__ENV.NAME || '…'` in `performance/smoke.js`.
-    // Requiring `=` or `:` would have declared that file secretless and quietly turned
-    // the next assertion vacuous — which is the failure this whole test exists to catch.
-    if (/^\s*(?:import|export)\b/.test(line)) continue;
-    // Written without a backslash on purpose: `\s` inside this template literal is
-    // the letter `s`, which is a silent way to make a reader match nothing.
-    for (const literal of line.matchAll(/'([^']+)'|"([^"]+)"/g)) {
-      const value = literal[1] ?? literal[2] ?? '';
-      if (value === '' || (SECRET_VARIABLES as readonly string[]).includes(value)) continue;
+    if (!assignsRatherThanMentions(line, variable)) continue;
+    for (const value of valuesOnLine(line, variable)) {
       found.push({ variable, value });
-    }
-    // The unquoted forms, which is what a `.env` file and a workflow `env:` block use.
-    for (const pattern of [
-      new RegExp(`\\b${variable}=([^\\s#]+)`),
-      new RegExp(`\\b${variable}:\\s+([^\\s#]+)`),
-    ]) {
-      const bare = pattern.exec(line)?.[1];
-      // `NAME: process.env['NAME'] ?? 'value'` is the one shape where the text right
-      // after the name is a lookup rather than a value, so it is skipped by name.
-      if (bare !== undefined && !bare.startsWith('process.env[')) {
-        found.push({ variable, value: bare });
-      }
     }
   }
   return found;
@@ -302,30 +334,49 @@ function referenceResolver(): (identifier: string) => string | undefined {
   };
 }
 
-function auditSource(text: string, resolve?: (identifier: string) => string | undefined): string[] {
-  const resolved = resolve ?? referenceResolver();
+/**
+ * The problems with one assignment, or none.
+ *
+ * Split out of `auditSource` because that function was over the complexity ceiling once
+ * it learned to skip `import` lines, and the fix is to say the rule once rather than to
+ * raise the ceiling.
+ *
+ * @param variable the setting's name
+ * @param written the text beside it, as the file has it
+ * @param resolve a reference resolver
+ * @returns zero, one or two findings — a short value *and* a placeholder is two
+ */
+function auditAssignment(
+  variable: SecretVariable,
+  written: string,
+  resolve: (identifier: string) => string | undefined,
+): string[] {
+  // A bare value in an object literal carries its trailing comma, so
+  // `AUTOMATE_API_KEY: INSTALLATION_KEY,` reaches here as `INSTALLATION_KEY,` — which
+  // matches no identifier and would be measured as a 17-character secret. The comma is
+  // punctuation around the value, never part of it.
+  const trimmed = written.replace(/,$/, '');
+  // A bare identifier is a reference, not a secret. Follow it, and if it cannot be
+  // followed, say so — an unresolved reference is a hole in the audit, and a hole that
+  // reports clean is the failure this file's other test guards against.
+  const value = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? resolve(trimmed) : trimmed;
+  if (value === undefined) {
+    return [`${variable}=${trimmed} (a reference this audit cannot resolve)`];
+  }
   /** @type {string[]} */
   const found = [];
-  for (const { variable, value: written } of assignmentsIn(text)) {
-    // A bare value in an object literal carries its trailing comma, so
-    // `AUTOMATE_API_KEY: INSTALLATION_KEY,` reaches here as `INSTALLATION_KEY,` — which
-    // matches no identifier and would be measured as a 17-character secret. The comma is
-    // punctuation around the value, never part of it.
-    const trimmed = written.replace(/,$/, '');
-    // A bare identifier is a reference, not a secret. Follow it, and if it cannot be
-    // followed, say so — an unresolved reference is a hole in the audit, and a hole that
-    // reports clean is the failure this file's other test guards against.
-    const value = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? resolved(trimmed) : trimmed;
-    if (value === undefined) {
-      found.push(`${variable}=${trimmed} (a reference this audit cannot resolve)`);
-      continue;
-    }
-    if (value.length < SECRET_MIN_LENGTH) {
-      found.push(`${variable}=${value} (${String(value.length)} characters)`);
-    }
-    if (isSecretPlaceholder(variable, value)) {
-      found.push(`${variable}=${value} (a placeholder)`);
-    }
+  if (value.length < SECRET_MIN_LENGTH) {
+    found.push(`${variable}=${value} (${String(value.length)} characters)`);
+  }
+  if (isSecretPlaceholder(variable, value)) {
+    found.push(`${variable}=${value} (a placeholder)`);
   }
   return found;
+}
+
+function auditSource(text: string, resolve?: (identifier: string) => string | undefined): string[] {
+  const resolved = resolve ?? referenceResolver();
+  return assignmentsIn(text).flatMap(({ variable, value }) =>
+    auditAssignment(variable, value, resolved),
+  );
 }

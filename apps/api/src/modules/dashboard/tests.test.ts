@@ -60,6 +60,8 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     file: 'e2e/auth/login.spec.ts',
     status: 'passed',
     durationMs: 1200,
+    errorCode: null,
+    errorMessage: null,
     ...overrides,
   };
 }
@@ -145,6 +147,8 @@ describe('GET /api/v1/dashboard/tests', () => {
       file: 'e2e/auth/login.spec.ts',
       status: 'running',
       durationMs: null,
+      errorCode: null,
+      errorMessage: null,
     });
   });
 

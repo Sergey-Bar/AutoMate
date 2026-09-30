@@ -16,7 +16,13 @@
  *    presents a cookie, and the server refuses it. That is what {@link expireSession}
  *    does, using a second request context that holds the same session.
  */
-import { expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import {
+  expect,
+  request as playwrightRequest,
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+} from '@playwright/test';
 import { API_BASE, INSTALLATION_KEY, SESSION_COOKIE, WEB_BASE } from './config.js';
 
 interface SessionCookie {
@@ -38,6 +44,40 @@ function parseSetCookie(header: string | undefined): SessionCookie {
  *
  * Returns the cookie so a spec can revoke exactly this session.
  */
+/**
+ * Assert that a URL is **not public**, using a context that carries no credential.
+ *
+ * One function, so an authenticated context cannot be passed in by mistake — which is
+ * not hypothetical. `failed-run-evidence.spec.ts` reused the `request` fixture for its
+ * "artifact bytes must require a credential" check; that fixture carries
+ * `API_AUTH_HEADERS` as default headers, so the product correctly answered 200 to an
+ * authenticated caller and the test read it as the product publishing its evidence.
+ * **A security assertion that passes for the wrong reason is worse than no assertion**,
+ * because it is a green check that will never notice the day it matters.
+ *
+ * The context is built from Playwright's `request` **factory**, because the `request`
+ * fixture is an `APIRequestContext` and `newContext` lives on the `APIRequest` that made
+ * it. `extraHTTPHeaders: {}` is explicit rather than omitted so the intent is visible
+ * here rather than at each call site.
+ *
+ * @param url a route that must refuse an anonymous caller
+ * @returns the refusal status, so a caller can assert something further about it
+ */
+export async function expectRefusedAnonymous(url: string): Promise<number> {
+  const context = await playwrightRequest.newContext({ baseURL: API_BASE, extraHTTPHeaders: {} });
+  try {
+    const response = await context.get(url);
+    expect(
+      response.status(),
+      `${url} must refuse an anonymous caller; a 200 here means the assertion was made with a ` +
+        'credential, which makes it vacuous rather than wrong',
+    ).toBe(401);
+    return response.status();
+  } finally {
+    await context.dispose();
+  }
+}
+
 export async function authenticate(
   context: BrowserContext,
   request: APIRequestContext,

@@ -97,6 +97,8 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     file: 'e2e/login.spec.ts',
     status: 'passed',
     durationMs: 500,
+    errorCode: null,
+    errorMessage: null,
     ...overrides,
   };
 }
@@ -309,6 +311,8 @@ describe('GET /api/v1/dashboard/runs/:runId/tests', () => {
       file: 'e2e/checkout.spec.ts',
       status: 'passed',
       durationMs: 1234,
+      errorCode: null,
+      errorMessage: null,
     });
 
     const res = await app.request('/api/v1/dashboard/runs/run-fields/tests');

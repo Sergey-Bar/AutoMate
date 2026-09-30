@@ -18,7 +18,7 @@ import {
   uploadArtifact,
   waitForRunPhase,
 } from '../support/api.js';
-import { API_BASE, WEB_BASE } from '../support/config.js';
+import { WEB_BASE } from '../support/config.js';
 import { observedSummary, saveEvidence, saveEvidenceText } from '../support/evidence.js';
 import { authenticate, signInAndVisit } from '../support/session.js';
 
@@ -96,10 +96,11 @@ test.describe('failed run and its evidence', () => {
     expect(await download.text()).toBe(LOG_BODY);
     expect(download.headers()['content-disposition']).toContain('runner.log');
 
-    // The same URL without a credential is refused. Evidence is not public.
-    const anonymous = await request.get(`${API_BASE}/api/v1/artifacts/${descriptor.id}`);
-    expect(anonymous.status(), 'artifact bytes must require a credential').toBe(401);
-
+    // The install is open, so an anonymous download is served exactly as an
+    // authenticated one is. **Nothing to assert here any more** — the previous version
+    // asserted a refusal, and before that it asserted a refusal *with a credential*,
+    // which passed for the wrong reason. The contract that replaced it is in
+    // `open-access.spec.ts`: no credential is needed anywhere.
     saveEvidence('failed-run-evidence', 'failed-run-and-artifact.json', {
       runId: created.id,
       jobId: job.jobId,
@@ -107,7 +108,6 @@ test.describe('failed run and its evidence', () => {
       phase: settled.phase,
       outcome: settled.outcome,
       summary: settled.summary,
-      anonymousDownloadStatus: anonymous.status(),
     });
 
     saveEvidenceText(
@@ -121,8 +121,7 @@ test.describe('failed run and its evidence', () => {
         'rendered failed count': (await page.getByTestId('run-failed').textContent())?.trim() ?? '',
         'artifact name': descriptor.name,
         'artifact size': descriptor.sizeBytes,
-        'download status (session)': download.status(),
-        'download status (anonymous)': anonymous.status(),
+        'download status': download.status(),
         'bytes match upload': String((await download.text()) === LOG_BODY),
       }),
     );

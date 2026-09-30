@@ -105,7 +105,12 @@ const CREATE_TESTS_TABLE = `
     retry_count integer DEFAULT 0,
     expected_status text,
     worker_index integer,
-    PRIMARY KEY (id, run_id)
+        -- Migration 0022. Hand-written DDL has to carry it too: the insert names these
+    -- columns and a test database built from this DDL rather than from the migration
+    -- graph answers that the column does not exist. See E2E-4.
+    error_code text,
+    error_message text,
+PRIMARY KEY (id, run_id)
   )
 `;
 
@@ -163,6 +168,8 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     file: 'e2e/login.spec.ts',
     status: 'queued',
     durationMs: null,
+    errorCode: null,
+    errorMessage: null,
     ...overrides,
   };
 }

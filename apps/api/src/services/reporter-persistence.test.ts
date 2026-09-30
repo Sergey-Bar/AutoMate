@@ -228,6 +228,11 @@ describe('test:begin', () => {
       file: 'e2e/auth/login.spec.ts',
       status: 'running',
       durationMs: null,
+      // A test that has not finished has no reason. Written explicitly rather than
+      // defaulted, so a retry reported over the same id clears the previous attempt's
+      // message instead of showing it against a test now running.
+      errorCode: null,
+      errorMessage: null,
     });
     expect((await repository.getRun(RUN_ID))?.passed).toBe(0);
   });
@@ -299,6 +304,121 @@ describe('test:begin', () => {
 // ---------------------------------------------------------------------------
 
 describe('test:end', () => {
+  it('stores why the test failed, which the reporter has always been sending', async () => {
+    // The regression this block exists for, and the third link in a chain of three.
+    //
+    // `TestEndPayloadSchema` is `.passthrough()`, so `error: { code, message }` was
+    // **accepted** on every `test:end` the product has ever received — and then written
+    // nowhere, because `TestRecord` had nowhere to put it. So a failed run recorded
+    // *that* a test failed and not *why*, and the dashboard — whose entire purpose is
+    // showing the evidence — rendered a red row with no reason on it. The
+    // `failed-run-evidence` E2E test asserted the message was on screen and could not
+    // find it, and the reason was here.
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 1 });
+    await began(repository, { testId: 'test-1' });
+
+    await persistReporterEvent(
+      event('test:end', {
+        testId: 'test-1',
+        status: 'failed',
+        durationMs: 42,
+        error: { code: 'ASSERTION_FAILED', message: 'expected 1 to equal 2' },
+      }),
+      repository,
+    );
+
+    const test = await repository.getTest('test-1', RUN_ID);
+    expect(test?.status).toBe('failed');
+    expect(test?.errorCode, 'the code the reporter sent must survive').toBe('ASSERTION_FAILED');
+    expect(test?.errorMessage, 'and so must the message').toBe('expected 1 to equal 2');
+  });
+
+  it('stores null for a producer that reports no reason, rather than an empty string', async () => {
+    // The difference between "the reporter said there was no message" and "we have
+    // never looked" is exactly the ambiguity the status vocabulary exists to remove.
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 1 });
+    await began(repository, { testId: 'test-1' });
+
+    await persistReporterEvent(
+      event('test:end', { testId: 'test-1', status: 'failed' }),
+      repository,
+    );
+
+    const test = await repository.getTest('test-1', RUN_ID);
+    expect(test?.errorCode).toBeNull();
+    expect(test?.errorMessage).toBeNull();
+  });
+
+  it('bounds a failure message and records that it was cut', async () => {
+    // The payload is untrusted, arrives over HTTP, and lands in a column the dashboard
+    // renders — so an unbounded message is a producer's megabyte in a table a customer
+    // pays to store and a browser has to parse.
+    //
+    // And the truncation is **recorded, not silent**: a reader can tell "the producer
+    // said no more" from "we kept the first 8 KiB". A bound that truncates quietly
+    // turns an honest record into a misleading one, which is the failure mode this
+    // whole change was made to end.
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 1 });
+    await began(repository, { testId: 'test-1' });
+
+    const enormous = 'x'.repeat(50_000);
+    await persistReporterEvent(
+      event('test:end', { testId: 'test-1', status: 'failed', error: { message: enormous } }),
+      repository,
+    );
+
+    const message = await repository.getTest('test-1', RUN_ID).then((test) => test?.errorMessage);
+    expect(message?.length).toBeLessThan(enormous.length);
+    expect(message?.endsWith('… [truncated]')).toBe(true);
+    expect(message).toContain(enormous.slice(0, 100));
+  });
+
+  it('a code with no message is stored, because either half is evidence', async () => {
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 1 });
+    await began(repository, { testId: 'test-1' });
+
+    await persistReporterEvent(
+      event('test:end', { testId: 'test-1', status: 'failed', error: { code: 'TIMEOUT' } }),
+      repository,
+    );
+
+    const test = await repository.getTest('test-1', RUN_ID);
+    expect(test?.errorCode).toBe('TIMEOUT');
+    expect(test?.errorMessage).toBeNull();
+  });
+
+  it('clears a previous attempt’s reason, so a retry does not show the first failure', async () => {
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 1 });
+    await began(repository, { testId: 'test-1' });
+    await persistReporterEvent(
+      event('test:end', {
+        testId: 'test-1',
+        status: 'failed',
+        error: { message: 'first attempt failed' },
+      }),
+      repository,
+    );
+
+    // The retry: `test:begin` again over the same id.
+    await began(repository, { testId: 'test-1' });
+    await persistReporterEvent(
+      event('test:end', { testId: 'test-1', status: 'passed' }),
+      repository,
+    );
+
+    const test = await repository.getTest('test-1', RUN_ID);
+    expect(test?.status).toBe('passed');
+    expect(
+      test?.errorMessage,
+      'a passing retry must not carry the previous attempt’s failure reason',
+    ).toBeNull();
+  });
+
   it('stores the outcome and adds it to the run counter, and reports the run write', async () => {
     const repository = new RecordingRunRepository();
     await started(repository, { total: 2 });
@@ -377,7 +497,9 @@ describe('test:end', () => {
 
     expect(repository.calls.slice(callsAfterFirst)).toEqual([
       'getTest(test-1, ' + RUN_ID + ')',
-      'patchTest(test-1, ' + RUN_ID + ', {"status":"passed","durationMs":null})',
+      'patchTest(test-1, ' +
+        RUN_ID +
+        ', {"status":"passed","durationMs":null,"errorCode":null,"errorMessage":null})',
     ]);
     expect(await repository.getRun(RUN_ID)).toMatchObject({ passed: 1 });
   });

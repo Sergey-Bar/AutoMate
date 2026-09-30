@@ -34,6 +34,8 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     file: 'tests/example.spec.ts',
     status: 'running',
     durationMs: null,
+    errorCode: null,
+    errorMessage: null,
     ...overrides,
   };
 }
