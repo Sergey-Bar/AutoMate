@@ -2400,11 +2400,7 @@
       "evidence": [
         {
           "path": "scripts/lib/docs-paths.test.mjs",
-          "asserts": "A \"verified fixed\" claim with no checkable path is a finding, across README, AGENTS, CONTRIBUTING, CHANGELOG and every non-historical plan. Quoted phrases are skipped so a document can describe the defect without tripping it."
-        },
-        {
-          "path": ".kilo/plans/1790482134837-automate-merged-leftover-plan.md",
-          "asserts": "The list, struck through with the withdrawal and the reason beside it — including that none of its fifteen identifiers resolve against the current ledger."
+          "asserts": "A \"verified fixed\" claim with no checkable path is a finding, across README, AGENTS, CONTRIBUTING, CHANGELOG and every non-historical plan. Quoted phrases are skipped so a document can describe the defect without tripping it. **This is the whole of the evidence.** The withdrawn plan the gate was written against is a local session artefact under `.kilo/plans/`, excluded by `.git/info/exclude`, so it has never been committed and cannot be cited here — and the ledger rule that a closed finding must name an existing path correctly refuses to accept it as one. The gate is the durable proof; the plan was the example."
         }
       ]
     },

@@ -206,13 +206,34 @@ if (domainEnum === null) {
 }
 
 // The baseline must be a commit this repository has.
+//
+// **A shallow clone cannot decide that, and `git cat-file` failing does not mean the
+// commit is absent.** CI fetches depth 1, so every baseline older than `HEAD~1` is
+// missing from the object database, and the check reported
+// `baseline 095456f… is not a commit in this repository` on every runner while passing
+// on any machine with full history — a green result on the author's laptop and a red one
+// everywhere else, from a claim that was true in both places.
+//
+// So the shallow case is reported as the third outcome the repository uses everywhere
+// else: not checked, with the reason printed. When the history *is* complete, a missing
+// commit is a real finding and stays one.
 const baseline = /^\*\*Baseline:\*\* `([0-9a-f]{40})`$/m.exec(source);
 if (baseline === null) {
   failures.push('no `**Baseline:**` line with a full commit hash');
 } else {
   const commit = baseline[1];
+  const shallow = sh('git', ['rev-parse', '--is-shallow-repository']).stdout.trim() === 'true';
   const known = sh('git', ['cat-file', '-e', `${commit}^{commit}`]).status === 0;
-  if (!known) failures.push(`baseline ${commit} is not a commit in this repository`);
+  if (known) {
+    console.log('  baseline commit is present in this clone');
+  } else if (shallow) {
+    console.log(
+      `  baseline ${commit} is not in this clone, and the clone is shallow — not checked, not ` +
+        'claimed either way. A full clone decides it.',
+    );
+  } else {
+    failures.push(`baseline ${commit} is not a commit in this repository`);
+  }
 }
 
 if (rows.length === 0) {
