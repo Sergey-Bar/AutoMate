@@ -115,10 +115,13 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
-  // Applies the migration graph before any test runs. See the file for why this is here
-  // and not as a step in the workflow: a clean database was never prepared, and the two
-  // defects that hid each other meant the required E2E job could not have passed.
-  globalSetup: './e2e/support/global-setup.ts',
+  // No `globalSetup`, and its absence is the fix. There was one, and it applied the
+  // migration graph — which is the right job in the wrong place, because **Playwright
+  // starts `webServer` before `globalSetup` runs.** The API booted against an unmigrated
+  // database and died with `relation "installations" does not exist` before the setup had
+  // a turn, so the migration never happened and the `Rendering budget` job failed even
+  // with the build in place. The migration is now part of the `webServer` command, and
+  // this file's own `DATABASE_URL` guard below is the refusal `globalSetup` duplicated.
   forbidOnly: Boolean(process.env['CI']),
   retries: process.env['CI'] ? 1 : 0,
   workers: 1,
@@ -130,24 +133,28 @@ export default defineConfig({
   },
   webServer: [
     {
-      // `@automate/api`'s workspace dependencies are built here, not in a step per job.
+      // Build, migrate, then serve — in that order, in one command, because
+      // **Playwright starts `webServer` before `globalSetup` runs.**
       //
-      // `pnpm install` does not build, so `packages/db/dist` and
-      // `packages/shared-contracts/dist` do not exist in a fresh checkout, and the API's
-      // `dev` script imports both through `node_modules` to exactly those `dist`s.
-      // Without the build the server died with `Cannot find module
-      // '…/node_modules/@automate/db/dist/index.js'` — and once that was fixed, with
-      // `@automate/shared-contracts` instead. A list of packages to build is a list to keep
-      // in step with the dependency graph.
+      // The API boots, queries `installations`, and dies with `relation "installations"
+      // does not exist` before any setup of ours has had a turn, which is how the
+      // `Rendering budget` job failed even with the build in place. Nothing that runs
+      // *after* the server can prepare the database for it.
       //
-      // `--filter @automate/api...` is pnpm's own answer: the package *and its
-      // dependencies*, read from the graph rather than from a hand-written list.
+      // So both live here. The build, because the API's `dev` script imports
+      // `@automate/db` and `@automate/shared-contracts` through `node_modules` to their
+      // `dist`s, which `pnpm install` does not produce; `--filter @automate/api...` is
+      // pnpm's own answer on that — the package *and its dependencies*, read from the
+      // graph rather than from a list to keep in step with it. The migration, because a
+      // server that boots against an unmigrated database does not start at all.
       //
-      // It belongs here rather than in three workflow steps because **Playwright starts
-      // `webServer` before `globalSetup` runs** — so the setup that applies the migration
-      // graph cannot be the thing that builds what the server imports. One command, one
-      // reason, and a developer running the suite locally gets the server the runner does.
-      command: 'pnpm --filter @automate/api... build && pnpm --filter @automate/api run dev',
+      // A developer running the suite locally gets the server the runner does, and the
+      // migration is idempotent, so a second run applies nothing and says so.
+      command: [
+        'pnpm --filter @automate/api... build',
+        'pnpm db:migrate',
+        'pnpm --filter @automate/api run dev',
+      ].join(' && '),
       url: `${apiUrl}/api/v1/health`,
       env: {
         PORT: String(apiPort),

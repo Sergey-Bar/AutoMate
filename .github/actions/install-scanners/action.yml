@@ -68,14 +68,16 @@ runs:
         # went looking for a binary inside a directory it had never created. Every failure
         # below this line was that: `install: cannot stat '/tmp/gitleaks/gitleaks'`.
         #
-        # Three failures stacked on one step, each hiding the one under it, and the step had
-        # never been read end to end by anyone:
+        # Four attempts sat on top of each other on this step, each hiding the one under
+        # it, and nobody had read it end to end:
         #   1. no extraction, so nothing to install;
-        #   2. `install --directory /usr/local/bin /tmp/gitleaks` copies the *directory*, so
-        #      even with extraction the binary landed at `/usr/local/bin/gitleaks/gitleaks`,
-        #      one level below PATH — hence `gitleaks: command not found` once (1) was fixed;
-        #   3. and the runner is not root, so `install` needed `sudo` to write
-        #      `/usr/local/bin` at all.
+        #   2. `install --directory /usr/local/bin /tmp/gitleaks` copies the *directory* —
+        #      and the archive has no directory, so with (1) fixed the binary landed at
+        #      `/usr/local/bin/gitleaks/gitleaks`, one level below PATH;
+        #   3. the runner is not root, so `install` needed `sudo` to write `/usr/local/bin`;
+        #   4. and `tar` extracts the archive's root entry as a **file** at `/tmp/gitleaks`,
+        #      not a directory containing one — so `/tmp/gitleaks/gitleaks` is
+        #      `Not a directory`.
         #
         # The `security` job failed on this step alone, which means the working-tree and
         # history secret scans, the licence check, the duplication gate and the complexity
@@ -83,7 +85,7 @@ runs:
         # security scan is not a pass.
         tar --extract --gzip --file "/tmp/${archive}" --directory /tmp
 
-        # The **binary**, to the directory on PATH. `-m 0755` because the tarball's mode is
-        # not something to depend on, and `sudo` for the reason in the note above.
-        sudo install -m 0755 "/tmp/gitleaks/gitleaks" /usr/local/bin/gitleaks
+        # The archive's root entry **is** the binary. `-m 0755` because the mode in the
+        # tarball is not something to depend on, and `sudo` for the reason above.
+        sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
         gitleaks version
