@@ -346,6 +346,22 @@ rules:
     patterns:
       - pattern-regex: '[\x27"`][A-Za-z0-9+/=_-]{28,}[\x27"`]'
       - pattern-not-regex: '(\.\.|\\\\|/)(test|tests|__tests__|node_modules|fixtures?|migrations?)|__tests?__|synthetic|\.test\.|\.spec\.|mock|example|placeholder|REDACTED|dummy|sample'
+      # An ALL-CAPS, underscore-separated token is an identifier, not a credential.
+      #
+      # This was the first observation of this rule ever running in CI — the scanner step
+      # failed on every previous run, so `pnpm security:static` never got past it. On its
+      # first execution it reported `code: 'REPORTER_SECRET_NOT_CONFIGURED'` in
+      # `apps/api/src/routes/reporter-results.ts` as a hard-coded credential. It is an
+      # **error code**: 31 characters, every one of them in the pattern's character class,
+      # and something a client branches on.
+      #
+      # The exclusion is narrow on purpose, because the alternative is deleting the rule. A
+      # credential is mixed-case, base64-ish or hex; it is essentially never `LIKE_THIS`.
+      # Real fixtures still fire — the E2E installation key
+      # `e2e-installation-key-32-characters-long` is 40 characters of mixed case and
+      # hyphens, and still matches. A gate that cries wolf at the first error code it sees
+      # gets switched off, and then it catches nothing at all.
+      - pattern-not-regex: '[\x27"`][A-Z][A-Z0-9]*(_[A-Z0-9]+)+[\x27"`]'
 
   - id: no-insecure-random-for-secret
     message: >-

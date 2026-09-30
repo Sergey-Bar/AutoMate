@@ -103,7 +103,26 @@ describe('the capability-register check', () => {
     'accepts the register that is actually in the repository',
     () => {
       const result = spawnSync(process.execPath, [script], { cwd: repoRoot, encoding: 'utf8' });
-      expect(result.stdout, result.stderr).toContain('Capability register verified');
+      // The verdict follows the baseline, and on CI the baseline cannot be checked: CI
+      // clones depth 1, so the registered baseline commit — which predates `HEAD` — is
+      // not in the object database. `git cat-file` cannot tell that from a forged hash,
+      // so the run reports *not checked* with the reason, and this assertion has to
+      // accept either.
+      //
+      // Requiring "verified" here would be a test that passes only on a full clone and
+      // fails on every runner, which is the shape of defect this repository has been
+      // fixing all session: a check that works on the machine that wrote it.
+      const shallow =
+        spawnSync('git', ['rev-parse', '--is-shallow-repository'], {
+          cwd: repoRoot,
+          encoding: 'utf8',
+        }).stdout.trim() === 'true';
+      if (shallow) {
+        expect(result.stdout, result.stderr).toContain('NOT fully verified');
+        expect(result.stdout, result.stderr).toContain('clone is shallow');
+      } else {
+        expect(result.stdout, result.stderr).toContain('Capability register verified');
+      }
     },
     SPAWNING_TIMEOUT_MS,
   );

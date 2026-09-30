@@ -3176,6 +3176,26 @@
           "asserts": "The scripts program has checkJs: true over a scripts/**/*.mjs glob, which is what made this file type-checked at all — and therefore what made its unresolvable import a failure on every machine without a build."
         }
       ]
+    },
+    {
+      "id": "SEM-1",
+      "provenance": "hand",
+      "wave": "W11.8",
+      "confirmed": true,
+      "confirmedOn": "2026-09-30",
+      "confirmedBy": "kilo:ci-repair",
+      "band": "Minor",
+      "status": "fixed",
+      "title": "`pnpm security:static` had never run in CI, and its first execution reported an error code as a hard-coded credential",
+      "summary": "The scanner-install step failed on every run, so `security:static` — and every gate queued behind it — had never executed. Its first execution flagged `code: 'REPORTER_SECRET_NOT_CONFIGURED'` as a credential: 31 characters, every one in the pattern's character class, and an error code a client branches on.",
+      "resolvedOn": "2026-09-30",
+      "resolution": "**The rule is narrowed, not deleted, and the narrowing is narrow on purpose.**\n\n`no-hardcoded-secret-literal` matched any quoted literal of 28 or more characters drawn from `[A-Za-z0-9+/=_-]` — a length-and-alphabet test with nothing about credentials in it. An ALL-CAPS, underscore-separated token is an identifier; a credential is mixed-case, base64-ish or hex and is essentially never `LIKE_THIS`. So a token matching `[A-Z][A-Z0-9]*(_[A-Z0-9]+)+` is excluded, and nothing else about the rule changes.\n\n**Both directions are verified, because a rule that stops firing is worse than one that cries wolf.**\n\n- `code: 'REPORTER_SECRET_NOT_CONFIGURED'` no longer matches.\n- `'e2e-installation-key-32-characters-long'` — 40 characters of mixed case and hyphens, the E2E installation key — still matches, and the rule fires on it.\n\n**Why the alternative was worse.** The rule's message is right that a token which reached a commit reached every clone, and `pnpm security:secrets` scans history for exactly that. Deleting a working rule because of one false positive leaves the repository with no static secret analysis at all, and this repository's own `citedPaths` history is the worked example of a gate that fired on 30 findings, nearly all false, and was then switched off — after which it caught nothing. Narrowing and keeping the finding visible is the only version of this that leaves the tree safer than it found it.\n\n**The finding was only visible because the step above it was fixed.** Four failures sat on the gitleaks install — no extraction, `install --directory` copying the directory rather than the binary, no `sudo`, and an archive whose root entry is a file — and each hid the next. The secret scans, the licence check, the duplication gate and the complexity gate were all queued behind it. A gate nobody had watched go green is not a gate, and this one had never run in the repository's history.",
+      "evidence": [
+        {
+          "path": ".semgrep.yml",
+          "asserts": "The rule adds pattern-not-regex for [A-Z][A-Z0-9]*(_[A-Z0-9]+)+, with the reason and the counter-example in the file. Verified both ways on this host: the 31-character error code is silent and the 40-character mixed-case E2E key still fires."
+        }
+      ]
     }
   ]
 }

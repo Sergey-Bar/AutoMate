@@ -139,6 +139,7 @@
     "RUN-2": "fixed",
     "RUN-3": "fixed",
     "E2E-3": "open",
-    "TS-1": "fixed"
+    "TS-1": "fixed",
+    "SEM-1": "fixed"
   }
 }
