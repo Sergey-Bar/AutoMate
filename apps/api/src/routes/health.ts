@@ -11,6 +11,25 @@ export interface HealthRouteOptions {
    * a pool per request until the process ran out of sockets.
    */
   checkDatabase?: () => Promise<void>;
+  /**
+   * The store's own view of which of its dependencies have lapsed.
+   *
+   * **Ledger O-5b.** Readiness knew exactly two conditions — `DATABASE_URL` unset,
+   * and the `SELECT 1` failing — so an instance whose database was perfectly
+   * reachable while the realtime bus had stopped sweeping was reported `ready`. The
+   * bus's own last error was a function-local variable that only ever reached a
+   * `console.error`, and `lastSweepError` appeared nowhere but the ledger row.
+   *
+   * Injected for the same reason `checkDatabase` is: a readiness probe that opens
+   * its own connection to ask "is the connection working" cannot see a dependency
+   * that *is* connected and is nonetheless failing. The store knows; the probe has
+   * to be told.
+   *
+   * Optional, and omitting it means "nothing to report" — which is the honest
+   * answer for a deployment that has no such store, and keeps every existing
+   * caller and test working unchanged.
+   */
+  degraded?: () => Record<string, string>;
 }
 
 /**
@@ -67,8 +86,36 @@ export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
     }
   };
 
-  health.get('/api/v1/ready', readiness);
-  health.get('/ready', readiness);
+  /**
+   * Readiness, with the store's own dependencies included.
+   *
+   * Split from the database probe rather than merged into it, because a degraded
+   * dependency is a different claim from an unreachable one: a load balancer that
+   * cannot tell them apart keeps routing to an instance that is up and not
+   * working, which is the failure mode this row exists to end.
+   */
+  const readinessWithStore = async (c: Context): Promise<Response> => {
+    const degraded = options.degraded?.() ?? {};
+    if (Object.keys(degraded).length === 0) return readiness(c);
+    // `degraded` carries the store's own reason for each dependency, which is
+    // derived from the failure and not from the connection string. The database
+    // probe still runs afterwards, so a request that is *both* degraded and
+    // unreachable reports the unreachable one — the harder fact.
+    const unreachable = await readiness(c);
+    if (unreachable.status === 503) return unreachable;
+    return c.json(
+      {
+        status: 'not_ready',
+        service: 'automate-api',
+        reason: 'one or more store dependencies are degraded',
+        degraded,
+      },
+      503,
+    );
+  };
+
+  health.get('/api/v1/ready', readinessWithStore);
+  health.get('/ready', readinessWithStore);
 
   health.get('/api/v1/features', (c) => {
     // Derived from the agent contracts rather than a literal.

@@ -193,11 +193,63 @@ describe('what a readiness response is allowed to say', () => {
       expect(text).not.toContain('ECONNREFUSED');
       expect(text).not.toContain('db.internal');
       // The whole body, not a substring search: nothing derived from the failure.
+      // A readiness answer that grew a `degraded` field would break this — which is
+      // the point. A readiness probe that cannot say *which* dependency is degraded
+      // is a probe that answers "something is wrong" to an operator who needs
+      // "this is", and a test that pins the exact body is what makes adding the
+      // field a decision rather than a drift.
       expect(JSON.parse(text)).toEqual({
         status: 'not_ready',
         reason: 'database is unavailable',
       });
     }
+  });
+
+  it('reports a dependency the store says is degraded, not only the database', async () => {
+    // Ledger O-5b. Readiness knew exactly two conditions — `DATABASE_URL` unset and
+    // the `SELECT 1` failing — so a store that had *lapsed* while the database was
+    // fine was reported `ready`. The realtime bus kept its last error in a
+    // function-local variable that only ever reached a `console.error`, and
+    // `lastSweepError` existed only in the ledger row.
+    //
+    // A degraded dependency is not the same claim as an unreachable one, and a
+    // load balancer that cannot tell them apart will keep routing to an instance
+    // that is up and not working.
+    const app = createHealthRoutes({
+      databaseUrl: syntheticConnectionString(),
+      checkDatabase: async () => undefined,
+      // The store's own view of itself, injected the same way `checkDatabase` is:
+      // a readiness probe that constructs its own connection to ask "is the
+      // connection working" is a readiness probe that cannot see a store which
+      // *is* connected and is nonetheless failing.
+      degraded: () => ({ realtimeBus: 'event sweep failed: outbox unreadable' }),
+    });
+
+    const response = await app.request('/api/v1/ready');
+    const body = (await response.json()) as { status: string; degraded: Record<string, string> };
+
+    // 503, not 200. A dependency that has failed is not ready, whatever the
+    // database is doing.
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('not_ready');
+    // And it says *which*, with the store's own reason rather than a generic one.
+    expect(body.degraded).toEqual({ realtimeBus: 'event sweep failed: outbox unreadable' });
+  });
+
+  it('is ready when the store reports nothing degraded', async () => {
+    // The other half, and the one that keeps the new field from becoming noise: a
+    // readiness probe that reports degraded when nothing is is a probe operators
+    // learn to ignore.
+    const app = createHealthRoutes({
+      databaseUrl: syntheticConnectionString(),
+      checkDatabase: async () => undefined,
+      degraded: () => ({}),
+    });
+
+    const response = await app.request('/api/v1/ready');
+    const body = (await response.json()) as { status: string; degraded?: unknown };
+    expect(response.status).toBe(200);
+    expect(body.degraded).toBeUndefined();
   });
 
   it('does not echo the configured url back when the check is refused for another reason', async () => {

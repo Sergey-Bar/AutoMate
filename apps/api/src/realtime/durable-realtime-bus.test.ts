@@ -223,4 +223,44 @@ describe('durable realtime composition', () => {
       await reader.cancel();
     }
   });
+
+  it('reports a publish failure for readiness, and forgets it once it recovers', async () => {
+    // Ledger O-5b. This was a function-local `lastError` whose only other
+    // appearance was a `console.error`, so a bus that had been failing for an hour
+    // left the instance reporting `ready` and the log as the only record.
+    //
+    // Both halves matter, and the second is the one a "sticky failure" flag gets
+    // wrong: a readiness probe that reports degraded after the dependency recovered
+    // is a probe operators learn to ignore.
+    const feed = {
+      append: vi.fn().mockRejectedValue(new Error('outbox unreadable')),
+      readAfter: vi.fn().mockResolvedValue([]),
+    } as unknown as DrizzleRealtimeFeed;
+    const bus = new DurableRealtimeBus(feed, 'workspace-a', 24);
+
+    // Nothing has failed yet, so the honest answer is "nothing to report".
+    expect(bus.lastPublishError()).toBeNull();
+
+    await bus.publish(canonical({ eventId: '6f0a3f3e-6f0a-4a4a-9a4a-1b2c3d4e5f61' }));
+    const failure = bus.lastPublishError();
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe('outbox unreadable');
+
+    // And once the dependency is healthy again, the flag is cleared.
+    //
+    // Two stubs rather than one with `mockRejectedValueOnce`: `publish` retries
+    // within a single call, so a one-shot rejection is absorbed by the retry and
+    // the flag clears immediately — which is the *recovery* path, not the failure
+    // path. A publish only fails when every attempt fails.
+    const recovered = new DurableRealtimeBus(
+      {
+        append: vi.fn().mockResolvedValue({ sequence: 1 }),
+        readAfter: vi.fn().mockResolvedValue([]),
+      } as unknown as DrizzleRealtimeFeed,
+      'workspace-a',
+      24,
+    );
+    await recovered.publish(canonical({ eventId: '6f0a3f3e-6f0a-4a4a-9a4a-1b2c3d4e5f62' }));
+    expect(recovered.lastPublishError()).toBeNull();
+  });
 });

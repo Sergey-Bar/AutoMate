@@ -55,6 +55,8 @@ function toAppend(
 
 export class DurableRealtimeBus implements RealtimeBus {
   private readonly subscribers = new Set<(event: RealtimeBusEvent) => void>();
+  /** The last publish failure, or `null` when the last one succeeded. Read by readiness. */
+  private publishFailure: unknown = null;
 
   constructor(
     private readonly feed: DurableRealtimeWriter,
@@ -103,6 +105,24 @@ export class DurableRealtimeBus implements RealtimeBus {
    * not delivered live, and the log is the only record: a durable append that
    * failed is a real gap, but it is not the caller's error to carry.
    */
+  /**
+   * The most recent publish failure, for the readiness probe to read.
+   *
+   * **Ledger O-5b.** This was a function-local `let lastError` whose only other
+   * appearance was the `console.error` below, so a durable append that had been
+   * failing for hours left the instance reporting `ready` — the log was the only
+   * record, and nothing asked a readiness question.
+   *
+   * Cleared on the next successful publish, so it means "failing *now*" rather than
+   * "has ever failed". A sticky flag would report a bus that recovered as broken
+   * for the life of the process, and a readiness probe that cries wolf gets ignored.
+   *
+   * @returns the last failure, or `null` when the last publish succeeded
+   */
+  lastPublishError(): unknown {
+    return this.publishFailure;
+  }
+
   async publish(event: RealtimeBusEvent): Promise<void> {
     const sanitized = sanitizeEvent(event);
     let lastError: unknown;
@@ -111,8 +131,12 @@ export class DurableRealtimeBus implements RealtimeBus {
         const row = await this.feed.append(
           toAppend(sanitized, this.workspaceId, this.retentionHours),
         );
-        if (!row) return;
+        if (!row) {
+          this.publishFailure = null;
+          return;
+        }
         await this.notifySubscribers(sanitized);
+        this.publishFailure = null;
         return;
       } catch (error) {
         lastError = error;
@@ -121,6 +145,7 @@ export class DurableRealtimeBus implements RealtimeBus {
         }
       }
     }
+    this.publishFailure = lastError;
     console.error('durable realtime publish failed', lastError);
   }
 

@@ -2155,12 +2155,31 @@
       "title": "Readiness cannot report a failed store",
       "band": "Major",
       "provenance": "sweep",
-      "status": "open",
+      "status": "fixed",
       "wave": "W11.5",
       "summary": "`lastSweepError` has zero occurrences repo-wide, and the realtime `lastError` is a local variable at `durable-realtime-bus.ts:108` that is never surfaced. Plan §3 records the source claim that \"readiness reports degraded stores\" as one of six that did not survive checking.\n\n**Confirmed by reading the code, 2026-09-28.** `durable-realtime-bus.ts:108` declares `let lastError: unknown` as a\nfunction-local, whose only other appearance is the `console.error` at `:124`.\n`lastSweepError` has **one** occurrence repo-wide: the ledger row itself. And\n`routes/health.ts:35-55` knows exactly two conditions — `DATABASE_URL` unset, and\nthe `SELECT 1` failing — so there is no seam a degraded store could reach even if\n`lastError` were exported. `health.test.ts:194-197` asserts the failure body is\nexactly those two fields, so a fixer must change that test too.",
       "confirmed": true,
       "confirmedOn": "2026-09-28",
-      "confirmedBy": "kilo:fail-before-verification"
+      "confirmedBy": "kilo:fail-before-verification",
+      "resolution": "Readiness now answers for a store that has *lapsed*, not only for one that is unreachable. It knew exactly two conditions — `DATABASE_URL` unset and the `SELECT 1` failing — so an instance whose database was perfectly reachable while the realtime bus had been failing to publish for an hour reported `ready`. A load balancer cannot tell those apart, and routing to an instance that is up and not working is the failure a readiness probe exists to prevent.\n\n`HealthRouteOptions.degraded` takes the store's own view of its dependencies and is wired from the composition root, because a readiness probe that opens its own connection to ask \"is the connection working\" cannot see a dependency that *is* connected and is nonetheless failing. The store knows; the probe has to be told. Optional, so omitting it means \"nothing to report\" — honest for a deployment with no such store, and it keeps every existing caller working unchanged.\n\n`DurableRealtimeBus.lastPublishError()` replaces a function-local `lastError` whose only other appearance was a `console.error`; `lastSweepError` had one occurrence repo-wide, and it was this row. **It is cleared on the next successful publish**, so it means \"failing *now*\" rather than \"has ever failed\" — a sticky flag would report a recovered bus as broken for the life of the process, and a readiness probe that cries wolf gets ignored.\n\nTwo details worth recording. A degraded dependency is reported *after* the database probe, so a request that is both degraded and unreachable reports the unreachable one — the harder fact. And the existing test that pinned the database-failure body to exactly two fields had to change; that is the test doing its job, since a readiness answer that silently grew a `degraded` field would be drift rather than a decision.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/health.ts",
+          "asserts": "A store reporting a degraded dependency answers 503 with that dependency named and the store's own reason; a store reporting nothing degraded answers 200 with no `degraded` key at all, so the new field cannot become noise."
+        },
+        {
+          "path": "apps/api/src/realtime/durable-realtime-bus.ts",
+          "asserts": "`lastPublishError()` is null before any failure, carries the failure after one, and is cleared by the next successful publish — the \"failing now, not ever\" property a sticky flag gets wrong."
+        },
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "The composition root passes the durable bus's view of itself, so the seam has a producer and not only an interface. A `let` captured in a closure loses its narrowing, so the handler is built once as a const — the inline form type-checks against the `undefined` branch and reports nothing, which is the opposite of what it does."
+        },
+        {
+          "path": "apps/api/src/routes/health.test.ts",
+          "asserts": "The degraded store is 503 and names the dependency; the healthy store is 200 with no `degraded` key. The pre-existing assertion that the database-failure body is exactly two fields still holds, so the new shape is a decision rather than a growth."
+        }
+      ]
     },
     {
       "id": "D-1",

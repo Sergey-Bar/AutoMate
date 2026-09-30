@@ -281,12 +281,15 @@ const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
 if (realtimeFeed) startOutboxRetentionSweep(realtimeFeed);
 let realtimeBus: RealtimeBus;
+/** The durable bus, when one was constructed — the readiness probe needs its own view. */
+let durableRealtimeBus: DurableRealtimeBus | undefined;
 if (realtimeFeed) {
-  realtimeBus = new DurableRealtimeBus(
+  durableRealtimeBus = new DurableRealtimeBus(
     realtimeFeed,
     realtimeWorkspaceId,
     runtimeConfig.sseReplayRetentionHours,
   );
+  realtimeBus = durableRealtimeBus;
 } else {
   assertInMemoryAllowed(runtimeConfig, 'InMemoryRealtimeBus');
   realtimeBus = new InMemoryRealtimeBus();
@@ -430,6 +433,29 @@ app.use(
   ),
 );
 
+/**
+ * The readiness probe's view of the durable bus, or nothing when there is none.
+ *
+ * Built once rather than inline at the call site: a `let` captured in a closure
+ * loses its narrowing, so an inline `durableRealtimeBus === undefined ? … : …` is
+ * checked against the `undefined` branch and the handler is typed as reporting
+ * nothing — which is the opposite of what it does.
+ */
+const degradedRealtimeBus: (() => Record<string, string>) | undefined = (() => {
+  if (durableRealtimeBus === undefined) return undefined;
+  // The inner return is annotated because inference widens the empty `{}` to
+  // `{ realtimeBus?: undefined }`, which is not assignable to
+  // `Record<string, string>` — the error then lands on the *outer* assignment,
+  // two dozen lines from the line that is actually wrong.
+  return (): Record<string, string> => {
+    const failure = durableRealtimeBus.lastPublishError();
+    if (failure === null) return {};
+    return {
+      realtimeBus: failure instanceof Error ? failure.message : 'durable publish failed',
+    };
+  };
+})();
+
 app.route(
   '/',
   createHealthRoutes({
@@ -439,6 +465,11 @@ app.route(
           await databaseResources.db.execute(sql`SELECT 1`);
         }
       : undefined,
+    // The bus's own view of itself, ledger O-5b. Without this the readiness
+    // endpoint knows only whether the database answers, so an instance whose bus
+    // has been failing to publish for an hour reports `ready` — which is the one
+    // condition a readiness probe exists to catch.
+    degraded: degradedRealtimeBus,
   }),
 );
 app.route('/', authRoutes.app);
