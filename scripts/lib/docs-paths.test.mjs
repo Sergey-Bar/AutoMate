@@ -308,6 +308,15 @@ test('the generated status pages are current, or a reader is reading a stale cla
   // root. The first attempt used `mkdtemp(os.tmpdir())` and failed with "Cannot find
   // module 'prettier/bin/prettier.cjs'" — a check that cannot run is a check that
   // passes for the wrong reason.
+  //
+  // `node_modules/.cache` is created first, because `mkdtempSync` requires its parent to
+  // exist and nothing on a CI runner creates it: the docs workflow installs and runs
+  // `docs:check` without a build step, and on this commit the `Docs` job failed with
+  // `ENOENT: no such file or directory, mkdtemp …/node_modules/.cache/site-stale-`. It
+  // passed locally only because a previous run had already made the directory — the same
+  // "works on the machine that wrote it" failure as the typecheck's, and the reason both
+  // survived is that nobody read a run from a clean checkout.
+  mkdirSync(path.join(REPO_ROOT, 'node_modules', '.cache'), { recursive: true });
   const temporary = mkdtempSync(path.join(REPO_ROOT, 'node_modules', '.cache', 'site-stale-'));
   try {
     mkdirSync(path.join(temporary, 'scripts'), { recursive: true });
