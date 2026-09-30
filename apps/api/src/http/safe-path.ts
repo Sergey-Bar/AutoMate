@@ -31,9 +31,31 @@ import path from 'node:path';
  *    produce the same string — which is what makes a `GROUP BY file` meaningful.
  */
 export function safeRelativePath(rawPath: string): string {
-  const normalized = path.normalize(rawPath);
-  if (path.isAbsolute(normalized) || normalized.includes('..') || normalized.includes('\0')) {
-    return path.basename(normalized);
+  // **Both separators, on both platforms.** `path.sep` is `\` on Windows and `/`
+  // everywhere else, so splitting on `path.sep` and rejoining with `/` converts
+  // *native* separators and leaves a path that arrived with the *other* platform's
+  // separator untouched. On Windows a Playwright path — `tests\login\auth.spec.ts`,
+  // emitted with forward slashes regardless of platform — survived as backslashes, and
+  // `safeRelativePath('C:/Windows/evil.dll')` returned the whole path rather than the
+  // basename, because `C:/…` is absolute to `path.win32` but not to the `path.posix`
+  // that a Linux run used to judge it.
+  //
+  // So the normalisation is not delegated to the platform at all: a slash is a slash
+  // and a backslash is a separator, whichever one this process is running on. CI is
+  // Linux, which is the only reason this was ever green — the function's third
+  // documented step, *"convert separators to `/` on the way out"*, was simply untrue on
+  // the platform it exists to make agree.
+  const slashed = rawPath.replaceAll('\\', '/');
+  const normalized = path.posix.normalize(slashed);
+  // A drive letter is absolute too. `path.posix.isAbsolute('C:/Windows/evil.dll')` is
+  // **false** — posix absolute means a leading `/` — so judging a Windows path with the
+  // posix rule alone let `C:/Windows/evil.dll` through whole, and the value landed in
+  // `tests.file` to be displayed. Both platforms' notion of absolute, checked explicitly,
+  // because the function exists to make two platforms agree and neither platform's rule
+  // is sufficient on its own.
+  const absolute = path.posix.isAbsolute(normalized) || /^[A-Za-z]:\//.test(normalized);
+  if (absolute || normalized.includes('..') || normalized.includes('\0')) {
+    return path.posix.basename(normalized);
   }
-  return normalized.split(path.sep).join('/');
+  return normalized;
 }
