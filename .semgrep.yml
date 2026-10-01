@@ -158,64 +158,70 @@ rules:
         - '**/*.spec.ts'
         - '**/*.spec.tsx'
     patterns:
-      - pattern-either:
-          - pattern: $SECRET === $OTHER
-          - pattern: $SECRET == $OTHER
-      # The field must be **named** like a secret, and it was constrained by nothing but
-      # being a property.
+      # The comparison, with the member access **in the positive pattern**.
       #
       # This was the **first execution of the whole semgrep gate in the repository's CI
       # history**: the scanner-install step had failed on every previous run, so
       # `security:static` never ran, and neither did the licence, duplication and
       # complexity gates queued behind it. Its first execution reported **1137 blocking
       # findings across 637 files**, all but a handful from this one rule — because
-      # `$OBJ.$SECRET_FIELD` matches *any* property access and only `$OBJ.status` was
+      # `$OBJ.$SECRET_FIELD` matched *any* property access and only `$OBJ.status` was
       # excluded. `user.id === other.id`, `a.name === b.name`, `event.type === other.type`:
       # every property comparison in the tree.
       #
       # So the constraint is on the **name**, which is what `$SECRET_FIELD` claims to be.
-      # It sits *inside* the `metavariable-pattern` that binds it, because semgrep requires
-      # a metavariable used in a conditional to be bound by a positive pattern in the same
-      # block — putting `metavariable-regex` alongside `metavariable-pattern` makes the
-      # whole rule invalid, and `semgrep --validate` says so in those words.
+      #
+      # **It is bound here rather than validated afterwards, and that is not a style
+      # choice.** The previous shape matched `$SECRET === $OTHER` and then checked with a
+      # nested `metavariable-pattern` that `$SECRET` was a property access with a
+      # credential-shaped name. That is the one rule in this file **semgrep could not
+      # compile**: `semgrep scan` failed with `Invalid_argument: String.sub / Bytes.sub`,
+      # an OCaml exception raised while semgrep formatted its own error, so the message
+      # named line 1 of the *target file* and said nothing about the rule. Two files in
+      # the tree hit it, which is the whole reason SEM-2 had no complete per-rule number.
+      #
+      # Eliminated before concluding that: the parser (identical bytes scan cleanly under
+      # `rules: []`), the extension (identical bytes under four names), the size (9 KB of
+      # synthetic code is fine), and `language: generic`. Binding `$SECRET_FIELD` in the
+      # pattern makes it available to a plain `metavariable-regex`, so there is no nested
+      # construct left for the analyser to fail on.
+      #
+      # `scripts/lib/semgrep-rules.test.mjs` is what proves the behaviour survived, because
+      # "no longer errors" and "no longer matches" look identical in a scan report.
       #
       # The repository already does the right thing where it matters — `safeEqual` in
       # `apps/api/src/routes/execution/shared.ts`, used by `registrationAuthorized` and
       # the runner-token check — so a rule firing 1137 times was not reporting the code's
       # security posture. It was reporting that a rule existed.
-      - metavariable-pattern:
-          metavariable: $SECRET
-          patterns:
-            - pattern-either:
-                - pattern: $OBJ.$SECRET_FIELD
-                - pattern: $OBJ[$SECRET_FIELD]
-            - metavariable-regex:
-                metavariable: $SECRET_FIELD
-                regex: '(?i)^(secret|password|passwd|passphrase|token|hash|signature|signed|apikey|api_key|secret_key|key_hash|nonce|hmac|digest|credential|cookie|mac)$'
-            # No bare `key`. It is too generic to mean "credential": `e.key`,
-            # `event.key` and `route.key` are a keyboard key and a route key, and every
-            # one of them was reported. `apikey`, `api_key`, `secret_key` and `key_hash`
-            # are the names that do mean one.
-            - pattern-not: $OBJ.code
-            # No bare `key`. It is too generic to mean "credential": `e.key`,
-            # `event.key` and `route.key` are a keyboard key and a route key, and every
-            # one of them was reported. `apikey`, `api_key`, `secret_key` and `key_hash`
-            # are the names that do mean one.
-            - pattern-not: $OBJ.type
-            - pattern-not: $OBJ.method
-            - pattern-not: $OBJ.name
-            - pattern-not: $OBJ.id
+      - pattern-either:
+          - pattern: $OBJ.$SECRET_FIELD === $OTHER
+          - pattern: $OBJ.$SECRET_FIELD == $OTHER
+          - pattern: $OBJ[$SECRET_FIELD] === $OTHER
+          - pattern: $OBJ[$SECRET_FIELD] == $OTHER
+      - metavariable-regex:
+          metavariable: $SECRET_FIELD
+          regex: '(?i)^(secret|password|passwd|passphrase|token|hash|signature|signed|apikey|api_key|secret_key|key_hash|nonce|hmac|digest|credential|cookie|mac)$'
+      # Names that are not credentials however secret they sound. No bare `key`: it is
+      # too generic to mean "credential" — `e.key`, `event.key` and `route.key` are a
+      # keyboard key and a route key, and every one of them was reported. `apikey`,
+      # `api_key`, `secret_key` and `key_hash` are the names that do mean one, and they
+      # are on the list above.
+      - pattern-not: $OBJ.status
+      - pattern-not: $OBJ.code
+      - pattern-not: $OBJ.type
+      - pattern-not: $OBJ.method
+      - pattern-not: $OBJ.name
+      - pattern-not: $OBJ.id
       # A comparison against a **string literal** is not an oracle, and the exclusion
       # has to sit at the **rule level**, beside the `pattern-either` that matches the
       # comparison.
       #
-      # It was written inside the `metavariable-pattern` above, where it constrains
-      # `$SECRET` *alone* — so `$SECRET === '"$LITERAL"'` could never match a bound
-      # `$SECRET`, which is a property access and nothing more. The exclusion was
-      # written, and had nothing to exclude, which is the same defect as
-      # `no-cleartext-transport-in-client`'s and the fifth instance of it in this file.
-      # `route.key === '/login'` compares a value against a constant the attacker
-      # cannot measure, so there is nothing to leak.
+      # It was written inside the `metavariable-pattern`, where it constrains `$SECRET`
+      # *alone* — so `$SECRET === '"$LITERAL"'` could never match a bound `$SECRET`, which
+      # is a property access and nothing more. The exclusion was written, and had nothing
+      # to exclude, which is the same defect as `no-cleartext-transport-in-client`'s and
+      # the fifth instance of it in this file. `route.key === '/login'` compares a value
+      # against a constant the attacker cannot measure, so there is nothing to leak.
       - pattern-not: |
           $OBJ.$SECRET_FIELD === "$LITERAL"
       - pattern-not: |
