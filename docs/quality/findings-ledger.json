@@ -21,10 +21,15 @@
           "asserts": "`rejects two empty secrets, where the old function accepted them` and `rejects a stored hash, which is the defect the old signature invited` pin both halves of the original defect, so a caller passing a hash cannot reintroduce it."
         },
         {
-          "path": "apps/api/src/middleware/auth.ts",
-          "asserts": "`isAuthorised` selects between the peppered-hash arm and the plaintext arm by deployment shape, and its comment records that it used to call `validateApiKey(provided, apiKey ?? '')` — so the live fallback arm the finding called out is gone."
+          "path": "apps/api/src/routes/auth.ts",
+          "asserts": "The surviving caller: `verifyCredential(options.cookieSecret, presented, options.installationKeyHash)` compares a peppered HMAC, never the stored form. The pepper is a **required parameter** rather than a runtime guard, so \"a hash configured without a pepper\" is unrepresentable — a stronger property than the deleted middleware carried."
+        },
+        {
+          "path": "apps/api/src/routes/auth-session-lifecycle.test.ts",
+          "asserts": "Exercises the live path end to end: the correct key verifies, a suffixed key does not, the empty key does not, and a different pepper does not."
         }
-      ]
+      ],
+      "resolution": "**The proof moved; it did not vanish.** `pnpm findings:check` failed this row when `apps/api/src/middleware/auth.ts` was deleted, which is the gate working as designed — a `fixed` row whose evidence path is gone is a claim whose proof was deleted. \n\n**What the deleted file was.** 164 lines, one export, and **zero callers**, in either product code or tests. It had been dead since `2.0.0` made the install open and removed the required API key — the feature it gated no longer exists. It was also the whole of the `apps/api` coverage shortfall: 44 statements, 35 branches and 8 functions that nothing could reach. Covering it would have meant asserting behaviour nothing depends on, which AGENTS.md rules out and which would have left a security mechanism in the tree that appears to guard something and guards nothing.\n\n**What the finding actually protects, and where it lives now.** The implementation is in `packages/auth/src/credentials.ts` and always was; the middleware was a caller. The live caller is `apps/api/src/routes/auth.ts`, and it is *stronger* than the guard that went with the middleware:\n\n- `verifyCredential(pepper, presented, storedHash)` recomputes a peppered HMAC and compares with `timingSafeEqual`, so the stored form is never compared as a secret.\n- **The pepper is a required parameter.** The deleted middleware rejected \"a hash configured without a pepper\" with a runtime check; here that state cannot be expressed at all, because the argument is mandatory. A guard you can forget to call is weaker than a signature you cannot call wrong.\n- The empty presented value is refused, and so is a wrong pepper and a suffixed key — asserted together in `auth-session-lifecycle.test.ts`.\n\n**What this row does not claim.** `verifySharedSecret` — the plaintext arm — has no production caller left, since the middleware was its consumer. It remains an exported and tested part of `@automate/auth`'s surface, so this row does not treat it as dead code; that is a separate question about the package's public API and it is not one this row was opened to answer."
     },
     {
       "id": "P-71",
