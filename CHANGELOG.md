@@ -2,6 +2,48 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.1.0 — 2026-10-01
+
+Five defects, three of them found by **running** something rather than reading it, and one
+found by the test written to prove a fix.
+
+**A worker that could not write a terminal run state.** `PostgresExecutionStore.completeJob`
+took `phase`, `outcome` and `status` from a hand-written table while `apps/api` held the
+derivation that makes `runs_phase_outcome_check` unreachable. Its fallthrough produced
+`{phase: 'requeue', outcome: 'requeue'}` — a non-terminal phase carrying an outcome, which
+PostgreSQL refuses. It survived because `main.ts` passes no handler, so the path is dormant
+in production. `deriveRunState` now lives in `@automate/orchestration` and both stores
+derive from it.
+
+**An API that accepted completions under an expired lease.** The store fenced on `leaseId`
+and `fencingToken` but not `leaseExpiresAt`, and reaping is lazy — it runs inside
+`claimJob`, not on a timer. Between a lease expiring and the next claim, the row still
+advertised a valid lease with its original token.
+
+**A dashboard query that carried one bind parameter per run in the database.** Both
+dashboard endpoints called `listRuns()` unbounded and handed every run id to one `IN (...)`.
+PostgreSQL's ceiling is 65 535 parameters, so it was a query that eventually stopped being
+answerable. Now batched at 1 000, with a guard that throws if the chunking is ever removed.
+
+**Six mechanisms in the semgrep rule set that read as exclusions and were not.** A positive
+`pattern` where the comment said `pattern-not`; a `metavariable-regex` anchored on a quote
+character semgrep does not bind for a template literal, so `no-shell-true` missed every
+`execSync(`git checkout ${branch}`)` — the real injection vector — while firing on the
+harmless literal form; three `pattern-not`s that reused the positive pattern's bindings and
+could therefore never match; `paths` that left the worker and connectors unscanned; and one
+rule that **could not be compiled at all**. Findings went from 543 across six rules to 22
+across two, and `scripts/lib/semgrep-rules.test.mjs` now proves each rule still fires.
+
+**The E2E suite could only be run once per database.** `claimJob` refuses a runner already
+holding its slot count, and every e2e runner has one slot — so the drain loop consumed the
+only slot with a claim it discarded and could never claim again. It now resets the durable
+tables once per run, with a guard that refuses anything not obviously disposable.
+
+Also: `status:10` point 3 had been claiming a durable-path spec existed since before this
+release. It did not, and it does now — nine stages against real PostgreSQL, with its own
+Playwright project. `main` gained branch protection with ten required checks. The coverage
+ratchet, which had been failing on `main`, passes.
+
 ## Unreleased
 
 **The product has one name.** The project's earlier name has been removed from the
