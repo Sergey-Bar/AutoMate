@@ -9,11 +9,44 @@
   </p>
 </div>
 
-> **Current maturity: local/sample implementation.** The canonical reporter → reporting → dashboard vertical slice is implemented and tested. Production OCI execution, production publication, credential rotation, and destructive data migration are intentionally not enabled yet.
+> **Current maturity: a working local install, honestly scoped.** The reporter → reporting →
+> dashboard vertical slice runs against real PostgreSQL and is covered end to end by the
+> E2E suite. Production OCI execution, production publication, credential rotation, and
+> destructive data migration are intentionally not enabled yet, and the capability table
+> below says which is which rather than rounding up.
 
-Automate is a local-first QA control plane. It normalizes test results from any producer into shared contracts, persists run evidence, exposes live updates, and provides a React dashboard for exploring runs, analytics, quarantine, and quality gates.
+Automate is a local-first QA control plane. It normalizes test results from any producer
+into shared contracts, persists run evidence, exposes live updates, and provides a React
+dashboard for exploring runs, analytics, quarantine, and quality gates.
 
-The longer-term product adds independently deployable runners, AI-provider gateways, connectors, and isolated execution for browser, API, load, security, and mobile tools. Those boundaries are being built, but they are not all production-ready today. The authoritative status is [`docs/migration/capability-register.md`](docs/migration/capability-register.md).
+Independent runners, AI-provider gateways, connectors, and isolated execution for browser,
+API, load, security, and mobile tools are **boundaries that exist and are not yet product
+flows**. The authoritative per-capability status is
+[`docs/migration/capability-register.md`](docs/migration/capability-register.md); this
+README's table is a summary of it, not a substitute for it.
+
+## What makes this repository unusual
+
+Most projects describe what the software does. This one is also about **how it decides
+what is true**, and the evidence is in the tree rather than in a wiki:
+
+- **Every gate is reproducible from a clean checkout.** `pnpm verify` runs 17 steps, and
+  `scripts/gate-tooling.json` records which external binary each one needs and the tier of
+  every root script. A test that runs a suite nobody can reproduce is a claim, not a check.
+- **A rule that silently stops matching is treated as a defect.** `.semgrep.yml` has a
+  fixture suite (`scripts/lib/semgrep-rules.test.mjs`) that runs each rule over a known
+  hazard and asserts it still fires — because six mechanisms in that file once read as
+  exclusions and were not, and a rule that loads while matching nothing is
+  indistinguishable from a rule that works.
+- **Dead code is removed, not covered.** Deleting an unused auth middleware closed a
+  coverage shortfall on its own; the alternative would have been 164 lines of tests
+  asserting behaviour nothing depends on, in a file that reads like protection.
+- **Findings are a ledger, not a document.** `docs/quality/findings-ledger.json` is
+  machine-checked: a `fixed` row whose evidence path no longer exists **fails**, because the
+  proof was deleted and the claim is open again.
+- **`status:10` reads the roadmap and reports what it cannot verify.** Twelve of its points
+  are `not_configured` rather than `pass`, each naming the command that would decide it,
+  because a script that reads committed files cannot watch a gate run.
 
 ## Why Automate?
 
@@ -233,10 +266,17 @@ The repository treats tests as part of the capability contract:
 
 - Vitest 4 powers unit and integration tests, with **no per-package thresholds** — see
   [Coverage](#coverage) for why the ratchet is the gate instead.
-- Playwright owns the API/browser vertical slice and product E2E suite.
+- Playwright owns the API/browser vertical slice and the product E2E suite.
+  `pnpm test:e2e` **empties the durable tables before it runs** and refuses to do so
+  against anything that is not a loopback host or a database named with `test`/`e2e`/`ci`,
+  so the suite is re-runnable against the same database — which is what a developer needs
+  after making a change.
 - Root Turborepo tasks enforce dependency and coverage boundaries.
-- `.github/workflows/unified-ci.yml` runs formatting, lint, typecheck, tests, security checks, migration checks, E2E, and builds.
-- Release-gate and nightly workflows cover the broader migration and platform checks.
+- `.github/workflows/unified-ci.yml` runs formatting, lint, typecheck, tests, security
+  checks, migration checks, E2E, and builds. Release-gate and nightly workflows cover the
+  broader migration and platform checks.
+- **`main` is protected.** Ten of those jobs are required, enforced on administrators, with
+  force-push and branch deletion disabled. Verified by being caught by it.
 
 ### Coverage
 
