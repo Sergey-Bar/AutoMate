@@ -19,6 +19,34 @@ import {
 } from './run-repository.js';
 
 /**
+ * The most ids one `IN (...)` statement may carry.
+ *
+ * PostgreSQL's own ceiling is 65 535 bind parameters, so any value under it is legal —
+ * but a statement that large is a statement nobody reads, plans, or can attribute when it
+ * turns out to be slow. 1 000 keeps a batch to one page and keeps the whole thing far
+ * enough from the hard limit that a future change adding parameters per row cannot
+ * accidentally reach it.
+ *
+ * It is a bound on the **statement**, not on the caller's list: a caller may pass a
+ * million ids and get a million results, in a thousand statements. What it prevents is any
+ * single query whose size is chosen by whoever called.
+ */
+const MAX_IDS_PER_IN_ARRAY = 1_000;
+
+/**
+ * Split a list into fixed-size batches.
+ *
+ * Yields exactly one batch when the list is at or under the limit, so the ordinary path
+ * is unchanged — this is a guard on the pathological one, not a new code path for
+ * everyone.
+ */
+function* chunked(values: readonly string[], size: number): Generator<string[]> {
+  for (let at = 0; at < values.length; at += size) {
+    yield values.slice(at, at + size);
+  }
+}
+
+/**
  * Any drizzle-orm Postgres client (node-postgres, pglite, neon, etc.)
  * All expose the same `PgDatabase` interface.
  */
@@ -236,17 +264,31 @@ export class DrizzleRunRepository implements RunRepository {
   async listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>> {
     const grouped = new Map<string, TestRecord[]>();
     if (runIds.length === 0) return grouped;
-    // `inArray` rather than a loop of `listTests`, so the cost is one round trip
-    // whatever the number of runs. An empty `runIds` returns above because
-    // `inArray([])` is a query Postgres rejects, not one it answers.
-    const rows = await this.db
-      .select()
-      .from(tests)
-      .where(inArray(tests.runId, [...runIds]));
-    for (const row of rows) {
-      const bucket = grouped.get(row.runId) ?? [];
-      bucket.push(this._mapTest(row));
-      grouped.set(row.runId, bucket);
+    // `inArray` rather than a loop of `listTests`, so the cost is one round trip for the
+    // common case. An empty `runIds` returns above because `inArray([])` is a query
+    // Postgres rejects, not one it answers.
+    //
+    // **Bounded in batches, because the caller's list is not.** Both callers pass
+    // `runs.map((run) => run.id)` over an unbounded `listRuns()`, so the statement carried
+    // one bind parameter per run *in the whole database*. It grew with the age of the
+    // install, on the two pages an operator opens first — and PostgreSQL's ceiling is
+    // 65 535 parameters, so this was a query that eventually stopped being answerable
+    // rather than merely getting slow. The dashboard endpoints already bound `listRuns()`
+    // for Q-50; this is the other end of the same path.
+    //
+    // The batches are sequential rather than concurrent on purpose: a caller that passed
+    // 200 000 ids already has a problem, and issuing them all at once is how that becomes
+    // an outage instead of a slow answer.
+    for (const batch of chunked(runIds, MAX_IDS_PER_IN_ARRAY)) {
+      const rows = await this.db
+        .select()
+        .from(tests)
+        .where(inArray(tests.runId, [...batch]));
+      for (const row of rows) {
+        const bucket = grouped.get(row.runId) ?? [];
+        bucket.push(this._mapTest(row));
+        grouped.set(row.runId, bucket);
+      }
     }
     return grouped;
   }
