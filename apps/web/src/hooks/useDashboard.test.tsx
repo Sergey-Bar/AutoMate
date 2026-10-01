@@ -178,6 +178,78 @@ describe('dashboard hooks', () => {
     expect(result.current.run).toBeNull();
   });
 
+  // An aborted action is a **cancellation, not a failure**, and the two must not be
+  // conflated in either direction.
+  //
+  // The failure direction is the one that reaches a person: `cancel` and `retry` both
+  // funnel every rejection into `setActionError`, which renders "Failed to cancel run"
+  // beside a button the user is looking at. If a request is aborted — the component
+  // unmounted, the user navigated away, a refetch superseded this one — that message
+  // describes something the user did not cause and cannot act on.
+  //
+  // The other direction matters too: the abort is re-thrown rather than swallowed, so
+  // the caller's own cancellation handling still sees it. Swallowing it would make an
+  // abort indistinguishable from success.
+  it('re-throws an aborted cancel instead of reporting it as a failed action', async () => {
+    const active = makeRun({ id: 'active', phase: 'running' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(active),
+      cancelRun: vi.fn().mockRejectedValue(abortError()),
+    });
+    const { result } = renderHook(() => useRunDetail('active', api));
+    await waitFor(() => expect(result.current.run?.phase).toBe('running'));
+
+    // Re-thrown, so the rejection is observed rather than left unhandled.
+    await act(async () => {
+      await expect(result.current.cancel()).rejects.toThrow('aborted');
+    });
+
+    expect(
+      result.current.actionError,
+      'a cancelled action must not be reported to the user as a failure',
+    ).toBeNull();
+    // And the run is untouched: nothing was cancelled, so nothing should read as cancelled.
+    expect(result.current.run?.phase).toBe('running');
+    expect(result.current.isActing, 'the action must not be left in flight').toBe(false);
+  });
+
+  it('re-throws an aborted retry instead of reporting it as a failed action', async () => {
+    const active = makeRun({ id: 'active', phase: 'running' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(active),
+      retryRun: vi.fn().mockRejectedValue(abortError()),
+    });
+    const { result } = renderHook(() => useRunDetail('active', api));
+    await waitFor(() => expect(result.current.run?.phase).toBe('running'));
+
+    await act(async () => {
+      await expect(result.current.retry()).rejects.toThrow('aborted');
+    });
+
+    expect(result.current.actionError).toBeNull();
+    expect(result.current.run?.phase).toBe('running');
+    expect(result.current.isActing).toBe(false);
+  });
+
+  it('does report a genuine action failure, so the two are distinguishable', async () => {
+    // The control for the two above. Without it, "actionError is null" would pass for a
+    // hook that never sets it at all — and a test that cannot fail is worse than none.
+    const active = makeRun({ id: 'active', phase: 'running' });
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(active),
+      cancelRun: vi.fn().mockRejectedValue(new Error('cancel refused')),
+    });
+    const { result } = renderHook(() => useRunDetail('active', api));
+    await waitFor(() => expect(result.current.run?.phase).toBe('running'));
+
+    await act(async () => {
+      await expect(result.current.cancel()).rejects.toThrow('cancel refused');
+    });
+
+    expect(result.current.actionError?.message).toBe('cancel refused');
+    expect(result.current.isActing).toBe(false);
+  });
+
   it('loads and appends quarantine entries', async () => {
     const api = makeApi({
       getQuarantine: vi.fn().mockResolvedValue([
@@ -287,6 +359,74 @@ describe('dashboard hooks', () => {
 
     act(() => subscription?.onConnectionChange?.(true));
     expect(result.current.isLive).toBe(true);
+  });
+
+  it('replaces an artifact a reconnect replays under a new event id', async () => {
+    // The scenario the deduplication above does *not* cover, and the one that produces
+    // duplicates on screen.
+    //
+    // `seenEvents` drops an event it has already seen by id. A reconnect replays from a
+    // cursor, and a producer that re-emits under a *fresh* event id passes that check
+    // while carrying the *same* artifact — so the timeline grows correctly to two events
+    // and the artifact list would grow to two copies of one file.
+    //
+    // So the projection dedupes on the artifact's own identity, not on the event's, and
+    // this asserts it. Sending the same event twice — which the previous test does — never
+    // reaches that code, because `seenEvents` drops it first.
+    let subscription: RunEventSubscription | undefined;
+    const run = makeRun({ id: 'run-a' });
+    const artifact = {
+      id: 'artifact-replayed',
+      runId: run.id,
+      jobId: null,
+      testId: null,
+      kind: 'log',
+      name: 'runner.log',
+      contentType: 'text/plain',
+      storageKey: 'runs/run-a/runner.log',
+      checksum: 'c'.repeat(64),
+      sizeBytes: 10,
+      createdAt: TEST_TIMESTAMP,
+      expiresAt: null,
+      legalHold: false,
+      metadata: {},
+    };
+    const api = makeApi({
+      getRun: vi.fn().mockResolvedValue(run),
+      subscribeToRunEvents: vi.fn((value) => {
+        subscription = value;
+        return () => undefined;
+      }),
+    });
+    const { result } = renderHook(() => useRunDetail(run.id, api));
+    await waitFor(() => expect(result.current.run?.id).toBe(run.id));
+
+    const replay = (eventId: string, sequence: number) => ({
+      version: '1' as const,
+      eventId,
+      sequence,
+      occurredAt: TEST_TIMESTAMP,
+      runId: run.id,
+      type: 'artifact.created' as const,
+      payload: { artifact },
+    });
+
+    act(() => {
+      subscription?.onEvent(replay('event-1', 1));
+    });
+    // A *different* event id, the same artifact. This is what a replay looks like.
+    act(() => {
+      subscription?.onEvent(replay('event-2', 2));
+    });
+
+    expect(
+      result.current.events.map((event) => event.eventId),
+      'both events are distinct, so the timeline keeps both',
+    ).toEqual(['event-1', 'event-2']);
+    expect(
+      result.current.artifacts.filter((item) => item.id === artifact.id),
+      'the replayed artifact must replace the original, not duplicate it on screen',
+    ).toHaveLength(1);
   });
 
   it('retains action errors for cancel and retry failures', async () => {

@@ -86,6 +86,24 @@ paths = [
   '''(^|/)\.env\.example$''',
   '''(^|/)\.env\.compose\.example$''',
   '''^packages/db/drizzle/''',
+  # **`.semgrep-probe/` holds credential-shaped literals on purpose.**
+  #
+  # The fixtures in there exist so `no-hardcoded-secret-literal` has something to fire
+  # on. `scripts/lib/semgrep-rules.test.mjs` runs each rule over them and asserts it
+  # reports the hazard — and the hazard is a string shaped exactly like an API key.
+  #
+  # So gitleaks flagging it is the scanner working correctly on a file that must not be
+  # scanned, in the same category as `coverage/` and `test-results/` above: generated or
+  # deliberate input, not repository content. It is excluded for that reason and not
+  # because the values are harmless — they are shaped like credentials precisely so the
+  # rule cannot be checked any other way.
+  #
+  # The probe is committed rather than built on demand because a security check that
+  # only runs when someone remembers to generate its fixtures is a security check that
+  # does not run. `scripts/lib/semgrep-rules.test.mjs` separately asserts the probe
+  # directory is outside every scanned semgrep path, so this entry and that one cannot
+  # drift apart silently.
+  '''^\.semgrep-probe/''',
 ]
 
 # `secret`, not `match`.
