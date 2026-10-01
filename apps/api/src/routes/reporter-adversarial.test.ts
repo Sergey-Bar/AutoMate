@@ -2,6 +2,7 @@ import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { describe, expect, it } from 'vitest';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
+import { syntheticReporterSecret } from '../test-support/synthetic-credentials.js';
 
 /**
  * Adversarial input on the ingestion path.
@@ -22,7 +23,7 @@ import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.
  * `passed` run is a bug.
  */
 
-const SECRET = 'adversarial-ingestion-reporter-secret';
+const SECRET = syntheticReporterSecret();
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
 /** A valid upload body the tests then damage in one specific way. */

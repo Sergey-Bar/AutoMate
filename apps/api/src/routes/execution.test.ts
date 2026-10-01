@@ -12,6 +12,7 @@ import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
 import type { ExecutionStore } from '../execution/types.js';
 import { createExecutionRoutes } from './execution.js';
 import { createErrorBoundary } from '../errors/boundary.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
 /**
  * The routes, mounted the way the application mounts them.
@@ -87,7 +88,7 @@ function migrationSql(): string {
 }
 
 const clock = new Date('2026-09-26T00:00:00.000Z');
-const REGISTRATION_SECRET = 'execution-route-registration-secret';
+const REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
 let client: PGlite;

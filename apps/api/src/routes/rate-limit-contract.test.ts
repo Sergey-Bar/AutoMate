@@ -7,6 +7,11 @@ import { createReporterRoutes } from './reporter.js';
 import { createAuthRoutes } from './auth.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
 import { hashCredential } from '@automate/auth';
+import {
+  syntheticCookieSecret,
+  syntheticInstallationKey,
+  syntheticReporterSecret,
+} from '../test-support/synthetic-credentials.js';
 
 /**
  * Rate limiting, and the routes that deliberately have none.
@@ -27,9 +32,9 @@ import { hashCredential } from '@automate/auth';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
-const REPORTER_SECRET = 'rate-limit-reporter-secret';
-const COOKIE_SECRET = 'rate-limit-cookie-secret-32-characters-long';
-const API_KEY = 'rate-limit-installation-key';
+const REPORTER_SECRET = syntheticReporterSecret();
+const COOKIE_SECRET = syntheticCookieSecret();
+const API_KEY = syntheticInstallationKey();
 
 /**
  * Routes reachable without a credential, and whether each is limited.

@@ -8,6 +8,7 @@ import { InMemoryExecutionStore, hashRunnerToken } from './in-memory-execution-s
 import { createGateEvaluation, defaultPolicy, policyDigest } from './quality-gate.js';
 import { integrationMaturity, listIntegrationMaturity } from './maturity.js';
 import { createErrorBoundary } from '../errors/boundary.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
 /**
  * The routes, mounted the way the application mounts them.
@@ -266,7 +267,7 @@ describe('full in-memory execution branches', () => {
   it('covers terminal state mapping, token expiry, and lease recovery', async () => {
     let now = new Date('2026-03-01T00:00:00.000Z');
     const store = new InMemoryExecutionStore({ now: () => now, leaseMs: 20, tokenTtlMs: 30 });
-    const token = 'registration-token';
+    const token = syntheticRunnerRegistrationSecret();
     const runner = await store.registerRunner(
       {
         id: 'branch-runner',
@@ -402,7 +403,7 @@ describe('full in-memory execution branches', () => {
   it('covers readiness outcomes, stale events, and runner health branches', async () => {
     let now = new Date('2026-04-01T00:00:00.000Z');
     const store = new InMemoryExecutionStore({ now: () => now, leaseMs: 10 });
-    const token = 'token-readiness';
+    const token = syntheticRunnerRegistrationSecret();
     const runner = await store.registerRunner(
       {
         id: 'readiness-runner',

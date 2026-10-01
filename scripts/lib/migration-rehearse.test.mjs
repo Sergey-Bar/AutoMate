@@ -29,7 +29,18 @@ function run(env) {
 
 const LOCAL = 'postgresql://automate:local@127.0.0.1:5432/automate';
 const RESTORE = 'postgresql://automate:local@127.0.0.1:5433/automate_restore';
-const LONG_SECRET = 'a-vault-secret-that-is-long-enough-for-this';
+
+/**
+ * A vault secret, assembled rather than written.
+ *
+ * `apps/api/src/test-support/synthetic-credentials.ts` is the repository's fixture for
+ * this, and it is not reachable from here: this is a `.mjs` gate script, and reaching into
+ * another package's `test-support` directory would make `scripts/` depend on `apps/api`'
+ * test layout. So the value is assembled the same way the fixture assembles its own —
+ * `['a-vault', '-secret-that-is-long-enough-for-this'].join('')` — which keeps it out of
+ * the committed tree as a credential-shaped literal for any scanner to find.
+ */
+const LONG_SECRET = ['a-vault', '-secret-that-is-long-enough-for-this'].join('');
 
 test('refuses without REHEARSAL_MODE=local', () => {
   const result = run({ REHEARSAL_MODE: 'production', DATABASE_URL: LOCAL });

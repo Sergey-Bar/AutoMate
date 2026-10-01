@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryExecutionStore } from './in-memory-execution-store.js';
 import type { CreateRunInput } from './types.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
-const REGISTRATION_SECRET = 'registration-secret';
+const REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 
 function runBody(key: string): Record<string, unknown> {
   return {

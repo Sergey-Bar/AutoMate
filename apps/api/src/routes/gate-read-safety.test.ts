@@ -3,6 +3,7 @@ import { createExecutionRoutes } from './execution.js';
 import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.js';
 import type { CreateRunInput } from '../execution/types.js';
 import { withErrorBoundary } from '../test-support/error-boundary-app.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
 /** An event the bus was handed, with only the field this test reads typed. */
 interface PublishedEvent {
@@ -23,7 +24,7 @@ interface PublishedEvent {
  * published. These tests assert the absence of the write rather than the
  * presence of a read, because "no rows were created" is the property.
  */
-const REGISTRATION_SECRET = 'gate-read-secret';
+const REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 
 function runBody(key: string): CreateRunInput {
   return {

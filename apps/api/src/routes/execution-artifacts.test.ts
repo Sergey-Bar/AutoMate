@@ -4,6 +4,7 @@ import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.j
 import { createExecutionRoutes } from './execution.js';
 import type { ExecutionStore, StoredArtifact } from '../execution/types.js';
 import { createErrorBoundary } from '../errors/boundary.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
 /**
  * The routes, mounted the way the application mounts them.
@@ -36,7 +37,7 @@ class UnreadableBytesStore extends InMemoryExecutionStore {
   }
 }
 
-const REGISTRATION_SECRET = 'runner-registration-secret';
+const REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 
 async function seedArtifact(store: InMemoryExecutionStore) {
   const app = mounted(

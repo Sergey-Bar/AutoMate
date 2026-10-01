@@ -385,7 +385,7 @@ describe('Auth matrix', () => {
   });
 
   describe('reporter routes use REPORTER_SECRET auth', () => {
-    const TEST_REPORTER_SECRET = 'test-reporter-secret-x';
+    const TEST_REPORTER_SECRET = syntheticReporterSecret();
 
     it('POST /api/v1/reporter/events without REPORTER_SECRET configured accepts events (open mode)', async () => {
       // The global app has no REPORTER_SECRET env — open mode, no auth required
