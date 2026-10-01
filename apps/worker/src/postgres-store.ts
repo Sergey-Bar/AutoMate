@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import pg, { type PoolClient, type QueryResultRow } from 'pg';
+import { deriveRunState, type DerivedRunState } from '@automate/orchestration';
+import type { RunPhase } from '@automate/shared-contracts';
 import type {
   ExecutionStore,
   ExecutionStoreOptions,
   JobClaim,
   JobCompletion,
+  JobResultStatus,
   LeaseRecovery,
   ScheduledEnqueue,
   ScheduledEnqueueResult,
@@ -69,27 +72,67 @@ function requiredString(value: unknown, field: string): string {
   return value;
 }
 
-function terminalState(status: JobCompletion['status']): {
-  job: 'completed' | 'failed' | 'cancelled';
-  phase: string;
-  outcome: string;
-  legacy: string;
-} {
-  if (status === 'completed') {
-    return { job: 'completed', phase: 'complete', outcome: 'passed', legacy: 'passed' };
+/**
+ * The `execution_jobs.state` a finished job lands in.
+ *
+ * Separate from the run state because the job column and the run column answer
+ * different questions: the job is *done*, and the run is *how it ended*.
+ */
+function terminalJobState(status: JobResultStatus): 'completed' | 'failed' | 'cancelled' {
+  if (status === 'completed') return 'completed';
+  if (status === 'cancelled') return 'cancelled';
+  return 'failed';
+}
+
+/**
+ * Folds the worker's result vocabulary into a run phase.
+ *
+ * The worker's vocabulary is **not** a phase vocabulary — `JobResultStatus` names
+ * job outcomes, and `'completed'` is not a `RunPhase`. So the fold belongs here,
+ * where the vocabulary is known, while the derivation that follows belongs in
+ * `@automate/orchestration`.
+ *
+ * It is a closed, total map with no fallthrough, because a fallthrough is what
+ * produced the defect: an unmatched status became `phase: status,
+ * outcome: status`, and `'requeue'` is not a phase at all, so the pair violated
+ * `runs_phase_outcome_check` — an unhandled 500 on the recovery path for a
+ * well-formed request.
+ */
+function phaseForResult(status: JobResultStatus): RunPhase {
+  switch (status) {
+    case 'completed':
+    case 'failed':
+      return 'complete';
+    case 'cancelled':
+      return 'cancelled';
+    case 'timed_out':
+      return 'timed_out';
+    case 'infra_failed':
+      return 'infra_failed';
+    case 'config_failed':
+      return 'config_failed';
+    case 'runner_lost':
+      return 'runner_lost';
+    case 'requeue':
+      // Not a terminal state at all: the job goes back on the queue, so the run
+      // is running again. `worker.execute` routes this to `releaseJob`, so the
+      // fold exists to be total rather than because this path is reached.
+      return 'queued';
   }
-  if (status === 'cancelled') {
-    return { job: 'cancelled', phase: 'cancelled', outcome: 'cancelled', legacy: 'interrupted' };
-  }
-  if (status === 'failed') {
-    return { job: 'failed', phase: 'complete', outcome: 'failed', legacy: 'failed' };
-  }
-  return {
-    job: 'failed',
-    phase: status,
-    outcome: status,
-    legacy: status === 'timed_out' ? 'interrupted' : 'failed',
-  };
+}
+
+/**
+ * The run triple for a finished job, derived as one value.
+ *
+ * `deriveRunState` is the authority and writes `phase`, `outcome` and `status`
+ * together, which is what makes `runs_phase_outcome_check` unreachable — the same
+ * thing `drizzle-execution-store.ts` does, and what this path did not.
+ */
+function terminalRunState(status: JobResultStatus): DerivedRunState {
+  // A `completed` job claims `passed`; a `failed` one claims `failed`. Every
+  // other status is a phase that implies its own outcome, so nothing is claimed.
+  const claimed = status === 'completed' ? 'passed' : status === 'failed' ? 'failed' : null;
+  return deriveRunState(phaseForResult(status), claimed);
 }
 
 export class PostgresExecutionStore implements ExecutionStore {
@@ -279,7 +322,8 @@ export class PostgresExecutionStore implements ExecutionStore {
 
   async completeJob(jobId: string, completion: JobCompletion): Promise<boolean> {
     return this.transaction(async (client) => {
-      const terminal = terminalState(completion.status);
+      const status = completion.status;
+      const run = terminalRunState(status);
       const result = await client.query<{ run_id: string }>(
         `UPDATE execution_jobs
          SET state = $4, completed_at = now(), lease_id = NULL, lease_owner = NULL,
@@ -292,7 +336,7 @@ export class PostgresExecutionStore implements ExecutionStore {
           jobId,
           completion.leaseId,
           completion.fencingToken,
-          terminal.job,
+          terminalJobState(status),
           completion.error?.code ?? null,
           completion.error?.message ?? null,
         ],
@@ -306,9 +350,9 @@ export class PostgresExecutionStore implements ExecutionStore {
          WHERE id = $1::uuid`,
         [
           runId,
-          terminal.phase,
-          terminal.outcome,
-          terminal.legacy,
+          run.phase,
+          run.outcome,
+          run.status,
           completion.error?.code ?? null,
           completion.error?.message ?? null,
         ],

@@ -41,6 +41,17 @@ export type ExecutionTestStatus =
   | 'cancelled'
   | 'timed_out';
 
+/**
+ * The **stored** job states — the six values `execution_jobs.state_check` permits.
+ *
+ * Not to be confused with `shared-contracts`' `JobState`, which is the nine-value
+ * *contract* union and includes states the column cannot hold (`running`,
+ * `waiting_approval`, `expired`). The two are different types with the same name,
+ * so importing the wrong one type-checks and then fails at runtime; `mapJob`'s
+ * cast at `drizzle-execution-store.ts` is therefore not a mismatch, and
+ * `fromStoredJobState` having no callers is correct rather than dead code.
+ * `STORED_JOB_STATES` in `@automate/orchestration` is the machine-checked list.
+ */
 export type JobState = 'queued' | 'leased' | 'completed' | 'failed' | 'cancelled' | 'requeued';
 
 /**
