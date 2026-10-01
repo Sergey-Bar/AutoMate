@@ -69,23 +69,35 @@ export const HISTORICAL_DOCS = new Set(['docs/migration/unified-repository-migra
  * Documents that describe a product or a decision this repository is not, rather
  * than a claim about it.
  *
- * Two, both marked as historical **in their own text** as part of the change that
- * added them here, so a reader who opens one is told before they read a line. That
- * is the difference between an exemption and a gap: an exemption with a marker is
- * a decision somebody can find, and one without is a hole the next document falls
+ * Marked as historical **in their own text** as part of the change that added them
+ * here, so a reader who opens one is told before they read a line. That is the
+ * difference between an exemption and a gap: an exemption with a marker is a
+ * decision somebody can find, and one without is a hole the next document falls
  * into.
  *
- *   - `docs/PRD_QAce_Ecosystem_v2.md` — a draft PRD for the *Q-Ace* product, written
- *     before this repository existed as a name. It describes ports, transports and
- *     package boundaries that were never this tree's.
  *   - `docs/architecture/unified-platform.md` — the design record of the unification,
  *     written against the pre-merge layout. It still describes `db:push` and
  *     `@automate/contracts`; the current boundaries are the capability register's.
+ *
+ * **One used to be here that no longer is.** A draft PRD for the product's *former*
+ * name was exempted as superseded. It has been **deleted**, on three grounds that the
+ * exemption's own premise contradicted:
+ *
+ *   - it was never marked as historical. The exemption above claims a marker in the
+ *     document's own text, and that was not true — the file said `Status: Draft`. A
+ *     document that asserts a status its own header denies is worse than an
+ *     unexempted one.
+ *   - it was a draft for a **product name this repository no longer has**, so the
+ *     thing it was exempted for no longer existed.
+ *   - keeping it required 30 live references to that name to survive, and a name
+ *     gate that permits a known-bad string is not a gate.
+ *
+ * Deleting it lost one thing worth recording: it was the only place the OpenAPI
+ * intake idea was written down, which `RF-11` cites. That row now cites
+ * `packages/shared-contracts/README.md` and the ledger itself, so the reasoning
+ * survives the document.
  */
-export const SUPERSEDED_DOCS = new Set([
-  'docs/PRD_QAce_Ecosystem_v2.md',
-  'docs/architecture/unified-platform.md',
-]);
+export const SUPERSEDED_DOCS = new Set(['docs/architecture/unified-platform.md']);
 
 /**
  * `pnpm` verbs that are not root scripts and never were.

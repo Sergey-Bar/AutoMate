@@ -2,6 +2,30 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## Unreleased
+
+**The product has one name.** The project's earlier name has been removed from the
+repository entirely — eight files across five kinds of record, and the distinctions
+between them are why this is not one find-and-replace.
+
+- The README no longer describes the repository as "a planned QA automation control
+  plane" under another product's name. It describes what `2.0.0` shipped.
+- The superseded draft PRD is **deleted**. It was exempted from the docs drift gate on
+  the grounds that it was marked superseded in its own text; its own header said
+  `Status: Draft`. A document that asserts a status its header denies is worth more
+  than an unexempted one, so it went rather than got relabelled.
+- `docs/migration/source-manifest.json`'s residue **paths** are relabelled; its git
+  blob **hashes** are untouched. The hashes are the evidence that nothing was lost in
+  the migration, and they survive a rename — renaming the hashes would have falsified
+  the record.
+- `RF-11` cited the deleted PRD, so it now cites one document and states the count it
+  cites, so the count can be re-derived.
+- `scripts/lib/product-name.test.mjs` makes the absence machine-checked, and also
+  asserts that the drift gate does not exempt a document that no longer exists, that
+  the README describes the shipped product, and that the manifest kept its hashes. A
+  check that only grepped would pass on a repository that had deleted a forensic record
+  to look clean.
+
 ## 2.0.0 — 2026-10-01
 
 **Breaking: the install is open.** There is no login screen and no required API key.

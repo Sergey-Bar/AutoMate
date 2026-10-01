@@ -188,17 +188,17 @@
             "gitBlob": "468e205415de1b263fdbbc623247e043c2c24d4a"
           },
           {
-            "path": "apps/server/data/qace.db",
+            "path": "apps/server/data/legacy.db",
             "bytes": 241664,
             "gitBlob": "7f885d6dab9addb22956335e461e4f6da0099ad5"
           },
           {
-            "path": "apps/server/data/qace.db-wal",
+            "path": "apps/server/data/legacy.db-wal",
             "bytes": 1878752,
             "gitBlob": "27dfee69cb8046b9b61090b1d7b7b182a84bfc80"
           },
           {
-            "path": "apps/server/data/qace.db-shm",
+            "path": "apps/server/data/legacy.db-shm",
             "bytes": 32768,
             "gitBlob": "044fac572ea65b041718e6b8cc20d2488e2fc550"
           },
