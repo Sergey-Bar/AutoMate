@@ -573,7 +573,18 @@ export const JobEventBatchSchema = z.object({
   runId: IdSchema,
   leaseId: IdSchema,
   fencingToken: z.number().int().min(1),
-  events: z.array(RunEventEnvelopeSchema).min(1),
+  // **Bounded at the trust boundary, not deep in the store.**
+  //
+  // This array is a request body, and `appendEvents` built its dedupe lookup as one
+  // `IN (...)` with a bind parameter per event. Nothing between here and that statement
+  // chose the length, so a single POST could ask for a statement PostgreSQL refuses at
+  // 65 535 parameters — one request, one unanswerable query, no partial result.
+  //
+  // 500 is generous for what this is: an SSE flush of run events, where a client sends
+  // what it observed since its last cursor rather than a backlog. It is a floor on what
+  // must work and a ceiling on what one body may cost; a client holding more than 500
+  // sends them in the next batch, which is what the cursor is for.
+  events: z.array(RunEventEnvelopeSchema).min(1).max(500),
   sentAt: TimestampSchema.optional(),
 });
 export type JobEventBatch = z.infer<typeof JobEventBatchSchema>;

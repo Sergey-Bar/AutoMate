@@ -283,6 +283,7 @@ export class DrizzleRunRepository implements RunRepository {
       const rows = await this.db
         .select()
         .from(tests)
+        // Bounded: bounded by `MAX_IDS_PER_IN_ARRAY` — `chunked` splits the caller's list above
         .where(inArray(tests.runId, [...batch]));
       for (const row of rows) {
         const bucket = grouped.get(row.runId) ?? [];
