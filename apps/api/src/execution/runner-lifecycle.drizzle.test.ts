@@ -444,6 +444,49 @@ describe('a terminal write is fenced at the store', () => {
     expect(result).toBeNull();
   });
 
+  it('refuses a completion from a runner whose lease has expired', async () => {
+    const { jobId } = await aRunWithAJob();
+    const runner = await enrol('complete-expired');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+
+    // **The lease expires and nothing else changes.** Same lease id, same fencing token,
+    // same owner, and crucially **no reaping** — the row still says `leased`.
+    //
+    // Skipping the reaper is what makes this an assertion about the completion
+    // predicate rather than about a row that has already been requeued. Reaping nulls
+    // `leaseId`, so the *existing* lease-id fence would refuse the completion and this
+    // test would pass with the expiry check deleted. That is the "a test that passes for
+    // the wrong reason" failure, and it is why the clock moves and the reaper does not.
+    //
+    // The window is real: reaping is lazy — it runs inside `claimJob`, not on a timer —
+    // so between a lease expiring and the next runner claiming, the row still advertises
+    // a valid lease. Fencing on the token alone cannot see it, because nothing has bumped
+    // the token. A runner returning from a long GC pause or a network partition lands
+    // exactly there.
+    //
+    // This is the predicate the worker's store has always had (`lease_expires_at > now()`).
+    // The two stores disagreeing about the same invariant, with nothing comparing them, is
+    // ledger **RUN-1**.
+    const resumed = new Date(clock.getTime());
+    clock.setTime(resumed.getTime() + 120_000);
+    try {
+      const result = await store.completeJob(
+        jobId,
+        {
+          leaseId: claim?.leaseId ?? '',
+          fencingToken: claim?.fencingToken ?? 1,
+          status: 'completed',
+          phase: 'completed',
+        },
+        workspaceId,
+      );
+
+      expect(result, 'a completion under an expired lease must be refused').toBeNull();
+    } finally {
+      clock.setTime(resumed.getTime());
+    }
+  });
+
   it('accepts the holder’s own completion, so the refusals above are refusals', async () => {
     const { jobId } = await aRunWithAJob();
     const runner = await enrol('complete-held');

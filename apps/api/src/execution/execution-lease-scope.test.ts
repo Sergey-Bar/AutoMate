@@ -3,8 +3,9 @@ import { Hono } from 'hono';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { InMemoryExecutionStore } from './in-memory-execution-store.js';
 import { withErrorBoundary } from '../test-support/error-boundary-app.js';
+import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
 
-const REGISTRATION_SECRET = 'registration-secret';
+const REGISTRATION_SECRET = syntheticRunnerRegistrationSecret();
 
 function runBody(idempotencyKey: string): Record<string, unknown> {
   return {

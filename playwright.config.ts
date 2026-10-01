@@ -99,7 +99,17 @@ const RENDER_BUDGET_SPEC = 'rendering-budget.spec.ts';
  * `pnpm test:render` reads. Naming the exceptions here keeps the derivation honest
  * rather than special-casing it at each project.
  */
-const DEDICATED_SPECS = ['vertical-slice.spec.ts', RENDER_BUDGET_SPEC];
+const DEDICATED_SPECS = [
+  'vertical-slice.spec.ts',
+  RENDER_BUDGET_SPEC,
+  // The durable-chain gate. It is a gate rather than a product spec in two senses: it
+  // is what point 3 of `status:ten` reads, and it spends most of its time waiting out a
+  // lease expiry. Folding it into `product` would add that wait to every pull request
+  // to be measured by a job that reads it — which is the same reason the rendering
+  // budget is named here. It gets its own project below so `pnpm test:e2e` still runs
+  // it, rather than the derivation quietly dropping it.
+  'durable-path.spec.ts',
+];
 
 /** Normalized so the comparison is a suffix match on any platform's separator. */
 const baseNameOf = (file: string): string => file.replaceAll('\\', '/');
@@ -110,6 +120,7 @@ const isDedicated = (file: string): boolean => {
 };
 
 const productSpecFiles = specFiles.filter((file) => !isDedicated(file));
+const durablePathSpecFiles = specFiles.filter((file) => file.endsWith('durable-path.spec.ts'));
 
 export default defineConfig({
   testDir: './e2e',
@@ -208,6 +219,22 @@ export default defineConfig({
       testMatch: '**/performance/rendering-budget.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // The durable chain, and the only project whose assertions `status:ten` point 3
+      // reads. Named here so it is excluded from `product` — it waits out a lease
+      // expiry, which is minutes of wall clock on every pull request — and given its own
+      // project so excluding it is not the same as skipping it.
+      //
+      // The non-empty assertion below covers it for the same reason it covers
+      // `product`: a project matching no spec is a green job that ran nothing.
+      name: 'durable-path',
+      testMatch: '**/product/durable-path.spec.ts',
+      // Longer than the default, because the lost-lease stage polls for a lease to
+      // expire and a timeout that fires first reports a product defect that is really
+      // a too-short budget.
+      timeout: 120_000,
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
 });
 
@@ -226,6 +253,21 @@ if (productSpecFiles.length === 0) {
       'success without executing a product test. That is treated as a configuration ' +
       'error rather than an empty suite.',
   );
+}
+
+// The same guard for the dedicated projects. `durable-path` is a gate point 3 reads, so
+// a project of its own that matches nothing would turn a required claim into a green
+// job that executed no test — the failure this file has already had to fix twice.
+for (const [name, matched] of [
+  ['durable-path', durablePathSpecFiles.length],
+  ['vertical-slice', specFiles.filter((file) => file.includes('vertical-slice.spec.ts')).length],
+] as const) {
+  if (matched === 0) {
+    throw new Error(
+      `The \`${name}\` Playwright project matches no spec files, so a run would report ` +
+        'success without executing the gate it exists to run.',
+    );
+  }
 }
 
 // The same argument for the budget project, and the more important of the two: a

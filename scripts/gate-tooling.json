@@ -74,7 +74,7 @@
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
     "test:render": "pr-reporting",
-    "status:10": "pr-reporting",
+    "status:10": "pr-blocking",
     "review:pr": "pr-reporting",
     "site:doctor": "pr-reporting",
     "compose:config": "pr-blocking",
@@ -230,8 +230,8 @@
     },
     "status:10": {
       "requires": [],
-      "tier": 2,
-      "why": "**Tier `pr-reporting`, and deliberately so on day one.** `status:10` reports the roadmap's §17 twelve points as `pass` / `fail` / `not_configured` — the one number in this repository that had no command behind it. It is a *measurement*, and the exit code is 0 whatever the verdicts are, because making it a gate while the table still carries `fail` rows would be the same construction as `test:render` shipping `pr-blocking` with no baseline: a required check that can never pass blocks every pull request, teaches reviewers to read red as noise, and hides the failures that matter. It graduates to `pr-blocking` when the fails are zero, in the same commit that makes them zero, by moving this tier and passing `--strict`. It reads committed files and executes no gate, so it needs no binary and belongs in no step's install list."
+      "tier": 1,
+      "why": "**Graduated to `pr-blocking` on 2026-10-01, in the commit that made the fails zero.** This row used to say the opposite, and the reason it did is the reason it is worth reading: `status:10` reports the roadmap's §17 twelve points as `pass` / `fail` / `not_configured`, and while the table carried `fail` rows, exiting non-zero would have been the same construction as `test:render` shipping `pr-blocking` with no baseline — a required check that can never pass blocks every pull request, teaches reviewers to read red as noise, and hides the failures that matter. So `--strict` was a switch rather than a default, and arming it was a deliberate recorded act.\n\n**The last `fail` was closed by writing the artefact, not by reclassifying the clause.** Point 3 required a `durable-path.spec.ts` naming every stage of the durable chain. `e2e/product/durable-path.spec.ts` now exists, walks migrate → authenticate → enqueue → runner → stream → evidence → cancel → lease → gate against a real PostgreSQL, and has its own `playwright.config.ts` project carrying the same non-empty assertion `product` does — a project matching no spec would be a green job that executed nothing, which is the failure this repository has already had to fix twice.\n\n**The graduation is asserted, not remembered.** `scripts/lib/status-ten.test.mjs` requires `const strict = true` in the reporter *and* requires the real tree to report zero `fail` rows. A `const strict = false` would quietly make the gate a measurement again with no diff in any test, and a `fail` row reappearing while armed makes `pnpm status:10` exit 1 — which is the gate working.\n\n**What the tier does not cover, and cannot.** Twelve rows are `not_configured`, and arming the gate changed none of them: `status:10` reads committed files and executes no gate, so a claim whose proof is a command is unmeasured here by construction. Each names the command that would decide it. This row is `pr-blocking` for exactly what the script can read, which is all of what it knows. It needs no binary and belongs in no step's install list."
     },
     "review:pr": {
       "requires": ["git"],

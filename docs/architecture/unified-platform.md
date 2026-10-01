@@ -24,7 +24,7 @@ Proposed
 
 ## Context
 
-The Q-Ace ecosystem currently consists of two independent monorepos: `Automate` and `Automate`. While they provide complementary value, they suffer from duplicated schemas, inconsistent API patterns, and fragmented user experiences. The PRD v2 defines Q-Ace as a unified AI QA platform. We need a strategy to consolidate these into a single, cohesive platform without disrupting existing production workflows.
+This ecosystem currently consists of two independent monorepos, here referred to as the server and the dashboard, since both now live in one repository and share a package scope. While they provide complementary value, they suffer from duplicated schemas, inconsistent API patterns, and fragmented user experiences. We need a strategy to consolidate these into a single, cohesive platform without disrupting existing production workflows.
 
 ## Decision: Modular Monolith
 

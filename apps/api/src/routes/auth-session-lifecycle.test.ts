@@ -23,6 +23,10 @@ import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { describe, expect, it } from 'vitest';
 import { hashCredential, verifyCredential } from '@automate/auth';
 import { createAuthRoutes } from './auth.js';
+import {
+  syntheticCookieSecret,
+  syntheticInstallationKey,
+} from '../test-support/synthetic-credentials.js';
 
 /**
  * The session lifecycle, end to end.
@@ -47,9 +51,9 @@ import { createAuthRoutes } from './auth.js';
  *      interchangeable with another.
  */
 
-const COOKIE_SECRET = 'auth-session-test-cookie-secret-32-characters';
+const COOKIE_SECRET = syntheticCookieSecret();
 const INSTALLATION_ID = '00000000-0000-4000-9000-0000000000aa';
-const API_KEY = 'the-installation-api-key-used-by-this-suite';
+const API_KEY = syntheticInstallationKey();
 const SESSION_TTL_MS = 60_000;
 
 const COOKIE = 'automate_session';

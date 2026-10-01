@@ -615,7 +615,7 @@ Delete or move to a historical archive after extracting still-valid decisions:
 - `.github/COMMIT_MSG_v1.0.0.txt`
 - `docs/QA_MASTER_PLAN.md`
 - `docs/PRD-MVP-gap-analysis.md`
-- `docs/plans/qace-consolidated-roadmap.md`
+- `docs/plans/consolidated-roadmap.md`
 - `docs/cleanup-plan.md`
 - `docs/release-notes-v2.md`
 

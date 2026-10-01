@@ -3,6 +3,7 @@ import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
 import { ReporterIngestionService } from '../services/reporter-ingestion.js';
 import { createReporterResultsRoute } from './reporter-results.js';
+import { syntheticReporterSecret } from '../test-support/synthetic-credentials.js';
 
 /**
  * The same credential, sent the same way, on two routes that used to answer
@@ -19,7 +20,7 @@ import { createReporterResultsRoute } from './reporter-results.js';
  * got "invalid credential" from one route and "missing credential" from the rest.
  */
 
-const SECRET = 'reporter-secret';
+const SECRET = syntheticReporterSecret();
 const digest = 'e'.repeat(64);
 
 const result = {

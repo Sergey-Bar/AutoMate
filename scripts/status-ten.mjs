@@ -1,19 +1,16 @@
 /**
  * `pnpm status:10` — the twelve points, each with a verdict and a reason.
  *
- * **This is a measurement, not a gate, and the exit code says so.** It exits 0
- * whatever the verdicts are. A measurement that fails the build is a gate, and a
- * gate needs a budget decision (D6), a tier, and a reason to be red; none of those
- * exist for a list that has not been read yet, and the first version of this
- * repository's instinct on that subject — `test:render` shipped `pr-blocking` with
- * no baseline — is the mistake this file is shaped to avoid.
+ * **`status:10` is a gate now, and it exits non-zero on a `fail` row.** It was a
+ * measurement until 2026-10-01, when the last `fail` — point 3, the missing
+ * durable-path spec — was closed by writing the artefact rather than by reclassifying
+ * the clause. The graduation was the reason `--strict` existed as a switch: a gate that
+ * reports red forever is not a gate, so arming it was a deliberate act rather than a
+ * default. The reasoning is at the `strict` constant below.
  *
- * `--strict` is the graduation switch, and it is not a default because turning it
- * on while the table still has `fail` rows would make a required check that can
- * never pass, which blocks every pull request and teaches reviewers to read red as
- * noise. Graduate it when the fails are zero, in the same commit that makes them
- * zero, and record the reason in `scripts/gate-tooling.json` the way
- * `render-gate-phase.mjs` records the rendering gate's.
+ * **It covers exactly what it can read.** Twelve `not_configured` rows are unaffected,
+ * because this script reads committed files and executes no gate; each names the command
+ * that would decide it.
  *
  * Read-only. It reads the tree, prints a table, and writes to the GitHub job
  * summary when one is set. `--json` is for a caller that wants the structure rather
@@ -30,7 +27,35 @@ import { evaluate, loadContext, markdownTable, repoRoot, tally } from './lib/sta
 const root = repoRoot();
 const reports = evaluate(loadContext(root));
 const counts = tally(reports);
-const strict = process.argv.includes('--strict');
+
+/**
+ * **`--strict` graduated on 2026-10-01**, in the commit that made the fails zero.
+ *
+ * The switch existed because a gate that reports red forever is not a gate: it blocks
+ * every pull request and teaches reviewers to read red as noise, which is exactly what
+ * `test:render` did by shipping `pr-blocking` with no baseline. The remedy was not to
+ * remove the gate but to refuse to arm it before the table was green — so the arming
+ * was the recorded, deliberate act it needed to be.
+ *
+ * The condition is met and the arming is unconditional now. Point 3 was the last
+ * `fail`, and it was closed by writing `e2e/product/durable-path.spec.ts` — a real
+ * artefact, not a reclassification — with a `playwright.config.ts` project of its own so
+ * it cannot become a green no-op. `scripts/lib/status-ten.test.mjs` asserts every stage
+ * marker is present **in that file**, so the point cannot go back to passing on a spec
+ * that exists and names nothing.
+ *
+ * **What `--strict` does and does not cover.** It fails on a `fail` row. It does not
+ * touch the twelve `not_configured` rows, and it cannot: `status:10` reads committed
+ * files and executes no gate, so a claim whose proof is a run is unmeasured here by
+ * construction. Each of those twelve names the command that would decide it. Arming the
+ * switch asserts that nothing the script *can* read is failing — which is the whole of
+ * what this script knows.
+ *
+ * The flag is kept as an accepted no-op so the documented graduation step and any
+ * workflow already passing it keep working, rather than being broken by the commit that
+ * made them unnecessary.
+ */
+const strict = true;
 
 if (process.argv.includes('--json')) {
   console.log(JSON.stringify({ counts, points: reports }, null, 2));
@@ -65,7 +90,7 @@ if (process.argv.includes('--json')) {
 
 if (strict && counts.fail > 0) {
   console.error(
-    `status:10 --strict: ${String(counts.fail)} point(s) fail. Either close them, or record a ` +
+    `status:10: ${String(counts.fail)} point(s) fail. Either close them, or record a ` +
       '`debt` row with an owner and a removal condition for the ones that are being deferred.',
   );
   process.exit(1);

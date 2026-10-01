@@ -11,7 +11,7 @@
 
 > **Current maturity: local/sample implementation.** The canonical reporter → reporting → dashboard vertical slice is implemented and tested. Production OCI execution, production publication, credential rotation, and destructive data migration are intentionally not enabled yet.
 
-Automate is the active unified repository for **Q-Ace**, a planned QA automation control plane. It normalizes test results into shared contracts, persists run evidence, exposes live updates, and provides a React dashboard for exploring runs, analytics, quarantine, and quality gates.
+Automate is a local-first QA control plane. It normalizes test results from any producer into shared contracts, persists run evidence, exposes live updates, and provides a React dashboard for exploring runs, analytics, quarantine, and quality gates.
 
 The longer-term product adds independently deployable runners, AI-provider gateways, connectors, and isolated execution for browser, API, load, security, and mobile tools. Those boundaries are being built, but they are not all production-ready today. The authoritative status is [`docs/migration/capability-register.md`](docs/migration/capability-register.md).
 

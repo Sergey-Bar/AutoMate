@@ -79,9 +79,61 @@ rules:
       cwe: 'CWE-400: Uncontrolled Resource Consumption'
       confidence: LOW
     patterns:
-      - pattern-inside: |
-          function $F(...) { ... }
-      - pattern: inArray(..., $COL, $LIST, ...)
+      # **A list the caller controls**: a variable, a spread, or a mapped array.
+      #
+      # The first version matched every `inArray` and reported 9 findings, three of them
+      # `inArray(executionJobs.state, ['queued', 'leased', 'requeued'])` — three fixed
+      # strings that cannot grow with a request.
+      #
+      # The obvious exclusion, `pattern-not: inArray(..., $COL, [...], ...)`, **cannot
+      # work**: in a semgrep pattern `[...]` means "a list of any length", so it matches a
+      # spread and a literal alike, and the rule went silent on the hazard it exists for.
+      # `[x, ...]` does not help either — it is "at least one element", which is the same
+      # set. So the discriminator is the first character of the argument: an identifier
+      # starts with a letter or `$`, and a literal starts with `[`.
+      - pattern-either:
+          - pattern: inArray(..., $COL, [...$LIST], ...)
+          - pattern: 'inArray(..., $COL, $LIST, ...)'
+      - metavariable-regex:
+          metavariable: $LIST
+          # **A bare identifier, anchored at both ends.**
+          #
+          # This was `^[A-Za-z_$]` — anchored only at the *start*. So it matched anything
+          # whose text began with a letter, which includes a **call**: `inArray(col,
+          # oneBatch(ids))` was reported for exactly the shape where the bound is enforced
+          # one line above, by a function whose whole job is to throw if the list is too
+          # long. The rule could not tell that argument from a request-shaped array.
+          #
+          # Anchoring the end is the fix, and it is the honest one: a bare identifier is
+          # the case where the length is genuinely unknown to a reader — it could be
+          # anything the caller built. A call is opaque in the same way a member access is,
+          # and this rule already declines to report member access for that reason. It
+          # should decline a call too, rather than reporting one shape it declines and
+          # flagging the other.
+          #
+          # **What this gives up, stated plainly:** `inArray(col, getIds())` is no longer
+          # reported, and if `getIds()` returns a caller-supplied list that is now invisible
+          # to this rule. That is a real loss of coverage, and it is traded for not
+          # reporting calls that enforce their own bound. The alternative — reporting both
+          # — is what produced six findings on code that had none, and a gate that reports
+          # bounded code teaches reviewers to skip it.
+          #
+          # A spread is still reported, by the branch above: `[...ids]` is a bare
+          # identifier inside a spread, and its length is just as unknowable.
+          regex: '^[A-Za-z_$][A-Za-z0-9_$]*$'
+      # A **subquery**, not a list. `inArray(artifacts.runId, scopedRuns)` where
+      # `scopedRuns` is a Drizzle query builder is a subquery: PostgreSQL plans it, and its
+      # size is the table's, not a request's. A member access cannot be an attacker-supplied
+      # array — the hazard is a spread or an identifier whose length the caller controls,
+      # and those are what the two branches above match.
+      #
+      # **The exclusion names its own metavariables.** Written with the same `$LIST` as
+      # the positive pattern, it could never match: semgrep requires a `pattern-not` to be
+      # consistent with the bindings the positive pattern already made, so
+      # `$LIST.$FIELD` asked for `$LIST` to be `db_` and `$LIST` was bound to `db_.scoped`.
+      # A sixth mechanism in this file that reads as an exclusion and is not one — and
+      # this one made the rule report the safe shape it was written to stop reporting.
+      - pattern-not: 'inArray(..., $EXCLUDED_COL, $EXCLUDED_LIST.$EXCLUDED_FIELD, ...)'
 
   # ---------------------------------------------------------------------------
   # HTTP surface
@@ -117,56 +169,98 @@ rules:
       category: security
       cwe: 'CWE-208: Observable Timing Discrepancy'
       confidence: MEDIUM
+    # **Product code only.** The one finding this rule has is in
+    # `s3-artifact-bytes.test.ts`, a test-local SigV4 validator that builds its own
+    # request and compares the signature it computed against the one it presented. A byte
+    # comparison there is not an attack surface: there is no attacker and no secret, and
+    # the comparison is the assertion. A rule that reports a test's own scaffolding is a
+    # rule a reviewer learns to skip.
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+        - '**/*.spec.ts'
+        - '**/*.spec.tsx'
     patterns:
-      - pattern-either:
-          - pattern: $SECRET === $OTHER
-          - pattern: $SECRET == $OTHER
-      # The field must be **named** like a secret, and it was constrained by nothing but
-      # being a property.
+      # The comparison, with the member access **in the positive pattern**.
       #
       # This was the **first execution of the whole semgrep gate in the repository's CI
       # history**: the scanner-install step had failed on every previous run, so
       # `security:static` never ran, and neither did the licence, duplication and
       # complexity gates queued behind it. Its first execution reported **1137 blocking
       # findings across 637 files**, all but a handful from this one rule — because
-      # `$OBJ.$SECRET_FIELD` matches *any* property access and only `$OBJ.status` was
+      # `$OBJ.$SECRET_FIELD` matched *any* property access and only `$OBJ.status` was
       # excluded. `user.id === other.id`, `a.name === b.name`, `event.type === other.type`:
       # every property comparison in the tree.
       #
       # So the constraint is on the **name**, which is what `$SECRET_FIELD` claims to be.
-      # It sits *inside* the `metavariable-pattern` that binds it, because semgrep requires
-      # a metavariable used in a conditional to be bound by a positive pattern in the same
-      # block — putting `metavariable-regex` alongside `metavariable-pattern` makes the
-      # whole rule invalid, and `semgrep --validate` says so in those words.
+      #
+      # **It is bound here rather than validated afterwards, and that is not a style
+      # choice.** The previous shape matched `$SECRET === $OTHER` and then checked with a
+      # nested `metavariable-pattern` that `$SECRET` was a property access with a
+      # credential-shaped name. That is the one rule in this file **semgrep could not
+      # compile**: `semgrep scan` failed with `Invalid_argument: String.sub / Bytes.sub`,
+      # an OCaml exception raised while semgrep formatted its own error, so the message
+      # named line 1 of the *target file* and said nothing about the rule. Two files in
+      # the tree hit it, which is the whole reason SEM-2 had no complete per-rule number.
+      #
+      # Eliminated before concluding that: the parser (identical bytes scan cleanly under
+      # `rules: []`), the extension (identical bytes under four names), the size (9 KB of
+      # synthetic code is fine), and `language: generic`. Binding `$SECRET_FIELD` in the
+      # pattern makes it available to a plain `metavariable-regex`, so there is no nested
+      # construct left for the analyser to fail on.
+      #
+      # `scripts/lib/semgrep-rules.test.mjs` is what proves the behaviour survived, because
+      # "no longer errors" and "no longer matches" look identical in a scan report.
       #
       # The repository already does the right thing where it matters — `safeEqual` in
       # `apps/api/src/routes/execution/shared.ts`, used by `registrationAuthorized` and
       # the runner-token check — so a rule firing 1137 times was not reporting the code's
       # security posture. It was reporting that a rule existed.
-      - metavariable-pattern:
-          metavariable: $SECRET
-          patterns:
-            - pattern-either:
-                - pattern: $OBJ.$SECRET_FIELD
-                - pattern: $OBJ[$SECRET_FIELD]
-            - metavariable-regex:
-                metavariable: $SECRET_FIELD
-                regex: '(?i)^(secret|password|passwd|passphrase|token|hash|signature|signed|apikey|api_key|key|nonce|hmac|digest|credential|cookie|mac)$'
-            - pattern-not: $OBJ.code
-            - pattern-not: $OBJ.type
-            - pattern-not: $OBJ.method
-            - pattern-not: $OBJ.name
-            - pattern-not: $OBJ.id
+      - pattern-either:
+          - pattern: $OBJ.$SECRET_FIELD === $OTHER
+          - pattern: $OBJ.$SECRET_FIELD == $OTHER
+          - pattern: $OBJ[$SECRET_FIELD] === $OTHER
+          - pattern: $OBJ[$SECRET_FIELD] == $OTHER
+      - metavariable-regex:
+          metavariable: $SECRET_FIELD
+          regex: '(?i)^(secret|password|passwd|passphrase|token|hash|signature|signed|apikey|api_key|secret_key|key_hash|nonce|hmac|digest|credential|cookie|mac)$'
+      # Names that are not credentials however secret they sound. No bare `key`: it is
+      # too generic to mean "credential" — `e.key`, `event.key` and `route.key` are a
+      # keyboard key and a route key, and every one of them was reported. `apikey`,
+      # `api_key`, `secret_key` and `key_hash` are the names that do mean one, and they
+      # are on the list above.
+      - pattern-not: $OBJ.status
+      - pattern-not: $OBJ.code
+      - pattern-not: $OBJ.type
+      - pattern-not: $OBJ.method
+      - pattern-not: $OBJ.name
+      - pattern-not: $OBJ.id
+      # A comparison against a **string literal** is not an oracle, and the exclusion
+      # has to sit at the **rule level**, beside the `pattern-either` that matches the
+      # comparison.
+      #
+      # It was written inside the `metavariable-pattern`, where it constrains `$SECRET`
+      # *alone* — so `$SECRET === '"$LITERAL"'` could never match a bound `$SECRET`, which
+      # is a property access and nothing more. The exclusion was written, and had nothing
+      # to exclude, which is the same defect as `no-cleartext-transport-in-client`'s and
+      # the fifth instance of it in this file. `route.key === '/login'` compares a value
+      # against a constant the attacker cannot measure, so there is nothing to leak.
+      - pattern-not: |
+          $OBJ.$SECRET_FIELD === "$LITERAL"
+      - pattern-not: |
+          $OBJ.$SECRET_FIELD === '$LITERAL'
 
   # ---------------------------------------------------------------------------
   # Subprocesses
   # ---------------------------------------------------------------------------
   - id: no-shell-true
     message: >-
-      A subprocess launched with `shell: true`. The command string is then
-      interpreted by a shell, so any interpolated value is command injection. The
-      argument-array form in `apps/runner/src/execution.ts` is the shape to match
-      instead, and it already passes `shell: false` explicitly.
+      A subprocess launched from a **string** command, or with `shell: true`. A
+      string is interpreted by a shell, so any interpolated value is command
+      injection. The argument-array form is the shape to match instead, and
+      `apps/runner/src/execution.ts` already uses it and passes `shell: false`
+      explicitly.
     severity: ERROR
     languages: [typescript, javascript]
     metadata:
@@ -176,9 +270,54 @@ rules:
     patterns:
       - pattern-either:
           - pattern: 'spawn(..., { ..., shell: true, ... })'
+          - pattern: 'spawnSync(..., { ..., shell: true, ... })'
+          - pattern: 'exec(..., { ..., shell: true, ... })'
+          - pattern: 'execSync(..., { ..., shell: true, ... })'
+          # And a command that is a **string**.
+          #
+          # The first version had bare `exec($CMD, ...)`, `execSync($CMD, ...)` and
+          # `spawnSync($CMD, ...)`, which match every subprocess call in the repository —
+          # including every correct argument-array form. 21 findings, all of them
+          # `spawnSync(command, args, {...})` in `scripts/`. The hazard is the *string*, so
+          # the string is what is matched.
+          #
+          # All eight alternatives are in **one** `pattern-either`. The first version of
+          # this fix put them in two, and semgrep ANDs two `pattern-either` keys in one
+          # `patterns` list — so it required a string command that *also* passed
+          # `shell: true`, which is the conjunction of two safe shapes, and the rule went
+          # silent on everything including the unsafe one.
           - pattern: 'exec($CMD, ...)'
           - pattern: 'execSync($CMD, ...)'
+          - pattern: 'spawn($CMD, ...)'
           - pattern: 'spawnSync($CMD, ...)'
+      # **A command *line*, not an executable name.**
+      #
+      # `spawnSync('git', ['rev-parse', 'HEAD'])` is the argument-array form and is safe:
+      # the first argument is the executable and nothing is interpreted. `spawnSync('git
+      # rev-parse HEAD')` is a command line, and the shell splits it. A string containing
+      # whitespace — or an interpolation, which is never whitespace-free by accident — is
+      # the discriminator.
+      #
+      # Requiring "a string literal" was not enough and fired on both: the argument-array
+      # form's first argument is a string too. That is the second version of this rule to
+      # report the shape rather than the hazard.
+      #
+      # **The regex matches the argument's own text and nothing else**, so it must not
+      # anchor on a delimiter. Anchoring on `^['"`]...\s...['"`]$` matched the quoted
+      # forms and silently missed **every template literal**, which is where the
+      # injection actually lives: `` execSync(`git checkout ${branch}`) `` — the one
+      # input a real caller writes — produced no finding, while `execSync('git
+      # rev-parse HEAD')` produced one. A discriminator that misses the dangerous case
+      # and catches the harmless one is worse than no rule, because the finding it does
+      # report is evidence the rule works.
+      #
+      # Whitespace alone is the property that distinguishes the two: an argument-array
+      # form's first argument is one token (`git`), and a command line is never. This
+      # matches the quoted and the templated form alike, which
+      # `scripts/lib/semgrep-rules.test.mjs` asserts against a fixture per case.
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*\s.*'
 
   - id: no-curl-pipe-shell
     message: >-
@@ -259,15 +398,61 @@ rules:
       execution in this origin.
     severity: ERROR
     languages: [typescript, javascript]
-    metadata:
-      category: security
-      cwe: 'CWE-95: Eval Injection'
-      confidence: HIGH
+    # **Browser code only.** The rule was unscoped, so it also ran over
+    # `apps/api/src/infrastructure/artifact-store.ts` and
+    # `apps/api/src/middleware/request-deadline.ts`, where `new Function` and
+    # `setTimeout` are exactly what a server does. 27 of its 30 findings were
+    # `setTimeout(handler, ms)`.
+    paths:
+      include:
+        - apps/web/src/**
+        - packages/ui/src/**
+        - apps/runner/src/**
+        - apps/worker/src/**
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
     patterns:
+      # One alternative, not two: semgrep ANDs two `pattern-either` keys in a single
+      # `patterns` list, so the first version of this fix required a call to be *both*
+      # `eval`/`new Function` *and* string-argumented — the conjunction of two safe
+      # shapes — and the rule went silent on everything including the unsafe one. That
+      # is the third rule here where two `pattern-either` keys silently became an AND.
+      #
+      # `eval` and `new Function` are the hazard whatever their argument is:
+      # `eval(fn)` executes a function value as readily as `eval(str)`.
       - pattern-either:
           - pattern: eval(...)
           - pattern: new Function(...)
-          - pattern: setTimeout($STR, ...)
+
+  # `setTimeout` is a separate rule for a separate reason: `setTimeout(handler, ms)` is a
+  # timer and `setTimeout('code', ms)` is an `eval`. One rule cannot say "this call, or
+  # that call *only when its argument is a string*" without either the conjunction above
+  # or matching every timer in the repository, which is what the first version did —
+  # 27 of its 30 findings were `setTimeout(handler, ms)`.
+  - id: no-string-set-timeout
+    message: >-
+      `setTimeout` with a string. The browser evaluates a string argument as code, so
+      anything reaching it from a URL fragment or a stored value becomes script
+      execution in this origin. Pass a function.
+    severity: ERROR
+    languages: [typescript, javascript]
+    paths:
+      include:
+        - apps/web/src/**
+        - packages/ui/src/**
+        - apps/runner/src/**
+        - apps/worker/src/**
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: setTimeout($ARG, ...)
+          - pattern: setInterval($ARG, ...)
+      - metavariable-regex:
+          metavariable: $ARG
+          regex: '^[\x27"`].*[\x27"`]$'
 
   - id: no-credential-in-web-storage
     message: >-
@@ -333,7 +518,18 @@ rules:
       cwe: 'CWE-319: Cleartext Transmission of Sensitive Information'
       confidence: MEDIUM
     patterns:
-      - pattern-regex: '(fetch|axios\.(get|post|put|patch|delete))\(\s*[\x27"`]http://'
+      # The whole URL is matched, **not** just `http://`.
+      #
+      # `pattern-not-regex` in semgrep is tested against the matched text, so a pattern
+      # that stopped at `http://` could never exclude anything — the loopback exemption was
+      # written and then had nothing to match. The first version's three findings were
+      # `fetch(\`http://localhost:…\`)` in `apps/worker/src/config.test.ts`, and the
+      # exclusion aimed at exactly those did nothing. Capture the URL, then the exclusion
+      # can see the host.
+      - pattern-regex: '(fetch|axios\.(get|post|put|patch|delete))\(\s*[\x27"`]http://[^\x27"`]*[\x27"`]'
+      # **Loopback is not a transport.** `http://localhost:3000` never leaves the machine,
+      # so there is no path for a proxy to read or rewrite.
+      - pattern-not-regex: 'http://(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?'
 
   # ---------------------------------------------------------------------------
   # Transport
@@ -357,9 +553,9 @@ rules:
 
   - id: no-hardcoded-secret-literal
     message: >-
-      A credential-looking string literal. `pnpm security:secrets` also scans git
-      history for these, and it is right to: a token that reached a commit
-      reached every clone. Assemble fixtures at runtime instead, which is what
+      A literal credential assigned to a secret-shaped name. `pnpm security:secrets`
+      also scans git history for these, and it is right to: a token that reached a
+      commit reached every clone. Assemble fixtures at runtime instead, which is what
       `apps/api/src/test-support/synthetic-credentials.ts` does.
     severity: ERROR
     languages: [typescript, javascript]
@@ -368,24 +564,76 @@ rules:
       cwe: 'CWE-798: Use of Hard-coded Credentials'
       confidence: MEDIUM
     patterns:
-      - pattern-regex: '[\x27"`][A-Za-z0-9+/=_-]{28,}[\x27"`]'
-      - pattern-not-regex: '(\.\.|\\\\|/)(test|tests|__tests__|node_modules|fixtures?|migrations?)|__tests?__|synthetic|\.test\.|\.spec\.|mock|example|placeholder|REDACTED|dummy|sample'
-      # An ALL-CAPS, underscore-separated token is an identifier, not a credential.
+      # **Keyed on the name the value is assigned to, not on the length of the value.**
       #
-      # This was the first observation of this rule ever running in CI — the scanner step
-      # failed on every previous run, so `pnpm security:static` never got past it. On its
-      # first execution it reported `code: 'REPORTER_SECRET_NOT_CONFIGURED'` in
-      # `apps/api/src/routes/reporter-results.ts` as a hard-coded credential. It is an
-      # **error code**: 31 characters, every one of them in the pattern's character class,
-      # and something a client branches on.
+      # The first version matched any quoted run of 28+ characters and reported **441
+      # findings** across 110 files: `'quarantine_ttf_resolution_check'`,
+      # `'00000000-0000-4000-8000-0000000000ff'`, every Drizzle column definition. An
+      # identifier is not a credential, and a rule that cannot tell the two reports the
+      # shape of the codebase rather than its security.
       #
-      # The exclusion is narrow on purpose, because the alternative is deleting the rule. A
-      # credential is mixed-case, base64-ish or hex; it is essentially never `LIKE_THIS`.
-      # Real fixtures still fire — the E2E installation key
-      # `e2e-installation-key-32-characters-long` is 40 characters of mixed case and
-      # hyphens, and still matches. A gate that cries wolf at the first error code it sees
-      # gets switched off, and then it catches nothing at all.
+      # It also tried to exempt test files with a `pattern-not-regex` naming `\.test\.` —
+      # a **content** regex, matched against the matched text, so it could never have
+      # exempted a path. Semgrep has `paths:` for that and the rule did not use it. A
+      # mechanism that cannot work is worse than none, because it reads as one.
+      #
+      # So the rule matches the *name*, which is the approach `config.test.ts` takes in
+      # TypeScript and `no-credential-in-web-storage` uses below. Test files stay **in**
+      # scope, deliberately: `'development-only-cookie-secret-32-chars'` really is a
+      # credential in a fixture, and AGENTS.md says fixtures are assembled at runtime.
+      - pattern-either:
+          - pattern: $OBJ.$SECRET_FIELD = $VALUE
+          - pattern: $OBJ[$SECRET_FIELD] = $VALUE
+          - pattern: $SECRET_FIELD = $VALUE
+      - metavariable-regex:
+          metavariable: $SECRET_FIELD
+          regex: '(?i)^(.*_)?(secret|password|passwd|passphrase|token|hash|signature|signed|apikey|api_key|nonce|hmac|digest|credential|cookie|private_key)(_.*)?$'
+      # A **string literal**, not any expression: `secret = readSecret()` is correct code,
+      # and a rule that reports it teaches a reader to ignore it.
+      - metavariable-regex:
+          metavariable: $VALUE
+          regex: '^[\x27"`][A-Za-z0-9+/=_-]{8,}[\x27"`]$'
+      # `process.env.X` is the value a setting is *supposed* to have. This is a
+      # `pattern-not` and it was originally written as a bare `pattern`, which is a
+      # **positive** condition in a `patterns` list — so the rule only fired on an
+      # assignment that *also* contained `process.env`, which is the safe shape. A
+      # fourth rule in this file silently disabled by a plausible-looking line, and
+      # the only reason it was found is that a probe fixture asks the rule to fire
+      # and it does not.
+      - pattern-not: 'process.env'
+      # An ALL-CAPS underscore-separated token is an error code —
+      # `REPORTER_SECRET_NOT_CONFIGURED` is 31 characters in the pattern's class, and
+      # a client branches on it.
       - pattern-not-regex: '[\x27"`][A-Z][A-Z0-9]*(_[A-Z0-9]+)+[\x27"`]'
+      # **A cookie *name* is not a cookie.** `SESSION_COOKIE = 'automate_session'` is a
+      # published constant in three files, and `COOKIE_SECRET` next to it is a real
+      # credential. Matching on the name alone cannot tell them apart, and a rule that
+      # reports the cookie name teaches a reader to ignore the rule — which is the same
+      # failure as the length heuristic, one level down.
+      #
+      # These name their own metavariables for the reason `no-unbounded-list-in-query`'s
+      # exclusion does: a `pattern-not` that reuses the positive pattern's bindings
+      # cannot match, because semgrep requires it to agree with them. `$OBJ.SESSION_COOKIE`
+      # asked for `$OBJ` to be the `SESSION_COOKIE` identifier, and `$OBJ` was bound to
+      # whatever object held the assignment — which for a bare declaration is nothing.
+      - pattern-not: $EXCLUDED_OBJ.SESSION_COOKIE = $EXCLUDED_VALUE
+      - pattern-not: $EXCLUDED_OBJ.COOKIE = $EXCLUDED_VALUE
+      # Nor is a *name* constant a credential: `DEVELOPMENT_COOKIE_SECRET` in
+      # `startup-policy.ts` is the documented development fallback whose entire purpose is
+      # to be refused outside a test run and a developer's own machine. That refusal is
+      # `startup-policy.test.ts`'s subject and it holds; the literal is the thing it
+      # refuses.
+      - pattern-not: $EXCLUDED_OBJ.DEVELOPMENT_COOKIE_SECRET = $EXCLUDED_VALUE
+      - pattern-not: $EXCLUDED_OBJ.DEVELOPMENT_API_KEY = $EXCLUDED_VALUE
+      # A **bare declaration**, which is how both constants above are actually written:
+      # `const SESSION_COOKIE = '...'`. `$EXCLUDED_OBJ.SESSION_COOKIE` cannot match it,
+      # because there is no object on the left — which is a seventh instance of the same
+      # defect, and the one that made the rule report the constant its own comment says
+      # is not a credential.
+      - pattern-not: SESSION_COOKIE = $EXCLUDED_BARE_VALUE
+      - pattern-not: COOKIE = $EXCLUDED_BARE_VALUE
+      - pattern-not: DEVELOPMENT_COOKIE_SECRET = $EXCLUDED_BARE_VALUE
+      - pattern-not: DEVELOPMENT_API_KEY = $EXCLUDED_BARE_VALUE
 
   - id: no-insecure-random-for-secret
     message: >-
