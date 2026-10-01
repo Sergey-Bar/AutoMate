@@ -163,6 +163,7 @@ describe('migration graph', () => {
       '0019_sp_private_key_sealed',
       '0020_connector_credentials_tenant',
       '0021_execution_jobs_lease_owner_idx',
+      '0022_tests_error_message',
     ]);
   });
 
