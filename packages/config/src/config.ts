@@ -190,6 +190,9 @@ const EnvironmentSchema = z.object({
   RUNNER_REGISTRATION_SECRET: secretSchema('RUNNER_REGISTRATION_SECRET').optional(),
   ARTIFACT_ROOT: z.string().min(1).default('./var/artifacts'),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
+  // A legacy alias for WORKER_LEASE_DURATION_MS, read only as a fallback by
+  // apps/worker/src/config.ts. Never documented in .env.example. Kept so an install that
+  // set it keeps its lease length; see the workerLeaseDurationMs field for why.
   WORKER_LEASE_MS: z.coerce.number().int().positive().default(30000),
   WORKER_LEASE_DURATION_MS: z.coerce.number().int().positive().default(30000),
   WORKER_MAX_ATTEMPTS: z.coerce.number().int().positive().max(10).default(2),
@@ -218,7 +221,19 @@ export type AppConfig = {
   runnerRegistrationSecret?: string;
   artifactRoot: string;
   workerPollIntervalMs: number;
-  workerLeaseMs: number;
+  /**
+   * The lease length, and the canonical name for it.
+   *
+   * There is also a `WORKER_LEASE_MS` environment variable for the same setting. It is
+   * **undocumented** — `.env.example` has only ever listed `WORKER_LEASE_DURATION_MS` —
+   * and `apps/worker/src/config.ts` reads it as a fallback for installs that set it before
+   * the rename. It is kept rather than removed because removing an environment variable
+   * silently changes behaviour for anyone who set one, and a lease length that quietly
+   * reverts to 30 s is worse than a deprecated name.
+   *
+   * The previous `workerLeaseMs` field is gone: it was written here and read by nothing,
+   * so the only thing it could do was look like the setting it was not.
+   */
   workerLeaseDurationMs: number;
   workerMaxAttempts: number;
   kiloGatewayUrl?: string;
@@ -269,7 +284,6 @@ export function parseConfig(
     runnerRegistrationSecret: parsed.RUNNER_REGISTRATION_SECRET,
     artifactRoot: parsed.ARTIFACT_ROOT,
     workerPollIntervalMs: parsed.WORKER_POLL_INTERVAL_MS,
-    workerLeaseMs: parsed.WORKER_LEASE_MS,
     workerLeaseDurationMs: parsed.WORKER_LEASE_DURATION_MS,
     workerMaxAttempts: parsed.WORKER_MAX_ATTEMPTS,
     kiloGatewayUrl: parsed.KILO_GATEWAY_URL,

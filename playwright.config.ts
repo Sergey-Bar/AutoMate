@@ -126,13 +126,25 @@ export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
-  // No `globalSetup`, and its absence is the fix. There was one, and it applied the
-  // migration graph — which is the right job in the wrong place, because **Playwright
-  // starts `webServer` before `globalSetup` runs.** The API booted against an unmigrated
-  // database and died with `relation "installations" does not exist` before the setup had
-  // a turn, so the migration never happened and the `Rendering budget` job failed even
-  // with the build in place. The migration is now part of the `webServer` command, and
-  // this file's own `DATABASE_URL` guard below is the refusal `globalSetup` duplicated.
+  // **`globalSetup` is back, for the opposite reason it was removed.**
+  //
+  // It used to apply the migration graph here, which is the right job in the wrong place:
+  // **Playwright starts `webServer` before `globalSetup` runs**, so the API booted against
+  // an unmigrated database and died with `relation "installations" does not exist` before
+  // setup had a turn. The migration is part of the `webServer` command now, and this
+  // file's own `DATABASE_URL` guard is the refusal `globalSetup` duplicated.
+  //
+  // What is left for it is the one job that *needs* a live schema and must happen before
+  // any spec: emptying the durable tables. `execution_jobs` is a single queue every spec
+  // draws from and `claimJob` refuses a runner already holding its slot, so a second run
+  // against the same database failed while the first passed (ledger **E2E-4**). There is
+  // deliberately no route that releases a lease — one that could would be the
+  // command-injection primitive `P-70` removed — so a run cannot clean up after itself
+  // from inside a spec.
+  //
+  // It refuses to run against anything that is not a loopback host or a database whose
+  // name contains test/e2e/ci, because it truncates.
+  globalSetup: './e2e/support/reset-queue.mjs',
   forbidOnly: Boolean(process.env['CI']),
   retries: process.env['CI'] ? 1 : 0,
   workers: 1,

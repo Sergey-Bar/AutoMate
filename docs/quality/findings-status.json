@@ -147,7 +147,7 @@
     "RF-6b": "open",
     "RF-6c": "open",
     "RF-6d": "open",
-    "E2E-4": "open",
+    "E2E-4": "fixed",
     "SEM-3": "open",
     "SEM-4": "open"
   }
