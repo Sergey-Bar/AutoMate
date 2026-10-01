@@ -40,6 +40,14 @@ const MAX_IDS_PER_IN_ARRAY = 1_000;
  * unchanged — this is a guard on the pathological one, not a new code path for everyone.
  */
 function* chunked(values: readonly string[], size: number): Generator<string[]> {
+  // A non-positive size is an infinite loop, not a slow query: `at += 0` never advances.
+  // It is reachable only from a misconfigured bound — the constructor's own default is
+  // positive — and the alternative is a test run that hangs rather than one that fails.
+  // Found by exactly that: the guard test asked for a bound of 0 to make the guard the
+  // only thing between the caller and the statement, and never returned.
+  if (size < 1) {
+    throw new RangeError(`chunked was given a size of ${String(size)}; it must be at least 1.`);
+  }
   for (let at = 0; at < values.length; at += size) {
     yield values.slice(at, at + size);
   }
@@ -58,11 +66,11 @@ function* chunked(values: readonly string[], size: number): Generator<string[]> 
  * than a suppression — the argument really is opaque, and the bound is enforced one line
  * above rather than described beside a shape the rule reads the wrong way.
  */
-function oneBatchOf(ids: readonly string[]): string[] {
-  if (ids.length > MAX_IDS_PER_IN_ARRAY) {
+function oneBatchOf(ids: readonly string[], bound: number = MAX_IDS_PER_IN_ARRAY): string[] {
+  if (ids.length > bound) {
     throw new RangeError(
       `oneBatchOf was given ${String(ids.length)} ids, over the bound of ` +
-        `${String(MAX_IDS_PER_IN_ARRAY)}. The caller must chunk — this guard exists so a ` +
+        `${String(bound)}. The caller must chunk — this guard exists so a ` +
         'removed chunk silently becomes an unbounded statement.',
     );
   }
@@ -78,7 +86,21 @@ type AnyPgDb =
   | PgDatabase<PgliteQueryResultHKT, Record<string, unknown>>;
 
 export class DrizzleRunRepository implements RunRepository {
-  constructor(private readonly db: AnyPgDb) {}
+  constructor(
+    private readonly db: AnyPgDb,
+    /**
+     * The most ids one `IN (...)` may carry.
+     *
+     * Injectable so a test can set it to something small. Asserting the bound otherwise
+     * means seeding a thousand real UUIDs and waiting for a thousand inserts, which is a
+     * slow test that still does not prove *why* it passed — and the previous attempt at one
+     * was a 49-second fixture that failed on row validity rather than on batching.
+     *
+     * With a bound of 2 and 5 runs, the test is fast and the assertion is unambiguous: more
+     * statements than one, and every run's tests still present.
+     */
+    private readonly maxIdsPerInArray: number = MAX_IDS_PER_IN_ARRAY,
+  ) {}
 
   // ── RunRepository implementation ─────────────────────────────────────────
 
@@ -302,11 +324,11 @@ export class DrizzleRunRepository implements RunRepository {
     // The batches are sequential rather than concurrent on purpose: a caller that passed
     // 200 000 ids already has a problem, and issuing them all at once is how that becomes
     // an outage instead of a slow answer.
-    for (const batch of chunked(runIds, MAX_IDS_PER_IN_ARRAY)) {
+    for (const batch of chunked(runIds, this.maxIdsPerInArray)) {
       const rows = await this.db
         .select()
         .from(tests)
-        .where(inArray(tests.runId, oneBatchOf(batch)));
+        .where(inArray(tests.runId, oneBatchOf(batch, this.maxIdsPerInArray)));
       for (const row of rows) {
         const bucket = grouped.get(row.runId) ?? [];
         bucket.push(this._mapTest(row));

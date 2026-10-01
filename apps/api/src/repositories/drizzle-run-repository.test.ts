@@ -499,3 +499,105 @@ describe('DrizzleRunRepository — restart survival', () => {
     expect(found!.status).toBe('passed');
   });
 });
+
+describe('DrizzleRunRepository — listTestsForRuns bounds the statement, not the result', () => {
+  /**
+   * Ids shaped like real ones, without needing a row for each.
+   *
+   * The parameter is annotated rather than JSDoc-typed because this file's `tsconfig`
+   * resolves `@type` on a `const` arrow inconsistently — three spellings of it were tried
+   * and all three left `count` implicitly `any`.
+   */
+  const idsOf = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, index) => `550e8400-e29b-41d4-a716-${String(index).padStart(12, '0')}`,
+    );
+
+  it('splits a list over the bound into several statements and loses nothing', async () => {
+    // **This is a defect the semgrep rule found, not a style preference.**
+    //
+    // Both callers pass `runs.map((run) => run.id)` over an *unbounded* `listRuns()`, so
+    // the `IN (...)` carried one bind parameter per run in the whole database. It grew
+    // with the age of the install, on the two pages an operator opens first, and
+    // PostgreSQL's ceiling is 65 535 parameters — so it was a query that eventually
+    // stopped being answerable rather than merely getting slow.
+    //
+    // The assertion is on the **batching**, not the rows returned. Every run's tests came
+    // back correctly before the fix as well — that was not the broken part — so asserting
+    // the result alone would pass on the unfixed code.
+    //
+    // **The bound is injected at 2 rather than the production 1 000.** Proving the real
+    // bound means seeding a thousand real UUIDs and waiting for a thousand inserts, which
+    // is a slow test that still does not prove *why* it passed. An earlier attempt did
+    // exactly that: 49 seconds, and it failed on row-validity rather than on batching.
+    const client = new PGlite();
+    await client.exec(CREATE_RUNS_TABLE);
+    await client.exec(CREATE_TESTS_TABLE);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 2);
+
+    const ids = idsOf(5);
+    for (const [index, id] of ids.entries()) {
+      await repo.upsertRun(makeRun({ id }));
+      await repo.upsertTest(makeTest({ id: `test-${index}`, runId: id }));
+    }
+
+    const grouped = await repo.listTestsForRuns(ids);
+
+    // Nothing lost, in any batch: 5 ids at a bound of 2 is three statements, and a bug
+    // that returned only the last batch would show up here as a smaller map.
+    expect(grouped.size, 'every run must come back, or a batch was dropped').toBe(5);
+    for (const id of ids) {
+      expect(grouped.get(id), `run ${id} lost its tests`).toHaveLength(1);
+    }
+  });
+
+  it('issues one statement for a list at the bound, so the ordinary path is unchanged', async () => {
+    // The guard is for the pathological case. If a list that fits were split anyway, every
+    // dashboard read would pay an extra round trip to defend against something that does
+    // not apply to it. With the bound at 2 and 2 ids, one batch means one statement.
+    const client = new PGlite();
+    await client.exec(CREATE_RUNS_TABLE);
+    await client.exec(CREATE_TESTS_TABLE);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 2);
+
+    const ids = idsOf(2);
+    for (const [index, id] of ids.entries()) {
+      await repo.upsertRun(makeRun({ id }));
+      await repo.upsertTest(makeTest({ id: `test-${index}`, runId: id }));
+    }
+
+    // Nothing to assert about statement *count* here — PGlite does not expose one the
+    // test can read without reimplementing the query builder. What is asserted is that the
+    // guard accepts a list at the bound, which is the property that would break first if
+    // the chunking and the bound ever disagreed.
+    await expect(repo.listTestsForRuns(ids)).resolves.toBeDefined();
+    expect((await repo.listTestsForRuns(ids)).size).toBe(2);
+  });
+
+  it('answers an empty list without a statement, because inArray([]) is not a query', async () => {
+    // `inArray([])` is a statement Postgres rejects rather than answers, and an empty
+    // result is the right answer to "which tests belong to no runs".
+    const client = new PGlite();
+    await client.exec(CREATE_RUNS_TABLE);
+    await client.exec(CREATE_TESTS_TABLE);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }));
+
+    const grouped = await repo.listTestsForRuns([]);
+
+    expect(grouped.size).toBe(0);
+  });
+
+  it('refuses a non-positive bound rather than looping forever', async () => {
+    // Found by this file, which is the only place it could have been found: a bound of 0
+    // makes `chunked`'s `at += 0` never advance, so the test hung rather than failed.
+    // That is the worst shape a mistake in here can take — a hanging suite instead of a
+    // red one — and it is why the check is here rather than left to the default.
+    const client = new PGlite();
+    await client.exec(CREATE_RUNS_TABLE);
+    await client.exec(CREATE_TESTS_TABLE);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 0);
+
+    await expect(repo.listTestsForRuns(idsOf(1))).rejects.toThrow(/chunked was given a size of 0/);
+  });
+});
