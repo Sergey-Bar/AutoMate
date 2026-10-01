@@ -5,7 +5,7 @@
     "Regenerate with `pnpm findings:baseline` — deliberately, never as a side",
     "effect of a failing check."
   ],
-  "reviewedOn": "2026-09-30",
+  "reviewedOn": "2026-10-01",
   "statuses": {
     "P-18": "fixed",
     "P-71": "fixed",
@@ -112,12 +112,12 @@
     "D-4b": "fixed",
     "G-4b": "fixed",
     "G-3b": "fixed",
-    "C-6": "open",
+    "C-6": "debt",
     "RF-1": "fixed",
     "RF-5": "debt",
     "RF-6": "open",
     "RF-9": "open",
-    "RF-10": "open",
+    "RF-10": "false-positive",
     "RF-11": "open",
     "RF-12": "fixed",
     "E-1": "fixed",
@@ -138,10 +138,15 @@
     "RUN-1": "fixed",
     "RUN-2": "fixed",
     "RUN-3": "fixed",
-    "E2E-3": "open",
+    "E2E-3": "fixed",
     "TS-1": "fixed",
     "SEM-1": "fixed",
     "SEM-2": "open",
-    "OPEN-1": "fixed"
+    "OPEN-1": "fixed",
+    "RF-6a": "open",
+    "RF-6b": "open",
+    "RF-6c": "open",
+    "RF-6d": "open",
+    "E2E-4": "open"
   }
 }

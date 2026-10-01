@@ -1,6 +1,14 @@
 /**
  * The twelve points, as a measurement rather than an assertion.
  *
+ * **It is a gate now.** It was a measurement until 2026-10-01, when its last `fail` was
+ * closed by writing `e2e/product/durable-path.spec.ts`. The distinction that survives
+ * is not "measurement" versus "gate" — it is what each verdict is *derived from*. Every
+ * clause here reads committed files. None of them runs anything, which is why a claim
+ * whose proof is a command is `not_configured` and never `pass`: this script cannot
+ * watch a gate run, and a clause that reported one would be reporting a number it never
+ * measured.
+ *
  * The roadmap this repository grew ends with §17 "Definition of done": twelve
  * falsifiable statements about the product and the gates around it. Until now that
  * list was the one number in a repository whose whole thesis is *evidence over

@@ -184,6 +184,40 @@ test('a verdict is decided by the facts, not by the report: each probe is shown 
     'pass',
   );
 
+  // Point 3, continued: **the real spec now exists, and it has to say what the fixture
+  // said.** The fixture above is a string of `// <stage>` markers the harness reads, so
+  // it proves the *probe* works. It says nothing about the spec in the tree, and a spec
+  // that exists without every stage marker is exactly the case where point 3 would
+  // report a pass on a chain nobody walked: the file is present, the stages are not
+  // named, and the reader is invited to trust a walk that was never written down.
+  //
+  // So the real file is read here and every stage is required of *it*, by the same
+  // markers `pointThree` searches for. Read from the tree rather than restated, so this
+  // cannot pass while the spec regresses.
+  const durableSpec = context.files('e2e').find((file) => file.endsWith('durable-path.spec.ts'));
+  assert.ok(
+    durableSpec,
+    'e2e/product/durable-path.spec.ts is missing; point 3 cannot pass without it',
+  );
+  const durableSource = context.text(durableSpec).toLowerCase();
+  for (const stage of [
+    'migrate',
+    'authenticate',
+    'enqueue',
+    'runner',
+    'stream',
+    'evidence',
+    'cancel',
+    'lease',
+    'gate',
+  ]) {
+    assert.ok(
+      durableSource.includes(stage),
+      `the durable-path spec never names the ${stage} stage, so point 3's "every stage" ` +
+        'clause would pass on a walk nobody documented',
+    );
+  }
+
   // Point 11: `review:pr` is absent. The command is read through the context, so the
   // fixture is one field rather than a rewritten package.json on disk.
   const withReview = withFacts({
@@ -346,6 +380,38 @@ test('the tally and the table report the same numbers as the clause list', () =>
       `row ${String(report.number)} does not carry its verdict: ${table[1 + report.number]}`,
     );
   }
+});
+
+test('the graduation is armed, and armed in the same commit as the zero', () => {
+  // `--strict` was a switch because arming a gate that reports red forever is not a
+  // gate — it blocks every pull request and teaches reviewers to read red as noise.
+  // So the arming had to be a deliberate, recorded act, and the record has to be
+  // falsifiable: a `const strict = false` here would make `pnpm status:10` a
+  // measurement again, silently, and every `fail` row would stop mattering with no
+  // diff in any test.
+  const reporter = readFileSync(new globalThis.URL('../status-ten.mjs', import.meta.url), 'utf8');
+  assert.match(
+    reporter,
+    /const strict = true;/,
+    'status:10 must be armed: the last `fail` row was closed on 2026-10-01, and the gate ' +
+      'was to be armed in that commit. Set `const strict = false` only together with a ' +
+      'ledger row explaining why a `fail` is tolerable again.',
+  );
+
+  // And the condition the graduation was premised on is asserted rather than remembered:
+  // the real tree has no `fail` rows, so arming the gate did not make a required check
+  // that cannot pass. A `fail` row reappearing while `strict` is armed makes
+  // `pnpm status:10` exit 1, which is the gate doing its job.
+  const real = tally(reports);
+  assert.equal(
+    real.fail,
+    0,
+    `status:10 is armed, so a \`fail\` row fails the build by design — but the tree reports ` +
+      `${String(real.fail)}: ${reports
+        .filter((report) => report.verdict === 'fail')
+        .map((report) => String(report.number))
+        .join(', ')}`,
+  );
 });
 
 test('the measurement reads committed files, and executes no gate', () => {

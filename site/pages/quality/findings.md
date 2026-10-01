@@ -8,27 +8,29 @@ loses its evidence — so a row here is a claim with a path behind it.
 
 | Status           | Rows |
 | ---------------- | ---- |
-| `debt`           | 6    |
-| `false-positive` | 4    |
-| `fixed`          | 117  |
-| `open`           | 9    |
+| `debt`           | 7    |
+| `false-positive` | 5    |
+| `fixed`          | 118  |
+| `open`           | 11   |
 
-## Open (9)
+## Open (11)
 
 | Band  | Open |
 | ----- | ---- |
-| Major | 9    |
+| Major | 11   |
 
-| ID       | Band  | Finding                                                                                                          |
-| -------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
-| `C-4`    | Major | The execution store is 2 166 lines and holds two of the top complexity offenders                                 |
-| `C-6`    | Major | A third of the dashboard schema is dormant                                                                       |
-| `RF-6`   | Major | Five waves carry a gate obligation that no ledger row tracks                                                     |
-| `RF-9`   | Major | The performance gate compares real traffic to thresholds nobody ever measured                                    |
-| `RF-10`  | Major | The E2E suite runs on one engine, so a rendering defect in another is invisible                                  |
-| `RF-11`  | Major | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does                           |
-| `PERF-1` | Major | The rendering budget exists and has never been measured, so the gate is red by design                            |
-| `E2E-3`  | Major | Two of nineteen E2E tests still fail against a real PostgreSQL, and both are product gaps rather than test setup |
-| `SEM-2`  | Major | The semgrep rule set has never run in CI, and its first execution found 1137 blocking findings                   |
+| ID       | Band  | Finding                                                                                        |
+| -------- | ----- | ---------------------------------------------------------------------------------------------- |
+| `C-4`    | Major | The execution store is 2 166 lines and holds two of the top complexity offenders               |
+| `RF-6`   | Major | Five waves carry a gate obligation that no ledger row tracks                                   |
+| `RF-9`   | Major | The performance gate compares real traffic to thresholds nobody ever measured                  |
+| `RF-11`  | Major | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does         |
+| `PERF-1` | Major | The rendering budget exists and has never been measured, so the gate is red by design          |
+| `SEM-2`  | Major | The semgrep rule set has never run in CI, and its first execution found 1137 blocking findings |
+| `RF-6a`  | Major | W14's axe-green-in-both-themes gate has no row                                                 |
+| `RF-6b`  | Major | W15's tiering of the eight new QA gates inside the D6 budget has no row                        |
+| `RF-6c`  | Major | W17's site-doctor ten checks have no row                                                       |
+| `RF-6d`  | Major | W2's worker-to-runner execution gate is recorded as a decision rather than as the wave's gate  |
+| `E2E-4`  | Major | The E2E suite is not re-runnable against the same database                                     |
 
 <!-- /generated -->
