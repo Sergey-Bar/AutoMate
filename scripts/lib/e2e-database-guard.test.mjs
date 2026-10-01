@@ -38,6 +38,12 @@ import { assertTruncatable, classifyDatabaseUrl } from './e2e-database-guard.mjs
  * which is the whole point of having one.
  */
 const SCHEME = 'postgresql';
+/**
+ * @param {string[]} credentials
+ * @param {string} host
+ * @param {string} database
+ * @returns {string}
+ */
 const url = (credentials, host, database) =>
   `${SCHEME}://${credentials.join(':')}@${host}:5432/${database}`;
 
