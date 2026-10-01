@@ -1380,8 +1380,40 @@ export class DrizzleExecutionStore implements ExecutionStore {
       // without that assertion this line could be deleted and nothing would fail.
       if (job.leaseId !== completion.leaseId || job.fencingToken !== completion.fencingToken)
         return null;
-
+      // A **duplicate** is not a stale write, and it is answered before any lease
+      // question. The first completion already moved the job to `completed` and cleared
+      // its lease, so a retry of the identical payload arrives with no lease at all — and
+      // refusing it would break the idempotency contract the duplicate short-circuit
+      // exists to provide. Re-running a lease predicate against a job that already
+      // finished answers a question that no longer has a meaning.
       if (effectivePreviousHash) return { runId: job.runId, duplicate: true };
+
+      // **And the lease must still be live.** A token check alone cannot see an expired
+      // lease, because nothing bumps the token when a lease simply runs out — and
+      // reaping is *lazy*, running inside `claimJob` rather than on a timer. So between
+      // a lease expiring and the next runner claiming, the row still advertises a valid
+      // lease with its original token, and a runner returning from a long GC pause or a
+      // network partition lands exactly there. It would then write the run's terminal
+      // state over whatever the requeued job went on to do.
+      //
+      // The worker's store has always had this predicate (`lease_expires_at > now()` in
+      // its `UPDATE`), and the two stores disagreeing about the same invariant with
+      // nothing comparing them is what ledger **RUN-1** records. So the comparison is
+      // here too, and `runner-lifecycle.drizzle.test.ts` asserts it with the reaper
+      // deliberately *not* run — otherwise reaping nulls `leaseId` and the line above
+      // refuses the write, which would make this assertion pass if it were deleted.
+      //
+      // `mapJob` hands back an ISO string, not a `Date` — the shape a JSON caller sees
+      // and the one `getJob` returns — so this compares parsed time rather than calling
+      // `getTime()`, which is a `TypeError` here rather than a wrong answer.
+      const leaseExpiresAt = job.leaseExpiresAt === null ? null : Date.parse(job.leaseExpiresAt);
+      if (
+        leaseExpiresAt === null ||
+        Number.isNaN(leaseExpiresAt) ||
+        leaseExpiresAt <= nowDate(this.options).getTime()
+      )
+        return null;
+
       const timestamp = nowDate(this.options);
       const status = (completion.status ?? completion.outcome ?? 'unknown').toLowerCase();
       const rawPhase = completion.phase;
