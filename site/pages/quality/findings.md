@@ -10,14 +10,14 @@ loses its evidence — so a row here is a claim with a path behind it.
 | ---------------- | ---- |
 | `debt`           | 7    |
 | `false-positive` | 5    |
-| `fixed`          | 118  |
-| `open`           | 13   |
+| `fixed`          | 119  |
+| `open`           | 12   |
 
-## Open (13)
+## Open (12)
 
 | Band  | Open |
 | ----- | ---- |
-| Major | 13   |
+| Major | 12   |
 
 | ID       | Band  | Finding                                                                                        |
 | -------- | ----- | ---------------------------------------------------------------------------------------------- |
@@ -31,7 +31,6 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `RF-6b`  | Major | W15's tiering of the eight new QA gates inside the D6 budget has no row                        |
 | `RF-6c`  | Major | W17's site-doctor ten checks have no row                                                       |
 | `RF-6d`  | Major | W2's worker-to-runner execution gate is recorded as a decision rather than as the wave's gate  |
-| `E2E-4`  | Major | The E2E suite is not re-runnable against the same database                                     |
 | `SEM-3`  | Major | Sixteen test files write credentials as literals instead of assembling them                    |
 | `SEM-4`  | Major | Six unbounded IN clauses in the query layer, one of them a caller-supplied spread              |
 

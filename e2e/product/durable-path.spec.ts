@@ -391,44 +391,49 @@ test.describe('the durable path', () => {
  */
 const LEASE_EXPIRY_BUDGET_MS = 45_000;
 
-/** The chain's own claim, refusing to return some other run's job. */
+/**
+ * Claim the job for **this** run, once.
+ *
+ * The first version looped until it found its own run, discarding every other claim.
+ * That is self-blocking: `claimJob` refuses a runner already holding its `slots`, and
+ * every e2e runner has `slots: 1`, so the second claim through a runner that has already
+ * been handed one answers 204 forever. The loop could therefore only ever make a single
+ * claim, and reported "the queue drained without reaching it" for a queue that was never
+ * the problem — the database showed two jobs correctly requeued with `RUNNER_LOST` while
+ * the spec insisted the recovery had not happened.
+ *
+ * There is no route that releases a lease, deliberately — one that could would be the
+ * command-injection primitive `P-70` removed — so the loop could not have been fixed from
+ * inside a spec. `e2e/support/reset-queue.ts` empties the queue once per run instead, and
+ * with that a single claim is both sufficient and a **stronger** assertion: if the first
+ * claim is not this test's run, something else queued work, and that is worth failing on
+ * rather than quietly working around.
+ */
 async function claimJobFor(
   request: APIRequestContext,
   runnerId: string,
   token: string,
   runId: string,
 ): Promise<JobClaim> {
-  // Bounded for the same reason `claimJob` is: a shared queue means the first claim is
-  // whatever was queued earliest, so this drains until it reaches the run it was told to.
-  //
-  // **204 is not a failure and must not be asserted as one.** It is the API's legitimate
-  // "nothing to claim right now", and on a shared queue with a second runner in the lane
-  // it is the *expected* answer to most attempts. The first draft asserted 200 on every
-  // attempt and failed on the 204 — a spec that cannot tell "the queue was empty" from
-  // "the API is broken" reports the wrong defect, which is the one a reader cannot
-  // diagnose.
-  let emptyAttempts = 0;
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    const response = await request.post(`${API_BASE}/api/v1/runners/${runnerId}/jobs/claim`, {
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      data: { capabilities: ['playwright'] },
-    });
-    if (response.status() === 204) {
-      emptyAttempts += 1;
-      continue;
-    }
-    expect(
-      response.status(),
-      `POST /api/v1/runners/${runnerId}/jobs/claim -> ${response.status()} ${await response.text()}`,
-    ).toBe(200);
-    const claim = (await response.json()) as JobClaim;
-    if (claim.runId === runId) return claim;
-  }
-  throw new Error(
-    `no claim returned run ${runId} after 25 attempt(s) (${String(emptyAttempts)} of them ` +
-      "answered 204, meaning the queue was empty). Either the run's job was never " +
-      'enqueued, or the queue drained without reaching it.',
-  );
+  const response = await request.post(`${API_BASE}/api/v1/runners/${runnerId}/jobs/claim`, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    data: { capabilities: ['playwright'] },
+  });
+
+  expect(
+    response.status(),
+    `POST /api/v1/runners/${runnerId}/jobs/claim -> ${response.status()} ${await response.text()}`,
+  ).toBe(200);
+
+  const claim = (await response.json()) as JobClaim;
+  expect(
+    claim.runId,
+    `the first claim off an empty queue returned run ${claim.runId}, not ${runId}. Either ` +
+      'another spec queued work without claiming it, or `globalSetup` did not reset the ' +
+      'queue. Draining here is not the fix: a runner has one slot, so the retry could ' +
+      'never succeed.',
+  ).toBe(runId);
+  return claim;
 }
 
 /** Cancel once, so the assertion is about the state and not about the call succeeding. */
