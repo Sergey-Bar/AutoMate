@@ -96,7 +96,31 @@ rules:
           - pattern: 'inArray(..., $COL, $LIST, ...)'
       - metavariable-regex:
           metavariable: $LIST
-          regex: '^[A-Za-z_$]'
+          # **A bare identifier, anchored at both ends.**
+          #
+          # This was `^[A-Za-z_$]` — anchored only at the *start*. So it matched anything
+          # whose text began with a letter, which includes a **call**: `inArray(col,
+          # oneBatch(ids))` was reported for exactly the shape where the bound is enforced
+          # one line above, by a function whose whole job is to throw if the list is too
+          # long. The rule could not tell that argument from a request-shaped array.
+          #
+          # Anchoring the end is the fix, and it is the honest one: a bare identifier is
+          # the case where the length is genuinely unknown to a reader — it could be
+          # anything the caller built. A call is opaque in the same way a member access is,
+          # and this rule already declines to report member access for that reason. It
+          # should decline a call too, rather than reporting one shape it declines and
+          # flagging the other.
+          #
+          # **What this gives up, stated plainly:** `inArray(col, getIds())` is no longer
+          # reported, and if `getIds()` returns a caller-supplied list that is now invisible
+          # to this rule. That is a real loss of coverage, and it is traded for not
+          # reporting calls that enforce their own bound. The alternative — reporting both
+          # — is what produced six findings on code that had none, and a gate that reports
+          # bounded code teaches reviewers to skip it.
+          #
+          # A spread is still reported, by the branch above: `[...ids]` is a bare
+          # identifier inside a spread, and its length is just as unknowable.
+          regex: '^[A-Za-z_$][A-Za-z0-9_$]*$'
       # A **subquery**, not a list. `inArray(artifacts.runId, scopedRuns)` where
       # `scopedRuns` is a Drizzle query builder is a subquery: PostgreSQL plans it, and its
       # size is the table's, not a request's. A member access cannot be an attacker-supplied

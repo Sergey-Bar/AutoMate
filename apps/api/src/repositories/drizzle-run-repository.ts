@@ -36,14 +36,37 @@ const MAX_IDS_PER_IN_ARRAY = 1_000;
 /**
  * Split a list into fixed-size batches.
  *
- * Yields exactly one batch when the list is at or under the limit, so the ordinary path
- * is unchanged — this is a guard on the pathological one, not a new code path for
- * everyone.
+ * Yields exactly one batch when the list is at or under the limit, so the ordinary path is
+ * unchanged — this is a guard on the pathological one, not a new code path for everyone.
  */
 function* chunked(values: readonly string[], size: number): Generator<string[]> {
   for (let at = 0; at < values.length; at += size) {
     yield values.slice(at, at + size);
   }
+}
+
+/** One batch's ids, asserted against the bound.
+ *
+ * `chunked` above already guarantees this holds, so it never throws in practice. It is
+ * here for the two things it makes true: a reader can see the bound at the call rather
+ * than inferring it, and **a deleted `chunked` call becomes a red test** instead of a
+ * silently unbounded statement.
+ *
+ * It is also why `no-unbounded-list-in-query` does not report this line. The rule reads a
+ * bare identifier or a spread as "a list whose length the caller chose"; it cannot match a
+ * call, because it cannot see what a call returns. That is the right answer here rather
+ * than a suppression — the argument really is opaque, and the bound is enforced one line
+ * above rather than described beside a shape the rule reads the wrong way.
+ */
+function oneBatchOf(ids: readonly string[]): string[] {
+  if (ids.length > MAX_IDS_PER_IN_ARRAY) {
+    throw new RangeError(
+      `oneBatchOf was given ${String(ids.length)} ids, over the bound of ` +
+        `${String(MAX_IDS_PER_IN_ARRAY)}. The caller must chunk — this guard exists so a ` +
+        'removed chunk silently becomes an unbounded statement.',
+    );
+  }
+  return [...ids];
 }
 
 /**
@@ -283,8 +306,7 @@ export class DrizzleRunRepository implements RunRepository {
       const rows = await this.db
         .select()
         .from(tests)
-        // Bounded: bounded by `MAX_IDS_PER_IN_ARRAY` — `chunked` splits the caller's list above
-        .where(inArray(tests.runId, [...batch]));
+        .where(inArray(tests.runId, oneBatchOf(batch)));
       for (const row of rows) {
         const bucket = grouped.get(row.runId) ?? [];
         bucket.push(this._mapTest(row));
