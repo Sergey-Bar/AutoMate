@@ -38,6 +38,20 @@ own standard is a run, so the number was taken from CI before the ledger was edi
 evidence rather than on a promise, but moving the tier is a separate recorded act with its
 own test behind it, and this release does not make it.
 
+**A test that passed or failed depending on how busy the machine was.** The release gate's
+first-ever run failed on it, and that is the only reason it is written down. The launch
+form's submit button renders a real `disabled` while a submission is in flight, and the
+test clicked it a second time as soon as `createRun` had been _called_ — which is before
+the rejection is handled and before the form re-enables. The click was dropped by the DOM,
+so the assertion held only when the rejection happened to be processed before the next
+poll. On a development host it does; under the gate's load it did not, and the `waitFor`
+ceiling fired. The test now waits for the error alert, which is what "the first submission
+finished" looks like from outside, and asserts the button is enabled before retrying — so a
+form that surfaced the error and then left itself loading now fails rather than passing.
+A probe held the rejection pending and read the button at the instant the old test clicked,
+which reported `disabled: true` and one call on an idle host: the race was deterministic,
+only its outcome was not.
+
 ### Changed
 
 - **Four GitHub Actions bumps**, landed separately and each observed green before the next:
@@ -61,9 +75,14 @@ own test behind it, and this release does not make it.
 had zero runs on record, so neither its `verify` job nor its `oci` job had ever executed as
 written. `pnpm verify:release` is `pnpm verify` plus `pnpm oci:verify`, and
 `unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
-release gate that has never been watched is not a gate. Both jobs were dispatched against
-this release's own branch and observed green before it was merged, so the gate covers the
-tree the tag points at rather than a tree built afterwards.
+release gate that has never been watched is not a gate.
+
+**Its first run failed**, on the flaky test described above, which is precisely what an
+unobserved gate is for: the same commit had passed that test in `Unit and coverage` earlier
+the same hour, so the record on file said green and the tree said otherwise. It was fixed,
+not re-run and hoped for, and both jobs were then observed green against this release's own
+branch before it was merged — so the gate covers the tree the tag points at rather than a
+tree built afterwards.
 
 `pnpm verify:local` is not a substitute and was not used: it sets the host-scanner opt-in,
 which makes the static scan exit zero **without scanning**. A green that means nothing is
