@@ -25,6 +25,19 @@ import {
 
 const DIGEST_A = `sha256:${'a'.repeat(64)}`;
 
+/**
+ * A record path inside a fresh temporary directory.
+ *
+ * Never the real `var/oci-build.json`: ledger row `D-4` holds a measured claim
+ * that every suite under `scripts/lib/` is read-only over the repository, and a
+ * test writing the shared path would falsify it silently.
+ *
+ * @returns {string}
+ */
+function tempRecordPath() {
+  return join(mkdtempSync(join(tmpdir(), 'oci-record-')), 'oci-build.json');
+}
+
 test('a locally built image is tagged where both scripts look for it', () => {
   assert.equal(imageRefOf('k6'), 'automate/k6:local');
   assert.equal(imageRefOf('playwright'), 'automate/playwright:local');
@@ -46,47 +59,52 @@ test('the digest shape is a full sha256 and nothing looser', () => {
   assert.equal(isContentDigest(undefined), false);
 });
 
-test('a build record round-trips, and a record of another shape is refused', () => {
-  // Its own temporary directory, never the real `var/oci-build.json`: ledger row
-  // `D-4` holds a measured claim that every suite here is read-only over the
-  // repository, and this one writing the shared path would falsify it silently.
-  const at = join(mkdtempSync(join(tmpdir(), 'oci-record-')), 'oci-build.json');
+test('a build record round-trips', () => {
+  const at = tempRecordPath();
   try {
     writeBuildRecord(
       {
         schemaVersion: BUILD_RECORD_SCHEMA,
         runtime: 'docker',
-        images: { k6: { imageId: DIGEST_A } },
+        images: {
+          k6: { imageRef: 'automate/k6:local', imageId: DIGEST_A, user: '65532', repoDigests: [] },
+        },
       },
       at,
     );
     assert.equal(readBuildRecord(at)?.images.k6.imageId, DIGEST_A);
-
-    writeBuildRecord({ schemaVersion: BUILD_RECORD_SCHEMA + 1, images: {} }, at);
-    assert.equal(readBuildRecord(at), null, 'a record from another schema is not read as one');
-
-    writeBuildRecord({ schemaVersion: BUILD_RECORD_SCHEMA }, at);
-    assert.equal(readBuildRecord(at), null, 'a record with no images table is refused');
-
-    writeBuildRecord({ schemaVersion: BUILD_RECORD_SCHEMA, images: null }, at);
-    assert.equal(readBuildRecord(at), null);
   } finally {
     rmSync(dirname(at), { force: true, recursive: true });
   }
 });
 
-test('a record that is not JSON is refused rather than crashing the gate', () => {
-  const at = join(mkdtempSync(join(tmpdir(), 'oci-record-')), 'oci-build.json');
+test('a record of another shape is refused, and the bytes on disk are what proves it', () => {
+  const at = tempRecordPath();
   try {
-    writeFileSync(at, 'not json at all', 'utf8');
-    assert.equal(readBuildRecord(at), null);
+    // Raw JSON rather than `writeBuildRecord`, because the point is what the
+    // *reader* does with a shape the writer would never produce — and the type
+    // system is right that none of these is a build record.
+    for (const body of [
+      '',
+      'not json at all',
+      '[]',
+      '"a string"',
+      'null',
+      JSON.stringify({ schemaVersion: BUILD_RECORD_SCHEMA + 1, images: {} }),
+      JSON.stringify({ schemaVersion: BUILD_RECORD_SCHEMA }),
+      JSON.stringify({ schemaVersion: BUILD_RECORD_SCHEMA, images: null }),
+      JSON.stringify({ schemaVersion: BUILD_RECORD_SCHEMA, images: 'not a table' }),
+    ]) {
+      writeFileSync(at, body, 'utf8');
+      assert.equal(readBuildRecord(at), null, `expected ${JSON.stringify(body)} to be refused`);
+    }
   } finally {
     rmSync(dirname(at), { force: true, recursive: true });
   }
 });
 
 test('a record that was never written is absent rather than empty', () => {
-  const at = join(mkdtempSync(join(tmpdir(), 'oci-record-')), 'never-written.json');
+  const at = tempRecordPath();
   try {
     assert.equal(readBuildRecord(at), null);
   } finally {
@@ -98,6 +116,9 @@ test('every shipped runner manifest declares the isolation the rules require', (
   for (const name of RUNNER_NAMES) {
     const { manifest, problem } = readManifest(name);
     assert.equal(problem, null, `${name}: ${problem}`);
+    if (manifest === null) {
+      assert.fail(`${name}: no manifest, and problem was ${String(problem)}`);
+    }
     assert.equal(manifest.schemaVersion, 1);
     assert.equal(manifest.user, 65532);
     assert.equal(manifest.network, 'none');
@@ -112,6 +133,9 @@ test('every shipped Dockerfile ends on the uid its manifest declares, and never 
   // manifest that moved the declared uid fails beside it.
   for (const name of RUNNER_NAMES) {
     const { manifest } = readManifest(name);
+    if (manifest === null) {
+      assert.fail(`${name}: no manifest`);
+    }
     const dockerfile = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'runners', name, 'Dockerfile'),
       { encoding: 'utf8' },

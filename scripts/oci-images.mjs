@@ -31,12 +31,52 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * @typedef {object} ImageFacts
+ * @property {string} id Content hash the runtime reports for the image.
+ * @property {string} user `Config.User` verbatim — `''`, `root`, `65532`, `65532:65532`.
+ * @property {string[]} repoDigests Registry digests, empty for an image never pushed.
+ */
+
+/**
+ * @typedef {object} RunnerManifest
+ * @property {number} schemaVersion
+ * @property {string} name
+ * @property {string} imageRef
+ * @property {string | null} imageDigest
+ * @property {string} buildStatus
+ * @property {number} user
+ * @property {string} network
+ * @property {boolean} readOnly
+ * @property {string[]} capabilities
+ */
+
+/**
+ * @typedef {object} BuildRecordEntry
+ * @property {string} imageRef
+ * @property {string} imageId
+ * @property {string} user
+ * @property {string[]} repoDigests
+ */
+
+/**
+ * @typedef {object} BuildRecord
+ * @property {number} schemaVersion
+ * @property {string} runtime
+ * @property {Record<string, BuildRecordEntry>} images
+ */
+
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The runner images, in build order. */
 export const RUNNER_NAMES = ['playwright', 'k6', 'zap'];
 
-/** Where a locally built runner image is tagged. */
+/**
+ * Where a locally built runner image is tagged.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
 export function imageRefOf(name) {
   return `automate/${name}:local`;
 }
@@ -68,7 +108,7 @@ export function isContentDigest(value) {
  *
  * @param {string} runtime
  * @param {string} imageRef
- * @returns {{ id: string, user: string, repoDigests: string[] } | null} `null` when absent.
+ * @returns {ImageFacts | null} `null` when absent.
  */
 export function inspectImage(runtime, imageRef) {
   const result = spawnSync(runtime, ['image', 'inspect', imageRef], {
@@ -84,9 +124,9 @@ export function inspectImage(runtime, imageRef) {
   }
   const image = Array.isArray(parsed) ? parsed[0] : undefined;
   if (image === undefined || typeof image !== 'object' || image === null) return null;
-  const repoDigests = Array.isArray(image.RepoDigests)
-    ? image.RepoDigests.filter((entry) => typeof entry === 'string')
-    : [];
+  /** @type {unknown[]} */
+  const listed = Array.isArray(image.RepoDigests) ? image.RepoDigests : [];
+  const repoDigests = listed.filter((entry) => typeof entry === 'string');
   return {
     id: typeof image.Id === 'string' ? image.Id : '',
     user: typeof image.Config?.User === 'string' ? image.Config.User : '',
@@ -104,7 +144,7 @@ export function inspectImage(runtime, imageRef) {
  * announcing it.
  *
  * @param {string} [at]
- * @returns {object | null} the record, or `null` when absent, unreadable, or a different shape.
+ * @returns {BuildRecord | null} the record, or `null` when absent, unreadable, or a different shape.
  */
 export function readBuildRecord(at = BUILD_RECORD_PATH) {
   if (!existsSync(at)) return null;
@@ -129,7 +169,7 @@ export function readBuildRecord(at = BUILD_RECORD_PATH) {
 /**
  * Write the record, creating its directory if it is absent.
  *
- * @param {object} record
+ * @param {BuildRecord} record
  * @param {string} [at]
  * @returns {string} the path written, relative to the repository root.
  */
@@ -143,7 +183,7 @@ export function writeBuildRecord(record, at = BUILD_RECORD_PATH) {
  * Parse a runner manifest, reporting rather than throwing.
  *
  * @param {string} name
- * @returns {{ manifest: object | null, problem: string | null }}
+ * @returns {{ manifest: RunnerManifest | null, problem: string | null }}
  */
 export function readManifest(name) {
   const relative = path.join('runners', name, 'manifest.json');

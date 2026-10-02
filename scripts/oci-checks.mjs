@@ -14,7 +14,23 @@
  * manifest is compared against the runtime's own `RepoDigests` rather than
  * trusted, which is the check that becomes available when an image is published.
  */
+/** @import { BuildRecord, BuildRecordEntry, ImageFacts, RunnerManifest } from './oci-images.mjs' */
+
 import { isContentDigest, imageRefOf } from './oci-images.mjs';
+
+/**
+ * @typedef {object} RunnerObservation
+ * @property {string} name
+ * @property {RunnerManifest | null} manifest
+ * @property {string | null} manifestProblem
+ * @property {ImageFacts | null} inspected
+ */
+
+/**
+ * @typedef {object} RunnerVerdict
+ * @property {string[]} failures
+ * @property {string[]} notes
+ */
 
 /**
  * The uid an image will run as.
@@ -54,15 +70,17 @@ export function runsAsRoot(user) {
 /**
  * @param {object} input
  * @param {string} input.name Runner name.
- * @param {object | null} input.manifest Parsed `runners/<name>/manifest.json`.
+ * @param {RunnerManifest | null} input.manifest Parsed runner manifest.
  * @param {string | null} input.manifestProblem Why it is null, in words.
- * @param {object | undefined} input.recorded That runner's entry in the build record.
- * @param {{ id: string, user: string, repoDigests: string[] } | null} input.inspected
+ * @param {BuildRecordEntry | undefined} input.recorded That runner's build-record entry.
+ * @param {ImageFacts | null} input.inspected
  * @param {string} input.imageRef
- * @returns {{ failures: string[], notes: string[] }}
+ * @returns {RunnerVerdict}
  */
 export function evaluateRunner({ name, manifest, manifestProblem, recorded, inspected, imageRef }) {
+  /** @type {string[]} */
   const failures = [];
+  /** @type {string[]} */
   const notes = [];
 
   if (manifest === null) {
@@ -156,13 +174,16 @@ export function evaluateRunner({ name, manifest, manifestProblem, recorded, insp
  * once is clearer than three copies of the same sentence.
  *
  * @param {object} input
- * @param {object | null} input.record
- * @param {Array<{ name: string, manifest: object | null, manifestProblem: string | null, inspected: object | null }>} input.observed
+ * @param {BuildRecord | null} input.record
+ * @param {RunnerObservation[]} input.observed
  * @returns {{ failures: string[], notes: string[], imageRefs: Record<string, string> }}
  */
 export function evaluateOciVerification({ record, observed }) {
+  /** @type {string[]} */
   const failures = [];
+  /** @type {string[]} */
   const notes = [];
+  /** @type {Record<string, string>} */
   const imageRefs = {};
 
   if (record === null) {

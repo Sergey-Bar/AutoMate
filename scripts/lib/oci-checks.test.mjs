@@ -48,7 +48,12 @@ function goodInput(overrides = {}) {
     name: 'playwright',
     manifest: { ...GOOD_MANIFEST },
     manifestProblem: null,
-    recorded: { imageRef: imageRefOf('playwright'), imageId: DIGEST_A, user: '65532:65532' },
+    recorded: {
+      imageRef: imageRefOf('playwright'),
+      imageId: DIGEST_A,
+      user: '65532:65532',
+      repoDigests: [],
+    },
     inspected: { ...INSPECTED },
     imageRef: imageRefOf('playwright'),
     ...overrides,
@@ -147,12 +152,14 @@ test('a manifest and an image that disagree about the user fail on the disagreem
 });
 
 test('incomplete declared isolation fails on each missing property', () => {
-  for (const [manifest, expected] of [
+  /** @type {Array<[Record<string, unknown>, RegExp]>} */
+  const cases = [
     [{ network: 'bridge' }, /declared network is "bridge"/],
     [{ readOnly: false }, /declared readOnly is false/],
     [{ user: 0 }, /declared user is 0/],
     [{ schemaVersion: 2 }, /unsupported schemaVersion 2/],
-  ]) {
+  ];
+  for (const [manifest, expected] of cases) {
     const { failures } = evaluateRunner(goodInput({ manifest: { ...GOOD_MANIFEST, ...manifest } }));
     assert.ok(
       failures.some((failure) => expected.test(failure)),
@@ -235,14 +242,21 @@ test('a missing build record is reported once, not once per runner', () => {
 });
 
 test('one bad runner fails the gate and the others are still evaluated', () => {
+  /** @param {string} imageId */
+  const entry = (imageId) => ({
+    imageRef: imageRefOf('playwright'),
+    imageId,
+    user: '65532:65532',
+    repoDigests: [],
+  });
   const { failures } = evaluateOciVerification({
     record: {
       schemaVersion: BUILD_RECORD_SCHEMA,
       runtime: 'docker',
       images: {
-        playwright: { imageId: DIGEST_A },
-        k6: { imageId: DIGEST_B },
-        zap: { imageId: DIGEST_A },
+        playwright: entry(DIGEST_A),
+        k6: entry(DIGEST_B),
+        zap: entry(DIGEST_A),
       },
     },
     observed: RUNNER_NAMES.map((name) => ({

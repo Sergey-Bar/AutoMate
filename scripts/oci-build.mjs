@@ -13,6 +13,8 @@
  * compares that record against the image it finds later, so a swapped or rebuilt
  * image fails rather than passing on the strength of a stale record.
  */
+/** @import { BuildRecordEntry } from './oci-images.mjs' */
+
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { detectContainerRuntime, noRuntimeMessage } from './container-runtime.mjs';
@@ -33,7 +35,7 @@ if (runtime === null) {
 
 console.info(`OCI build using ${runtime}`);
 
-/** @type {Record<string, object>} */
+/** @type {Record<string, BuildRecordEntry>} */
 const built = {};
 
 for (const name of RUNNER_NAMES) {
