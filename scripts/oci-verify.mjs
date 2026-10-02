@@ -1,49 +1,36 @@
 /**
  * OCI runner image verification.
  *
- * The previous version re-read a hand-authored `manifest.json` and never
- * inspected an image, so a hand-typed 64-hex digest passed. It also had three
- * ways to be useless:
+ * The previous version could never pass, which made it a gate nobody should have
+ * trusted rather than one that happened to be strict:
  *
- *  - every manifest in the repository carries `"imageDigest": null` and
- *    `"buildStatus": "unbuilt"`, so `verify:release` could never pass;
- *  - a missing manifest threw a raw stack trace from `readFileSync`;
- *  - the isolation claims (`user: 65532`, `network: "none"`, `readOnly: true`)
- *    were checked only against the same JSON that declared them, which proves
- *    nothing about the image the release would actually run.
+ *  - it required `"buildStatus": "built"` and a `sha256:` digest in each runner's
+ *    manifest, and **nothing wrote either**, so the committed
+ *    JSON carried a claim no build had made and the only way to satisfy the gate
+ *    was to type the claim in by hand — the falsification its own header describes
+ *    having removed;
+ *  - it required a digest to match `RepoDigests`, which only exists for an image
+ *    pushed to a registry. ADR-006's distribution model is a self-hosted compose
+ *    install built on the host that runs it, so these images are never pushed and
+ *    the check had nothing to compare;
+ *  - it read the declared isolation out of the same JSON that declared it, which
+ *    proves nothing about the image that would run.
  *
- * Now: the manifest is validated for shape, the container runtime is used to
- * inspect the real image, and the recorded digest must match the runtime's. When
- * no container runtime is available the gate reports `not_configured` and exits
- * non-zero — it never claims a pass it could not verify.
+ * The rules now live in `oci-checks.mjs`, where they are testable without docker.
+ * This script only gathers what the rules need and reports their answer. It
+ * compares the image the runtime actually holds against the record `oci:build`
+ * wrote in this run, checks that image's own configured user is not root, and
+ * cross-checks the manifest's declared user against it.
+ *
+ * A registry digest is still compared whenever a manifest declares one, so
+ * graduating `runner.oci` from `mock` arms a stronger check rather than requiring
+ * this script to be rewritten. What is unavailable for a locally built image is
+ * *reported* as unavailable — with what would change it — rather than reported as
+ * a failure of the images.
  */
-import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { detectContainerRuntime, noRuntimeMessage } from './container-runtime.mjs';
-
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const names = ['playwright', 'k6', 'zap'];
-/** @type {string[]} */
-const failures = [];
-
-/** The registry digest the runtime reports for a local image, if it has one. */
-/** @param {string} runtime @param {string} imageRef @returns {string | null} */
-function inspectImage(runtime, imageRef) {
-  const result = spawnSync(
-    runtime,
-    ['image', 'inspect', imageRef, '--format', '{{json .RepoDigests}}'],
-    { encoding: 'utf8', shell: process.platform === 'win32' },
-  );
-  if (result.error || result.status !== 0) return null;
-  try {
-    const digests = JSON.parse(result.stdout.trim() || 'null');
-    return Array.isArray(digests) && typeof digests[0] === 'string' ? digests[0] : null;
-  } catch {
-    return null;
-  }
-}
+import { evaluateOciVerification } from './oci-checks.mjs';
+import { RUNNER_NAMES, inspectImage, readBuildRecord, readManifest } from './oci-images.mjs';
 
 const runtime = detectContainerRuntime();
 if (runtime === null) {
@@ -52,56 +39,22 @@ if (runtime === null) {
 }
 console.info(`OCI verification using ${runtime}`);
 
-for (const name of names) {
-  const manifestPath = path.join(root, 'runners', name, 'manifest.json');
-  if (!existsSync(manifestPath)) {
-    failures.push(`${name}: missing runners/${name}/manifest.json`);
-    continue;
-  }
+const record = readBuildRecord();
+const observed = RUNNER_NAMES.map((name) => {
+  const { manifest, problem } = readManifest(name);
+  return {
+    name,
+    manifest,
+    manifestProblem: problem,
+    inspected: inspectImage(runtime, `automate/${name}:local`),
+  };
+});
 
-  let manifest;
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
-  } catch (error) {
-    failures.push(
-      `${name}: manifest is not valid JSON ` +
-        `(${error instanceof Error ? error.message : String(error)})`,
-    );
-    continue;
-  }
+const { failures, notes } = evaluateOciVerification({ record, observed });
 
-  if (manifest.schemaVersion !== 1) failures.push(`${name}: unsupported schemaVersion`);
-  if (manifest.buildStatus !== 'built')
-    failures.push(
-      `${name}: buildStatus is ${JSON.stringify(manifest.buildStatus)}, expected "built"`,
-    );
-  if (manifest.user !== 65532) failures.push(`${name}: declared user is not 65532`);
-  if (manifest.network !== 'none' || manifest.readOnly !== true)
-    failures.push(`${name}: declared isolation is incomplete`);
-
-  const recorded = typeof manifest.imageDigest === 'string' ? manifest.imageDigest : null;
-  if (recorded === null || !/^sha256:[a-f0-9]{64}$/.test(recorded)) {
-    failures.push(`${name}: imageDigest is not a built sha256 digest`);
-    continue;
-  }
-
-  // The part the old gate skipped entirely: does the recorded digest describe
-  // the image that is actually present?
-  if (manifest.imageRef) {
-    const actual = inspectImage(runtime, manifest.imageRef);
-    if (actual === null) {
-      failures.push(`${name}: image ${manifest.imageRef} is not present locally`);
-    } else if (actual !== recorded) {
-      failures.push(
-        `${name}: recorded digest ${recorded} does not match the image ` +
-          `${manifest.imageRef} (${actual})`,
-      );
-    }
-  } else {
-    failures.push(
-      `${name}: manifest declares no imageRef, so the digest cannot be checked against an image`,
-    );
-  }
+if (notes.length > 0) {
+  console.info('Not checked, because it is not available:');
+  for (const note of notes) console.info(`- ${note}`);
 }
 
 if (failures.length > 0) {
@@ -109,4 +62,5 @@ if (failures.length > 0) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
+
 console.log('OCI runner images verified against the container runtime');

@@ -11,13 +11,13 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `debt`           | 7    |
 | `false-positive` | 5    |
 | `fixed`          | 122  |
-| `open`           | 9    |
+| `open`           | 10   |
 
-## Open (9)
+## Open (10)
 
 | Band  | Open |
 | ----- | ---- |
-| Major | 9    |
+| Major | 10   |
 
 | ID       | Band  | Finding                                                                                       |
 | -------- | ----- | --------------------------------------------------------------------------------------------- |
@@ -30,5 +30,6 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `RF-6b`  | Major | W15's tiering of the eight new QA gates inside the D6 budget has no row                       |
 | `RF-6c`  | Major | W17's site-doctor ten checks have no row                                                      |
 | `RF-6d`  | Major | W2's worker-to-runner execution gate is recorded as a decision rather than as the wave's gate |
+| `G-5b`   | Major | A pull request can merge with no CI run, and nothing detects it                               |
 
 <!-- /generated -->
