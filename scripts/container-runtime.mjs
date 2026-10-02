@@ -19,13 +19,16 @@ export const CONTAINER_RUNTIMES = ['docker', 'podman'];
  *
  * Returned as a name so callers pass argv explicitly and never build a shell
  * string from it.
+ *
+ * No `shell: true` on Windows either: Node resolves `docker` to `docker.exe`
+ * through `PATHEXT` on its own, so the shell bought nothing and cost a
+ * `DEP0190` warning in the output of every gate that calls this — a warning about
+ * passing arguments to a shell that would otherwise be a security finding about
+ * the gate itself.
  */
 export function detectContainerRuntime() {
   for (const runtime of CONTAINER_RUNTIMES) {
-    const result = spawnSync(runtime, ['--version'], {
-      encoding: 'utf8',
-      shell: process.platform === 'win32',
-    });
+    const result = spawnSync(runtime, ['--version'], { encoding: 'utf8' });
     if (!result.error && result.status === 0) return runtime;
   }
   return null;

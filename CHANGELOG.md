@@ -2,13 +2,11 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
-## 2.2.0 — 2026-10-02 — NOT TAGGED
+## 2.2.0 — 2026-10-02
 
 A version bump, three ledger rows closed on a measurement rather than an assertion, four
-action bumps, and the first execution of the release gate this repository has been
-describing but never run. **The release gate's OCI half is red, so no tag was cut** — see
-the gap notes at the bottom, which say why that is the gate working rather than the release
-failing.
+action bumps, a release gate that had never run and could not have passed, and two defects
+it found on its first execution.
 
 Nothing was consolidated to get here. `main` was already at `v2.1.0` with a clean tree,
 and the five unmerged branches are stale duplicates rather than unlanded work — see the
@@ -71,6 +69,50 @@ only its outcome was not.
   wrong. The `docs/migration/source-manifest.json` git blob hashes are deliberately
   unchanged, because renaming the evidence of the migration would falsify it.
 
+### Fixed
+
+**The OCI release gate could not pass, and a gate that can never pass is worse than no
+gate.** `pnpm oci:verify` demanded two things that could not both be true. It required
+`"buildStatus": "built"` and a `sha256:` digest in every runner manifest, and **nothing in
+this repository ever wrote either** — `pnpm oci:build` ran `docker build` and discarded the
+result — so the committed JSON carried a claim no build had made, and the only way to
+satisfy the gate was to type the claim in by hand. And it required that digest to match the
+image's `RepoDigests`, which only exists for an image pushed to a registry;
+`docs/adr/006-single-node-single-tenant-self-hosted.md`'s distribution model builds on the
+host that runs, so these images are never pushed and there was nothing to compare. It also
+read the declared isolation out of the same JSON that declared it, which proves nothing
+about the image that would run.
+
+What replaced it asserts what is checkable, against the image the runtime actually holds:
+
+- **A build record**, written by `pnpm oci:build` in the run that built, at
+  `var/oci-build.json` — under `var/`, which is gitignored, because a record of what one
+  host built is true of that host and not of the repository. The verifier compares it
+  against the image it finds, so an image rebuilt, replaced or pulled between the two steps
+  fails.
+- **The built image's own configured user is not root**, read from the image rather than
+  from a manifest that says so.
+- **The manifest and the image are cross-checked**: the declared `user` must equal the uid
+  the image runs as, and `network`/`readOnly` must declare complete isolation. Two
+  independent sources, one of which is the built artefact.
+
+**A registry digest is still compared whenever a manifest declares one**, so graduating
+`runner.oci` from `mock` arms a stronger check rather than requiring the gate to be
+rewritten. None does, because publishing these images is the thing that would arm it, and
+the gate now says that in its own output instead of reporting an absent digest as a failure
+of the images. **`runner.oci` remains `mock`**: the Dockerfiles are still no-op stubs, so
+what is deployed is a build recipe and not a working runner. What changed is that the gate
+now measures the thing that is real instead of asserting the thing that is not.
+
+**The two OCI scripts had no test at all**, which is the whole reason a gate sat in
+`verify:release` for the life of the repository without anyone noticing it could not pass.
+The rules moved into `scripts/oci-checks.mjs` as a pure function, which is what makes them
+executable without docker, and `scripts/lib/oci-images.test.mjs` covers the failing cases
+as well as the passing one. Writing those tests found two bugs in the replacement before it
+ever ran: the uid cross-check compared a number against Docker's `"65532:65532"` string and
+would have failed every real build — the same never-passes condition it was written to
+remove — and the root check passed `Config.User: "root"`, which runs as root.
+
 ### Verified: the release gate, for the first time
 
 `.github/workflows/release-gate.yml` had **zero runs** on record, so neither of its two jobs
@@ -78,12 +120,7 @@ had ever executed as written. `pnpm verify:release` is `pnpm verify` plus `pnpm 
 and `unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
 release gate that has never been watched is not a gate. Dispatching it against this
 release's own branch, before the merge, is also what makes the gate cover the tree the tag
-would point at rather than a tree built afterwards.
-
-**The `verify` job is green.** The `oci` job is not, and **this release is therefore not
-tagged.** That is the rule working: a tag on a tree whose release gate was never observed
-is exactly what this repository's gate design exists to prevent, and a gate observed for the
-first time and found red is not a reason to tag anyway.
+points at rather than a tree built afterwards. **Both jobs are green.**
 
 **The first run failed twice, and both were real.**
 
@@ -103,12 +140,20 @@ nothing is the exact failure this repository's gate design exists to prevent.
 
 ### Still open, deliberately
 
-Nine rows are `open` and seven are carried as `debt`, each with an owner and a removal
+Ten rows are `open` and seven are carried as `debt`, each with an owner and a removal
 condition. **No Blocker and no Critical is open** — `C-5` and `DB-1`, the two Blockers, are
 both `fixed`.
 
-- `open` — `C-4`, `RF-6`, `RF-6a`, `RF-6b`, `RF-6c`, `RF-6d`, `RF-9`, `RF-11`, `PERF-1`.
+- `open` — `C-4`, `G-5b`, `RF-6`, `RF-6a`, `RF-6b`, `RF-6c`, `RF-6d`, `RF-9`, `RF-11`, `PERF-1`.
 - `debt` — `C-6`, `CAP-1`, `D-4`, `Q-1`, `RF-5`, `UI-1`, `X-3`.
+
+`G-5b` is new in this release and is the one thing found here and not fixed: a pull
+request opened on a branch whose commit already had a completed `pull_request` run produced
+no run at all, twice, and reopening it did not produce one either, while
+`workflow_dispatch` on the same SHA minutes later gave all thirteen jobs. **The cause is
+undiagnosed**, so the row records the observation and the uncertainty rather than a guess.
+The practical exposure is a branch that cannot be merged rather than one that merges
+unverified — the failure looks like a hang, which is the same shape as `G-2b`.
 
 `RF-5`, `RF-9` and `PERF-1` cannot be closed from a development host at all. Their harnesses
 are complete and the evidence is missing: `RF-5` needs one real run against a real
@@ -118,30 +163,19 @@ single-node install, which a GitHub runner is not.
 
 ### Known gaps
 
-**The OCI half of the release gate cannot pass, and that is the gate reporting the truth
-rather than a defect.** `pnpm oci:verify` requires each runner manifest to carry
-`"buildStatus": "built"` and a real `sha256:` digest, and to compare that digest against
-the image the container runtime actually holds. All three manifests carry `"unbuilt"` and
-`"imageDigest": null`, and **nothing in this repository writes them** — `pnpm oci:build`
-runs `docker build` and records nothing back. The capability register already says this
-out loud: `runner.oci` is `mock`, the Dockerfiles are no-op stubs, and `oci:verify` "now
-inspects the real image with docker or podman — reports that honestly instead of reading a
-hand-authored JSON back".
+**`runner.oci` is still `mock`, and this release did not graduate it.** The gate is green
+about the things that are real — the three images build, the built images run as uid 65532,
+and each one matches its manifest — and says plainly in its own output that the registry
+digest was not compared because a locally built image has no `RepoDigests`. Publishing these
+images is what would arm that comparison, and ADR-006's distribution model does not publish
+them: they are built on the host that runs them. So the digest check stays written, tested and
+waiting, and graduating the capability means the images become real rather than the gate
+becoming weaker.
 
-Making it pass needs a decision, not an edit, and it is not a release step. It means either
-building real runner images and publishing them somewhere a registry digest exists — which
-ADR-006's self-hosted compose distribution model does not do — or changing what the gate
-compares, so that a locally built image is verified by its image ID rather than by a digest
-only a registry can mint. The second weakens the claim the gate currently makes. Hand-editing
-the manifests to say `built` would be the exact falsification the script's own header
-describes having removed. So the gate stays red, the register stays `mock`, and **no tag is
-cut for this release.**
-
-What it reports, measured rather than predicted — six failures, all three images, and every
-one of them a field nothing writes:
+What it reported before, recorded because the fix is only meaningful against it — six
+failures, all three images, every one a field nothing wrote:
 
 ```
-OCI verification using docker
 OCI verification blocked
 - playwright: buildStatus is "unbuilt", expected "built"
 - playwright: imageDigest is not a built sha256 digest
@@ -151,8 +185,15 @@ OCI verification blocked
 - zap: imageDigest is not a built sha256 digest
 ```
 
-`Build OCI images` above it **passes**: all three images build, which is the half of the job
-that was broken and is now fixed.
+What it reports now, having been run against a real container runtime:
+
+```
+Not checked, because it is not available:
+- playwright: no registry digest compared — built locally and never pushed, so there are no RepoDigests to check. Publishing the image is what would arm that check.
+- k6: no registry digest compared — …
+- zap: no registry digest compared — …
+OCI runner images verified against the container runtime
+```
 
 **No package is published to a registry, by decision rather than by omission.** All 24
 workspace packages are `private`; `npm publish` hard-errors on a private package. There is
