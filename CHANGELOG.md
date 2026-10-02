@@ -2,11 +2,13 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
-## 2.2.0 — 2026-10-02
+## 2.2.0 — 2026-10-02 — NOT TAGGED
 
 A version bump, three ledger rows closed on a measurement rather than an assertion, four
 action bumps, and the first execution of the release gate this repository has been
-describing but never run.
+describing but never run. **The release gate's OCI half is red, so no tag was cut** — see
+the gap notes at the bottom, which say why that is the gate working rather than the release
+failing.
 
 Nothing was consolidated to get here. `main` was already at `v2.1.0` with a clean tree,
 and the five unmerged branches are stale duplicates rather than unlanded work — see the
@@ -69,24 +71,35 @@ only its outcome was not.
   wrong. The `docs/migration/source-manifest.json` git blob hashes are deliberately
   unchanged, because renaming the evidence of the migration would falsify it.
 
-### Added
+### Verified: the release gate, for the first time
 
-**The `Local Release Gate` ran for the first time.** `.github/workflows/release-gate.yml`
-had zero runs on record, so neither its `verify` job nor its `oci` job had ever executed as
-written. `pnpm verify:release` is `pnpm verify` plus `pnpm oci:verify`, and
-`unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
-release gate that has never been watched is not a gate.
+`.github/workflows/release-gate.yml` had **zero runs** on record, so neither of its two jobs
+had ever executed as written. `pnpm verify:release` is `pnpm verify` plus `pnpm oci:verify`,
+and `unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
+release gate that has never been watched is not a gate. Dispatching it against this
+release's own branch, before the merge, is also what makes the gate cover the tree the tag
+would point at rather than a tree built afterwards.
 
-**Its first run failed**, on the flaky test described above, which is precisely what an
-unobserved gate is for: the same commit had passed that test in `Unit and coverage` earlier
-the same hour, so the record on file said green and the tree said otherwise. It was fixed,
-not re-run and hoped for, and both jobs were then observed green against this release's own
-branch before it was merged — so the gate covers the tree the tag points at rather than a
-tree built afterwards.
+**The `verify` job is green.** The `oci` job is not, and **this release is therefore not
+tagged.** That is the rule working: a tag on a tree whose release gate was never observed
+is exactly what this repository's gate design exists to prevent, and a gate observed for the
+first time and found red is not a reason to tag anyway.
 
-`pnpm verify:local` is not a substitute and was not used: it sets the host-scanner opt-in,
-which makes the static scan exit zero **without scanning**. A green that means nothing is
-the exact failure this repository's gate design exists to prevent.
+**The first run failed twice, and both were real.**
+
+1. **A flaky test**, described under `Fixed` above. The same commit had passed it in
+   `Unit and coverage` earlier the same hour, so the record on file said green and the tree
+   said otherwise.
+2. **A Dockerfile that could not build.** `runners/k6/Dockerfile` ran `chown` against a
+   base image that is already non-root, so `grafana/k6:0.57.0` refused it and the build
+   died at step four of four. The `playwright` stub built, because `node:24-alpine` is
+   root — which is why one of three worked and the defect read as a base-image quirk rather
+   than an assumption. `USER root` now precedes the `chown` in all three, so the privileged
+   step is explicit and the final `USER 65532:65532` still makes the image unprivileged.
+
+**`pnpm verify:local` was not a substitute** and was not used: it sets the host-scanner
+opt-in, which makes the static scan exit zero **without scanning**. A green that means
+nothing is the exact failure this repository's gate design exists to prevent.
 
 ### Still open, deliberately
 
@@ -104,6 +117,25 @@ and `PERF-1` needs a rendering baseline recorded on the reference hardware — a
 single-node install, which a GitHub runner is not.
 
 ### Known gaps
+
+**The OCI half of the release gate cannot pass, and that is the gate reporting the truth
+rather than a defect.** `pnpm oci:verify` requires each runner manifest to carry
+`"buildStatus": "built"` and a real `sha256:` digest, and to compare that digest against
+the image the container runtime actually holds. All three manifests carry `"unbuilt"` and
+`"imageDigest": null`, and **nothing in this repository writes them** — `pnpm oci:build`
+runs `docker build` and records nothing back. The capability register already says this
+out loud: `runner.oci` is `mock`, the Dockerfiles are no-op stubs, and `oci:verify` "now
+inspects the real image with docker or podman — reports that honestly instead of reading a
+hand-authored JSON back".
+
+Making it pass needs a decision, not an edit, and it is not a release step. It means either
+building real runner images and publishing them somewhere a registry digest exists — which
+ADR-006's self-hosted compose distribution model does not do — or changing what the gate
+compares, so that a locally built image is verified by its image ID rather than by a digest
+only a registry can mint. The second weakens the claim the gate currently makes. Hand-editing
+the manifests to say `built` would be the exact falsification the script's own header
+describes having removed. So the gate stays red, the register stays `mock`, and **no tag is
+cut for this release.**
 
 **No package is published to a registry, by decision rather than by omission.** All 24
 workspace packages are `private`; `npm publish` hard-errors on a private package. There is

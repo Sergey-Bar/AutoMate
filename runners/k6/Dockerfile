@@ -1,4 +1,5 @@
 FROM grafana/k6:0.57.0
+USER root
 WORKDIR /automation
 COPY manifest.json /automation/manifest.json
 RUN mkdir -p /automation/input /automation/output && chown -R 65532:65532 /automation
