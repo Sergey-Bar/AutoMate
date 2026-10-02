@@ -1,31 +1,31 @@
 {
   "ceiling": 15,
-  "count": 29,
+  "count": 32,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 690,
+      "line": 696,
       "complexity": 73
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 1042,
+      "line": 1048,
       "complexity": 71
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1316,
-      "complexity": 65
+      "line": 1447,
+      "complexity": 67
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 418,
+      "line": 436,
       "complexity": 51
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1041,
-      "complexity": 39
+      "line": 1144,
+      "complexity": 42
     },
     {
       "file": "apps/api/src/routes/events.ts",
@@ -34,7 +34,7 @@
     },
     {
       "file": "apps/api/src/routes/reporter.ts",
-      "line": 305,
+      "line": 323,
       "complexity": 38
     },
     {
@@ -49,18 +49,28 @@
     },
     {
       "file": "apps/web/src/routes/dashboard/run-detail.tsx",
-      "line": 152,
-      "complexity": 31
+      "line": 158,
+      "complexity": 32
     },
     {
       "file": "apps/worker/src/postgres-store.ts",
-      "line": 321,
+      "line": 365,
       "complexity": 29
+    },
+    {
+      "file": "scripts/lib/tenancy-scope.mjs",
+      "line": 147,
+      "complexity": 28
     },
     {
       "file": "apps/runner/src/runner-service.ts",
       "line": 327,
       "complexity": 25
+    },
+    {
+      "file": "scripts/tenancy-check.mjs",
+      "line": 54,
+      "complexity": 23
     },
     {
       "file": "packages/automation/src/ollama-gateway.ts",
@@ -74,7 +84,7 @@
     },
     {
       "file": "apps/api/src/routes/execution/jobs.routes.ts",
-      "line": 37,
+      "line": 36,
       "complexity": 20
     },
     {
@@ -89,12 +99,12 @@
     },
     {
       "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1798,
+      "line": 1988,
       "complexity": 19
     },
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 537,
+      "line": 543,
       "complexity": 19
     },
     {
@@ -108,13 +118,18 @@
       "complexity": 18
     },
     {
+      "file": "scripts/skill-scan.mjs",
+      "line": 239,
+      "complexity": 18
+    },
+    {
       "file": "tools/migrate-cli/src/index.ts",
       "line": 21,
       "complexity": 18
     },
     {
-      "file": "apps/api/src/middleware/auth.ts",
-      "line": 88,
+      "file": "scripts/oci-checks.mjs",
+      "line": 80,
       "complexity": 17
     },
     {
@@ -148,6 +163,6 @@
       "complexity": 16
     }
   ],
-  "measuredAt": "2026-09-28",
+  "measuredAt": "2026-10-02",
   "worst": 73
 }

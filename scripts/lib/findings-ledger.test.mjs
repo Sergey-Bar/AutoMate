@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
-import { auditLedger, repoRoot, readLedger } from './findings-ledger.mjs';
+import {
+  auditLedger,
+  auditWaveGates,
+  readLedger,
+  readWaveGates,
+  repoRoot,
+} from './findings-ledger.mjs';
 
 const root = repoRoot();
 
@@ -441,4 +449,151 @@ test('the committed ledger satisfies every structural rule', () => {
   );
   assert.ok(rows > 0, 'the committed ledger is not empty');
   assert.ok(byBand.Blocker > 0, 'a ledger with no Blocker rows is not this repository');
+});
+
+// ── The wave gates ───────────────────────────────────────────────────────────
+
+/**
+ * A wave gate whose migration is a file that really exists, so `waveHasLanded` has
+ * something to stat.
+ *
+ * The real tree is the fixture on purpose. A wave-gate rule whose only test used a
+ * fictional path would pass whether or not the reader worked, because "the migration
+ * is not on disk" and "the wave has not landed" are indistinguishable from here —
+ * which is the mistake this file is named for.
+ *
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {{ schemaVersion: number, waves: Record<string, unknown> }}
+ */
+function gatesWith(overrides = {}) {
+  return {
+    schemaVersion: 1,
+    waves: {
+      W7: {
+        gate: 'one rehearsal run',
+        gatingRows: ['RF-5'],
+        migrations: ['packages/db/drizzle/0015_schedule_workspace_scope.sql'],
+        ...overrides,
+      },
+    },
+  };
+}
+
+test("a wave that landed before its gate did is the merge gate's finding, not this one", () => {
+  // The shape audit is about the two documents, so it says nothing about whether a
+  // wave's work has landed. That question is `checkWaveBlocks` in `merge-gate.mjs`,
+  // and asserting the split here is what stops the rule drifting back — a wave-gate
+  // rule in `findings:check` makes `pnpm verify` red on a defect only the rehearsal
+  // can clear, which is the `test:render` shape this repository already refuses.
+  assert.deepEqual(
+    auditWaveGates(
+      gatesWith(),
+      { findings: [{ id: 'RF-5', status: 'open', blocksWave: 'W7' }] },
+      { root },
+    ),
+    [],
+  );
+});
+
+test('a wave whose migrations are all absent is not landed, and the shape audit still names the missing file', () => {
+  // Two findings, not one and not zero. "Not landed" and "listed a file that is not
+  // there" are separate defects, and collapsing them would let a renamed migration
+  // read as a wave nobody started.
+  const findings = auditWaveGates(
+    gatesWith({ migrations: ['packages/db/drizzle/9999_never_written.sql'] }),
+    { findings: [{ id: 'RF-5', status: 'open' }] },
+    { root },
+  );
+  assert.deepEqual(findings, [
+    'docs/quality/wave-gates.json: wave `W7` lists `packages/db/drizzle/9999_never_written.sql`, which does not exist. A migration that was renamed or deleted leaves the gate describing a wave that was never here.',
+  ]);
+});
+
+test('a migration listed for a wave must exist, or the gate describes a wave that was never here', () => {
+  const findings = auditWaveGates(
+    gatesWith({
+      migrations: ['packages/db/drizzle/0015_schedule_workspace_scope.sql', 'gone.sql'],
+    }),
+    { findings: [{ id: 'RF-5', status: 'fixed' }] },
+    { root },
+  );
+  assert.ok(hasFinding(findings, /lists `gone\.sql`, which does not exist/));
+});
+
+test('a wave gating on a row that is not in the ledger is a finding', () => {
+  assert.ok(
+    hasFinding(
+      auditWaveGates(gatesWith({ gatingRows: ['X-99'] }), { findings: [] }, { root }),
+      /gated on `X-99`, which is not a ledger row/,
+    ),
+    'a gate on a row that does not exist is a gate that cannot fail',
+  );
+});
+
+test('a wave naming no gating row is a finding, rather than a wave with no entry condition', () => {
+  assert.ok(
+    hasFinding(
+      auditWaveGates(gatesWith({ gatingRows: [] }), { findings: [] }, { root }),
+      /names no `gatingRows`/,
+    ),
+  );
+});
+
+test('a wave naming no migrations can never fire, which is a finding', () => {
+  assert.ok(
+    hasFinding(
+      auditWaveGates(gatesWith({ migrations: [] }), { findings: [] }, { root }),
+      /names no `migrations`/,
+    ),
+  );
+});
+
+test('`blocksWave` must name a wave the manifest declares', () => {
+  // The inverse of the rule above, and the one that keeps the field honest: a row
+  // claiming to block a wave nothing tracks is asserting a block over nothing, which
+  // is the shape of the defect `blocksWave` was added to fix.
+  assert.ok(
+    hasFinding(
+      auditWaveGates(
+        gatesWith(),
+        { findings: [{ id: 'C-6', status: 'debt', blocksWave: 'W9' }] },
+        { root },
+      ),
+      /`blocksWave` is `W9`, which .* does not declare/,
+    ),
+  );
+});
+
+test('the wave gates themselves are readable, and an unreadable one is not a pass', () => {
+  assert.ok(existsSync(path.join(root, 'docs', 'quality', 'wave-gates.json')));
+  assert.ok(
+    hasFinding(
+      auditWaveGates(null, { findings: [] }, { root }),
+      /could not be read, so no wave gate could be checked/,
+    ),
+    'a gate that cannot read its policy must not report the policy as satisfied',
+  );
+});
+
+test('the committed wave gates name only migrations that exist and rows that are in the ledger', () => {
+  // The structural half of the real manifest, so the file cannot rot into describing
+  // waves this repository does not have. The *state* half — whether W7's gate is met —
+  // is a finding today and is expected to be one; asserting it either way would make
+  // this test fail on the day the rehearsal runs.
+  const findings = auditWaveGates(
+    readWaveGates(),
+    readLedger('docs/quality/findings-ledger.json'),
+    {
+      root,
+    },
+  );
+  assert.deepEqual(
+    findings.filter((finding) =>
+      /does not exist|is not a ledger row|names no |does not declare|could not be read/.test(
+        finding,
+      ),
+    ),
+    [],
+    'docs/quality/wave-gates.json is structurally wrong against the tree',
+  );
 });

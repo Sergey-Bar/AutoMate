@@ -40,6 +40,9 @@ export const PROVENANCE = ['hand', 'sweep'];
  */
 export const STATUSES = ['open', 'fixed', 'debt', 'false-positive'];
 
+/** Where the wave gates live, relative to the repository root. */
+export const WAVE_GATES = 'docs/quality/wave-gates.json';
+
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -416,4 +419,245 @@ export function repoRoot() {
  */
 export function readLedger(relative) {
   return JSON.parse(readFileSync(path.join(repoRoot(), relative), 'utf8'));
+}
+
+// ── The wave gates ───────────────────────────────────────────────────────────
+//
+// A wave is a unit of work with an entry condition. Until `wave-gates.json` existed,
+// this repository's entry conditions were sentences in documents, and a sentence
+// does not fail: RF-5's `removalCondition` has said since 2026-09-27 that W7 entering
+// scope returns the row to `open`/`Blocker`, and five tenancy migrations later the row
+// was still `debt`.
+//
+// Two questions, two gates, and the split is not arbitrary:
+//
+//   - **Does the manifest still describe this repository?** `auditWaveGates`, here.
+//     A migration that was renamed, a gating row that no longer exists, a
+//     `blocksWave` pointing at a wave nothing declares. That is file hygiene, and it
+//     belongs with the other checks on these two documents.
+//   - **Did a wave land before its gate did?** `checkWaveBlocks` in `merge-gate.mjs`.
+//     That is a merge-time judgement about the ledger, it is already how `RF-5` is
+//     caught (as an open Blocker, by `checkLedger`), and putting it here made
+//     `pnpm verify` red on a defect nothing but this repository's own definition of
+//     done can clear. A rule that reports the same contradiction in three places is
+//     three places to silence it; two is enough.
+
+/**
+ * @typedef {object} WaveGate
+ * @property {string} gate what has to be true before the wave's work is allowed
+ * @property {string[]} gatingRows the ledger rows that gate it
+ * @property {string[]} migrations the migrations that put the wave on disk
+ */
+
+/**
+ * @param {unknown} value
+ * @returns {string[] | null} `null` when the value is not a list of non-blank strings
+ */
+function stringList(value) {
+  if (!Array.isArray(value)) return null;
+  return value.filter((item) => filled(item));
+}
+
+/**
+ * The ledger's rows by id, or an empty map when the document has no rows.
+ *
+ * The whole record rather than the fields each caller happens to read, because the
+ * first version of this took `{ status }` and then `blocksWave` was invisible to the
+ * rule that exists to check it — a rule that cannot see its own subject is a rule
+ * that cannot fail, which is the whole defect this module is about.
+ *
+ * @param {unknown} ledger
+ * @returns {Map<string, Record<string, unknown>>}
+ */
+function rowsById(ledger) {
+  const rows = isRecord(ledger) ? ledger.findings : null;
+  /** @type {Map<string, Record<string, unknown>>} */
+  const byId = new Map();
+  if (!Array.isArray(rows)) return byId;
+  for (const row of rows) {
+    if (isRecord(row) && filled(row.id)) {
+      byId.set(/** @type {string} */ (row.id), row);
+    }
+  }
+  return byId;
+}
+
+/**
+ * Whether a wave has landed: at least one migration it lists is on disk.
+ *
+ * @param {string[]} migrations
+ * @param {string} root
+ * @returns {boolean}
+ */
+function waveHasLanded(migrations, root) {
+  return migrations.some((migration) => existsSync(path.join(root, migration)));
+}
+
+/**
+ * One wave's problems, split so each rule reads on its own.
+ *
+ * @param {string} wave
+ * @param {unknown} entry
+ * @param {Map<string, Record<string, unknown>>} rows
+ * @param {string} root
+ * @returns {string[]}
+ */
+function waveProblems(wave, entry, rows, root) {
+  if (!isRecord(entry)) {
+    return [`${WAVE_GATES}: wave \`${wave}\` is not an object, so it gates nothing.`];
+  }
+  const gating = stringList(entry.gatingRows);
+  const migrations = stringList(entry.migrations);
+  if (gating === null || gating.length === 0) {
+    return [
+      `${WAVE_GATES}: wave \`${wave}\` names no \`gatingRows\`. A wave with no gating row ` +
+        'has no entry condition, which is the state this file exists to end.',
+    ];
+  }
+  if (migrations === null || migrations.length === 0) {
+    return [
+      `${WAVE_GATES}: wave \`${wave}\` names no \`migrations\`. Nothing can say whether it has ` +
+        'landed, so the gate would never fire.',
+    ];
+  }
+  return [...gatingProblems(wave, gating, rows), ...migrationProblems(wave, migrations, root)];
+}
+
+/**
+ * Each gating row must be a row this ledger has.
+ *
+ * @param {string} wave
+ * @param {string[]} gating
+ * @param {Map<string, Record<string, unknown>>} rows
+ * @returns {string[]}
+ */
+function gatingProblems(wave, gating, rows) {
+  return gating
+    .filter((id) => !rows.has(id))
+    .map(
+      (id) =>
+        `${WAVE_GATES}: wave \`${wave}\` is gated on \`${id}\`, which is not a ledger row. A ` +
+        'gate on a row that does not exist is a gate that cannot fail.',
+    );
+}
+
+/**
+ * Every migration listed must exist.
+ *
+ * Not a formality: a list naming a file that was never written reports a wave as
+ * gated on nothing at all, which is the same failure as having no entry condition
+ * with an extra step.
+ *
+ * @param {string} wave
+ * @param {string[]} migrations
+ * @param {string} root
+ * @returns {string[]}
+ */
+function migrationProblems(wave, migrations, root) {
+  return migrations
+    .filter((migration) => !existsSync(path.join(root, migration)))
+    .map(
+      (migration) =>
+        `${WAVE_GATES}: wave \`${wave}\` lists \`${migration}\`, which does not exist. A ` +
+        'migration that was renamed or deleted leaves the gate describing a wave that was never here.',
+    );
+}
+
+/**
+ * Every `blocksWave` must name a wave this file declares.
+ *
+ * The inverse check, and the one that keeps the field honest: `blocksWave` is a row
+ * saying *I block this wave*, so a row naming a wave nothing tracks is asserting a
+ * block over nothing — which is exactly the shape of the defect this replaced.
+ *
+ * @param {Map<string, Record<string, unknown>>} rows
+ * @param {Record<string, unknown>} waves
+ * @returns {string[]}
+ */
+function blocksWaveProblems(rows, waves) {
+  const declared = Object.keys(waves);
+  /** @type {string[]} */
+  const findings = [];
+  for (const [id, row] of rows) {
+    if (!filled(row.blocksWave)) continue;
+    if (!declared.includes(/** @type {string} */ (row.blocksWave))) {
+      findings.push(
+        `${id}: \`blocksWave\` is \`${String(row.blocksWave)}\`, which ${WAVE_GATES} does not ` +
+          'declare. A row that blocks a wave nothing tracks blocks nothing.',
+      );
+    }
+  }
+  return findings;
+}
+
+/**
+ * The waves that have landed: at least one migration each lists is on disk.
+ *
+ * Shared with the merge gate rather than reimplemented there, because the two gates
+ * have to agree about what "landed" means or one of them will report a wave as
+ * blocked while the other reports it clear. An unreadable manifest yields no waves,
+ * and each caller turns that into its own honest outcome — `not_configured` for the
+ * merge gate, a finding for the ledger audit.
+ *
+ * @param {unknown} gates parsed `wave-gates.json`, or `null`
+ * @param {{ root: string }} options
+ * @returns {string[]}
+ */
+export function landedWaves(gates, options) {
+  if (!isRecord(gates) || !isRecord(gates.waves)) return [];
+  const waves = /** @type {Record<string, unknown>} */ (gates.waves);
+  const landed = [];
+  for (const [wave, entry] of Object.entries(waves)) {
+    if (!isRecord(entry)) continue;
+    const migrations = stringList(entry.migrations);
+    if (migrations !== null && waveHasLanded(migrations, options.root)) landed.push(wave);
+  }
+  return landed;
+}
+
+/**
+ * Reads the wave gates, or `null` when the file is absent or unreadable.
+ *
+ * `null` rather than a throw, because the caller has to report *unreadable* rather
+ * than crash: `findings-check.mjs` and the merge gate both treat a policy they cannot
+ * read as `not_configured`, which is the outcome this repository uses everywhere else
+ * for "I could not look".
+ *
+ * @param {string} [relative]
+ * @returns {unknown}
+ */
+export function readWaveGates(relative = WAVE_GATES) {
+  const file = path.join(repoRoot(), relative);
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Audits the wave gates against the ledger and the tree.
+ *
+ * @param {unknown} gates parsed `wave-gates.json`, or `null`
+ * @param {unknown} ledger parsed `findings-ledger.json`
+ * @param {{ root: string }} options
+ * @returns {string[]}
+ */
+export function auditWaveGates(gates, ledger, options) {
+  if (!isRecord(gates) || !isRecord(gates.waves)) {
+    return [
+      `${WAVE_GATES} could not be read, so no wave gate could be checked. A gate that ` +
+        'cannot read its policy must not report the policy as satisfied.',
+    ];
+  }
+  const rows = rowsById(ledger);
+  const waves = /** @type {Record<string, unknown>} */ (gates.waves);
+  /** @type {string[]} */
+  const findings = [];
+  for (const [wave, entry] of Object.entries(waves)) {
+    findings.push(...waveProblems(wave, entry, rows, options.root));
+  }
+  findings.push(...blocksWaveProblems(rows, waves));
+  return findings;
 }

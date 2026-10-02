@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "what": "The tenancy boundary, classified. One row per table in `packages/db/src/schema/`.",
+  "why": "`AGENTS.md` states that `WORKSPACE_ID` is the only tenancy boundary in the system and that any new workspace-scoped read or write needs a cross-workspace isolation test. That rule was restated in five places — AGENTS.md, three `.kilo/agent/` personas, the `evidence-test` skill, and roughly forty rows of the findings ledger — and **none of them said which tables it applies to.** Without that list the rule cannot be evaluated in either direction: 'any new workspace-scoped write needs a test' has no way to decide whether a write is workspace-scoped, and 'do not add a table without `workspace_id`' has no way to know which tables that covers. This is the shape of `P-6`'s three startup-policy authorities and `P-5`'s two disagreeing `gate_status` lists; the remedy recorded for both was one source rather than five copies.",
+  "howToReadIt": [
+    "`scope` is the **design decision**: does this table hold tenant-owned data (`workspace`) or not (`global`).",
+    "`column` is the **observed state**, committed so the gate can catch the boundary weakening. It is transcribed by a parser, not by hand.",
+    "`reason` says why this classification and state are acceptable today. A row without one is drift — `scripts/lib/tenancy-scope.mjs` fails it."
+  ],
+  "verifiedAgainstPostgres": {
+    "on": "2026-10-02",
+    "how": "A disposable `postgres:16-alpine` was started, the full 23-migration journal applied with `pnpm db:migrate`, and `pg_catalog` read directly rather than the TypeScript being parsed again.",
+    "tablesInDatabase": 56,
+    "tablesWithWorkspaceId": 18,
+    "notNull": 15,
+    "nullable": ["audit_events", "quality_gate_config", "runs"],
+    "agreement": "Exact, on all four numbers and on every individual table. PostgreSQL's own catalog returned the same 18 tables with the same nullability this register commits.",
+    "whyThisMatters": "**A parser checking a register the parser produced is self-consistent, not correct.** The register's `column` values are derived from the Drizzle schema by `scripts/lib/tenancy-scope.mjs`, so agreeing with itself proves nothing. Agreeing with `pg_catalog` after a real migration run is a different kind of evidence: it means the schema, the migration graph and this file all describe the same database. It also caught that all 23 migrations apply cleanly to an empty PostgreSQL 16, which nothing in the repository had asserted before."
+  },
+  "whatBlocks": [
+    "A table with no row here. A new table must be classified before it ships, which is when the decision is cheap.",
+    "A regression: a row committing `not-null` whose schema column is now nullable or gone.",
+    "A schema that improved past its row — a register wrong in the flattering direction is still wrong."
+  ],
+  "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
+  "tally": {
+    "total": 56,
+    "global": 13,
+    "workspaceScoped": 43,
+    "workspaceScopedWithHardBoundary": 15,
+    "workspaceScopedNullable": 3,
+    "workspaceScopedAbsent": 25,
+    "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
+    "interpretation": "`workspaceScopedAbsent` is 25 tables with no tenant column at all. It is **not** a claim that 25 tables are exploitable today: the product ships one tenant per installation, so most have no reader that can cross workspaces. It is a claim that **nothing in the tree knows that**, which means the boundary is a convention rather than a constraint, and that the next table added without a column will be indistinguishable from the twenty-five that already are. `P-20` tracks the subset where the gap is live today (`runs` and `audit_events` nullable, `trends` absent)."
+  },
+  "tables": {
+    "installations": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "The tenancy root. An installation IS the tenant boundary; a workspace column here would be a self-reference. This table is why `users`, `roles`, `api_keys`, `sessions`, `service_credentials`, `installation_keys` and `saml_config` are `global` too — identity is installation-scoped, and stating that explicitly is the point of this file."
+    },
+    "workspaces": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "The workspace table itself. Its `id` is the value every `workspace_id` column points at, so it cannot also carry one."
+    },
+    "saml_config": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-level identity federation. One IdP configuration per installation."
+    },
+    "users": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-scoped identity, not workspace-scoped. A user belongs to an installation and can hold roles across every workspace in it."
+    },
+    "roles": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-scoped identity. Role grants resolve against an installation and are then filtered per workspace by the caller, not by this table."
+    },
+    "api_keys": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-scoped credential. Authenticates the caller; which workspaces it may touch is a separate authorisation decision, so scoping the row itself would conflate the two."
+    },
+    "sessions": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-scoped session. Same reasoning as `api_keys`: authentication is not authorization."
+    },
+    "service_credentials": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Installation-scoped credential, same as `api_keys`. Distinct from `connector_configs`, which IS workspace-scoped — see the note on that row, because the pair is the clearest case of two tables with near-identical names and opposite scoping."
+    },
+    "installation_keys": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Keys for the installation itself, including the vault bootstrap key. Adding a workspace column would put a tenant boundary on the row that every tenant's vault depends on."
+    },
+    "legacy_id_map": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Bookkeeping from the SQLite-to-Postgres migration. Its job is mapping old integer ids to new ones and it is not part of any product read path."
+    },
+    "defect_categories": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Controlled vocabulary, shared by every tenant. The same category ids must mean the same thing across workspaces or cross-workspace reporting is meaningless."
+    },
+    "fingerprint_categories": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Controlled vocabulary, same reasoning as `defect_categories`."
+    },
+    "failure_taxonomy_rules": {
+      "scope": "global",
+      "column": "absent",
+      "reason": "Rules describing how failures are classified. Product configuration rather than tenant data, and the same rule set is intended to apply everywhere."
+    },
+    "failure_classifications": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Holds classified failure records, which are tenant-owned. **No workspace column, and no reader is known to cross workspaces — but nothing in the tree records that.** Tracked as part of the P-20 class."
+    },
+    "failure_clusters": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Clustered failure data derived from tenant-owned runs. No workspace column; tracked as part of the P-20 class."
+    },
+    "test_failure_correlations": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Correlations between tenant-owned tests. No workspace column; tracked as part of the P-20 class."
+    },
+    "locator_suggestions": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Suggestions derived from tenant-owned test results. No workspace column; tracked as part of the P-20 class."
+    },
+    "runs": {
+      "scope": "workspace",
+      "column": "nullable",
+      "reason": "The central tenant-owned table, and its `workspace_id` is **nullable** — the index `runs_workspace_id_idx` exists, so the column is read, but nothing forces a value. Tracked as P-20. This is the row whose weakening would hurt most."
+    },
+    "run_events": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Append-only event log for a run, hard-scoped since the durable-execution wave."
+    },
+    "runners": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped, and the composite `runners_workspace_name_unique` shows the constraint being applied to the multi-column shape rather than the single-column one."
+    },
+    "canonical_run_results": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped, with the primary key itself declared as `(workspaceId, runId)` — the boundary in the key rather than in a column that can be null."
+    },
+    "projects": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned project."
+    },
+    "environments": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned environment."
+    },
+    "releases": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned release."
+    },
+    "quality_policies": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned policy."
+    },
+    "execution_jobs": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned job."
+    },
+    "gate_evaluations": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped tenant-owned gate outcome."
+    },
+    "artifacts": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Run artifacts are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "suites": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Test suites are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "tests": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Tests belong to a tenant-owned suite. No workspace column; tracked as part of the P-20 class."
+    },
+    "results": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Test results are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "attachments": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Attachments hang off tenant-owned results. No workspace column; tracked as part of the P-20 class."
+    },
+    "quarantine": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Quarantine decisions are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "known_failures": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Known-failure markers are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "blob_shards": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Shards of tenant-owned blobs. **Highest-consequence row in this file**: a shared blob store with no tenant column means a lookup by digest can return another tenant's bytes, and the row is classified here precisely because that case is invisible from the schema."
+    },
+    "nl_query_history": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "A user's natural-language queries against tenant data, so both the queries and their results are tenant-owned. No workspace column; tracked as part of the P-20 class."
+    },
+    "agent_sessions": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Agent sessions operate on tenant-owned runs. No workspace column; tracked as part of the P-20 class."
+    },
+    "agent_session_runs": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Joins an agent session to a tenant-owned run. No workspace column; tracked as part of the P-20 class."
+    },
+    "agent_session_files": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Files read or written during an agent session, so tenant-owned content. No workspace column; tracked as part of the P-20 class."
+    },
+    "generated_test_suggestions": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Suggestions derived from tenant-owned results. No workspace column; tracked as part of the P-20 class."
+    },
+    "repair_attempts": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Repair attempts against tenant-owned failures. No workspace column; tracked as part of the P-20 class."
+    },
+    "agent_conflicts": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Conflicts between agents working on the same tenant-owned artifact. No workspace column; tracked as part of the P-20 class."
+    },
+    "audit_events": {
+      "scope": "workspace",
+      "column": "nullable",
+      "reason": "Tenant-owned audit trail with a **nullable** `workspace_id`, and it also carries a second column, `tenantId`. Two tenant columns on one table is the second-authority shape `P-5` records: they are not constrained to agree, so a reader cannot tell which one the writer meant. Tracked as P-20."
+    },
+    "quality_gate_config": {
+      "scope": "workspace",
+      "column": "nullable",
+      "reason": "Gate configuration with a nullable `workspace_id` and an `id` that `default('global')`. That default is exactly the pattern the migration guidance warns against: a row with no attributable tenant is given the default workspace, which performs the defect the migration was removing."
+    },
+    "schedules": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped by `0015_schedule_workspace_scope.sql`, which replaced the tenant living only inside `run_options->'request'->>'workspaceId'` as untyped JSONB."
+    },
+    "outbox_events": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped by `0017_outbox_workspace_scope.sql`."
+    },
+    "conversations": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped by `0018_chat_workspace_scope.sql`, which the ledger records as having needed two attempts because `IF EXISTS` swallowed a misspelled constraint name and the global uniqueness survived alongside the new composite index."
+    },
+    "messages": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped by the same migration as `conversations`."
+    },
+    "message_attachments": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Attachments on tenant-owned chat messages. No workspace column, while its parent `messages` is hard-scoped — a child that is looser than its parent. Tracked as part of the P-20 class."
+    },
+    "connector_configs": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped by `0020_connector_credentials_tenant.sql`. Note the contrast with `service_credentials`, which is installation-scoped: the two tables have near-identical names and opposite scoping, which is the strongest argument for this register existing."
+    },
+    "flow_templates": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Tenant-owned automation templates. No workspace column; tracked as part of the P-20 class."
+    },
+    "execution_log": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Tenant-owned execution log. No workspace column; tracked as part of the P-20 class."
+    },
+    "model_config": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Per-tenant model configuration, which typically embeds provider credentials. No workspace column; tracked as part of the P-20 class."
+    },
+    "trace_links": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Links between tenant-owned traces. No workspace column; tracked as part of the P-20 class."
+    },
+    "vault_entries": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Hard-scoped, and the most consequential correct row in the file: every encrypted secret lives here, bound to row identity through the `VaultRowBinding` passed as length-prefixed AAD."
+    },
+    "trends": {
+      "scope": "workspace",
+      "column": "absent",
+      "reason": "Tenant-owned reporting aggregates. No workspace column, which is the specific subject of the open P-20 row at `packages/db/src/schema/dashboard.ts:406`."
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "scanner": "skillspector",
+  "scannedWith": "2.12.0",
+  "scannedOn": "2026-10-02",
+  "scope": ".kilo/skills",
+  "keyedBy": "match_fingerprint",
+  "keyNote": "Findings are keyed on `match_fingerprint`, NOT on `finding_id`. Two scans of the same tree on the same day produced different `finding_id` values for identical findings — the id is regenerated per run, so a baseline keyed on it would fail on every scan and be ignored within a week. The fingerprint is the content address and was byte-identical across both runs.",
+  "findings": [
+    {
+      "matchFingerprint": "a2bfb0d7cc6cfe091106d72bc83701d46f04fadd9e90ccddd446da3e6aceb44e",
+      "id": "MP3",
+      "severity": "HIGH",
+      "location": "vercel-composition-patterns/README.md:28",
+      "matched": "clear context",
+      "reason": "False positive. The matched text is the sentence \"Define clear context interfaces (state/actions/meta)\" — React state design prose in Vercel's own README index. MP3 targets instructions that manipulate an agent's stored memory or context; a table of filenames and a heading describing a React pattern is neither. Upstream file, pinned by hash in skills-lock.json."
+    },
+    {
+      "matchFingerprint": "152a270c69e5f498026be5430f75d09c53e612d4c86635345fe7e35d93b38ee0",
+      "id": "OH1",
+      "severity": "HIGH",
+      "location": "vercel-react-best-practices/AGENTS.md:2537 and rules/rendering-hydration-no-flicker.md:63",
+      "matched": "dangerouslySetInnerHTML={",
+      "reason": "False positive, reported twice because one pattern matched in two files. Both are inside a fenced code block in `rendering-hydration-no-flicker.md` — the rule titled \"Avoid Hydration Mismatch\" shows the anti-pattern it exists to warn against, quoted as a counter-example. It is instructional text, not code the agent executes. OH1 targets model output flowing unvalidated into a downstream sink; there is no sink here."
+    },
+    {
+      "matchFingerprint": "5d1e71786bcce07e288b1b7488d594b4d051d0f6efefb2c50641987706a012da",
+      "id": "RP1",
+      "severity": "MEDIUM",
+      "location": "evidence-test/SKILL.md:78",
+      "matched": "npx playwright",
+      "reason": "False positive. Playwright is a pinned devDependency of the root workspace, resolved through pnpm and `pnpm-lock.yaml`; `npx playwright test` invokes that installed binary rather than fetching anything. RP1 exists to catch `npx` used to pull an unpinned *server* over MCP at runtime, which is not what this line does. AGENTS.md documents the same invocation, so this is the project convention rather than a lapse in it."
+    },
+    {
+      "matchFingerprint": "7e2032800e53308730dd676a00c6dd49aaa97387a8c582639cc5ed2768d7877f",
+      "id": "RP1",
+      "severity": "MEDIUM",
+      "location": "vercel-react-best-practices/AGENTS.md:2477 and rules/rendering-svg-precision.md:27",
+      "matched": "npx svgo",
+      "reason": "False positive, reported twice because one pattern matched in two files. `svgo` is Vercel's recommended CLI for SVG optimisation, mentioned as advice in upstream documentation this repository does not execute. No MCP server is referenced."
+    }
+  ],
+  "coverage": {
+    "note": "**This scan was not complete, and a gate that reported otherwise would be the RF-9 shape.** `analysis_completeness.status` is `partial` and `is_complete` is `false`: 126 of 129 components fully inspected (97.7%), with three files `partially_inspected` because `static_patterns_tool_misuse` hit its `static_parse_limit` — `gate-tiering/SKILL.md`, `vercel-react-best-practices/AGENTS.md`, and `vercel-react-best-practices/rules/advanced-use-latest.md`. That analyzer reports `degraded`, and it is the analyzer whose silence is most consequential here: a gate that printed a clean summary while an analyzer was degraded would be asserting a coverage it does not have.",
+    "components": 129,
+    "scanned": 126,
+    "coveragePercent": 97.7,
+    "partialPaths": [
+      "gate-tiering/SKILL.md",
+      "vercel-react-best-practices/AGENTS.md",
+      "vercel-react-best-practices/rules/advanced-use-latest.md"
+    ],
+    "degradedAnalyzers": ["static_patterns_tool_misuse"]
+  },
+  "whyNotClean": "A clean baseline with zero entries would be the honest reading of the evidence only if the scanner had run completely and found nothing. It ran completely enough to be informative, and what it found is six pattern matches against markdown prose — so the correct disposition is a stated reason per finding, which is what this file is. Deleting it and writing 'clean' is the outcome this repository records as RF-9: a number nobody produced."
+}

@@ -382,7 +382,7 @@ test('the tally and the table report the same numbers as the clause list', () =>
   }
 });
 
-test('the graduation is armed, and armed in the same commit as the zero', () => {
+test('the graduation is armed, and an open Blocker is what makes it fail', () => {
   // `--strict` was a switch because arming a gate that reports red forever is not a
   // gate — it blocks every pull request and teaches reviewers to read red as noise.
   // So the arming had to be a deliberate, recorded act, and the record has to be
@@ -398,19 +398,39 @@ test('the graduation is armed, and armed in the same commit as the zero', () => 
       'ledger row explaining why a `fail` is tolerable again.',
   );
 
-  // And the condition the graduation was premised on is asserted rather than remembered:
-  // the real tree has no `fail` rows, so arming the gate did not make a required check
-  // that cannot pass. A `fail` row reappearing while `strict` is armed makes
-  // `pnpm status:10` exit 1, which is the gate doing its job.
-  const real = tally(reports);
+  // And the second half of the graduation is proven **synthetically** rather than
+  // against a count.
+  //
+  // It used to be `real.fail === 0`. That assertion cannot be right: a test that fails
+  // the day a real obligation is discovered is a test that gets deleted or the defect
+  // does, and this file's own comment says what the correct behaviour is — *a `fail` row
+  // reappearing while `strict` is armed makes `pnpm status:10` exit 1, which is the gate
+  // doing its job.* RF-5 exercised exactly that on 2026-10-02, and the count went to 1.
+  //
+  // The property being defended is that an open Blocker **becomes** a `fail` and is named.
+  // Asserting the count asserted the weather; planting the row asserts the instrument, and
+  // the instrument has to work whether the tree currently has an open Blocker or not —
+  // which is precisely the case a count assertion cannot tell apart from a working gate.
+  const planted = evaluate(
+    withFacts({
+      ledgerRows: [
+        { id: 'PLANTED-1', band: 'Blocker', status: 'open', title: 'planted for this test' },
+      ],
+    }),
+  );
+  const eleventh = planted.find((report) => report.number === 11);
   assert.equal(
-    real.fail,
-    0,
-    `status:10 is armed, so a \`fail\` row fails the build by design — but the tree reports ` +
-      `${String(real.fail)}: ${reports
-        .filter((report) => report.verdict === 'fail')
-        .map((report) => String(report.number))
-        .join(', ')}`,
+    eleventh?.verdict,
+    'fail',
+    'point 11 is §17’s eleventh point — zero open Blocker or Critical — so a planted open ' +
+      'Blocker must make it fail, or arming `strict` means nothing.',
+  );
+  const failing = (eleventh?.clauses ?? []).filter((clause) => clause.verdict === 'fail');
+  assert.ok(failing.length > 0, 'the planted Blocker produced no failing clause');
+  assert.match(
+    failing.map((clause) => clause.reason).join(' | '),
+    /PLANTED-1 \(Blocker\)/,
+    'a `fail` has to name the row that caused it, or the red is not actionable',
   );
 });
 

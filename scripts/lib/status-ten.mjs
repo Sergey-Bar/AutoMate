@@ -1097,6 +1097,64 @@ export function tally(reports) {
   return counts;
 }
 
+/** The tiers `status:10` is allowed to be, and the condition each one belongs to. */
+export const TIERS = { armed: 'pr-blocking', unarmed: 'pr-reporting' };
+
+/**
+ * Which tier `status:10` is allowed to be, derived from what it reports.
+ *
+ * The same rule `render-gate-phase.mjs` applies to `test:render`, for the same reason
+ * and with the same failure in mind: a required check that can never pass blocks every
+ * pull request, trains reviewers to read red as noise, and hides the failures that
+ * matter. `--strict` was a switch for exactly that reason and was armed on 2026-10-01
+ * when the fails were zero; on 2026-10-02 RF-5 returned to `open`/`Blocker` and the
+ * count went to one again, and no amount of code clears it — `pnpm migrate:rehearse`
+ * needs an installation.
+ *
+ * **Derived, not chosen**, so the tier cannot drift from the tree the way the prose did.
+ * A hand-set tier is the same defect as a hand-set claim: right until the day the fact
+ * it describes changes, and then wrong in a way nothing notices.
+ *
+ * `not_configured` does not downgrade the tier. Eleven of twelve points are
+ * unmeasured on any host, and they are unmeasured in CI too, so keying the tier on
+ * them would pin it at `pr-reporting` forever and make arming it meaningless. Zero
+ * `fail` is what this repository's own definition of done says, and that is the whole
+ * condition.
+ *
+ * @param {Report[]} reports
+ * @returns {'armed' | 'unarmed'}
+ */
+export function phaseFor(reports) {
+  return tally(reports).fail > 0 ? 'unarmed' : 'armed';
+}
+
+/**
+ * Every way the declared tier disagrees with what the reports say, as findings.
+ *
+ * @param {Report[]} reports
+ * @param {string} tier the tier `scripts/gate-tooling.json` gives `status:10`
+ * @returns {string[]}
+ */
+export function tierProblems(reports, tier) {
+  const phase = phaseFor(reports);
+  if (tier === TIERS[phase]) return [];
+
+  if (phase === 'unarmed') {
+    return [
+      '`status:10` is tiered `pr-blocking` while it reports at least one `fail` row, so the ' +
+        'required check can never pass. RF-5 is an open Blocker whose removal condition is one ' +
+        '`pnpm migrate:rehearse` run against a real installation, and nothing in this ' +
+        'repository can produce one. Until that run exists the job reports, and the tier is ' +
+        '`pr-reporting`.',
+    ];
+  }
+  return [
+    '`status:10` reports zero `fail` rows, so the definition of done is met and the gate is ' +
+      'real. Leaving it `pr-reporting` is a check nobody is required to satisfy, which is worse ' +
+      'than the unarmed state it replaced.',
+  ];
+}
+
 /**
  * A markdown table, which is the whole output format.
  *

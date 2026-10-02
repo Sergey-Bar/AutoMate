@@ -29,6 +29,12 @@
   "ledger": {
     "$comment": "The ledger half of the gate. §17's eleventh point is 'zero Blocker or Critical', and a merge gate that does not check it is a merge gate that only checks the easy half. `debt` is excluded deliberately: a deferred finding has an owner and a removal condition, which is the state §1 permits, and the fact that a point is deferred is visible on `pnpm status:10` rather than here.",
     "blockingBands": ["Blocker", "Critical"],
-    "blockingStatuses": ["open"]
+    "blockingStatuses": ["open"],
+    "blocksWave": {
+      "$comment": "The exclusion above has a hole in it, and this is the patch. `debt` is invisible to `blockingStatuses`, so a row that defers *a wave* rather than a fix is invisible too — which is how RF-5 sat at `debt`/`Major` for a wave whose five migrations were already on disk. A row carrying `blocksWave` names the wave it gates; when `docs/quality/wave-gates.json` reports that wave has landed, the row blocks whatever its band. `appliesToStatuses` is the set this overrides `blockingStatuses` for, which is exactly the set `blockingStatuses` leaves out — so the two rules compose rather than overlap.",
+      "manifest": "docs/quality/wave-gates.json",
+      "field": "blocksWave",
+      "appliesToStatuses": ["debt"]
+    }
   }
 }

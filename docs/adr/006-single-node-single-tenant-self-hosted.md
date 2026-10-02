@@ -41,8 +41,11 @@ until somebody records a run on that hardware (ledger **PERF-1**).
   `501` today and say so; the features endpoint is derived from the same registry
   and reports `available: false` for every domain, which is the honest answer and is
   derived rather than typed.
-- **Ten reversible tenancy migrations are the largest irreversible work**, and they
-  are gated on a rehearsal that has never run (ledger **RF-5**).
+- **The tenancy migrations are the largest irreversible work in the tree, and the
+  rehearsal that was meant to come first never ran** (ledger **RF-5**, now an `open`
+  Blocker with `docs/quality/wave-gates.json` behind it). This record's own
+  single-tenant posture did not prevent them; it only made the gap unowned, which is
+  why the gate now reads the wave rather than the prose.
 - **Coverage floors are per-package and ratcheted, not per-package thresholds.** A
   threshold that blocks every run gets raised until it means nothing.
 - Documentation is in English, and the site's only allowed aspirational claim is on

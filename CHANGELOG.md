@@ -2,6 +2,47 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## Unreleased — v3.0 groundwork
+
+### Changed
+
+**`RF-5` returns to `open`/`Blocker`, because the wave it was gating has landed.** The
+row was `debt`/`Major` on a scope decision that was never written down as one: the tenancy
+wave, W7, was recorded out of scope, so a deferral of the migration rehearsal had nothing
+to sequence. Seven W7 rows were confirmed and fixed and five tenancy migrations shipped —
+`0015_schedule_workspace_scope.sql`, `0017_outbox_workspace_scope.sql`,
+`0018_chat_workspace_scope.sql`, `0019_sp_private_key_sealed.sql`,
+`0020_connector_credentials_tenant.sql`. **The scope changed by shipping, and nothing
+noticed**, because `removalCondition` condition (b) was a sentence and
+`.github/review-rules/merge-gate.json` sets `blockingStatuses: ["open"]`, which makes
+`debt` invisible to the merge gate by design. So the row's own claim that _the gate
+notices rather than the roadmap_ was false as configured. Condition (b) fired on
+2026-10-02 and the row is back in the `Blocker` band.
+
+**The sentence is now a gate.** `docs/quality/wave-gates.json` records which rows gate
+which wave together with the migrations that put that wave on disk. `checkWaveBlocks` in
+`scripts/lib/merge-gate.mjs` fails a _deferred_ wave gate outright, RF-5 itself is caught
+as an open Blocker by `checkLedger` and as §17's eleventh point by `pnpm status:10`, and
+`pnpm findings:check` fails when the manifest stops describing the repository. The block
+lives with the merge-time rules rather than in `verify`, because a defect only a
+`pnpm migrate:rehearse` run can clear must not be a required check.
+
+**What this does not do:** it does not run the rehearsal. `pnpm migrate:rehearse` still
+has never been performed against a real installation, and until it is, `pnpm findings:check`
+and `pnpm status:10` both report the block. That is the state the row is in, stated rather
+than deferred a second time.
+
+### Added
+
+**A ledger row for the OCI release gate repair, which had none.** `pnpm oci:verify` could
+never pass — it required a `built` manifest status and a `sha256` digest that nothing in
+this repository ever wrote, compared that digest against `RepoDigests` on images that are
+never pushed, and read the declared isolation out of the JSON that declared it. Commit
+`726dfa9` rewrote it to compare a build record written by `oci:build` in the run that
+built, against the image the runtime actually holds. **A gate that can never pass teaches
+reviewers to read red as noise, so the repair is exactly the class of defect that needs a
+row** — RF-6's own words: _a gate with no row is a gate that can be skipped silently._
+
 ## 2.2.0 — 2026-10-02
 
 A version bump, three ledger rows closed on a measurement rather than an assertion, four
@@ -156,8 +197,9 @@ The practical exposure is a branch that cannot be merged rather than one that me
 unverified — the failure looks like a hang, which is the same shape as `G-2b`.
 
 `RF-5`, `RF-9` and `PERF-1` cannot be closed from a development host at all. Their harnesses
-are complete and the evidence is missing: `RF-5` needs one real run against a real
-installation, and the tenancy wave is gated behind it. `RF-9` needs observed k6 numbers,
+are complete and the evidence is missing: `RF-5` needed one real run against a real
+installation, and the tenancy wave was gated behind it — **though the gate did not hold
+before this release shipped; see Unreleased below.** `RF-9` needs observed k6 numbers,
 and `PERF-1` needs a rendering baseline recorded on the reference hardware — a self-hosted
 single-node install, which a GitHub runner is not.
 

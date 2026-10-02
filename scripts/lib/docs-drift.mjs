@@ -1,5 +1,5 @@
 /**
- * The seven anti-drift assertions, as detectors.
+ * The anti-drift assertions, as detectors.
  *
  * Roadmap E4 named seven things a document may claim that the code does not do, and
  * §17's tenth point is the gate over them. Only one of the seven was implemented
@@ -15,6 +15,14 @@
  *      describing a WebSocket, in a product whose realtime transport is SSE;
  *   6. a capability asserted as available whose register row is not `real`;
  *   7. an ADR referenced with no record.
+ *
+ * **An eighth was added later, and its own history is the argument for it.** `AGENTS.md`
+ * carried a table of per-package coverage floors that was wrong in all eight rows, by 2
+ * to 20 points, because a floor moves every time a package gains tests and a hand-typed
+ * copy has no reason to move with it. Every other detector here reads a value the code
+ * decides — a port, a command, a capability status; this one reads `coverage-baseline.json`,
+ * which is the same shape of fix applied to the one number the agents' own instructions
+ * most often reason from.
  *
  * **Each assertion is a detector, not a keyword.** The first attempt at point 10
  * grepped the doc-gate's source for words like `port` and `transport` and reported
@@ -52,6 +60,7 @@
  * @property {Set<string>} realPorts
  * @property {Set<string>} knownEnvVars
  * @property {Set<string>} adrNumbers
+ * @property {Map<string, string>} coverageFloors
  * @property {(relative: string) => boolean} fileExists
  */
 
@@ -211,6 +220,12 @@ export const ASSERTIONS = [
     id: 'adrs',
     rule: 'no ADR is referenced without a record',
     check: checkAdrs,
+    gap: '',
+  },
+  {
+    id: 'coverage-floors',
+    rule: 'a coverage floor quoted in prose is the one `coverage-baseline.json` records',
+    check: checkCoverageFloors,
     gap: '',
   },
 ];
@@ -551,6 +566,36 @@ function checkAdrs(env) {
   return findings;
 }
 
+// ── 8. Coverage floors ───────────────────────────────────────────────────────
+
+/**
+ * A markdown table row naming a package in backticks beside a `a/b/c/d` tuple.
+ *
+ * Narrower than it looks, because the tuple is four integers separated by slashes and
+ * the first cell is a backticked path that is a key in `coverage-baseline.json`. No
+ * other table in this repository has both, so the pattern cannot fire on prose that
+ * merely looks numeric — which is the crying-olf outcome every detector above records
+ * having once produced.
+ */
+const COVERAGE_ROW = /^\|\s*`([a-z][\w./-]*)`\s*\|\s*(\d+\/\d+\/\d+\/\d+)\s*\|\s*$/;
+
+/** @param {DriftEnvironment} env @returns {string[]} */
+function checkCoverageFloors(env) {
+  return eachLine(env, (document, line) => {
+    const row = COVERAGE_ROW.exec(line);
+    if (row === null) return [];
+    const pkg = row[1] ?? '';
+    const claimed = row[2] ?? '';
+    const real = env.coverageFloors.get(pkg);
+    if (real === undefined || real === claimed) return [];
+    return [
+      `${document.path}: quotes \`${pkg}\`'s coverage floor as ${claimed}, and ` +
+        `\`coverage-baseline.json\` records ${real}. A floor printed in prose is a copy, ` +
+        'and the ratchet moves the original every time a package gains tests.',
+    ];
+  });
+}
+
 // ── Deriving the truth ──────────────────────────────────────────────────────
 
 /**
@@ -572,6 +617,7 @@ export function collectDriftEnvironment(root, read, files, rootScripts, register
     realPorts: derivePorts(read),
     knownEnvVars: deriveEnvVars(read, files),
     adrNumbers: deriveAdrNumbers(files),
+    coverageFloors: deriveCoverageFloors(read),
     // A prefix test, so `[packages/config](packages/config)` — how a document
     // points at a package — resolves. A file list knows only files, and a document
     // pointing at a directory is not a broken link.
@@ -599,6 +645,37 @@ function driftDocuments(read, files) {
     .filter((file) => !SUPERSEDED_DOCS.has(file))
     .sort()
     .map((file) => ({ path: file, text: read(file) }));
+}
+
+/**
+ * Every package's recorded coverage floor, as `statements/branches/functions/lines`.
+ *
+ * Rounded rather than floored, because a document prints whole numbers and a floor
+ * printed as `94` when the file says `94.6` reads as a defect that does not exist.
+ * The rounding is here, in the one place that reads the file, so a document has to
+ * match *this* and not a rule it cannot see.
+ *
+ * A package marked `not_configured` has no numbers to quote and is absent from the
+ * map, which makes the detector skip it rather than report a tuple it never had.
+ *
+ * @param {(relative: string) => string} read
+ * @returns {Map<string, string>}
+ */
+function deriveCoverageFloors(read) {
+  /** @type {Map<string, string>} */
+  const floors = new Map();
+  const baseline = read('coverage-baseline.json');
+  if (baseline === '') return floors;
+  for (const [pkg, recorded] of Object.entries(JSON.parse(baseline))) {
+    if (typeof recorded !== 'object' || recorded === null) continue;
+    const tuple = ['statements', 'branches', 'functions', 'lines'].map((metric) => {
+      const value = recorded[metric];
+      return typeof value === 'number' ? String(Math.round(value)) : null;
+    });
+    if (tuple.every((part) => part !== null))
+      floors.set(pkg, /** @type {string[]} */ (tuple).join('/'));
+  }
+  return floors;
 }
 
 /**

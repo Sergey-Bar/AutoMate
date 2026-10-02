@@ -23,6 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { landedWaves, readWaveGates } from './findings-ledger.mjs';
 import { matchesAny } from '../review/glob.mjs';
 
 /** The three outcomes, in the order severity is reported. */
@@ -71,9 +72,17 @@ export const OUTCOMES = ['fail', 'not_configured', 'pass'];
  */
 
 /**
+ * @typedef {object} BlocksWavePolicy
+ * @property {string} manifest
+ * @property {string} field
+ * @property {string[]} appliesToStatuses
+ */
+
+/**
  * @typedef {object} LedgerPolicy
  * @property {string[]} blockingBands
  * @property {string[]} blockingStatuses
+ * @property {BlocksWavePolicy} blocksWave
  */
 
 /**
@@ -413,6 +422,26 @@ function packageOf(file) {
 }
 
 /**
+ * The verdict shape both ledger checks return.
+ *
+ * Two checks, one shape: a merge gate's output is a table, and a row that spells its
+ * verdict differently from the row above it is a row nobody reads. `describe` is a
+ * parameter rather than one shared string because the two report different things —
+ * a band and a title against an open Blocker, and a wave against a deferred one.
+ *
+ * @param {string} id
+ * @param {string} what
+ * @param {Array<Record<string, unknown>>} blocking
+ * @param {(row: Record<string, unknown>) => string} describe
+ * @param {string} note
+ * @returns {Check}
+ */
+function ledgerVerdict(id, what, blocking, describe, note) {
+  if (blocking.length === 0) return { id, what, outcome: 'pass', problems: [], note: '' };
+  return { id, what, outcome: 'fail', problems: blocking.map(describe), note };
+}
+
+/**
  * No open Blocker or Critical in the ledger.
  *
  * §17's eleventh point names it and this is where it is enforced rather than reported.
@@ -444,26 +473,85 @@ export function checkLedger(ledger, policy) {
       policy.ledger.blockingBands.includes(/** @type {string} */ (row.band)) &&
       policy.ledger.blockingStatuses.includes(/** @type {string} */ (row.status)),
   );
-  if (blocking.length === 0) {
-    return { id, what, outcome: 'pass', problems: [], note: '' };
-  }
-  return {
+  return ledgerVerdict(
     id,
     what,
-    outcome: 'fail',
-    problems: blocking.map(
-      (/** @type {{ id: string, band: string, title: string }} */ row) =>
-        `${row.id} (${row.band}): ${row.title}`,
-    ),
-    note:
-      "§17's eleventh point is zero Blocker or Critical. A Blocker cannot be recorded as `debt` — " +
+    /** @type {Array<Record<string, unknown>>} */ (blocking),
+    (row) => `${String(row.id)} (${String(row.band)}): ${String(row.title)}`,
+    "§17's eleventh point is zero Blocker or Critical. A Blocker cannot be recorded as `debt` — " +
       'it needs a scope decision to clear, not a disposition — so this is the gate noticing a ' +
       'decision nobody has made.',
-  };
+  );
+}
+
+/**
+ * A `debt` row that defers a wave blocks the moment that wave has landed.
+ *
+ * `checkLedger` excludes `debt` on purpose — a deferred finding has an owner and a
+ * removal condition, and that is the state §1 permits. But that exclusion has a hole
+ * in it, and RF-5 is the shape of the hole: a row deferring a *fix* is fine to carry,
+ * while a row deferring a *wave* is a claim that the wave has not started. When it
+ * has, the deferral's reason has expired and the row is blocking whether or not it
+ * says so. `blocksWave` on the row and `docs/quality/wave-gates.json` for the wave's
+ * migrations are the two halves; neither means anything without the other, which is
+ * why an unreadable manifest is `not_configured` rather than a pass.
+ *
+ * @param {unknown} ledger
+ * @param {unknown} gates parsed `wave-gates.json`, or `null`
+ * @param {MergePolicy} policy
+ * @param {{ root?: string }} [options]
+ * @returns {Check}
+ */
+export function checkWaveBlocks(ledger, gates, policy, options = {}) {
+  const id = 'wave-gates';
+  const what = 'no deferred wave gate is blocking a wave that has landed';
+  const rules = policy.ledger.blocksWave;
+  const root = options.root ?? ROOT;
+
+  if (!Array.isArray(/** @type {{ findings?: unknown }} */ (ledger)?.findings)) {
+    return {
+      id,
+      what,
+      outcome: 'not_configured',
+      problems: [],
+      note: 'the ledger could not be read, so no wave gate could be checked.',
+    };
+  }
+  if (gates === null) {
+    return {
+      id,
+      what,
+      outcome: 'not_configured',
+      problems: [],
+      note:
+        `${rules.manifest} could not be read, so no wave gate could be checked. A gate that ` +
+        'cannot read its policy must not report the policy as satisfied.',
+    };
+  }
+
+  const landed = landedWaves(gates, { root });
+  const blocking = /** @type {Array<Record<string, unknown>>} */ (
+    /** @type {{ findings: Array<Record<string, unknown>> }} */ (ledger).findings
+  ).filter(
+    (row) =>
+      landed.includes(String(row[rules.field] ?? '')) &&
+      rules.appliesToStatuses.includes(String(row.status ?? '')),
+  );
+
+  return ledgerVerdict(
+    id,
+    what,
+    blocking,
+    (row) =>
+      `${String(row.id)} (${String(row.band)}, ${String(row.status)}): ${String(row.title)} ` +
+      `defers ${String(row[rules.field])}, and that wave has migrations on disk`,
+    'A wave that has landed cannot be deferred by a row nobody read. The migrations are in ' +
+      `${rules.manifest}, which is what this check reads rather than the row's own account of ` +
+      'whether the wave is still ahead.',
+  );
 }
 
 // ── The gate ────────────────────────────────────────────────────────────────
-
 /**
  * Every check, in report order.
  *
@@ -487,9 +575,20 @@ export function runMergeGate(options) {
     checkBudget(files, policy),
     checkTestsPerChange(files, policy, read),
     checkLedger(readLedger(root), policy),
+    checkWaveBlocks(readLedger(root), readWaveGates(rulesManifest(policy)), policy, { root }),
   ];
 
   return { checks, outcome: worstOf(checks) };
+}
+
+/**
+ * Where the wave gates live, as the policy says.
+ *
+ * @param {MergePolicy} policy
+ * @returns {string}
+ */
+function rulesManifest(policy) {
+  return policy.ledger.blocksWave.manifest;
 }
 
 /**
