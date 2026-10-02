@@ -137,7 +137,24 @@ describe('dashboard routes', () => {
     render(<LaunchRunForm api={makeApi({ createRun })} onCreated={vi.fn()} />);
     fillLaunchForm();
     fireEvent.click(screen.getByTestId('launch-run-submit'));
-    await waitFor(() => expect(createRun).toHaveBeenCalledOnce());
+    // **The settled state, not the call.** `toHaveBeenCalledOnce` is satisfied the
+    // instant the request is issued — before the rejection is handled and before
+    // `isSubmitting` goes back to false — and `Button` renders a real `disabled`
+    // while loading, so a click fired at that moment is dropped by the DOM rather
+    // than by React. The old condition therefore raced: it passed only when the
+    // rejection happened to be processed before the next poll, and it failed on the
+    // `Local Release Gate`'s first ever run, which is the whole history of this
+    // test being executed at load.
+    //
+    // The error alert is rendered *after* both `setError` and the reset, so waiting
+    // for it is what "the first submission finished" looks like from outside. It
+    // also asserts more than the call count did: a form that swallowed the failure
+    // and left itself loading forever now fails here rather than passing.
+    await waitFor(() =>
+      expect(screen.getByTestId('launch-run-error')).toHaveTextContent('temporary failure'),
+    );
+    expect(screen.getByTestId('launch-run-submit')).toBeEnabled();
+    expect(createRun).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByTestId('launch-run-submit'));
     await waitFor(() => expect(createRun).toHaveBeenCalledTimes(2));
     expect(createRun.mock.calls[0]?.[0].idempotencyKey).toBe(

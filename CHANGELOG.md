@@ -2,6 +2,184 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.2.0 — 2026-10-02 — NOT TAGGED
+
+A version bump, three ledger rows closed on a measurement rather than an assertion, four
+action bumps, and the first execution of the release gate this repository has been
+describing but never run. **The release gate's OCI half is red, so no tag was cut** — see
+the gap notes at the bottom, which say why that is the gate working rather than the release
+failing.
+
+Nothing was consolidated to get here. `main` was already at `v2.1.0` with a clean tree,
+and the five unmerged branches are stale duplicates rather than unlanded work — see the
+gap notes below.
+
+### Fixed
+
+**Three semgrep rows, closed on a scan rather than on a commit message.** `SEM-2`, `SEM-3`
+and `SEM-4` were recorded `open` while their fixes were verifiably in the tree. The ledger's
+own standard is a run, so the number was taken from CI before the ledger was edited:
+`Static analysis passed: semgrep and gitleaks reported nothing.` — semgrep 1.178.0 against
+`.semgrep.yml` on `1129d26`, in the `Security and license audit` job of
+[run 36962862652](https://github.com/Sergey-Bar/AutoMate/actions/runs/36962862652).
+**Zero findings.**
+
+- `SEM-2` — the row's condition was zero blocking findings. It had 22 (16 from `SEM-3`, 6
+  from `SEM-4`). It has none.
+- `SEM-3` — the 16 `no-hardcoded-secret-literal` findings were all in test suites writing
+  credentials as literals. All 16 now call the builders in
+  `apps/api/src/test-support/synthetic-credentials.ts`, which is what AGENTS.md requires.
+- `SEM-4` — the 6 `no-unbounded-list-in-query` findings now route through three guards that
+  throw rather than truncate: `oneEventBatch` and `oneBatch` in
+  `apps/api/src/execution/drizzle-execution-store.ts`, `oneBatchOf` in
+  `apps/api/src/repositories/drizzle-run-repository.ts`. `.semgrep.yml` carries the
+  narrowed discriminator, and `scripts/lib/semgrep-rules.test.mjs` proves each rule still
+  fires on a hazard fixture and reports no safe twin.
+
+`security:static` remains `pr-reporting`. Its graduation condition is now met on the
+evidence rather than on a promise, but moving the tier is a separate recorded act with its
+own test behind it, and this release does not make it.
+
+**A test that passed or failed depending on how busy the machine was.** The release gate's
+first-ever run failed on it, and that is the only reason it is written down. The launch
+form's submit button renders a real `disabled` while a submission is in flight, and the
+test clicked it a second time as soon as `createRun` had been _called_ — which is before
+the rejection is handled and before the form re-enables. The click was dropped by the DOM,
+so the assertion held only when the rejection happened to be processed before the next
+poll. On a development host it does; under the gate's load it did not, and the `waitFor`
+ceiling fired. The test now waits for the error alert, which is what "the first submission
+finished" looks like from outside, and asserts the button is enabled before retrying — so a
+form that surfaced the error and then left itself loading now fails rather than passing.
+A probe held the rejection pending and read the button at the instant the old test clicked,
+which reported `disabled: true` and one call on an idle host: the race was deterministic,
+only its outcome was not.
+
+### Changed
+
+- **Four GitHub Actions bumps**, landed separately and each observed green before the next:
+  `actions/checkout` 4.2.2 → 7.0.1 (#5), `actions/setup-node` 4.4.0 → 7.0.0 (#3),
+  `actions/upload-artifact` 4.6.2 → 7.0.1 (#4), `pnpm/action-setup` → `fe02b34` (#2).
+  The recorded red on those pull requests predates the 2.1.0 CI repairs and was not a
+  verdict on the bumps. `actions/checkout` v6.1.0 carries a breaking change that blocks
+  fork-pull-request checkout for `pull_request_target` and `workflow_run`; no workflow in
+  this repository triggers on either, verified by reading the four merged files rather
+  than by trusting the release note.
+- **The changelog reattributed two of its own sections.** Both sections below were labelled
+  `Unreleased` while describing work that had already shipped — the product rename inside
+  `v2.1.0`, the unified migration inside `v2.0.0`. Each now carries the version it shipped
+  in, and the bodies are untouched because they were accurate; only the headings were
+  wrong. The `docs/migration/source-manifest.json` git blob hashes are deliberately
+  unchanged, because renaming the evidence of the migration would falsify it.
+
+### Verified: the release gate, for the first time
+
+`.github/workflows/release-gate.yml` had **zero runs** on record, so neither of its two jobs
+had ever executed as written. `pnpm verify:release` is `pnpm verify` plus `pnpm oci:verify`,
+and `unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
+release gate that has never been watched is not a gate. Dispatching it against this
+release's own branch, before the merge, is also what makes the gate cover the tree the tag
+would point at rather than a tree built afterwards.
+
+**The `verify` job is green.** The `oci` job is not, and **this release is therefore not
+tagged.** That is the rule working: a tag on a tree whose release gate was never observed
+is exactly what this repository's gate design exists to prevent, and a gate observed for the
+first time and found red is not a reason to tag anyway.
+
+**The first run failed twice, and both were real.**
+
+1. **A flaky test**, described under `Fixed` above. The same commit had passed it in
+   `Unit and coverage` earlier the same hour, so the record on file said green and the tree
+   said otherwise.
+2. **A Dockerfile that could not build.** `runners/k6/Dockerfile` ran `chown` against a
+   base image that is already non-root, so `grafana/k6:0.57.0` refused it and the build
+   died at step four of four. The `playwright` stub built, because `node:24-alpine` is
+   root — which is why one of three worked and the defect read as a base-image quirk rather
+   than an assumption. `USER root` now precedes the `chown` in all three, so the privileged
+   step is explicit and the final `USER 65532:65532` still makes the image unprivileged.
+
+**`pnpm verify:local` was not a substitute** and was not used: it sets the host-scanner
+opt-in, which makes the static scan exit zero **without scanning**. A green that means
+nothing is the exact failure this repository's gate design exists to prevent.
+
+### Still open, deliberately
+
+Nine rows are `open` and seven are carried as `debt`, each with an owner and a removal
+condition. **No Blocker and no Critical is open** — `C-5` and `DB-1`, the two Blockers, are
+both `fixed`.
+
+- `open` — `C-4`, `RF-6`, `RF-6a`, `RF-6b`, `RF-6c`, `RF-6d`, `RF-9`, `RF-11`, `PERF-1`.
+- `debt` — `C-6`, `CAP-1`, `D-4`, `Q-1`, `RF-5`, `UI-1`, `X-3`.
+
+`RF-5`, `RF-9` and `PERF-1` cannot be closed from a development host at all. Their harnesses
+are complete and the evidence is missing: `RF-5` needs one real run against a real
+installation, and the tenancy wave is gated behind it. `RF-9` needs observed k6 numbers,
+and `PERF-1` needs a rendering baseline recorded on the reference hardware — a self-hosted
+single-node install, which a GitHub runner is not.
+
+### Known gaps
+
+**The OCI half of the release gate cannot pass, and that is the gate reporting the truth
+rather than a defect.** `pnpm oci:verify` requires each runner manifest to carry
+`"buildStatus": "built"` and a real `sha256:` digest, and to compare that digest against
+the image the container runtime actually holds. All three manifests carry `"unbuilt"` and
+`"imageDigest": null`, and **nothing in this repository writes them** — `pnpm oci:build`
+runs `docker build` and records nothing back. The capability register already says this
+out loud: `runner.oci` is `mock`, the Dockerfiles are no-op stubs, and `oci:verify` "now
+inspects the real image with docker or podman — reports that honestly instead of reading a
+hand-authored JSON back".
+
+Making it pass needs a decision, not an edit, and it is not a release step. It means either
+building real runner images and publishing them somewhere a registry digest exists — which
+ADR-006's self-hosted compose distribution model does not do — or changing what the gate
+compares, so that a locally built image is verified by its image ID rather than by a digest
+only a registry can mint. The second weakens the claim the gate currently makes. Hand-editing
+the manifests to say `built` would be the exact falsification the script's own header
+describes having removed. So the gate stays red, the register stays `mock`, and **no tag is
+cut for this release.**
+
+What it reports, measured rather than predicted — six failures, all three images, and every
+one of them a field nothing writes:
+
+```
+OCI verification using docker
+OCI verification blocked
+- playwright: buildStatus is "unbuilt", expected "built"
+- playwright: imageDigest is not a built sha256 digest
+- k6: buildStatus is "unbuilt", expected "built"
+- k6: imageDigest is not a built sha256 digest
+- zap: buildStatus is "unbuilt", expected "built"
+- zap: imageDigest is not a built sha256 digest
+```
+
+`Build OCI images` above it **passes**: all three images build, which is the half of the job
+that was broken and is now fixed.
+
+**No package is published to a registry, by decision rather than by omission.** All 24
+workspace packages are `private`; `npm publish` hard-errors on a private package. There is
+no publish script, no publish workflow, and the old `publish-docker.yml` is on the obsolete
+list in `scripts/unify-preflight.mjs`. Distribution is the OCI image plus a self-hosted
+compose install, per `docs/adr/006-single-node-single-tenant-self-hosted.md`. Publishing to
+NPM is a distribution-model change and not a release step; it needs its own plan.
+
+**The five unmerged branches were deliberately not merged.** `origin/wave0/ci-gates` (38
+commits not in `main`), `docs/readme-refresh` (3), `master` (172),
+`migration/phase-0` (257), and `rescue/unified-platform-shell` all descend from `97134f9`,
+which `main` does not contain — so `git branch --merged main` reports every one of them
+unmerged and five branches of lost work appear to exist. Their content is on `main` by
+another route, because history was reset at `55528b3` and the work was re-landed:
+`apps/api/src/observability/sentry.ts`, `packages/db/drizzle/0010_drop_duplicate_audit.sql`,
+`packages/orchestration/src/phase-outcome.ts`, and the `useDashboard` test all appear in
+`main` and not in those tips. Merging them would duplicate work; deleting them is a separate
+decision that needs the `archive/*` tags verified to contain the tips first. Recorded here
+so the next reader does not repeat the survey.
+
+**`docs.yml` builds the documentation site and never deploys it.** It runs
+`actions/upload-pages-artifact` with no `deploy-pages` step, and the job's permissions are
+`contents: read` — no `pages: write`, no `id-token: write`, and no `environment:`. So the
+site is built and uploaded as an artifact on every push to `main` and never goes live.
+Logged, not fixed here: it needs the Pages source confirmed in repository settings first,
+and that is a decision rather than an edit.
+
 ## 2.1.0 — 2026-10-01
 
 Five defects, three of them found by **running** something rather than reading it, and one
@@ -44,7 +222,7 @@ release. It did not, and it does now — nine stages against real PostgreSQL, wi
 Playwright project. `main` gained branch protection with ten required checks. The coverage
 ratchet, which had been failing on `main`, passes.
 
-## Unreleased
+### 2.1.0 addendum — the product has one name
 
 **The product has one name.** The project's earlier name has been removed from the
 repository entirely — eight files across five kinds of record, and the distinctions
@@ -144,7 +322,7 @@ Gates at this release: `lint`, `typecheck`, `format:check`, `complexity`,
 267/267, `@automate/api` 1159/1159, `@automate/unified-web` 242/242, `test:e2e` 19/19
 against a real PostgreSQL.
 
-## Unreleased — unified migration
+### 2.0.0 addendum — the migration
 
 - Added canonical shared contracts for reporting, realtime envelopes, orchestration, runner protocol, and installation sessions.
 - Added reporting, producer-adapter, realtime, orchestration, automation-gateway, runner SDK, connector, artifact, vault, and migration-control boundaries.
@@ -152,4 +330,4 @@ against a real PostgreSQL.
 - Replaced the clean-checkout route boundary and centralized root governance commands.
 - Removed obsolete readiness, roadmap, and migration documents from the active tree.
 
-The migration remains local/sample-only. Production cutover, publication, credential rotation, source deletion, and destructive data migration are not authorized by this branch.
+The migration remains local/sample-only. Production cutover, publication, credential rotation, source deletion, and destructive data migration are not authorized by the unification branch that performed it.
