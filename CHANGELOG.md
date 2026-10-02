@@ -137,6 +137,23 @@ the manifests to say `built` would be the exact falsification the script's own h
 describes having removed. So the gate stays red, the register stays `mock`, and **no tag is
 cut for this release.**
 
+What it reports, measured rather than predicted — six failures, all three images, and every
+one of them a field nothing writes:
+
+```
+OCI verification using docker
+OCI verification blocked
+- playwright: buildStatus is "unbuilt", expected "built"
+- playwright: imageDigest is not a built sha256 digest
+- k6: buildStatus is "unbuilt", expected "built"
+- k6: imageDigest is not a built sha256 digest
+- zap: buildStatus is "unbuilt", expected "built"
+- zap: imageDigest is not a built sha256 digest
+```
+
+`Build OCI images` above it **passes**: all three images build, which is the half of the job
+that was broken and is now fixed.
+
 **No package is published to a registry, by decision rather than by omission.** All 24
 workspace packages are `private`; `npm publish` hard-errors on a private package. There is
 no publish script, no publish workflow, and the old `publish-docker.yml` is on the obsolete
