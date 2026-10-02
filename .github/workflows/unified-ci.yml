@@ -130,7 +130,7 @@ jobs:
       # sound for a *different* job to judge them — see `coverage-ratchet` below.
       - name: Upload coverage summaries
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: coverage-summaries
           path: |
@@ -284,7 +284,7 @@ jobs:
         run: pnpm db:check
       - name: Upload the migration report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: migration-report
           path: var/migration-*
@@ -341,7 +341,7 @@ jobs:
         run: pnpm test:e2e:api
       - name: Upload E2E evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: api-e2e-evidence
           path: test-results/evidence
@@ -556,7 +556,7 @@ jobs:
         run: pnpm test:e2e
       - name: Upload E2E evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: product-e2e-evidence
           path: test-results/evidence
@@ -645,7 +645,7 @@ jobs:
         run: pnpm test:e2e:vertical
       - name: Upload vertical-slice evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: vertical-slice-evidence
           path: test-results/evidence
