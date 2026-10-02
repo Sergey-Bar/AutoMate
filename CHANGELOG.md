@@ -2,6 +2,116 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.2.0 — 2026-10-02
+
+A version bump, three ledger rows closed on a measurement rather than an assertion, four
+action bumps, and the first execution of the release gate this repository has been
+describing but never run.
+
+Nothing was consolidated to get here. `main` was already at `v2.1.0` with a clean tree,
+and the five unmerged branches are stale duplicates rather than unlanded work — see the
+gap notes below.
+
+### Fixed
+
+**Three semgrep rows, closed on a scan rather than on a commit message.** `SEM-2`, `SEM-3`
+and `SEM-4` were recorded `open` while their fixes were verifiably in the tree. The ledger's
+own standard is a run, so the number was taken from CI before the ledger was edited:
+`Static analysis passed: semgrep and gitleaks reported nothing.` — semgrep 1.178.0 against
+`.semgrep.yml` on `1129d26`, in the `Security and license audit` job of
+[run 36962862652](https://github.com/Sergey-Bar/AutoMate/actions/runs/36962862652).
+**Zero findings.**
+
+- `SEM-2` — the row's condition was zero blocking findings. It had 22 (16 from `SEM-3`, 6
+  from `SEM-4`). It has none.
+- `SEM-3` — the 16 `no-hardcoded-secret-literal` findings were all in test suites writing
+  credentials as literals. All 16 now call the builders in
+  `apps/api/src/test-support/synthetic-credentials.ts`, which is what AGENTS.md requires.
+- `SEM-4` — the 6 `no-unbounded-list-in-query` findings now route through three guards that
+  throw rather than truncate: `oneEventBatch` and `oneBatch` in
+  `apps/api/src/execution/drizzle-execution-store.ts`, `oneBatchOf` in
+  `apps/api/src/repositories/drizzle-run-repository.ts`. `.semgrep.yml` carries the
+  narrowed discriminator, and `scripts/lib/semgrep-rules.test.mjs` proves each rule still
+  fires on a hazard fixture and reports no safe twin.
+
+`security:static` remains `pr-reporting`. Its graduation condition is now met on the
+evidence rather than on a promise, but moving the tier is a separate recorded act with its
+own test behind it, and this release does not make it.
+
+### Changed
+
+- **Four GitHub Actions bumps**, landed separately and each observed green before the next:
+  `actions/checkout` 4.2.2 → 7.0.1 (#5), `actions/setup-node` 4.4.0 → 7.0.0 (#3),
+  `actions/upload-artifact` 4.6.2 → 7.0.1 (#4), `pnpm/action-setup` → `fe02b34` (#2).
+  The recorded red on those pull requests predates the 2.1.0 CI repairs and was not a
+  verdict on the bumps. `actions/checkout` v6.1.0 carries a breaking change that blocks
+  fork-pull-request checkout for `pull_request_target` and `workflow_run`; no workflow in
+  this repository triggers on either, verified by reading the four merged files rather
+  than by trusting the release note.
+- **The changelog reattributed two of its own sections.** Both sections below were labelled
+  `Unreleased` while describing work that had already shipped — the product rename inside
+  `v2.1.0`, the unified migration inside `v2.0.0`. Each now carries the version it shipped
+  in, and the bodies are untouched because they were accurate; only the headings were
+  wrong. The `docs/migration/source-manifest.json` git blob hashes are deliberately
+  unchanged, because renaming the evidence of the migration would falsify it.
+
+### Added
+
+**The `Local Release Gate` ran for the first time.** `.github/workflows/release-gate.yml`
+had zero runs on record, so neither its `verify` job nor its `oci` job had ever executed as
+written. `pnpm verify:release` is `pnpm verify` plus `pnpm oci:verify`, and
+`unified-ci.yml` is a decomposition of the same ground rather than the chain itself — a
+release gate that has never been watched is not a gate. Both jobs were dispatched against
+this release's own branch and observed green before it was merged, so the gate covers the
+tree the tag points at rather than a tree built afterwards.
+
+`pnpm verify:local` is not a substitute and was not used: it sets the host-scanner opt-in,
+which makes the static scan exit zero **without scanning**. A green that means nothing is
+the exact failure this repository's gate design exists to prevent.
+
+### Still open, deliberately
+
+Nine rows are `open` and seven are carried as `debt`, each with an owner and a removal
+condition. **No Blocker and no Critical is open** — `C-5` and `DB-1`, the two Blockers, are
+both `fixed`.
+
+- `open` — `C-4`, `RF-6`, `RF-6a`, `RF-6b`, `RF-6c`, `RF-6d`, `RF-9`, `RF-11`, `PERF-1`.
+- `debt` — `C-6`, `CAP-1`, `D-4`, `Q-1`, `RF-5`, `UI-1`, `X-3`.
+
+`RF-5`, `RF-9` and `PERF-1` cannot be closed from a development host at all. Their harnesses
+are complete and the evidence is missing: `RF-5` needs one real run against a real
+installation, and the tenancy wave is gated behind it. `RF-9` needs observed k6 numbers,
+and `PERF-1` needs a rendering baseline recorded on the reference hardware — a self-hosted
+single-node install, which a GitHub runner is not.
+
+### Known gaps
+
+**No package is published to a registry, by decision rather than by omission.** All 24
+workspace packages are `private`; `npm publish` hard-errors on a private package. There is
+no publish script, no publish workflow, and the old `publish-docker.yml` is on the obsolete
+list in `scripts/unify-preflight.mjs`. Distribution is the OCI image plus a self-hosted
+compose install, per `docs/adr/006-single-node-single-tenant-self-hosted.md`. Publishing to
+NPM is a distribution-model change and not a release step; it needs its own plan.
+
+**The five unmerged branches were deliberately not merged.** `origin/wave0/ci-gates` (38
+commits not in `main`), `docs/readme-refresh` (3), `master` (172),
+`migration/phase-0` (257), and `rescue/unified-platform-shell` all descend from `97134f9`,
+which `main` does not contain — so `git branch --merged main` reports every one of them
+unmerged and five branches of lost work appear to exist. Their content is on `main` by
+another route, because history was reset at `55528b3` and the work was re-landed:
+`apps/api/src/observability/sentry.ts`, `packages/db/drizzle/0010_drop_duplicate_audit.sql`,
+`packages/orchestration/src/phase-outcome.ts`, and the `useDashboard` test all appear in
+`main` and not in those tips. Merging them would duplicate work; deleting them is a separate
+decision that needs the `archive/*` tags verified to contain the tips first. Recorded here
+so the next reader does not repeat the survey.
+
+**`docs.yml` builds the documentation site and never deploys it.** It runs
+`actions/upload-pages-artifact` with no `deploy-pages` step, and the job's permissions are
+`contents: read` — no `pages: write`, no `id-token: write`, and no `environment:`. So the
+site is built and uploaded as an artifact on every push to `main` and never goes live.
+Logged, not fixed here: it needs the Pages source confirmed in repository settings first,
+and that is a decision rather than an edit.
+
 ## 2.1.0 — 2026-10-01
 
 Five defects, three of them found by **running** something rather than reading it, and one
@@ -44,7 +154,7 @@ release. It did not, and it does now — nine stages against real PostgreSQL, wi
 Playwright project. `main` gained branch protection with ten required checks. The coverage
 ratchet, which had been failing on `main`, passes.
 
-## Unreleased
+### 2.1.0 addendum — the product has one name
 
 **The product has one name.** The project's earlier name has been removed from the
 repository entirely — eight files across five kinds of record, and the distinctions
@@ -144,7 +254,7 @@ Gates at this release: `lint`, `typecheck`, `format:check`, `complexity`,
 267/267, `@automate/api` 1159/1159, `@automate/unified-web` 242/242, `test:e2e` 19/19
 against a real PostgreSQL.
 
-## Unreleased — unified migration
+### 2.0.0 addendum — the migration
 
 - Added canonical shared contracts for reporting, realtime envelopes, orchestration, runner protocol, and installation sessions.
 - Added reporting, producer-adapter, realtime, orchestration, automation-gateway, runner SDK, connector, artifact, vault, and migration-control boundaries.
@@ -152,4 +262,4 @@ against a real PostgreSQL.
 - Replaced the clean-checkout route boundary and centralized root governance commands.
 - Removed obsolete readiness, roadmap, and migration documents from the active tree.
 
-The migration remains local/sample-only. Production cutover, publication, credential rotation, source deletion, and destructive data migration are not authorized by this branch.
+The migration remains local/sample-only. Production cutover, publication, credential rotation, source deletion, and destructive data migration are not authorized by the unification branch that performed it.
