@@ -383,10 +383,22 @@ test('the step count `verify` is described with is the step count it has', () =>
   // Each pattern is the claim that file actually makes, not a scan for a number. A
   // generic `\d+` scan matched "Four of the nine jobs" three hundred lines before the
   // sentence under test, which is the same mistake as reading a count out of prose.
-  for (const [file, pattern] of [
+  //
+  // The annotation is not decoration. Without it the array literal infers
+  // `(string | RegExp)[][]`, the destructured `pattern` is `string | RegExp`, and
+  // `pattern.exec` is a type error — which is how `pnpm typecheck:scripts` came to
+  // be red at HEAD on a tree nobody had touched.
+  //
+  // It is on a **named binding** rather than on the `for…of` expression because a
+  // JSDoc type applies where the value is declared, not where it is consumed; put
+  // on the loop it is read as the loop's type and the literal is still inferred
+  // from itself.
+  /** @type {Array<[string, RegExp]>} */
+  const documentedSteps = [
     ['scripts/gate-tooling.json', /`verify` may grow from (\d+)/],
     ['site/operations.md', /The whole chain\. (\w+) steps/],
-  ]) {
+  ];
+  for (const [file, pattern] of documentedSteps) {
     const text = readFileSync(path.join(REPO_ROOT, file), 'utf8');
     const found = pattern.exec(text)?.[1]?.toLowerCase();
     const expected = [String(steps.length), spelled[steps.length] ?? ''].map((word) =>

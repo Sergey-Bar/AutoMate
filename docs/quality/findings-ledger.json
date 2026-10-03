@@ -3488,6 +3488,182 @@
       "status": "open",
       "wave": null,
       "summary": "**Opening a pull request against a branch whose commit already had a completed `pull_request` run produced no new run at all, twice.**\n\nWhile cutting 2.2.0, PR #17 was opened on `chore/release-2-2-0` and ran `Unified CI` normally on each of its five pushes. A correction was then pushed to the same branch *after* #17 had been squash-merged, and PR #18 was opened on it. The push itself produced no run — `unified-ci.yml` triggers `push:` on `main` and `migration/**` only, which is correct and expected. **The `pull_request` trigger then also produced nothing**, for an open, for a reopen, and across roughly two and a half minutes of waiting. Closing and reopening the PR did not produce one either.\n\nThe workaround was `gh workflow run unified-ci.yml --ref <branch>`, which dispatched `workflow_dispatch`, and that produced all thirteen jobs green on the same SHA. So the workflow is valid, the branch is reachable, and the commit is buildable — the `pull_request` event path specifically did not fire.\n\n**Why this is Major rather than a curiosity.** `main` is protected by ten required checks. A required check that does not appear is not a satisfied check: GitHub blocks the merge on it. So the practical exposure is not a merge slipping through unverified — it is the opposite, a branch that cannot be merged at all, with the failure looking like a hang rather than an error. Anyone hitting it would wait. That is the same shape as `G-2b`, where a gate that hung forever reported nothing rather than reporting a failure.\n\n**What is not known, and is the reason this is open rather than fixed.** The trigger block is `pull_request: paths: [\"**\"]`, which should match a one-line change to a JSON file. `workflow_dispatch` on the same ref, same SHA, same workflow, minutes apart, worked. The difference between the two is therefore not the workflow file, the ref, the commit or the permissions. **The cause is undiagnosed.** Three candidates are consistent with what was observed and none was tested: Actions being disabled or filtered for the `pull_request` event at the repository or organisation level while `workflow_dispatch` remains permitted; the same concurrency group cancelling the new run — `unified-ci-${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true` — though that group should differ between an `actions/runs/<id>` dispatch and a `refs/pull/<n>/merge` one, so this is the weaker reading; and a retention or queue condition specific to the event.\n\nThis row records the observation and the uncertainty rather than a fix, because a fix written without a cause is a guess, and this repository has spent enough gates on guesses about CI. What is cheap and certain: the workaround is `workflow_dispatch` on the branch, and it is not visible from the pull request page."
+    },
+    {
+      "id": "P-73",
+      "title": "Two ingestion systems wrote disjoint tables, and the public upload door fed the reporting package nothing",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W0",
+      "owner": "unified",
+      "removalCondition": "Every ingestion door writes canonical_run_results and nothing else, so a test report has exactly one row per (workspaceId, runId) and one status vocabulary. The merge gate is reporter-two-doors.test.ts.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-02",
+      "summary": "Confirmed by reading the code. The repository had two ways for a test report to get in and they were disjoint. POST /api/v1/reporter/upload — authenticated, rate-limited, artifact-preserving, and the door every customer uses — parsed JUnit and Playwright with its own scanner (scanTestcases, parseJunitUpload, convertPlaywrightJsonToUpload) and its own status mapping, then wrote runs and tests. POST /api/v1/reporter/results — the canonical door — wrote canonical_run_results, and GET /api/v1/reporting/kpis reads that table and nothing else. Three consequences were live at once, and each is now a test rather than a sentence in a document. First: the same JUnit document got two answers. A <rerunFailure> child is how JUnit says a test failed once and passed on a retry; the canonical adapter reads it and reports flaky, while the upload scanner recognised only <skipped>, <failure> and <error> and reported passed. Which door a customer used decided whether a retried suite was green. Second: the upload door had no path into the reporting package. runs was populated daily and canonical_run_results was not, so a year of daily testing through the supported door still answered proofCeiling: unknown to every metric — the console declaring the busiest system in the installation not knowable. Third: mapPlaywrightStatus mapped interrupted to failed. Playwright emits interrupted when the harness stopped the run, so the upload path counted a CI cancellation as a product defect and inflated the failure rate with the runner's own interruptions. The fix is the order, not the parsers: both doors now parse through one adapter into one CanonicalRunResult, write canonical_run_results, and project runs and tests from the accepted row through projectCanonicalRun. The four helpers are deleted. What this does NOT close: the events door still writes runs incrementally, because the dashboard renders a live run and nineteen E2E tests assert that transition; it closes its canonical row on the terminal event by reading back the rows it already wrote, which is durable where an in-memory accumulator would not be, but it means a streamed run has one attempt per test and its per-attempt detail is weaker than an upload's. Two deliberate behaviour changes on the doors, both recorded here because they are changes a customer could notice. An empty report is now refused rather than filed as interrupted: a run with no observable attempt has observed nothing, and inventing an attempt for it would record a test that never ran — refused is chosen because a non-2xx fails the producer's CI loudly, where interrupted told the caller its job had been cut off. And a retried test now produces one tests row rather than one row per attempt, with status flaky, because runStatusFrom already said a retry history is not a set of independent tests and the projection now agrees with it; the retry history itself is still in the canonical row.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/reporter-two-doors.test.ts",
+          "asserts": "The same JUnit bytes posted to the upload door and parsed by the canonical JUnit adapter produce the same flake verdict, and the uploaded run is readable by GET /api/v1/reporting/kpis with denominator 2 and first-pass-rate 0.5. A retried Playwright test recorded interrupted produces no failed test row and a run failed counter of 0. Every assertion in this file failed before the fix, and its header names the defect."
+        },
+        {
+          "path": "packages/reporter/src/producer-status.ts",
+          "asserts": "interrupted maps to cancelled, for a test's status and for a run's, and this module owns the only producer-to-canonical status mapping in the package. producer-status.test.ts pins each producer's vocabulary against the table's keys and fails the day any other module under src/ compares a raw producer status to a canonical literal, which is the shape both the upload door and the Playwright adapter used to have."
+        },
+        {
+          "path": "apps/api/src/services/canonical-projection.ts",
+          "asserts": "projectCanonicalRun is the one function that turns a CanonicalRunResult into runs and tests rows, and projectionDivergence names every field the stored rows disagree with. canonical-projection.test.ts recomputes the projection from the stored canonical row over a six-document corpus and asserts zero differences, then perturbs a row and asserts the gate reports it — a gate that cannot fail is not a gate."
+        },
+        {
+          "path": "apps/api/src/services/canonical-ingestion.ts",
+          "asserts": "The canonical row is written before the projection, the projection is written from the result the store accepted rather than recomputed from the request, and a conflict writes nothing at all rather than replacing the dashboard's view of a run whose canonical evidence is the older result."
+        }
+      ],
+      "impact": "Every status a customer saw depended on which door the report came through; the reporting package could not answer a question about any run that arrived through the supported door; and the failure rate included the CI runner's own cancellations."
+    },
+    {
+      "id": "P-74",
+      "title": "`runs.project_id` was a bare uuid, so a run could be attributed to a repository nobody registered",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W0",
+      "summary": "Confirmed by reading the schema, not by inference. `runs.project_id` has existed since migration `0003_durable_execution.sql` as `uuid('project_id')` with no `.references()`, and the far side of that column was a `projects` row carrying only a name, a slug, a default branch, a repository URL and a free-text `settings` blob. Three things followed, and each is now a test rather than a sentence. First, **any** value was accepted: a run could carry any uuid and the database recorded it as an attribution. Every per-project rollup is a join on that column, so the join silently dropped those rows — and a dashboard that cannot see a run is indistinguishable from a run that never happened. Second, nothing on the far side was executable: there was no filesystem path, no detected language and no detector version, so \"run the tests in this repository\" had nothing to run *in*. Third, detection had nowhere to write a versioned proposal, so `settings` would have had to hold it and a profile written by a later detector would have been read under an earlier one's rules. The fix is two migrations and additive columns. `0023_project_registry.sql` adds `repo_path`, `profile` and `detector_version` to `projects` and gives `runs.project_id` a foreign key with `ON DELETE SET NULL` — a run is evidence and outlives the registry entry, but it must stop claiming a project that is gone. `detector_version` is `NOT NULL` with a default of 1, and the default is honest: a row that has never been detected carries `profile = {}`, and `{}` is detector 1's shape. `0024_project_quality_gate.sql` adds `quality_gate_config.project_id` as a **column rather than a second thresholds table**, because that table is already read and written and a `project_thresholds` table would have had neither reader nor writer for its whole life while leaving two places that answer \"what is this project's pass-rate threshold\". Its delete action is `CASCADE`, the opposite of the run's, because a threshold *about* a project describes nothing once the project is gone. Both migrations pre-audit and **raise** rather than repair: a run naming a project that does not exist is a genuine state on a long-lived installation, and inventing the missing `projects` row to satisfy a foreign key would fabricate a name, a slug and a repository for a project no operator ever declared — after which every score would be computed against a fiction.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-02",
+      "confirmedBy": "Read while implementing the W0 registry wave. The bare column was found by reading `packages/db/src/schema/dashboard.ts` against `packages/db/src/schema/execution.ts`, which is the same comparison that produced ledger P-5.",
+      "resolution": "Both migrations are additive: nothing is dropped and no row is rewritten, because nothing in either table held the values being replaced. The pre-audit ordering in 0024 is load-bearing and is commented in the file — the column is added *before* the audit queries it, because auditing first fails on a fresh install with `column q.project_id does not exist`, which names no rows and no problem.",
+      "evidence": [
+        {
+          "path": "tests/integration/src/migrations.test.ts",
+          "asserts": "`refuses a run that names a project the registry does not have` inserts a run with a `project_id` of `…dead` and asserts the **database** rejects it, rather than asserting the Drizzle declaration — the whole point is that the database refuses. `keeps a run readable when its project is deleted, and stops the attribution` asserts both directions of the delete, because \"the run survived\" alone is also true of a cascade that deleted nothing. `gives `projects` a repository path, a profile, and a detector version` reads `information_schema.is_nullable` rather than the Drizzle `notNull()`, because Drizzle's declaration is compile-time only and the mismatch this file has caught before lived in the database."
+        },
+        {
+          "path": "packages/db/src/schema/execution.test.ts",
+          "asserts": "`binds `runs.project_id` to the registry row it claims` reads the foreign key through `getTableConfig` and compares its reference table and delete action. It deliberately does **not** assert the column's `columnType`: that is `PgUUID` whether or not the column references anything, so an assertion on it would pass against the defect this test exists to catch — which is the shape of a test that cannot fail."
+        },
+        {
+          "path": "packages/db/drizzle/0023_project_registry.sql",
+          "asserts": "The pre-audit counts runs whose `project_id` names no project and `RAISE EXCEPTION` with the count, rather than repairing. `ON DELETE SET NULL` and the comment stating why it is the opposite of a threshold's `CASCADE`."
+        },
+        {
+          "path": "packages/db/drizzle/0024_project_quality_gate.sql",
+          "asserts": "`IF NOT EXISTS` on the column so the audit that follows is still meaningful on an installation where somebody applied the column by hand; and `quality_gate_config_workspace_project_idx` on `(workspace_id, project_id)`, the order the gate reader filters in, because the table had no index at all."
+        }
+      ],
+      "impact": "A run could name a project that does not exist and the database accepted the attribution, so every per-project rollup silently dropped those runs and no reader could tell a lost run from a run that never happened."
+    },
+    {
+      "id": "P-75",
+      "title": "The JUnit adapter read every passing test as unobserved, so no Maven, Gradle, Jest, pytest, RSpec or PHPUnit run ingested a single result",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W2",
+      "summary": "Confirmed by reading the parser, and then by six dialect fixtures. `junit-xml.ts`'s `statusFrom` took `(declaredStatus, children)` and returned `unknown` whenever a `<testcase>` carried neither a `status` attribute nor an outcome child element. **That is how all six of the ecosystems in this repository's detection matrix write a passing test.** Surefire, Gradle, Jest, pytest, RSpec and PHPUnit all emit `<testcase classname=\"…\" name=\"…\"/>` with nothing inside, because that is what the JUnit schema means. So every run uploaded from a Java, Node, Python or Ruby project ingested as a run of unobserved tests: `runStatusFrom` returned `unknown`, `completeness.state` was `unknown`, and the derived QA score — which takes `presence` from whether a suite completed a good run — read such a project as having no tests in any category. The existing guard was not idle: it had been written to stop an attribute-less testcase being recorded as a pass, and the reasoning was sound. The defect is that it could not distinguish *complete and silent* from *cut off*, because the flag named `truncated` was the message-length cap and the path that actually needed the unknown — the document ending mid-element — never set it. Two things were wrong and only one was visible. Fixing the status mapping alone would have made every truncated report read `unknown` too, and fixing the flag alone would have kept six dialects broken.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-02",
+      "confirmedBy": "Found while implementing the reporter-adapter wave. `packages/reporter/src/junit.test.ts` asserted the `unknown` behaviour on a single self-closing testcase, and that test is precisely why the defect survived: one self-closing element is indistinguishable from the malformed case the assertion was written for. It became visible only when `new-adapter-parity.test.ts` added one fixture per ecosystem — the plan's R4 requirement, and the reason it is written down as a requirement rather than as advice.",
+      "resolution": "`statusFrom` now takes a third argument and splits the two inputs. A **complete** attribute-less `<testcase>` is `passed`, because that is what the format means. A **truncated** one is still `unknown`, because the unseen remainder is where a `<failure>` would be. The two meanings of the existing `truncated` flag were separated into `textTruncated` (the `MAX_MESSAGE_CHARS` cap, where the outcome is still known) and `incomplete` (the closing tag never arrived, where it is not). A second fix was needed to make that reachable: the SAX parser never opens a tag it never sees closed, so a cut-off `<testcase>` produces no attempt at all and there is no row on which to record the doubt. The adapter therefore states it at the run level, by passing `malformed ? 'unknown' : context.declaredRunStatus` through the existing `outcomesWithDeclaredRunStatus` — which routes through the same ladder, so a report that is both truncated and failing is still `failed` rather than being softened to `unknown`.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/new-adapter-parity.test.ts",
+          "asserts": "One fixture per ecosystem — jest, pytest, rspec, phpunit, gradle, maven-surefire — each asserting `status: 'passed'` and one attempt through the **existing** `junitXmlAdapter`, which is the plan's R4 claim: one adapter and one unsupported path, not six adapters. It also asserts the nested `<testsuites>` shape (all six emit it; an adapter matching only a bare `<testsuite>` would ingest zero tests from every report in production) and that `<failure>` with a message, with text, and self-closing all produce a failed attempt."
+        },
+        {
+          "path": "packages/reporter/src/junit.test.ts",
+          "asserts": "`reads a complete testcase that declares nothing as a pass` carries the old expectation (`unknown`, `unknown`, `failed`) in its comment, because a silently-reversed assertion is the kind of change a later reader cannot audit. `keeps a *truncated* document out of the passed column` asserts the honest half — a cut-off document yields one attempt (nothing is fabricated for the element never finished opening), `status: 'unknown'` and `completeness.state: 'unknown'` — and a companion test asserts that a document that is *both* truncated and failing is still `failed`."
+        },
+        {
+          "path": "packages/reporter/src/adapters/junit-xml.ts",
+          "asserts": "`TestCaseEnding` names the two meanings separately in its own docstring, and `statusFrom`'s comment records why the old blanket `unknown` survived: collapsing the two flags is what made the guard unreachable."
+        }
+      ],
+      "impact": "Every run uploaded from a Java, Node, Python, Ruby or PHP project ingested as a run of unobserved tests, so the QA score read those repositories as having no tests in any category."
+    },
+    {
+      "id": "P-76",
+      "title": "The API and web function-coverage floors are unreachable without covering 41 pre-existing uncovered functions",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W5",
+      "summary": "Confirmed by reading `coverage-final.json` and sorting the uncovered functions by file. The QA Command Center wave added roughly 1,500 lines to `apps/api` and `apps/web` and **raised** statement, branch and line coverage in both: `apps/api` statements 93.53 to 95.48 and branches 84.35 to 86.62, both now above their recorded floors; `apps/web` statements 85.54 to 96.23, branches 80.15 to 89.30 and lines 86.46 to 97.62. Four floors are nonetheless unreachable or nearly so, both **function** coverage: `apps/api` at 94.27 against a recorded 94.6, and `apps/web` at 95.59 against 96.34. The cause is not the new code. Of the 41 uncovered functions in `apps/api`, **none** is in `routes/projects.ts`, `services/project-registry-service.ts`, `services/qa-score-service.ts` or `services/copilot-service.ts`; 64 of the 72 functions across those four files are covered. Every uncovered one is pre-existing: `bounded-map.ts`, `canonical.ts`, `run-paging.ts`, `s3-artifact-bytes.ts`, `rate-limit.ts`, `auth.ts`, `chat.ts`, `events.ts`, `execution.ts`, `orchestration.ts`, `types.ts`. The arithmetic is the point: adding well-covered functions to a package whose function count is partly uncovered moves the **ratio** down even though every new function is exercised, so a floor recorded against the smaller tree becomes unreachable without touching code nobody changed.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-02",
+      "confirmedBy": "Found by `pnpm coverage:ratchet` after the wave, then traced to its cause rather than to the file it names. The ratchet's own output names `apps/api: functions 94.27 < 94.6` and `apps/web: functions 95.59 < 96.34`; the per-file function map shows the uncovered set is disjoint from the new code.\n\n**Part of the gap is a coverage-provider artefact, not an untested function.**\n`apps/api/src/execution/run-paging.ts:30 encodeRunCursor` is reported uncovered and\nis called in four places in `run-paging.test.ts` — by `pageRuns` walk assertions at\nlines 57, 91, 194 and 224. `decodeRunCursor`, in the same file eight lines below and\ncalled by the same tests, **is** reported covered. The difference is that\n`encodeRunCursor` is a single-expression function and `decodeRunCursor` has branches,\nwhich is the shape v8 attributes differently. So the 41 \"uncovered functions\" are\nnot 41 untested functions: some are functions the suite demonstrably executes.\n\nThat is worth stating precisely because it changes what the right fix is. A floor that\ncounts a function as uncovered when a passing test called it is measuring the\nprovider, not the code, and no amount of additional testing will satisfy it.",
+      "resolution": "**Closed by writing tests, not by lowering a floor.**\n\nFour more rounds of targeted tests, each for an edge that was real rather than for the\nnumber:\n\n- `apps/web/src/qa-routes.test.ts` mounts the router for all four new routes with a stubbed\n  `fetch`. That is the only way to execute a TanStack Router `component` function, and it is\n  what closed the web statements, functions and lines gaps.\n- A malformed JSON body on `run.start`, an `automate.config.json` with one missing brace, and a\n  repository no detector recognises — three edges that were genuinely untested.\n- `ScorePage` and the four gap screens now share one `useResource` hook, which closed the\n  clone jscpd found and removed the fourth copy of the fetch skeleton.\n- A full end-to-end read of a run and its `canonical_run_results` rows through the projection.\n  Writing it surfaced that `canonical_run_results.fingerprint` is a real **column** and not\n  only a field inside the JSONB, which is what makes \"every fingerprint that flaked on this\n  commit\" a `WHERE` rather than a scan.\n\nFinal measured: `apps/api` 95.63 / 86.66 / **94.70** / **97.32** and `apps/web` 96.91 / 88.48 /\n**97.26** / **98.54** — every metric above its recorded floor. `apps/web` needed three of the\nfour; `apps/api` needed one more covered function than its summary reported, which is why it\ntook four rounds.",
+      "evidence": [
+        {
+          "path": "apps/api/src/execution/run-paging.test.ts",
+          "asserts": "Lines 57, 91, 194 and 224 all call `encodeRunCursor`, and `decodeRunCursor` in the same file is reported covered by the same provider. The pair is the evidence that the gap is attribution rather than coverage, and it is recorded here rather than left as an inference from the summary."
+        },
+        {
+          "path": "coverage-baseline.json",
+          "asserts": "Holds the recorded floor per package. The floor was **not** lowered to make the gate green, which is the move `AGENTS.md` names as the failure this ratchet exists to prevent. `apps/tui` is the only entry added by this wave, and its numbers were measured by a real `--coverage` run rather than written by hand."
+        },
+        {
+          "path": "scripts/coverage-ratchet.mjs",
+          "asserts": "The gate that is currently red on these two floors. It reads the per-package summary, requires a provenance file beside it, and fails on any metric below its floor and on any floor that was lowered."
+        }
+      ],
+      "impact": "Resolved. The floors are back above their recorded values with no floor lowered; `pnpm coverage:ratchet` passes."
+    },
+    {
+      "id": "P-77",
+      "title": "The Ruby detector reported zero frameworks for `rack/rack`, and proposed bare `mvn` for a repository that ships its own wrappers",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7",
+      "summary": "Found by W7 dogfooding, which is the first time the detector ran against repositories nobody wrote a fixture for. Four real checkouts — `pallets/click` (Python), `spf13/cobra` (Go), `rack/rack` (Ruby), `spring-projects/spring-petclinic` (Java) — and three separate defects, all of them false negatives about a repository that ships thousands of tests.\n\n**1. Every `add_*_dependency` in a gemspec was invisible.** The reader required a quote immediately after `spec.add_`, so `s.add_development_dependency 'minitest'` never matched — the word `development` sits between the prefix and the name. Rack declares its test framework that way and nowhere else.\n\n**2. Only the first Ruby manifest was read.** With (1) fixed, Rack was *still* reported with zero frameworks: it ships both a `Gemfile` and a `rack.gemspec`, its `Gemfile` says `gemspec` and nothing else, and every declaration lives in the `.gemspec`. Reading one manifest is reading at most half the answer, and the half Rack uses is the empty one.\n\n**3. `mvn` and `gradle` were proposed bare.** PetClinic ships `mvnw`, `gradlew`, a `pom.xml` and a `build.gradle`. Recommending the bare tools told the operator to run whatever build tool was on their `PATH`, which is a different tool from the one the repository pins. It also named `packageManager: \"maven\"` for a repository the `Gemfile`-style ambiguity rule did not apply to, while proposing two commands.\n\nThe severity is Critical and not Major because of what the score does with a miss. `presence` is `1` only when a suite completed a qualifying run, so a detector that finds no framework feeds a cell whose `presence` is `0` — and a geometric mean cannot dilute a zero. The result is that a mature, heavily tested repository scores `0/100`, which is the one number this product exists not to get wrong.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-03",
+      "confirmedBy": "Run by hand through `packages/projects/src/dogfood.ts`, a script the W7 exit criterion requires anyway (\"live-repo dogfood on 3 real non-Node repos\"). `ecosystems.test.ts` could not have found any of the three: every fixture in it was written by the same author as the detector, in the shape the detector was written for.",
+      "resolution": "**Fixes in `packages/projects/src/detect`, each with a red-first regression test naming the repository it came from.** `rubyDependencyNames` now matches `add_development_dependency` and `add_runtime_dependency` as two explicit patterns rather than one loose prefix. `detectRuby` now reads the `Gemfile` **and every `*.gemspec`**, unions the names, and cites each framework from whichever manifest actually declares it — pointing an operator at a `Gemfile` with no minitest in it is an evidence string that costs them a file open. `detectJava` proposes `./mvnw` and `./gradlew` when the repository ships them, and `packageManager` reports \"2 build files\" rather than picking one of two the repository contradicts. JaCoCo coverage globs now name both the Gradle and Maven output paths, because the detector cannot tell which build file a repository honours and a glob matching nothing costs a command its result.\n\n**One Ruby finding was not fixed by a code change but by a rule change:** `packageManager` now keys on the `Gemfile` existing rather than on `Gemfile.lock`. A lockfile says the versions are pinned, not that bundler is in use; Rack is a library and checks in no lockfile, so it was reported as `ruby` while its commands said `bundle exec rake test` — a screen contradicting itself, with the operator unable to tell which the runner will honour.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/detect-edges.test.ts",
+          "asserts": "A `describe` named \"dogfooded against repositories nobody wrote a fixture for\" with one test per defect, each naming the repository it came from: the gemspec with `add_development_dependency`, the `Gemfile` that says only `gemspec`, the two-build-file case, the wrapper case, and the bundler case. Every one is red against the code as it stood before this wave — the bundler one was watched failing with `expected 'ruby' to be 'bundler'` before the rule was changed."
+        },
+        {
+          "path": "packages/projects/src/dogfood.ts",
+          "asserts": "The instrument. It prints what the detector concluded **and what it does not recognise** — the second column is the point, because a detector that reports the wrong ecosystem confidently is worse than one that reports nothing. Kept in `src` rather than in a scratch file so a future detector change can be run against the same four checkouts by anyone."
+        },
+        {
+          "path": "packages/projects/src/detect/manifest.ts",
+          "asserts": "The `rubyDependencyNames` comment records the exact regex that failed and the repository that failed it, because the corrected pattern is not obviously different from the broken one and the next person to tighten it should know what tightening it cost."
+        }
+      ],
+      "impact": "A mature Ruby repository reported no test framework at all, and a Java repository was told to use the build tool on its PATH rather than the one it pins. Through the score both read as untested."
+    },
+    {
+      "id": "P-78",
+      "title": "The score knew which tests failed and did not say so; `QaScore` was declared twice; and a drafted regression suite accepted `/etc/passwd` as its path",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W6",
+      "summary": "Three defects found while building the two capabilities that closed the plan's copilot list — \"draft a regression suite from a failure cluster\" and \"translate for a stakeholder\". None is a cosmetic gap; each is a claim the product could not keep.\n\n**1. `failedFingerprints` did not exist, and the copilot's core capability was unbuildable without it.** A cluster is repeated *failures*. The score carried `flakyFingerprints` — which means the outcome *flipped* — and nothing else. A consistently red suite appeared in no list at all, so \"write a regression suite from the failures you can see\" had no input, and the only honest implementation would have been to guess. The fix is a real gap in the score's own record: `CellInputs.failedFingerprints`, distinct from `flakyFingerprints` and populated from `outcome === 'failed'`. A reader who cannot tell \"unreliable\" from \"consistently broken\" reads a flake as a bug, and the copilot would have drafted a regression suite for the wrong thing.\n\n**2. `QaScore` was declared twice.** `packages/projects/src/score/index.ts` exported its own interface with mutable arrays and an `ISO string` `at`, while `@automate/shared-contracts` owned the wire schema with `readonly` arrays. The two had already drifted, so every consumer that passed a score straight through had to cast, and a drift between \"the type the function returns\" and \"the schema that validates it\" was a compile error waiting to happen rather than a fact. The package now re-exports the contract's type; `score()` already returned `QaScoreSchema.parse(...)`, so the returned type and the validated type are one declaration.\n\n**3. `DraftedFileSchema.path` was `z.string().min(1)` and accepted `/etc/passwd`.** The field's entire claim is that a draft is \"a document the operator reviews and commits\"; a reviewer clicking an absolute path is looking at a file outside the tree they approved. Constrained against the three ways a path leaves a repository — absolute, `..`, and a Windows drive or backslash.\n\nThe third was caught red-first by its own test, and the first two were caught by a build error that turned out to be the second authority rather than a stray cast.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-03",
+      "confirmedBy": "Found while writing the copilot tests for the two remaining capabilities. Each was visible immediately as a type error or a failing assertion; none reached a database or a dashboard.",
+      "resolution": "`CellInputs.failedFingerprints` added in `packages/projects/src/score/cell.ts`, populated in `score()`, and required by `ScoreCellSchema.inputs`. `QaScore` re-exported from the contract, with the reason recorded at the declaration. `DraftedFileSchema.path` carries a `RepoRelativePathSchema` refinement. `QaScoreSchema` also gained a `superRefine` rejecting `total: 0` with a positive `cappingValue` — a payload whose two fields disagree about why the number is what it is, which is what caught a web fixture that had been silently inconsistent.\n\n`CopilotSuggestionSchema` gained a matching `superRefine` binding `draft` to `draft-regression-suite` and `plain` to `explain-for-stakeholder`. A diff button rendered beside advice it is not attached to is worse than no button, and \"the client must check which kind this is\" is a convention every client has to remember.",
+      "evidence": [
+        {
+          "path": "packages/shared-contracts/src/schemas/copilot.test.ts",
+          "asserts": "Plan task 19, written as an adversarial suite: an empty `evidence` array, a missing `evidence` key, an evidence entry with no id a reader could open, and the same violation at the `CopilotAnswerSchema` boundary so a client reading the answer once gets the guarantee for every suggestion rather than one it has to apply per item. Plus `refuses a path that is not a repo-relative path` over `/etc/passwd`, `../outside.test.ts` and `tests/../../etc/passwd` — which is red against the `min(1)` the field originally carried."
+        },
+        {
+          "path": "packages/shared-contracts/src/schemas/qa-score.test.ts",
+          "asserts": "`refuses a payload whose total and limiter disagree about why`, with the two accepting cases either side of it. A `superRefine` tested only on its failing branch is a rule nobody has checked is not breaking the common path."
+        },
+        {
+          "path": "packages/projects/src/score/score.test.ts",
+          "asserts": "The score fixtures carry `failedFingerprints: []`, so the field is required at every construction site rather than being added with a default that would let it be forgotten again."
+        }
+      ],
+      "impact": "The copilot could not have implemented a regression-suite draft at all, the score's type and its schema were two declarations that had already drifted, and a drafted file could claim a path outside the repository under review."
     }
   ]
 }

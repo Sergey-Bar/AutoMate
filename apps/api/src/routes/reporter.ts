@@ -21,22 +21,25 @@
  *   - ?token=<value>  (compatible with the existing ws-reporter query-param behaviour)
  * If no secret is configured the endpoint is open (development / test mode).
  *
- * Upload truthfulness (POST /api/v1/reporter/upload):
- *   - an explicitly declared status is honoured as-is (legacy compatibility);
- *   - otherwise the status is derived fail-closed from the uploaded evidence
- *     (see {@link deriveUploadStatus}) — an upload that carries no outcome is
- *     persisted as `interrupted`, never as `passed`.
+ * Uploads go through the canonical model (POST /api/v1/reporter/upload):
+ *   the bytes are parsed by one `@automate/reporter` adapter into one
+ *   `CanonicalRunResult`, that result is written to `canonical_run_results`, and
+ *   `runs`/`tests` are projected from it. **This door used to parse JUnit and
+ *   Playwright with its own scanner, map statuses with its own table, and write
+ *   `runs`/`tests` directly** — a second ingestion system whose output nothing in
+ *   `@automate/reporting` could read, and which reported a retried JUnit suite as a
+ *   clean pass while the canonical adapter reported it as flaky. See ledger row P-73
+ *   and `reporter-two-doors.test.ts`.
  */
 import { Hono, type Context } from 'hono';
 import { domainErrorResponse } from '../errors/boundary.js';
 import { DomainError } from '../errors/domain-error.js';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import {
   CANONICAL_REPORTER_EVENT_TYPES,
   LEGACY_FLAT_V1_CONTRACT_ID,
-  PERSISTED_RUN_STATUS_VALUES,
   REPORTER_EVENT_VERSION,
   RUN_COMPLETED_EVENT_TYPE,
   RUN_CONTRACT_VERSION,
@@ -46,16 +49,18 @@ import {
   TEST_STARTED_EVENT_TYPE,
 } from '@automate/shared-contracts';
 import {
-  DEFAULT_WORKSPACE_ID,
-  phaseForReportedStatus,
-  toPersistedStatus,
-  type RunRepository,
-  type RunStatus,
-  type TestStatus,
-} from '../repositories/run-repository.js';
-import { normaliseFailure, persistReporterEvent } from '../services/reporter-persistence.js';
+  junitXmlAdapter,
+  legacyUploadAdapter,
+  playwrightJsonAdapter,
+  type ProducerAdapter,
+  type ProducerContext,
+} from '@automate/reporter';
+import { DEFAULT_WORKSPACE_ID, type RunRepository } from '../repositories/run-repository.js';
+import { ingestCanonicalResult } from '../services/canonical-ingestion.js';
+import type { ReporterResultStore } from '../services/reporter-ingestion.js';
+import { persistReporterEvent } from '../services/reporter-persistence.js';
+import { canonicalRunFromUploadEvents } from '../services/reporter-event-canonical.js';
 import { bearerToken } from '../http/bearer-token.js';
-import { safeRelativePath } from '../http/safe-path.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
 
 // ---------------------------------------------------------------------------
@@ -134,613 +139,7 @@ export interface NormalizedReporterEvent {
   payload: unknown;
 }
 
-const UploadedTestSchema = z
-  .object({
-    id: z.string().min(1).optional(),
-    testId: z.string().min(1).optional(),
-    title: z.string().min(1),
-    file: z.string().default(''),
-    // Both spellings are accepted on the way in — Playwright emits `timedOut`
-    // and other reporters send `timed_out`, and rejecting one of them would fail
-    // a real upload. `normalizeTestStatus` collapses them to the single stored
-    // spelling, so the database never holds two names for one state.
-    status: z.enum([
-      'running',
-      'passed',
-      'failed',
-      'flaky',
-      'skipped',
-      'timedOut',
-      'timed_out',
-      'queued',
-    ]),
-    durationMs: z.number().nonnegative().nullable().optional(),
-    // **Why the test failed**, as the producer stated it.
-    //
-    // An upload has always been able to carry this — `AgentTestItemSchema` in
-    // `@automate/shared-contracts` has declared `error: { message, code? }` from the
-    // start — and `persistUploadPayload` dropped it, because `TestRecord` had nowhere
-    // to put it. The same defect as the event path, arrived at by a different door:
-    // two doors, one gap, and the field was declared in the contract for neither.
-    //
-    // Optional, and optional means optional: a producer that does not send one is not
-    // rejected, and the row stores `null` so the dashboard can say so.
-    error: z
-      .object({
-        message: z.string().optional(),
-        code: z.string().optional(),
-      })
-      .optional(),
-  })
-  .refine((value) => Boolean(value.id ?? value.testId), {
-    message: 'id or testId is required',
-    path: ['id'],
-  });
-
-const UploadSummarySchema = z.object({
-  total: z.number().int().nonnegative().optional(),
-  passed: z.number().int().nonnegative().optional(),
-  failed: z.number().int().nonnegative().optional(),
-  flaky: z.number().int().nonnegative().optional(),
-  skipped: z.number().int().nonnegative().optional(),
-});
-
-const ReporterUploadSchema = z.object({
-  format: z.enum(['playwright', 'junit']).optional(),
-  runId: z.string().min(1),
-  // No default: an absent status is derived from the uploaded evidence so an
-  // evidence-free upload can never inherit a green `passed`.
-  // From the contract, so this cannot accept a status the `runs_status_check`
-  // constraint would then reject. `queued` is excluded because an upload names a
-  // status it observed, and a queued run has observed nothing.
-  status: z.enum(PERSISTED_RUN_STATUS_VALUES).optional(),
-  startedAt: z.string().min(1).optional(),
-  finishedAt: z.string().nullable().optional(),
-  durationMs: z.number().nonnegative().nullable().optional(),
-  branch: z.string().optional(),
-  commitSha: z.string().optional(),
-  triggeredBy: z.string().optional(),
-  tests: z.array(UploadedTestSchema).optional().default([]),
-  summary: UploadSummarySchema.optional(),
-});
-
-type ReporterUploadPayload = z.infer<typeof ReporterUploadSchema>;
-type UploadedTest = z.infer<typeof UploadedTestSchema>;
-
-/**
- * Non-green terminal status used when an upload carries no usable evidence.
- *
- * The run status vocabulary (RunStatus, mirrored by `runs.status` in
- * @automate/db) has no `unknown` member, so `interrupted` is the honest
- * landing spot: an upload that proves nothing must never be persisted as
- * `passed`.
- */
-const UNDETERMINED_RUN_STATUS: RunStatus = 'interrupted';
-
-/** Test statuses that mean "declared, but no outcome was ever observed". */
-const UNRESOLVED_TEST_STATUSES: ReadonlySet<TestStatus> = new Set<TestStatus>([
-  'running',
-  'queued',
-]);
-
-function sanitizePath(rawPath: string): string {
-  // The rule lives in `http/safe-path.ts` because `services/reporter-persistence.ts`
-  // sanitises the same field on the way to disk and used to carry its own
-  // byte-identical copy. One rule, one name.
-  return safeRelativePath(rawPath);
-}
-
-function countStatuses(tests: ReadonlyArray<z.infer<typeof UploadedTestSchema>>): {
-  total: number;
-  passed: number;
-  failed: number;
-  flaky: number;
-  skipped: number;
-} {
-  let passed = 0;
-  let failed = 0;
-  let flaky = 0;
-  let skipped = 0;
-  for (const test of tests) {
-    if (test.status === 'passed') passed += 1;
-    if (test.status === 'failed' || test.status === 'timedOut' || test.status === 'timed_out')
-      failed += 1;
-    if (test.status === 'flaky') flaky += 1;
-    if (test.status === 'skipped') skipped += 1;
-  }
-  return { total: tests.length, passed, failed, flaky, skipped };
-}
-
-/**
- * Derive a run status for uploads that do not declare one.
- *
- * Fail-closed by construction — `passed` is only ever returned when the
- * upload carries real evidence:
- *
- *   - no test rows at all                       → non-green (unknown)
- *   - any failed/timedOut row (or summary.failed) → failed
- *   - any row that never resolved (queued/running) → non-green (unknown)
- *   - no row actually passed                     → non-green (unknown)
- *   - otherwise                                  → passed
- *
- * The `summary` counts are combined with the derived ones by **maximum**, never
- * by preference. They used to be read as `summary?.failed ?? derived.failed`,
- * which is a preference for the client: a body carrying one failing row and
- * `summary: { total: 99, passed: 99, failed: 0 }` derived `passed`, because the
- * declared `failed: 0` suppressed the row-derived `1`. A client could therefore
- * turn a failing suite green by attaching a summary that disagreed with its own
- * rows — which is the one thing this function exists to prevent. A summary is a
- * claim about the rows, so the worst reading of the two is the honest one.
- */
-function deriveUploadStatus(
-  tests: ReadonlyArray<UploadedTest>,
-  summary: ReporterUploadPayload['summary'],
-): RunStatus {
-  const derived = countStatuses(tests);
-  if (tests.length === 0) return UNDETERMINED_RUN_STATUS;
-  if (Math.max(summary?.failed ?? 0, derived.failed) > 0) return 'failed';
-  if (tests.some((test) => UNRESOLVED_TEST_STATUSES.has(normalizeTestStatus(test.status)))) {
-    return UNDETERMINED_RUN_STATUS;
-  }
-  if (Math.max(summary?.passed ?? 0, derived.passed) === 0) return UNDETERMINED_RUN_STATUS;
-  return 'passed';
-}
-
-function normalizeUploadPayload(payload: ReporterUploadPayload): ReporterUploadPayload {
-  const tests = payload.tests.map((test) => ({
-    id: test.id,
-    testId: test.testId,
-    title: test.title,
-    file: sanitizePath(test.file),
-    status: normalizeTestStatus(test.status),
-    durationMs: test.durationMs,
-  }));
-
-  return {
-    ...payload,
-    tests,
-  };
-}
-
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
-
-/**
- * How deep a Playwright report's `suites` may nest before it is refused.
- *
- * `MAX_UPLOAD_BYTES` bounds how *large* an upload is, but not how *deeply* it is
- * nested, and bounding one does nothing for the other: a 5 MiB body of nothing but
- * `{"suites":[{"suites":[ … ]}]}` is well within the size limit and converts to a
- * call-stack overflow. That is a `RangeError` rather than a catchable refusal, so it
- * takes down the request instead of answering it (ledger P-60).
- *
- * 32 is far above any real report. Playwright's own reporter nests one level per
- * directory a spec lives in, so even a monorepo with deep test trees is single-digit;
- * a generous ceiling here costs nothing and refuses the shape that is a
- * denial-of-service rather than a report.
- */
-const MAX_SUITE_DEPTH = 32;
-
-async function parseReporterUpload(c: Context): Promise<ReporterUploadPayload> {
-  const contentType = c.req.header('content-type') ?? '';
-  const contentLength = Number(c.req.header('content-length') ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES) {
-    throw new Error('Reporter upload exceeds 5 MiB limit');
-  }
-
-  if (contentType.includes('multipart/form-data')) {
-    const form = await c.req.formData();
-    const runId = String(form.get('runId') ?? '').trim();
-    const branch = String(form.get('branch') ?? '').trim() || undefined;
-    const commitSha = String(form.get('commitSha') ?? '').trim() || undefined;
-    const triggeredBy = String(form.get('triggeredBy') ?? '').trim() || undefined;
-    const status = String(form.get('status') ?? '').trim() || undefined;
-    const format = String(form.get('format') ?? '').trim() || undefined;
-    const artifactType = String(form.get('artifactType') ?? '')
-      .trim()
-      .toLowerCase();
-    const filePart = form.get('file');
-
-    if (
-      typeof filePart !== 'object' ||
-      filePart === null ||
-      !('text' in filePart) ||
-      !('name' in filePart)
-    ) {
-      throw new Error('file field is required for multipart uploads');
-    }
-
-    const uploadFile = filePart as { text(): Promise<string>; name: string };
-    const text = await uploadFile.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_UPLOAD_BYTES) {
-      throw new Error('Reporter upload exceeds 5 MiB limit');
-    }
-    let candidate: unknown;
-
-    const looksLikeXml = /^\s*<(?:\?xml|testsuites?|testsuite)\b/i.test(text);
-    if (format === 'junit' && !looksLikeXml) {
-      throw new Error('JUnit uploads must use application/xml');
-    }
-    if (format === 'playwright' && looksLikeXml) {
-      throw new Error('Playwright uploads must use JSON');
-    }
-    if (artifactType === 'junit' || uploadFile.name.toLowerCase().endsWith('.xml')) {
-      candidate = parseJunitUpload(runId, text);
-    } else {
-      candidate = parseJsonUpload(runId, text);
-    }
-
-    if (typeof candidate === 'object' && candidate !== null) {
-      const objectCandidate = candidate as Record<string, unknown>;
-      if (branch) objectCandidate['branch'] = branch;
-      if (commitSha) objectCandidate['commitSha'] = commitSha;
-      if (triggeredBy) objectCandidate['triggeredBy'] = triggeredBy;
-      if (status) objectCandidate['status'] = status;
-      if (format) objectCandidate['format'] = format;
-    }
-
-    const parsed = ReporterUploadSchema.safeParse(candidate);
-    if (!parsed.success) {
-      throw new Error(JSON.stringify(parsed.error.flatten().fieldErrors));
-    }
-    return normalizeUploadPayload(parsed.data);
-  }
-
-  const raw = await c.req.json();
-  const parsed = ReporterUploadSchema.safeParse(raw);
-  if (!parsed.success) {
-    throw new Error(JSON.stringify(parsed.error.flatten().fieldErrors));
-  }
-  if (parsed.data.format === 'junit') {
-    throw new Error('JUnit uploads must use application/xml');
-  }
-  return normalizeUploadPayload(parsed.data);
-}
-
-function parseJsonUpload(runIdFromField: string, text: string): unknown {
-  const parsed = JSON.parse(text) as unknown;
-  if (typeof parsed !== 'object' || parsed === null) {
-    return parsed;
-  }
-
-  const object = parsed as Record<string, unknown>;
-  if (Array.isArray(object['tests']) && typeof object['runId'] === 'string') {
-    return object;
-  }
-
-  if (Array.isArray(object['suites'])) {
-    return convertPlaywrightJsonToUpload(runIdFromField, object);
-  }
-
-  return object;
-}
-
-/**
- * Convert a Playwright JSON report into upload rows.
- *
- * Every `spec.tests[]` entry and every attempt in `tests[].results[]` becomes
- * its own row, so retries and multi-project specs are never collapsed into a
- * single "last result wins" verdict.  A test that declares no results keeps a
- * single unresolved row instead of silently disappearing.
- *
- * The returned payload carries no run status: it is derived from the rows by
- * {@link deriveUploadStatus} unless the request declares one explicitly.
- */
-function convertPlaywrightJsonToUpload(
-  runIdFromField: string,
-  report: Record<string, unknown>,
-): ReporterUploadPayload {
-  const runId =
-    runIdFromField || (typeof report['runId'] === 'string' ? report['runId'] : 'uploaded-run');
-  const tests: UploadedTest[] = [];
-
-  const collectSuite = (suite: Record<string, unknown>, parentTitle = '', depth = 0): void => {
-    // Ledger P-60. The recursion into `suite['suites']` had no depth cap on an
-    // untrusted body, and it converts to a call-stack overflow — a `RangeError`, which
-    // is not a catchable refusal, so the process takes the request down rather than
-    // answering it.
-    //
-    // **A correction to the row, and it is why there is no cycle guard here.** The row
-    // says "a self-nested `suites` array". A cycle is not reachable on this path: the
-    // body arrives through `JSON.parse`, and JSON cannot express a reference back to
-    // an ancestor, so `suites[0] === suite` cannot occur — `JSON.stringify` refuses to
-    // even *produce* such a body. An earlier draft carried a visited-set for it; that
-    // was dead code with an untestable branch, and it has been removed rather than
-    // shipped with a test that cannot fail. What *is* reachable is arbitrary
-    // **depth**, and that is what the cap below refuses.
-    if (depth > MAX_SUITE_DEPTH) {
-      throw new Error(
-        `Playwright report nests suites more than ${String(MAX_SUITE_DEPTH)} levels deep; ` +
-          'a real report does not, and a deeper one is a denial of service rather than a report.',
-      );
-    }
-    const suiteTitle = typeof suite['title'] === 'string' ? suite['title'] : '';
-    const fullTitlePrefix = [parentTitle, suiteTitle].filter(Boolean).join(' > ');
-
-    const specs = Array.isArray(suite['specs']) ? suite['specs'] : [];
-    for (const spec of specs) {
-      if (typeof spec !== 'object' || spec === null) continue;
-      const specObject = spec as Record<string, unknown>;
-      const specTitle =
-        typeof specObject['title'] === 'string' ? specObject['title'] : 'Unnamed spec';
-      const specTests = Array.isArray(specObject['tests']) ? specObject['tests'] : [];
-      const file = typeof suite['file'] === 'string' ? suite['file'] : '';
-
-      for (const [testIndex, entry] of specTests.entries()) {
-        if (typeof entry !== 'object' || entry === null) continue;
-        const testObject = entry as Record<string, unknown>;
-        const testTitle =
-          typeof testObject['title'] === 'string' && testObject['title'] !== ''
-            ? testObject['title']
-            : specTitle;
-        const fullTitle = fullTitlePrefix ? `${fullTitlePrefix} > ${testTitle}` : testTitle;
-        const results = Array.isArray(testObject['results']) ? testObject['results'] : [];
-        // No results at all → the report knows the test exists but not its
-        // outcome. Keep one unresolved row (never a verdict) so the run cannot
-        // be derived as green.
-        const attempts: unknown[] = results.length > 0 ? results : [testObject];
-
-        for (const [attemptIndex, attempt] of attempts.entries()) {
-          const attemptObject: Record<string, unknown> =
-            typeof attempt === 'object' && attempt !== null
-              ? (attempt as Record<string, unknown>)
-              : {};
-          const rawStatus =
-            typeof attemptObject['status'] === 'string' ? attemptObject['status'] : 'queued';
-          tests.push({
-            id: `${file || 'unknown'}::${fullTitle}::${testIndex + 1}.${attemptIndex + 1}`,
-            title: fullTitle,
-            file,
-            status: mapPlaywrightStatus(rawStatus),
-            durationMs:
-              typeof attemptObject['duration'] === 'number' ? attemptObject['duration'] : null,
-          });
-        }
-      }
-    }
-
-    const nested = Array.isArray(suite['suites']) ? suite['suites'] : [];
-    for (const child of nested) {
-      if (typeof child === 'object' && child !== null) {
-        collectSuite(child as Record<string, unknown>, fullTitlePrefix, depth + 1);
-      }
-    }
-  };
-
-  const suites = Array.isArray(report['suites']) ? report['suites'] : [];
-  for (const suite of suites) {
-    if (typeof suite === 'object' && suite !== null) {
-      collectSuite(suite as Record<string, unknown>);
-    }
-  }
-
-  return {
-    runId,
-    tests,
-    summary: countStatuses(tests),
-  };
-}
-
-function mapPlaywrightStatus(status: string): TestStatus {
-  if (status === 'passed') return 'passed';
-  if (status === 'failed') return 'failed';
-  if (status === 'timedOut' || status === 'timed_out') return 'timed_out';
-  if (status === 'skipped') return 'skipped';
-  if (status === 'interrupted') return 'failed';
-  return 'queued';
-}
-
-/**
- * The one spelling a test status is stored and compared in.
- *
- * The upload schema admits both `timedOut` (what Playwright emits) and
- * `timed_out` (what other reporters send), because rejecting either would fail a
- * real upload. Everything downstream sees one value, so a timeout cannot be
- * counted as an unobserved test in one place and a failure in another.
- */
-function normalizeTestStatus(status: string): TestStatus {
-  return status === 'timedOut' ? 'timed_out' : (status as TestStatus);
-}
-
-/**
- * A forward scan for `<testcase>` elements.
- *
- * The previous implementation used `/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g`,
- * whose lazy `[\s\S]*?` restarts for every opener. Over a multi-megabyte body
- * that is quadratic, so one authenticated upload could hang the event loop.
- * `indexOf` advances monotonically, so the scan is linear in the input.
- */
-function scanTestcases(xml: string): Array<{ attributes: string; body: string | null }> {
-  const OPEN = '<testcase';
-  const CLOSE = '</testcase>';
-  const found: Array<{ attributes: string; body: string | null }> = [];
-  let cursor = 0;
-  while (cursor < xml.length) {
-    const open = xml.indexOf(OPEN, cursor);
-    if (open === -1) break;
-    const afterName = open + OPEN.length;
-    const boundary = xml[afterName];
-    if (boundary === undefined || !/[\s/>]/.test(boundary)) {
-      // `<testcasefoo>` — not a testcase element. Always advances.
-      cursor = afterName;
-      continue;
-    }
-    const tagEnd = xml.indexOf('>', afterName);
-    if (tagEnd === -1) break;
-    if (xml[tagEnd - 1] === '/') {
-      found.push({ attributes: xml.slice(afterName, tagEnd - 1), body: null });
-      cursor = tagEnd + 1;
-      continue;
-    }
-    const close = xml.indexOf(CLOSE, tagEnd);
-    if (close === -1) {
-      // Unterminated final element: keep what we have rather than dropping it.
-      found.push({ attributes: xml.slice(afterName, tagEnd), body: xml.slice(tagEnd + 1) });
-      break;
-    }
-    found.push({ attributes: xml.slice(afterName, tagEnd), body: xml.slice(tagEnd + 1, close) });
-    cursor = close + CLOSE.length;
-  }
-  return found;
-}
-
-/**
- * JUnit XML is parsed with a hand-rolled scanner, so it carries its own size
- * bound rather than relying on the caller's upload cap. Every entry point is
- * bounded, not only the multipart path.
- */
-const MAX_JUNIT_BYTES = 5 * 1024 * 1024;
-
-function parseJunitUpload(runIdFromField: string, xml: string): ReporterUploadPayload {
-  const runId = runIdFromField || 'uploaded-junit-run';
-  const byteLength = new TextEncoder().encode(xml).byteLength;
-  if (byteLength > MAX_JUNIT_BYTES) throw new Error('JUnit upload exceeds 5 MiB limit');
-  const tests: UploadedTest[] = [];
-  let index = 0;
-
-  const parseAttribute = (attrs: string, key: string): string | null => {
-    const regex = new RegExp(`${key}="([^"]*)"`);
-    const match = attrs.match(regex);
-    return match?.[1] ?? null;
-  };
-
-  for (const element of scanTestcases(xml)) {
-    index += 1;
-    const attrs = element.attributes.trim();
-    const body = element.body ?? '';
-    const name = parseAttribute(attrs, 'name') ?? 'Unnamed testcase';
-    const className = parseAttribute(attrs, 'classname');
-    const file = parseAttribute(attrs, 'file') ?? className ?? '';
-    const durationSeconds = Number(parseAttribute(attrs, 'time') ?? '0');
-    const durationMs = Number.isFinite(durationSeconds) ? Math.round(durationSeconds * 1000) : null;
-
-    // Fail closed: a `<testcase>` that declares no status and carries no
-    // failure child proves nothing, so it must not be recorded as a pass.
-    // `queued` is the "declared, no outcome observed" member of this
-    // vocabulary and forces the run to `interrupted` in deriveRunStatus.
-    let status: UploadedTest['status'] = 'queued';
-    if (/<skipped[\s/>]/.test(body)) status = 'skipped';
-    if (/<failure[\s/>]/.test(body) || /<error[\s/>]/.test(body)) status = 'failed';
-
-    const title = className ? `${className} :: ${name}` : name;
-    tests.push({
-      id: `${file || 'junit'}::${name}::${index}`,
-      title,
-      file,
-      // A *test* status, not a run status — the run's status is derived from
-      // these below. `toPersistedStatus` does not belong on this line.
-      status,
-      durationMs,
-    });
-  }
-
-  // No status here: an empty <testsuites/> (zero testcases) must fall through
-  // to the fail-closed derivation instead of being reported as a pass.
-  return {
-    runId,
-    tests,
-    summary: countStatuses(tests),
-  };
-}
-
-async function persistUploadPayload(
-  payload: ReporterUploadPayload,
-  repository: RunRepository,
-  bus?: RealtimeBus,
-  workspaceId: string = DEFAULT_WORKSPACE_ID,
-): Promise<{ runId: string; status: RunStatus; ingestedTests: number }> {
-  const derived = countStatuses(payload.tests);
-  const summary = payload.summary ?? {};
-  // An explicit status is honoured for non-green terminal states. A declared
-  // pass is downgraded when the uploaded rows do not contain real evidence.
-  const evidenceStatus = deriveUploadStatus(payload.tests, payload.summary);
-  const status =
-    payload.status === 'passed' && evidenceStatus !== 'passed'
-      ? evidenceStatus
-      : (payload.status ?? evidenceStatus);
-  const nowIso = new Date().toISOString();
-  const startedAt = payload.startedAt ?? nowIso;
-  // The lifecycle phase and its outcome, derived from the narrowed status — the
-  // dashboard renders `phase`, and this write used to set only `status`, so an uploaded
-  // run sat at `phase: 'queued'` for ever however it had finished.
-  const persistedStatus = toPersistedStatus(status);
-  const state = phaseForReportedStatus(persistedStatus);
-
-  await repository.upsertRun({
-    id: payload.runId,
-    // The workspace the listing filters on. Without it this wrote NULL, and a run
-    // reported by a real producer was persisted and then invisible to
-    // `GET /api/v1/runs` — which is the reporter → API → browser path end to end.
-    workspaceId,
-    phase: state.phase,
-    outcome: state.outcome,
-    startedAt,
-    finishedAt: payload.finishedAt ?? (status === 'running' ? null : nowIso),
-    // Narrowed at the write. `status` is typed as the wider contract union because
-    // the upload schema admits it, but the column stores the persisted subset, and
-    // a `queued` reaching `runs.status` would be rejected by `runs_status_check`
-    // as a 500. The upload schema no longer admits `queued` (it is
-    // `PERSISTED_RUN_STATUS_VALUES`), so this cannot throw in practice — and if it
-    // ever does, it says so rather than writing something plausible.
-    status: persistedStatus,
-    total: summary.total ?? derived.total,
-    passed: summary.passed ?? derived.passed,
-    failed: summary.failed ?? derived.failed,
-    flaky: summary.flaky ?? derived.flaky,
-    skipped: summary.skipped ?? derived.skipped,
-    durationMs: payload.durationMs ?? null,
-    branch: payload.branch ?? null,
-    commitSha: payload.commitSha ?? null,
-    triggeredBy: payload.triggeredBy ?? 'upload',
-  });
-
-  for (const test of payload.tests) {
-    const testId = test.id ?? test.testId;
-    if (!testId) continue;
-    await repository.upsertTest({
-      id: testId,
-      runId: payload.runId,
-      title: test.title,
-      file: sanitizePath(test.file),
-      status: normalizeTestStatus(test.status),
-      durationMs: test.durationMs ?? null,
-      // The upload contract has declared `error: { message, code? }` on a test for as
-      // long as it has existed, and this write dropped it — the same defect as the
-      // event-driven path, arrived at by a different door. Both paths now store it, and
-      // both bound it.
-      ...normaliseFailure(test.error),
-    });
-  }
-
-  if (bus) {
-    // Fire-and-forget: the durable bus contract is non-rejecting, so there is
-    // nothing to await. Marked so the intent is visible here rather than left
-    // implicit.
-    void bus.publish({
-      type: RUN_UPDATED_EVENT_TYPE,
-      version: '1',
-      runId: payload.runId,
-      status,
-      timestamp: nowIso,
-    });
-  }
-
-  return {
-    runId: payload.runId,
-    status,
-    ingestedTests: payload.tests.length,
-  };
-}
-
-/** Promote a legacy event to the normalised shape. */
-export function adaptLegacyEvent(raw: LegacyReporterEvent): NormalizedReporterEvent {
-  return {
-    version: REPORTER_EVENT_VERSION,
-    type: raw.type,
-    runId: raw.runId,
-    timestamp: new Date().toISOString(),
-    payload: raw.payload,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Auth helpers
@@ -768,6 +167,176 @@ function isLegacyShape(body: Record<string, unknown>): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Upload: bytes in, one canonical result out
+// ---------------------------------------------------------------------------
+
+/** The producer version this door claims when the producer declared none. */
+const UNKNOWN_PRODUCER_VERSION = 'unreported';
+
+/**
+ * The adapter version, which is what makes a *trend* across an adapter upgrade readable.
+ *
+ * Recorded in `provenance.adapterVersion` and therefore in the canonical row's fingerprint,
+ * so a result parsed by v1 and a result parsed by v2 are distinguishable after the fact.
+ * Two adapters that both claim `1` cannot be told apart in a window that straddles a
+ * change, and the chart lies in a way no tile can warn about.
+ */
+const ADAPTER_VERSION = '2';
+
+/**
+ * Which adapter reads this body.
+ *
+ * **The declared format wins; the filename is the fallback; the content decides only when
+ * nothing is declared.** That order matters because callers are inconsistent in what they
+ * send — `format: junit`, `artifactType: junit`, `artifactType: playwright-json` are all in
+ * the wild, and a rejected spelling means a real report gets "this document contains no
+ * test cases", a message about the wrong file.
+ *
+ * A body that looks like XML and declares nothing goes to the JUnit adapter: the sniffing
+ * exists because a reporter posting `application/xml` without a format field is common, and
+ * `JSON.parse` on it produces a syntax error rather than an answer.
+ */
+function pickAdapter(document: UploadDocument): ProducerAdapter {
+  const declared = declaredFormat(document);
+  if (declared === 'junit') return junitXmlAdapter;
+  if (declared === 'playwright') return playwrightJsonAdapter;
+  if (document.fields['fileName']?.toLowerCase().endsWith('.xml') === true) return junitXmlAdapter;
+  if (document.fields['fileName']?.toLowerCase().endsWith('.json') === true) {
+    return looksLikeXml(document) ? junitXmlAdapter : playwrightJsonAdapter;
+  }
+  return looksLikeXml(document) ? junitXmlAdapter : legacyUploadAdapter;
+}
+
+/**
+ * The format the caller declared, normalised.
+ *
+ * Two spellings per format because both are in use and neither is wrong: `format` and
+ * `artifactType` are two field names for one piece of information, and the adapter would
+ * rather have one answer than two rules about which name wins.
+ */
+function declaredFormat(document: UploadDocument): 'junit' | 'playwright' | '' {
+  const raw = (document.fields['format'] ?? document.fields['artifactType'] ?? '')
+    .trim()
+    .toLowerCase();
+  if (raw === 'junit' || raw === 'xml') return 'junit';
+  if (raw === 'playwright' || raw === 'playwright-json') return 'playwright';
+  return '';
+}
+
+/** Whether the body's first bytes are an XML document. The first 64 is enough. */
+function looksLikeXml(document: UploadDocument): boolean {
+  const head = new TextDecoder().decode(document.bytes.slice(0, 64));
+  return /^\s*<(?:\?xml|testsuites?|testsuite)\b/i.test(head);
+}
+
+/**
+ * Reject a declared format whose bytes are the other format.
+ *
+ * Refusing rather than guessing: the two parsers fail in opposite ways, and a caller who
+ * mislabelled a Playwright report as JUnit would otherwise get "this document contains no
+ * test cases" — a message about the wrong file.
+ */
+function assertFormatMatches(adapter: ProducerAdapter, document: UploadDocument): void {
+  const declared = declaredFormat(document);
+  const xml = looksLikeXml(document);
+  if (declared === 'playwright' && xml) {
+    throw new Error('The uploaded body is XML; declare format=junit so the right adapter reads it');
+  }
+  if (declared === 'junit' && !xml) {
+    throw new Error('A JUnit upload must be XML; the uploaded body is not');
+  }
+  // The legacy upload payload is JSON by definition, and so is a Playwright report. Neither
+  // is XML, and a mismatch is a caller error rather than a routing ambiguity.
+  if (xml && adapter !== junitXmlAdapter) {
+    throw new Error('The uploaded body is XML; declare format=junit so the right adapter reads it');
+  }
+}
+
+function optionalField(fields: Record<string, string>, key: string): string | undefined {
+  const value = fields[key]?.trim();
+  return value === undefined || value === '' ? undefined : value;
+}
+
+function producerContextFor(document: UploadDocument, workspaceId: string): ProducerContext {
+  const nowIso = new Date().toISOString();
+  const startedAt = optionalField(document.fields, 'startedAt') ?? nowIso;
+  const finishedAt = optionalField(document.fields, 'finishedAt');
+  return {
+    workspaceId,
+    // The caller's run identity, or a name derived from the document rather than invented:
+    // `uploaded-run` was the old fallback and a *third* identity for the same run when the
+    // body did not carry one. A document with no run id is still identifiable — by its own
+    // digest — and the digest is what makes the replay a replay.
+    runId: optionalField(document.fields, 'runId') ?? `sha256:${documentDigest(document.bytes)}`,
+    sourceUri: optionalField(document.fields, 'sourceUri') ?? 'reporter/upload',
+    sourceDigest: documentDigest(document.bytes),
+    producerVersion:
+      optionalField(document.fields, 'producerVersion') ??
+      optionalField(document.fields, 'format') ??
+      UNKNOWN_PRODUCER_VERSION,
+    adapterVersion: ADAPTER_VERSION,
+    startedAt,
+    finishedAt,
+    branch: optionalField(document.fields, 'branch'),
+    commitSha: optionalField(document.fields, 'commitSha'),
+    environment: optionalField(document.fields, 'environment'),
+    declaredRunStatus: optionalField(document.fields, 'status'),
+  };
+}
+
+/** SHA-256 over the uploaded bytes, so a replayed upload fingerprints identically. */
+function documentDigest(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+interface UploadDocument {
+  bytes: Uint8Array;
+  /** Multipart form fields, which carry the cohort and the caller's run identity. */
+  fields: Record<string, string>;
+}
+
+/**
+ * Read the request body as bytes plus its multipart fields.
+ *
+ * Bytes rather than a parsed value, because `ProducerAdapter.parse` takes bytes and
+ * because `sourceDigest` has to be over exactly what arrived — a digest computed from a
+ * re-serialised object is a digest of the parse, not of the upload, and two byte-different
+ * documents that parse to the same value would fingerprint as one.
+ */
+async function readUploadDocument(c: Context): Promise<UploadDocument> {
+  const contentType = c.req.header('content-type') ?? '';
+  const contentLength = Number(c.req.header('content-length') ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES) {
+    throw new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large');
+  }
+
+  if (contentType.includes('multipart/form-data')) {
+    const form = await c.req.formData();
+    const fields: Record<string, string> = {};
+    let bytes: Uint8Array | undefined;
+    for (const [key, value] of form.entries()) {
+      if (typeof value === 'string') {
+        fields[key] = value;
+        continue;
+      }
+      // One file, and the only one: a second part is a body the contract has no field for,
+      // and silently taking the first would ingest one of two reports.
+      if (key !== 'file') throw new Error(`Unexpected multipart field "${key}"`);
+      if (bytes !== undefined) throw new Error('An upload carries one file part');
+      bytes = new Uint8Array(await value.arrayBuffer());
+      fields['fileName'] = value.name;
+    }
+    if (bytes === undefined) throw new Error('file field is required for multipart uploads');
+    if (new TextEncoder().encode(new TextDecoder().decode(bytes)).byteLength > MAX_UPLOAD_BYTES) {
+      throw new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large');
+    }
+    return { bytes, fields };
+  }
+
+  return { bytes: new Uint8Array(await c.req.arrayBuffer()), fields: {} };
+}
+
+// ---------------------------------------------------------------------------
 // Route factory options
 // ---------------------------------------------------------------------------
 
@@ -779,6 +348,13 @@ export interface ReporterRouteOptions {
    * InMemoryRunRepository for in-process verification.
    */
   repository?: RunRepository;
+  /**
+   * The canonical store. **Required for uploads** and what makes this door readable by
+   * the reporting package at all: without it an upload has nowhere canonical to land, and
+   * the only honest answer is to refuse rather than write a row that
+   * `GET /api/v1/reporting/kpis` will never see.
+   */
+  canonicalStore?: ReporterResultStore;
   /**
    * The workspace reporter-written runs belong to.
    *
@@ -912,11 +488,31 @@ export function createReporterRoutes(
       normalized = result.data as NormalizedReporterEvent;
     }
 
+    const workspaceId = options?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+
     // T14: persist normalized event to repository (if one is configured)
     if (options?.repository) {
       const runUpdated = await persistReporterEvent(normalized, options.repository, {
-        workspaceId: options.workspaceId,
+        workspaceId,
       });
+
+      // A terminal event also closes the canonical row. The events door is a stream, and a
+      // stream has to be turned into one result before it can be canonical — see
+      // `reporter-event-canonical.ts` for why the accumulation lives there and not here.
+      if (options.canonicalStore && isTerminalReporterEvent(normalized.type)) {
+        const canonical = await canonicalRunFromUploadEvents(options.repository, {
+          workspaceId,
+          runId: normalized.runId,
+        });
+        if (canonical) {
+          await ingestCanonicalResult(canonical, {
+            store: options.canonicalStore,
+            repository: options.repository,
+            bus: options.bus,
+            triggeredBy: 'reporter',
+          });
+        }
+      }
 
       // T15: broadcast a safe run:updated event after every run-level persistence
       // operation.  Only fires when:
@@ -929,7 +525,7 @@ export function createReporterRoutes(
       if (runUpdated && options.bus) {
         const run = await options.repository.getRun(normalized.runId);
         if (run !== null) {
-          await await options.bus.publish({
+          await options.bus.publish({
             type: RUN_UPDATED_EVENT_TYPE,
             version: '1',
             runId: run.id,
@@ -955,7 +551,7 @@ export function createReporterRoutes(
   // POST /api/v1/reporter/upload
   // ------------------------------------------------------------------
   app.post('/api/v1/reporter/upload', async (c) => {
-    if (!options?.repository) {
+    if (!options?.repository || !options.canonicalStore) {
       // `callerSafe`: a reporter whose upload store is unconfigured needs to be told
       // *that*, not "internal error". The message names the missing thing and the
       // operator can act on it; a blanked 503 is a support ticket instead.
@@ -964,33 +560,99 @@ export function createReporterRoutes(
       });
     }
 
-    const rawBody = c.req.raw.clone();
-    let payload: ReporterUploadPayload;
+    const document = await readUploadDocument(c);
+    const adapter = pickAdapter(document);
+    assertFormatMatches(adapter, document);
+
+    let result: ReturnType<ProducerAdapter['parse']>;
     try {
-      payload = await parseReporterUpload(c);
-    } catch {
-      throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload');
+      result = adapter.parse(
+        document.bytes,
+        producerContextFor(document, options.workspaceId ?? DEFAULT_WORKSPACE_ID),
+      );
+    } catch (cause) {
+      // **The adapter's refusal travels, because it is about the caller's own document.**
+      // Every adapter names its refusals — "JUnit report contains no test cases",
+      // "Reporter upload declares no test rows" — and this door used to answer *every*
+      // malformed report with "invalid payload", which gave the person fixing it nothing
+      // to act on and turned a one-line fix into a support ticket. `cause` is never
+      // returned; the message is copied into `details`, and both come from the bytes the
+      // caller just sent, so there is nothing here the caller has not already seen.
+      const message = cause instanceof Error ? cause.message : 'Unreadable reporter upload';
+      throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload', {
+        details: { adapterMessage: message },
+        cause,
+      });
     }
 
+    const ingested = await ingestCanonicalResult(result, {
+      store: options.canonicalStore,
+      repository: options.repository,
+      bus: options.bus,
+      triggeredBy: 'upload',
+    });
+
+    // **Archived after the parse, keyed by the run the document actually named.** For a
+    // JSON body the run id is inside the payload, so archiving first meant the key was
+    // derived from the multipart fields — which for that shape are absent, and the raw
+    // report was filed under `legacy/upload/`. A raw report nobody can find is not a
+    // retained raw report.
     if (options.artifactStore) {
-      const rawBytes = new Uint8Array(await rawBody.arrayBuffer());
-      const safeRunId = payload.runId.replaceAll('\\', '/').replace(/[^a-zA-Z0-9._-]/g, '_');
-      await options.artifactStore.putAt(`legacy/${safeRunId}/raw/${randomUUID()}`, rawBytes);
+      const safeRunId = result.identity.runId
+        .replaceAll('\\', '/')
+        .replace(/[^a-zA-Z0-9._-]/g, '_');
+      await options.artifactStore.putAt(`legacy/${safeRunId}/raw/${randomUUID()}`, document.bytes);
     }
 
-    const persisted = await persistUploadPayload(payload, options.repository, options.bus);
+    if (ingested.status === 'conflict') {
+      // A row already exists for this run id with a different fingerprint. Writing the
+      // newer projection would replace the dashboard's view of a run whose canonical
+      // evidence is the older one, so nothing is written and the conflict is reported.
+      throw new DomainError('CONFLICT', 'Conflicting result for this run', {
+        callerSafe: true,
+        details: { reason: 'conflicting-canonical-result', runId: result.identity.runId },
+      });
+    }
 
     return c.json(
       {
         ok: true,
-        runId: persisted.runId,
+        runId: result.identity.runId,
         type: 'run:upload',
-        status: persisted.status,
-        ingestedTests: persisted.ingestedTests,
+        status: ingested.projection.run.status,
+        // The canonical status, beside the persisted one. The persisted `status` is a
+        // four-value narrowing chosen by `projectCanonicalRun`, and a caller that
+        // disagrees with it needs to see what the authority actually said.
+        canonicalStatus: result.status,
+        ingested: ingested.status,
+        ingestedTests: ingested.projection.tests.length,
       },
       202,
     );
   });
 
   return app;
+}
+
+/**
+ * Whether an event ends the run.
+ *
+ * Both vocabularies are checked, because both reach this route: the legacy SDK emits
+ * `run:end` and the versioned contract emits `run.completed`, and a canonical result is
+ * only written at a terminal moment — a result built from a half-finished stream would be
+ * a claim about a run that is still going.
+ */
+function isTerminalReporterEvent(type: string): boolean {
+  return type === 'run:end' || type === RUN_COMPLETED_EVENT_TYPE;
+}
+
+/** Promote a legacy event to the normalised shape. */
+export function adaptLegacyEvent(raw: LegacyReporterEvent): NormalizedReporterEvent {
+  return {
+    version: REPORTER_EVENT_VERSION,
+    type: raw.type,
+    runId: raw.runId,
+    timestamp: new Date().toISOString(),
+    payload: raw.payload,
+  };
 }

@@ -30,10 +30,27 @@
     "indirect, and it would make the gate fire on whatever a row happened to cite.",
     "A named list is reviewable, and `auditWaveGates` fails when a listed migration",
     "does not exist, so the list cannot rot into reporting a wave as gated on a file",
-    "that was never written."
+    "that was never written.",
+    "",
+    "`landedBy` is the same field for a wave that changes no schema. Wave 0 unified the",
+    "two ingestion systems and added no table, and it could not name a migration:",
+    "`RF-5`'s rehearsal has still never run, so any migration list would either invent a",
+    "migration or claim a rehearsal that has not happened. Without `landedBy` the only",
+    "honest entry for such a wave was to leave `migrations` out — which is a gate that can",
+    "never fire, the state this file exists to end, reached by the other door. Both fields",
+    "are read as one list, so neither can hide a deletion behind the other."
   ],
   "schemaVersion": 1,
   "waves": {
+    "W0": {
+      "$comment": "The unification wave. Two ingestion systems became one, before anything else was built on top of either. Nothing in Waves 1 to 3 may merge until this lands, because every one of them queries a table this wave decides what goes in it.",
+      "gate": "`reporter-two-doors.test.ts` green: the same JUnit document produces the same verdict through both doors, and an uploaded run is readable by `GET /api/v1/reporting/kpis`.",
+      "gatingRows": ["P-73"],
+      "landedBy": [
+        "apps/api/src/services/canonical-projection.ts",
+        "apps/api/src/services/canonical-ingestion.ts"
+      ]
+    },
     "W7": {
       "$comment": "The tenancy wave. `WORKSPACE_ID` becoming a real isolation boundary across every workspace-scoped read and write. ADR-006 recorded it out of scope and ADR-003 recorded the single-database posture; both are superseded by the scope decision in RF-5's `resolution`, because the migrations landed.",
       "gate": "One `pnpm migrate:rehearse` run against a real installation — dump, restore onto a clean instance, migrate **the restore**, re-open every sealed row through the product's own `vault-crypto` — with the date, the installation and the row count recorded in RF-5's `resolution`.",

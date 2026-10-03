@@ -446,7 +446,9 @@ export function readLedger(relative) {
  * @typedef {object} WaveGate
  * @property {string} gate what has to be true before the wave's work is allowed
  * @property {string[]} gatingRows the ledger rows that gate it
- * @property {string[]} migrations the migrations that put the wave on disk
+ * @property {string[]} [migrations] the migrations that put the wave on disk
+ * @property {string[]} [landedBy] other files that put it on disk, for a wave that
+ *   changes no schema. At least one of `migrations` and `landedBy` must be present.
  */
 
 /**
@@ -507,20 +509,42 @@ function waveProblems(wave, entry, rows, root) {
     return [`${WAVE_GATES}: wave \`${wave}\` is not an object, so it gates nothing.`];
   }
   const gating = stringList(entry.gatingRows);
-  const migrations = stringList(entry.migrations);
+  const artefacts = landingArtefacts(entry);
   if (gating === null || gating.length === 0) {
     return [
       `${WAVE_GATES}: wave \`${wave}\` names no \`gatingRows\`. A wave with no gating row ` +
         'has no entry condition, which is the state this file exists to end.',
     ];
   }
-  if (migrations === null || migrations.length === 0) {
+  if (artefacts === null || artefacts.length === 0) {
     return [
-      `${WAVE_GATES}: wave \`${wave}\` names no \`migrations\`. Nothing can say whether it has ` +
-        'landed, so the gate would never fire.',
+      `${WAVE_GATES}: wave \`${wave}\` names neither \`migrations\` nor \`landedBy\`. Nothing ` +
+        'can say whether it has landed, so the gate would never fire.',
     ];
   }
-  return [...gatingProblems(wave, gating, rows), ...migrationProblems(wave, migrations, root)];
+  return [...gatingProblems(wave, gating, rows), ...landingProblems(wave, artefacts, root)];
+}
+
+/**
+ * The files that put a wave on disk, from either field.
+ *
+ * **One rule, two spellings of the artefact.** `migrations` is what a wave that changes the
+ * database names. `landedBy` is for a wave that changes nothing at the schema level and is
+ * still gated — Wave 0 unified the two ingestion systems and added no table, and
+ * `RF-5`'s rehearsal has still never run, so naming a migration for it would mean either
+ * inventing one or lying about the rehearsal having happened. It is not a second landing
+ * mechanism: `landedWaves` reads the union through the same predicate.
+ *
+ * @param {Record<string, unknown>} entry the wave entry
+ * @returns {string[] | null} `null` when neither field names a usable list
+ */
+function landingArtefacts(entry) {
+  const migrations = stringList(entry.migrations);
+  const landedBy = stringList(entry.landedBy);
+  if (migrations !== null && migrations.length > 0) {
+    return [...migrations, ...(landedBy ?? [])];
+  }
+  return landedBy;
 }
 
 /**
@@ -549,17 +573,18 @@ function gatingProblems(wave, gating, rows) {
  * with an extra step.
  *
  * @param {string} wave
- * @param {string[]} migrations
+ * @param {string[]} artefacts
  * @param {string} root
  * @returns {string[]}
  */
-function migrationProblems(wave, migrations, root) {
-  return migrations
-    .filter((migration) => !existsSync(path.join(root, migration)))
+function landingProblems(wave, artefacts, root) {
+  return artefacts
+    .filter((artefact) => !existsSync(path.join(root, artefact)))
     .map(
-      (migration) =>
-        `${WAVE_GATES}: wave \`${wave}\` lists \`${migration}\`, which does not exist. A ` +
-        'migration that was renamed or deleted leaves the gate describing a wave that was never here.',
+      (artefact) =>
+        `${WAVE_GATES}: wave \`${wave}\` lists \`${artefact}\`, which does not exist. A ` +
+        'migration or landing artefact that was renamed or deleted leaves the gate ' +
+        'describing a wave that was never here.',
     );
 }
 
@@ -591,13 +616,14 @@ function blocksWaveProblems(rows, waves) {
 }
 
 /**
- * The waves that have landed: at least one migration each lists is on disk.
+ * The waves that have landed: at least one artefact each names is on disk.
  *
- * Shared with the merge gate rather than reimplemented there, because the two gates
- * have to agree about what "landed" means or one of them will report a wave as
- * blocked while the other reports it clear. An unreadable manifest yields no waves,
- * and each caller turns that into its own honest outcome — `not_configured` for the
- * merge gate, a finding for the ledger audit.
+ * Reads `migrations` and `landedBy` through `landingArtefacts`, so the audit and this
+ * function cannot disagree about what a wave declares — and neither can the merge gate,
+ * which imports this rather than reimplementing it, because the two have to agree about
+ * what "landed" means or one will report a wave as blocked while the other reports it
+ * clear. An unreadable manifest yields no waves, and each caller turns that into its own
+ * honest outcome — `not_configured` for the merge gate, a finding for the ledger audit.
  *
  * @param {unknown} gates parsed `wave-gates.json`, or `null`
  * @param {{ root: string }} options
@@ -609,8 +635,8 @@ export function landedWaves(gates, options) {
   const landed = [];
   for (const [wave, entry] of Object.entries(waves)) {
     if (!isRecord(entry)) continue;
-    const migrations = stringList(entry.migrations);
-    if (migrations !== null && waveHasLanded(migrations, options.root)) landed.push(wave);
+    const artefacts = landingArtefacts(entry);
+    if (artefacts !== null && waveHasLanded(artefacts, options.root)) landed.push(wave);
   }
   return landed;
 }

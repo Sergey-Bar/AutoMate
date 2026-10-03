@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { getTableColumns, getTableName } from 'drizzle-orm';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { describe, expect, it } from 'vitest';
 
@@ -214,6 +215,54 @@ describe('durable execution schema', () => {
 
   it('adds workspace scope to execution audit events', () => {
     expect(columns(auditEvents)).toContain('workspaceId');
+  });
+
+  it('gives `projects` the repository a run is executed from, not just a label', () => {
+    // `runs.project_id` has pointed at `projects.id` since migration 0003 with
+    // nothing on the far side but a `name`, a `slug` and a free-text `settings`
+    // blob. That makes the column unresolvable: a run naming project `9f2c…`
+    // cannot be joined to a filesystem path, a detected language, or a detector
+    // version, so there is no way to execute it and no way to explain a score.
+    //
+    // The three columns are what makes the row a registry entry rather than a
+    // label. `detectorVersion` is `NOT NULL` because a profile written by
+    // detector 2 must never be read as detector 1's shape — that is the
+    // plan's "detection is versioned" requirement as a database constraint
+    // rather than a comment.
+    expect(columns(projects)).toEqual(
+      expect.arrayContaining([
+        'workspaceId',
+        'name',
+        'slug',
+        'repoPath',
+        'profile',
+        'detectorVersion',
+      ]),
+    );
+  });
+
+  it('binds `runs.project_id` to the registry row it claims', () => {
+    // Before this, `runs.project_id` was a bare uuid with no foreign key, so a
+    // run could name a project that does not exist and nothing would say so —
+    // a dashboard showing a run attributed to a repository nobody registered.
+    // `onDelete: 'set null'` rather than `restrict`: a run is evidence and
+    // outlives the registry entry, but must stop claiming a project that is gone.
+    //
+    // Read through `getTableConfig` rather than off the column: the column's
+    // own `columnType` is `PgUUID` whether or not it references anything, so an
+    // assertion on it would pass against the defect this test exists to catch.
+    const foreignKeys = getTableConfig(runs).foreignKeys;
+    const targets = foreignKeys.map((foreignKey) => {
+      const reference = foreignKey.reference();
+      return {
+        columns: reference.columns.map((column) => column.name),
+        name: getTableName(reference.foreignTable),
+        onDelete: foreignKey.onDelete,
+      };
+    });
+    expect(targets).toEqual(
+      expect.arrayContaining([{ columns: ['project_id'], name: 'projects', onDelete: 'set null' }]),
+    );
   });
 
   it('keeps snapshot metadata aligned with contract-safe identifiers', () => {

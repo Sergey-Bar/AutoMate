@@ -13,7 +13,7 @@
  *   test:begin with existing (testId, runId) → upsert — idempotent.
  */
 import { z } from 'zod/v4';
-import { safeRelativePath } from '../http/safe-path.js';
+import { safeRelativePath } from '@automate/reporter';
 import type { NormalizedReporterEvent } from '../routes/reporter.js';
 import {
   DEFAULT_WORKSPACE_ID,
@@ -32,16 +32,15 @@ import {
  * directory escape even in persisted metadata.
  */
 function sanitizeAttachmentPath(rawPath: string): string {
-  // The rule lives in `http/safe-path.ts`: `routes/reporter.ts` sanitises the same
-  // field on the way in and used to carry a byte-identical copy, so a fix to one was
-  // invisible to the other.
+  // The rule lives in `@automate/reporter`'s `safe-path.ts`: the upload adapters reduce
+  // `specPath` with the same function on the way in, and two copies of it is how a fix
+  // to one became invisible to the other.
   //
   // The empty string is passed through rather than sanitised. `path.normalize('')` is
   // `'.'` on Node, so sanitising it stored `.` as a spec file — which the dashboard
   // then rendered as a suite called `.` instead of folding the test into its
   // `unknown` suite, because `'.'` is truthy. Nothing is being sanitised here: there
-  // is no path. The root cause belongs in `http/safe-path.ts`, which is outside this
-  // change's reach.
+  // is no path.
   return rawPath === '' ? '' : safeRelativePath(rawPath);
 }
 

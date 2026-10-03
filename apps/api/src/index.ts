@@ -12,6 +12,7 @@ import { createReportingRoutes } from './routes/reporting.js';
 import { createRunnerRoutes } from './routes/runner.js';
 import { createOrchestrationRoutes } from './routes/orchestration.js';
 import { ReporterIngestionService } from './services/reporter-ingestion.js';
+import type { ReporterResultStore } from './services/reporter-ingestion.js';
 import { DrizzleReporterIngestionService } from './services/drizzle-reporter-ingestion.js';
 import { DrizzleAuthSessionBackend } from './infrastructure/session-backend.js';
 import {
@@ -35,6 +36,8 @@ import type { ExecutionStore } from './execution/types.js';
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
 import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
+import { fileSystemView } from '@automate/projects';
+import { createProjectsRoutes } from './routes/projects.js';
 import { DEFAULT_WORKSPACE_ID, type RunRepository } from './repositories/run-repository.js';
 // Realtime transport: durable outbox-backed bus in production, in-memory for
 // development/test. Post-MVP: Add WebSocket transport (issue #TBD).
@@ -234,21 +237,38 @@ function createExecutionStore(): ExecutionStore {
 const executionStore = withClassifiedErrors(createExecutionStore());
 const dashboardStores = createDashboardStores();
 
-function mountReportingRoutes(): void {
-  const reporterStore = databaseResources
+/**
+ * The one canonical store both reporting and the reporter doors resolve.
+ *
+ * **Two instances would be two ingestion systems again.** `mountReportingRoutes` used to
+ * build its own, and the reporter routes had none — so an upload could land in the
+ * installation and `/api/v1/reporting/kpis` answered `proofCeiling: 'unknown'` about a
+ * system with a year of test history (ledger row P-73). The store is now built here, once,
+ * and handed to both.
+ */
+let reporterStore: ReporterResultStore | undefined;
+
+function resolveReporterStore(): ReporterResultStore {
+  if (reporterStore) return reporterStore;
+  reporterStore = databaseResources
     ? new DrizzleReporterIngestionService(
         databaseResources.db,
         runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
       )
     : new ReporterIngestionService(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID);
+  return reporterStore;
+}
+
+function mountReportingRoutes(): void {
+  const store = resolveReporterStore();
   app.route(
     '/',
-    createReporterResultsRoute(reporterStore, {
+    createReporterResultsRoute(store, {
       reporterSecret: runtimeConfig.reporterSecret,
       requireReporterSecret: runtimeConfig.nodeEnv === 'production',
     }),
   );
-  app.route('/', createReportingRoutes(reporterStore));
+  app.route('/', createReportingRoutes(store));
 }
 
 function mountLegacyProcessLocalRoutes(): void {
@@ -490,6 +510,10 @@ app.route(
   '/',
   createReporterRoutes(runtimeConfig.reporterSecret, {
     repository: runRepository,
+    // The same store `GET /api/v1/reporting/kpis` reads. Without it an upload has nowhere
+    // canonical to land, and every KPI would report the busiest system in the
+    // installation as not knowable.
+    canonicalStore: resolveReporterStore(),
     // The same workspace the execution routes resolve for a read. Without it the
     // reporter wrote NULL and every run a producer reported was invisible to
     // `GET /api/v1/runs` — persisted, and absent from the product.
@@ -511,6 +535,50 @@ app.route(
 );
 app.route('/', createAgentRoutes());
 app.route('/', createChatRoutes({ gateway: aiGateway }));
+
+/**
+ * The project registry and the derived QA score.
+ *
+ * Mounted behind the same database handle as everything else, and **only when one
+ * exists** — the registry is not useful without persistence, and a process that
+ * booted without `DATABASE_URL` would otherwise answer a score request with an
+ * empty one rather than with "this install has no registry".
+ *
+ * `startRun` is the one piece of this group that is not a pure read, and it is
+ * injected rather than constructed here: the queue, the runner client and the
+ * idempotency store are all assembled elsewhere, and a route group that builds its
+ * own would be a second way to start a run.
+ */
+if (databaseResources !== undefined) {
+  app.route(
+    '/',
+    createProjectsRoutes({
+      db: databaseResources.db as never,
+      workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+      viewFor: (repoPath) => fileSystemView(repoPath),
+      // The command's argv is **not** resolved here. `run.start` already checked
+      // the id against the stored profile, and resolving it again at this depth
+      // would be a second place where an executable could enter the system —
+      // which is precisely what `no-second-authority` is about.
+      startRun: async (input) => {
+        const created = await executionStore.create(
+          {
+            projectId: input.projectId,
+            timeoutMs: input.timeoutMs,
+            configuration: { commandId: input.commandId },
+          },
+          input.idempotencyKey,
+          runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+        );
+        return {
+          runId: created.run.id,
+          jobId: created.job.id,
+          phase: created.run.phase,
+        };
+      },
+    }),
+  );
+}
 app.route(
   '/',
   createEventsRoutes({

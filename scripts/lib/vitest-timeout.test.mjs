@@ -89,7 +89,16 @@ test('every vitest config carries a deliberate test timeout', () => {
     // by a comment, by an import that is never used, and by a config that sets a
     // literal 60000 instead of the shared constant — none of which is the thing
     // being asserted, and all of which still fall back to Vitest's 5s default.
-    return !/testTimeout:\s*STANDARD_TEST_TIMEOUT_MS/.test(source);
+    //
+    // **`standardVitestConfig(...)` is also accepted**, and is a *stronger* form of
+    // compliance than the literal: a package that delegates cannot drift from the
+    // shared value, whereas a package that copies it can — and did, which is why
+    // five configs were byte-identical clones. The matcher previously had a blind
+    // spot here and reported those five as violations of a rule they were obeying.
+    return (
+      !/testTimeout:\s*STANDARD_TEST_TIMEOUT_MS/.test(source) &&
+      !/defineConfig\(\s*standardVitestConfig\(/.test(source)
+    );
   });
   assert.deepEqual(
     unaccounted,

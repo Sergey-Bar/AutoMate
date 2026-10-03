@@ -4,6 +4,8 @@ import { DurableSpool, readOrCreateSpoolKey } from '@automate/runner-sdk';
 import { RunnerApiClient } from './client.js';
 import { parseRunnerConfig } from './config.js';
 import { PlaywrightExecutionAdapter } from './execution.js';
+import { RoutingExecutionAdapter } from './execution-router.js';
+import { GenericSpawnAdapter } from './generic-spawn.js';
 import { HealthServer } from './health-server.js';
 import { RunnerService } from './runner-service.js';
 
@@ -115,15 +117,25 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
     });
   }
 
-  const executor = new PlaywrightExecutionAdapter({
-    projectRoot: config.playwrightProjectRoot,
-    allowedProjects: config.allowedPlaywrightProjects,
-    allowedTargetUrls: config.allowedTargetUrls,
+  const genericExecutor = new GenericSpawnAdapter({
+    repoRoot: config.repoRoot,
     workspaceRoot: config.workspaceRoot,
     artifactMaxBytes: config.artifactMaxBytes,
     logMaxBytes: config.logMaxBytes,
     redactions: config.redactions,
   });
+  const executor = new RoutingExecutionAdapter(
+    genericExecutor,
+    new PlaywrightExecutionAdapter({
+      projectRoot: config.playwrightProjectRoot,
+      allowedProjects: config.allowedPlaywrightProjects,
+      allowedTargetUrls: config.allowedTargetUrls,
+      workspaceRoot: config.workspaceRoot,
+      artifactMaxBytes: config.artifactMaxBytes,
+      logMaxBytes: config.logMaxBytes,
+      redactions: config.redactions,
+    }),
+  );
   const spoolKey =
     config.spoolKey ?? (await readOrCreateSpoolKey(join(config.spoolRoot, 'spool.key')));
   const spool = await DurableSpool.open({

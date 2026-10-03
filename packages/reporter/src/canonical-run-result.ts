@@ -28,8 +28,17 @@
 
 import { CanonicalRunResultSchema, type CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerContext } from './adapter.js';
+import type { CanonicalStatus } from './producer-status.js';
 
-export type CanonicalStatus = CanonicalRunResult['status'];
+/**
+ * The status vocabulary, named once.
+ *
+ * Re-exported rather than redeclared: `producer-status.ts` owns the producer-to-canonical
+ * tables and declares the alias beside them, and two declarations of the same union are two
+ * things to widen. This module is the other half of the pair — the ladder that turns a list
+ * of statuses into a run's — so it names the same type rather than its own.
+ */
+export type { CanonicalStatus } from './producer-status.js';
 export type CanonicalAttempt = NonNullable<CanonicalRunResult['attempts']>[number];
 
 /**
@@ -46,8 +55,18 @@ export type CanonicalAttempt = NonNullable<CanonicalRunResult['attempts']>[numbe
  * `flaky` sits above `passed` and below `skipped`: a test that needed a retry
  * reached a verdict, but the verdict is not trustworthy, and calling that `passed` is
  * how a lucky run is reported as a green one.
+ *
+ * `running` is above all of them, and is not a severity at all — see the comment on the
+ * first rung.
  */
 export function runStatusFrom(outcomes: readonly CanonicalStatus[]): CanonicalStatus {
+  // `running` is checked **first**, and the order is the argument. It is not a weaker
+  // statement about the tests — it is a statement that there is no statement yet. A
+  // streaming uploader sends partial reports, so a run at its third failing test has both a
+  // real `failed` attempt and no verdict; reporting `failed` flips a still-green run red on
+  // the dashboard at the first flake, and the failures it has so far are already counted in
+  // the run's own counters.
+  if (outcomes.some((status) => status === 'running')) return 'running';
   if (outcomes.some((status) => status === 'failed' || status === 'timedOut')) return 'failed';
   if (outcomes.some((status) => status === 'unknown')) return 'unknown';
   if (outcomes.some((status) => status === 'cancelled')) return 'cancelled';
@@ -90,6 +109,17 @@ export interface CanonicalRunResultInput {
   provenance?: Record<string, unknown>;
   /** The whole result's evidence, when it is not simply every attempt's. */
   evidence?: CanonicalRunResult['evidence'];
+  /**
+   * The producer's document could not be parsed to its end.
+   *
+   * Forced to `completeness.state: 'unknown'`, and separate from "the report contained an
+   * unobserved test" because the two mean different things: the first says *we do not know
+   * what the producer would have sent next*, the second says *the producer told us a test
+   * had no outcome*. Both make the population untrustworthy and only one of them is the
+   * producer's fault, which is why `completeness` is the field that carries it and not
+   * `status`.
+   */
+  truncated?: boolean;
   /** The producer writing the result, e.g. `'playwright'` or `'junit'`. */
   producer: string;
   /** A human-readable name for this adapter, recorded in `proof.verifier`. */
@@ -152,6 +182,13 @@ export function canonicalRunResult(
       sourceDigest: context.sourceDigest,
       sourceUri: context.sourceUri,
       project: context.projectId,
+      // The cohort, when the producer's *job* knew it. A JUnit document carries no
+      // branch, so these come from the context rather than the file, and an absent one
+      // stays absent: a hand-uploaded report is not in a cohort and saying otherwise
+      // would put it in one.
+      branch: context.branch,
+      commitSha: context.commitSha,
+      environment: context.environment,
       ...input.provenance,
     },
     retention: { class: 'standard' },
@@ -161,7 +198,10 @@ export function canonicalRunResult(
       verifier: input.verifier,
     },
     completeness: {
-      state: hasUnknown ? 'unknown' : 'complete',
+      // A truncated document is unknown for a different reason than an unobserved test, and
+      // both mean the same thing to a reader: this population cannot be trusted as a
+      // complete account of the run.
+      state: input.truncated === true || hasUnknown ? 'unknown' : 'complete',
       missingShards: [],
       duplicateShards: [],
     },

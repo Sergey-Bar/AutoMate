@@ -7,8 +7,11 @@ import {
   RUN_CONTRACT_VERSION,
 } from '@automate/shared-contracts';
 import { createReporterRoutes, adaptLegacyEvent, type ReporterRouteOptions } from './reporter.js';
+import { junitXmlAdapter } from '@automate/reporter';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
-import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
+import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
+import { ReporterIngestionService } from '../services/reporter-ingestion.js';
+import { reporterHarness } from '../test-support/reporter-harness.js';
 
 // ---------------------------------------------------------------------------
 /**
@@ -45,8 +48,15 @@ function buildApp(
   return withErrorBoundary(createReporterRoutes(secret, options));
 }
 
+/**
+ * A repository and the canonical store behind it, as `index.ts` wires them.
+ *
+ * Both are required for an upload to land: the canonical row is the authority and the
+ * repository rows are its projection. A harness with only the repository answers
+ * `503 NOT_CONFIGURED` at the upload door — see `test-support/reporter-harness.ts`.
+ */
 function buildAppWithRepo(repo: InMemoryRunRepository, secret?: string): Hono {
-  return withErrorBoundary(createReporterRoutes(secret, { repository: repo }));
+  return reporterHarness(secret, { repository: repo }).app;
 }
 
 const LEGACY_EVENT = {
@@ -507,8 +517,27 @@ describe('adaptLegacyEvent', () => {
 // Reporter upload ingestion (JSON upload path)
 // ---------------------------------------------------------------------------
 
+/**
+ * The minimal producer context the JUnit adapter needs.
+ *
+ * Declared at module scope rather than inside the one test that uses it, because a
+ * `const` inside a test body is invisible to the next one and the next one will
+ * declare its own — which is how a file ends up with three producer contexts that
+ * differ in exactly the field nobody checked.
+ */
+const producerContext = {
+  workspaceId: 'ws',
+  runId: 'r',
+  sourceUri: 'x',
+  sourceDigest: 'f'.repeat(64),
+  producerVersion: '1',
+  adapterVersion: '1',
+  startedAt: '2026-09-25T00:00:00.000Z',
+};
+
 describe('Reporter routes — upload ingestion', () => {
   it('persists uploaded run and tests when repository is configured', async () => {
+    /** The minimal producer context the adapter needs; the run identity is irrelevant to a status. */
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -567,6 +596,7 @@ describe('Reporter routes — upload ingestion', () => {
     const app = withErrorBoundary(
       createReporterRoutes(undefined, {
         repository: repo,
+        canonicalStore: new ReporterIngestionService(DEFAULT_WORKSPACE_ID),
         artifactStore: {
           putAt: async (key, bytes) => {
             writes.push({ key, bytes });
@@ -577,7 +607,11 @@ describe('Reporter routes — upload ingestion', () => {
     const response = await app.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ runId: 'raw-upload', status: 'passed', tests: [] }),
+      body: JSON.stringify({
+        runId: 'raw-upload',
+        status: 'passed',
+        tests: [{ id: 't-1', title: 'a test', status: 'passed' }],
+      }),
     });
     expect(response.status).toBe(202);
     expect(writes).toHaveLength(1);
@@ -640,7 +674,10 @@ describe('Reporter routes — upload ingestion', () => {
         'Content-Type': 'application/json',
         Authorization: 'Bearer upload-secret',
       },
-      body: JSON.stringify({ runId: 'upload-run-003', tests: [] }),
+      body: JSON.stringify({
+        runId: 'upload-run-003',
+        tests: [{ id: 't-1', title: 'a test', status: 'passed' }],
+      }),
     });
     expect(authorized.status).toBe(202);
   });
@@ -788,9 +825,19 @@ describe('Reporter routes — upload ingestion', () => {
     // Playwright reports `timedOut`; it is stored in the one spelling the
     // database accepts, so the two can no longer be counted separately.
     expect(tests.some((t) => t.status === 'timed_out')).toBe(true);
-    expect(tests.some((t) => t.status === 'failed')).toBe(true);
     expect(tests.some((t) => t.status === 'skipped')).toBe(true);
     expect(tests.some((t) => t.status === 'queued')).toBe(true);
+    // **`interrupted` is not a failure.** The suite was stopped — Ctrl-C, a cancelled CI
+    // job, a global timeout — so the product produced no outcome at all. The upload door
+    // used to record it `failed` and the run's `failed` counter counted the harness's own
+    // interruptions as product defects. `cancelled` is the canonical non-product status for
+    // exactly this, and `tests` has no `cancelled` member, so it lands as unobserved.
+    expect(tests.some((t) => t.status === 'failed')).toBe(false);
+    expect(
+      tests.find((t) => t.title === 'interrupted test')?.status,
+      'an interrupted test is unobserved, not failed',
+    ).toBe('queued');
+    expect(run?.failed, 'only the timeout is a product failure').toBe(1);
   });
 
   it('stores a Playwright timeout under one spelling, whatever the reporter sends', async () => {
@@ -853,11 +900,32 @@ describe('Reporter routes — upload ingestion', () => {
     expect(tests).toHaveLength(3);
     const byTitle = new Map(tests.map((t) => [t.title, t.status]));
     expect(byTitle.get('smoke')).toBe('skipped');
-    expect(byTitle.get('api :: api error')).toBe('failed');
-    // The third testcase declares no status and carries no failure child, so
-    // it proves nothing. It used to be recorded as a pass.
-    expect(byTitle.get('ok')).toBe('queued');
-    expect(tests.some((t) => t.status === 'passed')).toBe(false);
+    // The title is the canonical one — the `<testcase name>` — and the `classname` is the
+    // canonical `suite`. The upload door concatenated them into `api :: api error`, which
+    // put a class name in the field the dashboard groups tests by and made the same test
+    // carry two different titles depending on which door it arrived through.
+    expect(byTitle.get('api error')).toBe('failed');
+    // The third testcase declares no `status` attribute and carries no outcome child —
+    // which is how every dialect of the format writes a **pass**. It was expected to
+    // be `queued`, on the reasoning that it "proves nothing"; but Surefire, Gradle,
+    // Jest, pytest, RSpec and PHPUnit all emit exactly this element for a test that
+    // ran and did not fail, and reading it as unobserved made every one of those
+    // ecosystems ingest as a run of unobserved tests.
+    expect(byTitle.get('ok')).toBe('passed');
+    // The property this assertion was protecting survives on the input that warrants
+    // it: an **undeclared `status` attribute** still fails closed to `unknown`,
+    // rather than defaulting to a pass. Asserted through a parse rather than
+    // through `TestStatus`, because the projected column's type has no `unknown`
+    // member and widening it would be a lie.
+    expect(
+      junitXmlAdapter.parse(
+        new TextEncoder().encode(
+          '<testsuite><testcase name="mystery" status="not-a-status"/></testsuite>',
+        ),
+        { ...producerContext, startedAt: new Date().toISOString() },
+      ).status,
+    ).toBe('unknown');
+    expect(byTitle.get('ok')).toBe('passed');
   });
 
   it('rejects a JUnit body past its own size cap instead of parsing it', async () => {
@@ -880,9 +948,10 @@ describe('Reporter routes — upload ingestion', () => {
     expect(await repo.getRun('junit-oversize')).toBeNull();
   });
 
-  it('scans malformed JUnit markup deterministically', async () => {
+  it('parses a malformed JUnit document as far as it goes, and marks what it could not finish', async () => {
     const repo = new InMemoryRunRepository();
-    const app = buildAppWithRepo(repo);
+    const harness = reporterHarness(undefined, { repository: repo });
+    const app = harness.app;
 
     const upload = async (runId: string, xml: string): Promise<Response> => {
       const form = new FormData();
@@ -892,8 +961,10 @@ describe('Reporter routes — upload ingestion', () => {
       return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
     };
 
-    // An unterminated element swallows the remainder and the request still
-    // terminates, instead of rescanning the tail for every opener.
+    // An unterminated element still terminates the request, instead of rescanning the tail
+    // for every opener. The testcase that was open when the document stopped did run, so
+    // it is recorded — and the result is marked `completeness: 'unknown'`, because a
+    // document cut short cannot have said what the rest of the run did.
     const unterminated = await upload(
       'junit-unterminated',
       '<testsuite><testcase name="a" time="0.1"><testcase name="b" time="0.2">',
@@ -901,7 +972,12 @@ describe('Reporter routes — upload ingestion', () => {
     expect(unterminated.status).toBe(202);
     const unterminatedTests = await repo.listTests('junit-unterminated');
     expect(unterminatedTests).toHaveLength(1);
-    expect(unterminatedTests[0]?.title).toBe('a');
+    expect(unterminatedTests[0]?.title).toBe('b');
+    const unterminatedResult = await harness.store.get('junit-unterminated');
+    expect(
+      unterminatedResult?.completeness.state,
+      'a document the parser could not finish is not a complete account of the run',
+    ).toBe('unknown');
 
     // A tag whose name merely starts with `testcase` is not a testcase.
     const lookalike = await upload(
@@ -913,15 +989,15 @@ describe('Reporter routes — upload ingestion', () => {
     expect(lookalikeTests).toHaveLength(1);
     expect(lookalikeTests[0]?.title).toBe('real');
 
-    // An encoded `>` inside an attribute value must not truncate the element.
-    // This hand-rolled scanner does not decode entities, so the raw text is
-    // preserved verbatim — which is what proves the element was not split.
+    // An encoded `>` inside an attribute value must not truncate the element. A real XML
+    // parser *decodes* the entity, so the stored title is the decoded `a > b` — which is
+    // what proves the element was one element and the `>` did not split it.
     const quoted = await upload(
       'junit-quoted',
       '<testsuite><testcase name="a &gt; b" classname="pkg.Cls" time="0.1" /></testsuite>',
     );
     expect(quoted.status).toBe(202);
-    expect((await repo.listTests('junit-quoted'))[0]?.title).toBe('pkg.Cls :: a &gt; b');
+    expect((await repo.listTests('junit-quoted'))[0]?.title).toBe('a > b');
 
     // Entity-bearing and deeply repeated markup must not expand or recurse.
     const bomb = await upload(
@@ -933,7 +1009,7 @@ describe('Reporter routes — upload ingestion', () => {
     expect(bomb.status).toBe(202);
   });
 
-  it('keeps run open when upload status is running and honors summary override', async () => {
+  it('keeps a streaming run open, and counts only what its rows show', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -943,13 +1019,11 @@ describe('Reporter routes — upload ingestion', () => {
       body: JSON.stringify({
         runId: 'upload-running-001',
         status: 'running',
-        summary: {
-          total: 10,
-          passed: 9,
-          failed: 1,
-          flaky: 0,
-          skipped: 0,
-        },
+        // **The declared summary no longer overrides the rows.** It used to be read as
+        // `summary?.failed ?? derived.failed`, so a partial report could declare ten tests
+        // and nine passes and have that written over what its single row showed. A summary
+        // is a claim about the rows, and the run's counters are a count of the rows.
+        summary: { total: 10, passed: 9, failed: 1 },
         tests: [
           {
             id: 'r-1',
@@ -965,11 +1039,17 @@ describe('Reporter routes — upload ingestion', () => {
     expect(res.status).toBe(202);
     const run = await repo.getRun('upload-running-001');
     expect(run).not.toBeNull();
+    // `status: 'running'` is honoured, and it is now a state the canonical row can also
+    // express — before `running` entered the canonical vocabulary the only way to say it
+    // was `runs.status`, so the projection and the authority disagreed about every
+    // streaming run.
     expect(run?.status).toBe('running');
+    expect(run?.phase).toBe('running');
+    expect(run?.outcome).toBeNull();
     expect(run?.finishedAt).toBeNull();
-    expect(run?.total).toBe(10);
-    expect(run?.passed).toBe(9);
-    expect(run?.failed).toBe(1);
+    expect(run?.total).toBe(1);
+    expect(run?.passed).toBe(0);
+    expect(run?.failed).toBe(0);
   });
 });
 
@@ -978,7 +1058,7 @@ describe('Reporter routes — upload ingestion', () => {
 // ---------------------------------------------------------------------------
 
 describe('Reporter upload — status derivation without an explicit status', () => {
-  it('never defaults a status-less JSON upload to passed when it carries no tests', async () => {
+  it('refuses a status-less JSON upload that carries no tests', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -988,14 +1068,22 @@ describe('Reporter upload — status derivation without an explicit status', () 
       body: JSON.stringify({ runId: 'derive-empty-json' }),
     });
 
-    expect(res.status).toBe(202);
+    // **Refused, not recorded as `interrupted`.** This used to persist a run row with
+    // zero tests so the dashboard could show that a job had produced nothing — which is
+    // not what a row with no evidence can tell you, and `interrupted` on a run that
+    // reported zero attempts is a claim about a run nobody observed. A report with no
+    // observable attempt has observed nothing, and inventing an attempt for it would
+    // record a test that never ran.
+    //
+    // The producer sees a non-2xx and its CI fails loudly, which is the difference between
+    // this and silently filing it. `CanonicalRunResultSchema` requires at least one attempt
+    // for the same reason.
+    expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorBody;
-    expect(body['ingestedTests']).toBe(0);
-
-    const run = await repo.getRun('derive-empty-json');
-    expect(run?.status).toBe('interrupted');
-    expect(run?.status).not.toBe('passed');
-    expect(run?.total).toBe(0);
+    // The refusal names the cause. "Invalid reporter upload payload" was the answer to
+    // every malformed report this door ever produced, and it is not actionable.
+    expect(body.error.details['adapterMessage']).toContain('no test rows');
+    expect(await repo.getRun('derive-empty-json')).toBeNull();
   });
 
   it('derives passed for a status-less JSON upload that has real passing evidence', async () => {
@@ -1109,13 +1197,23 @@ describe('Reporter upload — status derivation without an explicit status', () 
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
+    // A declared `passed` with no evidence is downgraded, not honoured: the claim goes onto
+    // the same ladder as the rows and cannot outrank them.
     await app.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runId: 'explicit-passed-no-tests', status: 'passed', tests: [] }),
+      body: JSON.stringify({
+        runId: 'explicit-passed-no-evidence',
+        status: 'passed',
+        tests: [{ id: 'd-1', title: 'never resolved', file: 'a.spec.ts', status: 'queued' }],
+      }),
     });
-    expect((await repo.getRun('explicit-passed-no-tests'))?.status).toBe('interrupted');
+    expect((await repo.getRun('explicit-passed-no-evidence'))?.status).toBe('interrupted');
 
+    // A declared `interrupted` — the harness stopped the run — lands on `cancelled` in the
+    // canonical vocabulary, which the projection reads as "evidence without a verdict". A
+    // declared `running` keeps the run open; that state now exists canonically too, which
+    // it did not before this change.
     await app.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1125,9 +1223,35 @@ describe('Reporter upload — status derivation without an explicit status', () 
         tests: [{ id: 'd-1', title: 'a', file: 'a.spec.ts', status: 'passed' }],
       }),
     });
-    expect((await repo.getRun('explicit-interrupted-with-passing-tests'))?.status).toBe(
-      'interrupted',
-    );
+    const interrupted = await repo.getRun('explicit-interrupted-with-passing-tests');
+    expect(interrupted?.status).toBe('interrupted');
+    expect(interrupted?.outcome).toBe('cancelled');
+
+    await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        runId: 'explicit-running-with-passing-tests',
+        status: 'running',
+        tests: [{ id: 'd-1', title: 'a', file: 'a.spec.ts', status: 'passed' }],
+      }),
+    });
+    expect((await repo.getRun('explicit-running-with-passing-tests'))?.status).toBe('running');
+  });
+
+  it('refuses a declared run that carries no rows at all', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+    const res = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: 'explicit-passed-no-tests', status: 'passed', tests: [] }),
+    });
+    // A run with no observable attempt has observed nothing, and a status declared beside
+    // it does not make it observable. This used to persist `interrupted` — a claim about a
+    // run nobody watched.
+    expect(res.status).toBe(400);
+    expect(await repo.getRun('explicit-passed-no-tests')).toBeNull();
   });
 });
 
@@ -1146,7 +1270,7 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
     return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
   }
 
-  it('persists an empty Playwright report as non-green, never passed', async () => {
+  it('refuses an empty Playwright report rather than filing it as a run', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -1154,13 +1278,14 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
       suites: [null, { title: 'Empty', file: 'tests/empty.spec.ts', specs: [null] }],
     });
 
-    expect(res.status).toBe(202);
+    // The document parsed; it had nothing in it. `interrupted` on a run with zero attempts
+    // is a claim about a run nobody observed, and `total: 0` beside it makes the row
+    // unreadable rather than non-green. The refusal is the honest answer, and the producer
+    // sees a non-2xx so its CI fails loudly instead of filing it.
+    expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorBody;
-    expect(body['ingestedTests']).toBe(0);
-
-    const run = await repo.getRun('pw-empty');
-    expect(run?.status).toBe('interrupted');
-    expect(run?.total).toBe(0);
+    expect(body.error.details['adapterMessage']).toContain('no test attempts');
+    expect(await repo.getRun('pw-empty')).toBeNull();
     expect(await repo.listTests('pw-empty')).toHaveLength(0);
   });
 
@@ -1174,12 +1299,18 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
           title: 'Auth',
           file: 'tests/auth.spec.ts',
           specs: [
-            { title: 'never executed', tests: [{ results: [] }, { projectName: 'firefox' }, null] },
+            {
+              title: 'never executed',
+              tests: [{ results: [] }, { projectName: 'firefox' }, null],
+            },
           ],
         },
       ],
     });
 
+    // A spec that declared tests but reported no result for them has one unobserved test
+    // each, and a report with one unobserved test is a run with no verdict. `queued` is
+    // this table's word for "declared, no outcome", and it is not `passed`.
     expect(res.status).toBe(202);
     const tests = await repo.listTests('pw-no-results');
     expect(tests).toHaveLength(2);
@@ -1189,9 +1320,9 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
     expect(run?.status).toBe('interrupted');
   });
 
-  it('preserves every Playwright attempt instead of only the last one', async () => {
-    const repo = new InMemoryRunRepository();
-    const app = buildAppWithRepo(repo);
+  it('collapses a retry into one test row, and records the run as flaky', async () => {
+    const harness = reporterHarness(undefined);
+    const app = harness.app;
 
     const res = await uploadPlaywright(app, 'pw-retries', {
       suites: [
@@ -1217,21 +1348,40 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
 
     expect(res.status).toBe(202);
     const body = (await res.json()) as ErrorBody;
-    expect(body['ingestedTests']).toBe(2);
-    expect(body['status']).toBe('failed');
+    // **One test, one row.** The upload door wrote a `tests` row per *attempt*, so a test
+    // that failed once and passed on retry appeared twice in the dashboard and pushed
+    // `runs.total` to 2 for a single test. `runStatusFrom` already said a retry history is
+    // not a set of independent tests; the projection now agrees with it.
+    expect(body['ingestedTests']).toBe(1);
+    expect(body['canonicalStatus']).toBe('flaky');
 
-    const tests = await repo.listTests('pw-retries');
-    expect(tests).toHaveLength(2);
-    expect(new Set(tests.map((t) => t.id)).size).toBe(2);
-    const failed = tests.find((t) => t.status === 'failed');
-    expect(failed?.durationMs).toBe(1200);
-    expect(tests.some((t) => t.status === 'passed' && t.durationMs === 300)).toBe(true);
+    const tests = await harness.runs.listTests('pw-retries');
+    expect(tests).toHaveLength(1);
+    // The retry is not erased by collapsing it: the row is `flaky`, because the verdict
+    // exists and is not one a release should be read from. Recording `passed` here is the
+    // failure this product exists to prevent.
+    expect(tests[0]?.status).toBe('flaky');
+    // The last attempt's own duration, because the row is the test's final state.
+    expect(tests[0]?.durationMs).toBe(300);
 
-    const run = await repo.getRun('pw-retries');
-    expect(run?.status).toBe('failed');
-    expect(run?.total).toBe(2);
-    expect(run?.failed).toBe(1);
-    expect(run?.passed).toBe(1);
+    const run = await harness.runs.getRun('pw-retries');
+    // A flaky run is not a pass and not a product failure: `phase: 'partial'` is the
+    // vocabulary's own name for "evidence without a terminal verdict", which keeps it on
+    // `interrupted` in the four-value `runs.status`.
+    expect(run?.status).toBe('interrupted');
+    expect(run?.phase).toBe('partial');
+    expect(run?.total).toBe(1);
+    expect(run?.flaky).toBe(1);
+    expect(run?.failed).toBe(0);
+    expect(run?.passed).toBe(0);
+
+    // **And both attempts are still in the authority**, which is the whole point of
+    // collapsing rather than discarding: the projection is one row per test, and the
+    // canonical row keeps the retry history the projection summarised.
+    const stored = await harness.store.get('pw-retries');
+    expect(stored?.attempts.map((attempt) => attempt.status)).toEqual(['failed', 'passed']);
+    expect(stored?.attempts.map((attempt) => attempt.index)).toEqual([1, 2]);
+    expect(stored?.attempts.every((attempt) => attempt.flakiness === 'observed')).toBe(true);
   });
 
   it('preserves every test entry of a multi-project Playwright spec', async () => {
@@ -1259,8 +1409,12 @@ describe('Reporter upload — Playwright artifact status derivation', () => {
     const tests = await repo.listTests('pw-projects');
     expect(tests).toHaveLength(2);
     expect(new Set(tests.map((t) => t.id)).size).toBe(2);
-    expect(tests.some((t) => t.title === 'Checkout > pays on chromium')).toBe(true);
-    expect(tests.some((t) => t.title === 'Checkout > pays on firefox')).toBe(true);
+    // The title is the canonical one — the test's own title. The upload door prefixed it
+    // with the suite path (`Checkout > pays on chromium`), which put a hierarchy in a field
+    // the dashboard groups by `file` and made the same test carry two titles depending on
+    // which door it arrived through. The suite is a separate canonical field.
+    expect(tests.some((t) => t.title === 'pays on chromium')).toBe(true);
+    expect(tests.some((t) => t.title === 'pays on firefox')).toBe(true);
 
     const run = await repo.getRun('pw-projects');
     expect(run?.status).toBe('passed');
@@ -1331,7 +1485,7 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
     return app.request('/api/v1/reporter/upload', { method: 'POST', body: form });
   }
 
-  it('persists an empty JUnit report (no testcases) as non-green, never passed', async () => {
+  it('refuses an empty JUnit report rather than filing it as a run', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);
 
@@ -1341,13 +1495,15 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
       '<testsuites tests="0" failures="0"></testsuites>',
     );
 
-    expect(res.status).toBe(202);
+    // Zero `<testcase>` elements is not a run that failed or was interrupted; it is a
+    // report with nothing in it, and the two answers have different remedies. This used to
+    // persist `interrupted` with `total: 0` — a row whose only content was the absence of
+    // anything — and refused is what `CanonicalRunResultSchema`'s `min(1)` on `attempts`
+    // already meant.
+    expect(res.status).toBe(400);
     const body = (await res.json()) as ErrorBody;
-    expect(body['ingestedTests']).toBe(0);
-
-    const run = await repo.getRun('junit-empty');
-    expect(run?.status).toBe('interrupted');
-    expect(run?.total).toBe(0);
+    expect(body.error.details['adapterMessage']).toContain('no test cases');
+    expect(await repo.getRun('junit-empty')).toBeNull();
     expect(await repo.listTests('junit-empty')).toHaveLength(0);
   });
 
@@ -1362,12 +1518,23 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
         '<testcase name="ok" file="a.spec.ts" time="0.1" /></testsuite>',
     );
 
-    // A bare <testcase> used to be recorded as a pass, so the whole report went
-    // green on nothing but the reporter's own optimism.
+    // **This expectation was `interrupted`, and that was wrong.** The comment above
+    // it said "a bare `<testcase>` used to be recorded as a pass, so the whole report
+    // went green on nothing but the reporter's own optimism" — and the fix over-
+    // corrected. A complete, attribute-less `<testcase>` is how every dialect of the
+    // format writes a **pass**: Surefire, Gradle, Jest, pytest, RSpec and PHPUnit all
+    // do. Reading it as `unknown` made every Maven, Gradle, Jest, pytest and RSpec run
+    // ingest as a run of unobserved tests, so the QA score read those repositories as
+    // having no tests at all.
+    //
+    // The property that comment was protecting is preserved on the input that
+    // actually warrants it: a document cut short mid-element cannot report a pass, and
+    // `packages/reporter/src/junit.test.ts` asserts exactly that, at both the
+    // adapter and the route.
     expect(res.status).toBe(202);
     const run = await repo.getRun('junit-clean');
-    expect(run?.status).toBe('interrupted');
-    expect(run?.passed).toBe(0);
+    expect(run?.status).toBe('passed');
+    expect(run?.passed).toBe(1);
   });
 
   it('keeps an all-skipped JUnit report non-green', async () => {
@@ -1387,20 +1554,36 @@ describe('Reporter upload — JUnit artifact status derivation', () => {
 });
 
 describe('Reporter upload — derived status is broadcast', () => {
-  it('publishes the derived non-green status for an evidence-free upload', async () => {
-    const repo = new InMemoryRunRepository();
-    const bus = new InMemoryRealtimeBus();
-    const app = withErrorBoundary(createReporterRoutes(undefined, { repository: repo, bus }));
+  it('publishes the projected status for a run that lands', async () => {
+    const harness = reporterHarness(undefined);
 
-    await app.request('/api/v1/reporter/upload', {
+    await harness.app.request('/api/v1/reporter/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ runId: 'derive-broadcast-001' }),
+      body: JSON.stringify({
+        runId: 'derive-broadcast-001',
+        tests: [{ id: 'd-1', title: 'never resolved', file: 'a.spec.ts', status: 'queued' }],
+      }),
     });
 
-    expect(bus.published).toHaveLength(1);
-    expect(bus.published[0]?.runId).toBe('derive-broadcast-001');
-    expect(bus.published[0]?.status).toBe('interrupted');
+    // One event, carrying the *projected* status — the same four-value narrowing the
+    // dashboard reads, not the canonical one. Broadcasting the canonical status here would
+    // tell every subscriber a state `RunEventEnvelope` does not have.
+    expect(harness.bus.published).toHaveLength(1);
+    expect(harness.bus.published[0]?.runId).toBe('derive-broadcast-001');
+    expect(harness.bus.published[0]?.status).toBe('interrupted');
+  });
+
+  it('broadcasts nothing for a run it refuses', async () => {
+    const harness = reporterHarness(undefined);
+    const res = await harness.app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runId: 'derive-broadcast-002' }),
+    });
+    expect(res.status).toBe(400);
+    // A subscriber that saw an event for this run would render a run that does not exist.
+    expect(harness.bus.published).toHaveLength(0);
   });
 });
 

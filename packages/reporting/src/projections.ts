@@ -1,6 +1,6 @@
 import type { CanonicalRunResult as RunResult } from '@automate/shared-contracts';
 import { CanonicalStatusSchema } from '@automate/shared-contracts';
-import { fingerprint, NON_PRODUCT_STATUSES } from './policy.js';
+import { countIndeterminate, fingerprint, NON_PRODUCT_STATUSES } from './policy.js';
 
 export interface RunSummary {
   id: string;
@@ -17,7 +17,7 @@ export interface RunSummary {
   skipped: number;
   timedOut: number;
   cancelled: number;
-  unknown: number;
+  unknown: unknown;
   /** Non-product outcomes (blocked, configFailed, infraFailed, runnerFailed). */
   nonProduct: number;
   /** Every canonical status, including the non-product taxonomy values. */
@@ -30,6 +30,7 @@ export function projectRunSummary(result: RunResult): RunSummary {
   const counts: Record<RunResult['status'], number> = Object.fromEntries(
     CanonicalStatusSchema.options.map((status) => [status, 0]),
   ) as Record<RunResult['status'], number>;
+  const unknown = countIndeterminate(result.attempts);
   let total = 0;
   for (const attempt of result.attempts) {
     total += 1;
@@ -50,7 +51,8 @@ export function projectRunSummary(result: RunResult): RunSummary {
     skipped: counts.skipped,
     timedOut: counts.timedOut,
     cancelled: counts.cancelled,
-    unknown: counts.unknown,
+    // By classification, not `counts.unknown` — see `countIndeterminate`.
+    unknown,
     nonProduct: NON_PRODUCT_STATUSES.reduce((total, status) => total + counts[status], 0),
     byStatus: counts,
     completeness: result.completeness.state,

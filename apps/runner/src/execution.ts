@@ -40,6 +40,18 @@ export interface ExecutionContext {
   outputDirectory?: string;
   targetUrl?: string;
   project?: string;
+  /**
+   * The declared argv, when the job is a generic run.
+   *
+   * Declared on the shared context rather than on `GenericSpawnAdapter` alone so
+   * `RoutingExecutionAdapter` can read one shape and dispatch on it. Playwright
+   * ignores it; `GenericSpawnAdapter` requires it. Its type is deliberately
+   * `unknown` here — `execution.ts` is the module `generic-spawn.ts` imports, and
+   * naming `GenericCommand` would make that import a cycle.
+   */
+  command?: unknown;
+  /** The Playwright project, when the job is a browser run. */
+  playwrightProject?: string;
   deadlineMs: number;
   signal: AbortSignal;
   onEvent?: (event: z.infer<typeof eventLineSchema>) => Promise<void>;

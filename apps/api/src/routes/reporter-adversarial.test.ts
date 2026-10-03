@@ -2,6 +2,9 @@ import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { describe, expect, it } from 'vitest';
 import { createReporterRoutes } from './reporter.js';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
+import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
+import { ReporterIngestionService } from '../services/reporter-ingestion.js';
+import { reporterHarness } from '../test-support/reporter-harness.js';
 import { syntheticReporterSecret } from '../test-support/synthetic-credentials.js';
 
 /**
@@ -43,8 +46,8 @@ async function upload(
   headers: Record<string, string> = { ...JSON_HEADERS, authorization: `Bearer ${SECRET}` },
 ) {
   const repository = new InMemoryRunRepository();
-  const app = withErrorBoundary(createReporterRoutes(SECRET, { repository }));
-  const response = await app.request('/api/v1/reporter/upload', {
+  const harness = reporterHarness(SECRET, { repository });
+  const response = await harness.app.request('/api/v1/reporter/upload', {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -58,14 +61,14 @@ async function storedRun(repository: InMemoryRunRepository, runId: string) {
 }
 
 describe('an upload with no evidence is never green', () => {
-  it('is not green when it carries no tests at all', async () => {
+  it('refuses a body that carries no tests at all', async () => {
     const { response } = await upload(validUpload({ tests: [] }));
-    expect(response.status).toBe(202);
-    // `interrupted` is the honest landing spot: the run status vocabulary has no
-    // `unknown`, and `passed` for a run that executed nothing is a lie a gate
-    // would then believe.
-    const body = (await response.json()) as { status: string };
-    expect(body.status).toBe('interrupted');
+    // **Refused, not filed as `interrupted`.** Both are non-green, but a run row with
+    // `total: 0` and a status is a claim about a run nobody observed, and a client
+    // reading `interrupted` concludes the job ran and was cut off. Nothing ran. The
+    // producer gets a non-2xx and its CI fails loudly, which is the point of refusing.
+    // `CanonicalRunResultSchema` requires at least one attempt for the same reason.
+    expect(response.status).toBe(400);
   });
 
   it('is not green when every test was skipped', async () => {
@@ -114,8 +117,10 @@ describe('an upload with no evidence is never green', () => {
       validUpload({ tests: [], summary: { total: 10, passed: 10, failed: 0 } }),
     );
     // The most direct attack in this file: declare ten passing tests and attach
-    // none. `passed` here would be a green build invented entirely by the client.
-    expect(((await response.json()) as { status: string }).status).toBe('interrupted');
+    // none. `passed` here would be a green build invented entirely by the client; an
+    // `interrupted` run row would be a run row invented entirely by the client too. It
+    // is refused, and the summary is not read at all.
+    expect(response.status).toBe(400);
   });
 });
 
@@ -129,18 +134,25 @@ describe('a declared status is honoured, but a declared pass is not trusted', ()
     expect(((await response.json()) as { status: string }).status).toBe('failed');
   });
 
-  it('honours a declared non-green state with no tests at all', async () => {
+  it('honours a declared non-green state, over rows that say otherwise', async () => {
     // The persisted vocabulary is `running`, `passed`, `failed`, `interrupted`.
     // `queued` is a *test* status and the column's default, not something a client
     // may declare for a finished run.
-    for (const status of ['failed', 'interrupted', 'running']) {
-      const { response } = await upload(validUpload({ status, tests: [] }));
+    for (const status of ['failed', 'interrupted', 'running'] as const) {
+      const { response } = await upload(
+        validUpload({ status, tests: [{ id: 't-1', title: 'a', status: 'passed' }] }),
+      );
       expect(((await response.json()) as { status: string }).status, status).toBe(status);
     }
   });
 
   it('downgrades a declared pass that the rows do not support', async () => {
-    const { response } = await upload(validUpload({ status: 'passed', tests: [] }));
+    const { response } = await upload(
+      validUpload({
+        status: 'passed',
+        tests: [{ id: 't-1', title: 'a', status: 'queued' }],
+      }),
+    );
     // The single most important line in this file. A client that says `passed` with
     // nothing behind it is refused the pass, and the reason is not "the client is
     // lying" but "there is no evidence to check it against".
@@ -249,7 +261,9 @@ describe('malformed and hostile bodies', () => {
     // the right fix and is a contract change, not a test assertion. What is
     // asserted here is that nothing is silently corrupted on the way through.
     const longRunId = `r${'x'.repeat(200_000)}`;
-    const { repository, response } = await upload(validUpload({ runId: longRunId, tests: [] }));
+    const { repository, response } = await upload(
+      validUpload({ runId: longRunId, tests: [{ id: 't-1', title: 'a', status: 'passed' }] }),
+    );
     expect(response.status).toBe(202);
     const stored = await repository.getRun(longRunId);
     expect(stored?.id, 'the run id round-tripped exactly').toBe(longRunId);
@@ -336,7 +350,10 @@ describe('the composition is the real one', () => {
 
   it('mounts into a prefix without changing any path', async () => {
     const repository = new InMemoryRunRepository();
-    const routes = createReporterRoutes(SECRET, { repository });
+    const routes = createReporterRoutes(SECRET, {
+      repository,
+      canonicalStore: new ReporterIngestionService(DEFAULT_WORKSPACE_ID),
+    });
     const mounted = withErrorBoundary(routes);
     const response = await mounted.request('/api/v1/reporter/upload', {
       method: 'POST',

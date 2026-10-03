@@ -122,6 +122,62 @@ export const runners = pgTable(
   ],
 );
 
+// ─── projects ────────────────────────────────────────────────────────────────
+// Source: projects table — the registry of repositories a run can be executed
+// against. Declared here rather than in `schema/execution.ts`, where it lived
+// until migration 0023, because `runs.project_id` (below) now carries a foreign
+// key to it and `execution.ts` already imports this module: declaring it there
+// would have made the two import each other.
+export const projects = pgTable(
+  'projects',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    // Where the repository lives on this host, as an absolute path.
+    //
+    // This is the column that turns the table from a label into a registry. Until
+    // 0023 a row carried a name, a slug and a free-text `settings` blob — and
+    // `runs.project_id` pointed at it — so a run named an id that resolved to
+    // nothing executable and nothing explainable. The detector reads this path;
+    // the runner spawns with it as `cwd`; and `score()` never trusts it without
+    // re-reading the manifests, because a path is a claim and a manifest is
+    // evidence.
+    repoPath: text('repo_path'),
+    // The last detection proposal, verbatim, as `ProjectProfile`.
+    //
+    // A **proposal**, never the authority: a checked-in `automate.config.json`
+    // overrides it, and the run records which one ran in `runs.configuration`, so
+    // a run can always be explained. JSONB rather than columns because the shape
+    // is the detector's, and the detector's shape is versioned beside it.
+    profile: jsonb('profile').$type<Record<string, unknown>>().notNull().default({}),
+    // Which detector wrote `profile`.
+    //
+    // `NOT NULL` with a default of 1, and the default is only correct for a row
+    // that has never been detected — which is the state `{ profile: {} }` also
+    // describes. A profile written by detector 2 can therefore never be read as
+    // detector 1's shape, which is the requirement stated as a constraint rather
+    // than as a convention somebody has to remember.
+    detectorVersion: integer('detector_version').notNull().default(1),
+    defaultBranch: text('default_branch'),
+    repositoryUrl: text('repository_url'),
+    settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('projects_workspace_slug_unique').on(table.workspaceId, table.slug),
+    index('projects_workspace_idx').on(table.workspaceId),
+    // A detector version of zero or below is not a version, and the database is
+    // the only place that can refuse it for a row written by a client that did
+    // not read this comment.
+    check('projects_detector_version_check', sql`${table.detectorVersion} >= 1`),
+  ],
+);
+
 // ─── runs ──────────────────────────────────────────────────────────────────
 // Source: runs table — core run record
 export const runs = pgTable(
@@ -162,7 +218,14 @@ export const runs = pgTable(
     framework: text('framework'),
     adapterVersion: text('adapter_version'),
     testType: text('test_type'),
-    projectId: uuid('project_id'),
+    // Added in 0023. The column was a bare uuid for the whole life of migration
+    // 0003: any value was accepted, so a run could be attributed to a project that
+    // does not exist and nothing recorded that the attribution was invented.
+    // `set null` rather than `restrict` — a run is evidence and outlives the
+    // registry row, but it must stop claiming a project that is gone.
+    projectId: uuid('project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'set null',
+    }),
     environmentId: uuid('environment_id'),
     releaseId: uuid('release_id'),
     suite: text('suite'),
@@ -523,22 +586,51 @@ export const schedules = pgTable('schedules', {
 
 // ─── quality gate config ───────────────────────────────────────────────────
 // Source: quality_gate_config table — global + per-workspace quality gate thresholds
-export const qualityGateConfig = pgTable('quality_gate_config', {
-  id: text('id').primaryKey().default('global'),
-  workspaceId: text('workspace_id'),
-  // The gate's own display name. It used to be stored in `workspace_id` and read
-  // back out of it, which scoped every created gate to a workspace that did not
-  // exist and made the scoping column carry a free-text label. Migration 0012
-  // moved it here and recovered the names it had swallowed.
-  name: text('name').notNull().default('Unnamed gate'),
-  // SQLite: real('pass_rate_threshold').notNull().default(100)
-  passRateThreshold: real('pass_rate_threshold').notNull().default(100),
-  maxDurationMs: integer('max_duration_ms'),
-  maxFlakyCount: integer('max_flaky_count'),
-  maxQuarantinePercent: real('max_quarantine_percent'),
-  // SQLite: text('updated_at').notNull()
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
-});
+export const qualityGateConfig = pgTable(
+  'quality_gate_config',
+  {
+    id: text('id').primaryKey().default('global'),
+    workspaceId: text('workspace_id'),
+    /**
+     * The project this gate governs, added in 0024.
+     *
+     * **A column, not a second thresholds table** — plan task 9. The table is
+     * already read and written by the gate evaluation path, so a
+     * `project_thresholds` table would have had neither for as long as it existed,
+     * and would have left two places answering "what is this project's pass-rate
+     * threshold", of which one is the answer nobody reads.
+     *
+     * `NULL` is the workspace-wide default gate, which is why this is nullable for
+     * the same reason `workspace_id` above is. A row with `project_id IS NULL` is
+     * the fallback for every project that has not declared its own.
+     *
+     * `cascade`, which is the opposite of `runs.project_id`'s `set null`: a run is
+     * evidence and outlives the registry entry, while a threshold *about* a
+     * project describes nothing once the project is gone.
+     */
+    projectId: uuid('project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'cascade',
+    }),
+    // The gate's own display name. It used to be stored in `workspace_id` and read
+    // back out of it, which scoped every created gate to a workspace that did not
+    // exist and made the scoping column carry a free-text label. Migration 0012
+    // moved it here and recovered the names it had swallowed.
+    name: text('name').notNull().default('Unnamed gate'),
+    // SQLite: real('pass_rate_threshold').notNull().default(100)
+    passRateThreshold: real('pass_rate_threshold').notNull().default(100),
+    maxDurationMs: integer('max_duration_ms'),
+    maxFlakyCount: integer('max_flaky_count'),
+    maxQuarantinePercent: real('max_quarantine_percent'),
+    // SQLite: text('updated_at').notNull()
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  // Added in 0024, alongside the column: the gate reader filters on
+  // `(workspace_id, project_id)` and had no index at all, so a per-project lookup
+  // scanned every gate row in the install.
+  (table) => [
+    index('quality_gate_config_workspace_project_idx').on(table.workspaceId, table.projectId),
+  ],
+);
 
 // ─── defect categories ─────────────────────────────────────────────────────
 // Source: defect_categories table — named defect categories

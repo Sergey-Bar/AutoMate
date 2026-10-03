@@ -57,6 +57,21 @@ const StatusSchema = z.enum([
   'skipped',
   'timedOut',
   'unknown',
+  /**
+   * The run is still going.
+   *
+   * It is here because the product's own upload door has always accepted it — a reporter
+   * SDK streams partial uploads and says so — and it was being smuggled in as
+   * `runs.status = 'running'` while the canonical row said the run had reached a verdict
+   * derived from whatever tests had reported so far. So a streaming uploader's dashboard row
+   * went red at the first failure of a run that was still passing, and the canonical row
+   * and the projection disagreed about the same run.
+   *
+   * `policy.ts` classifies it as indeterminate, which is what it is: no outcome has been
+   * produced. Additive, so a reader of contract v2 without this member still parses every
+   * result it could before.
+   */
+  'running',
   'cancelled',
   // Non-product outcomes stay distinct from a product failure.
   'blocked',
@@ -97,13 +112,52 @@ const AttemptSchema = z.object({
   flakiness: z.enum(['unknown', 'observed']).default('unknown'),
 });
 const ProvenanceSchema = z.object({
-  producer: z.enum(['playwright', 'junit', 'robot', 'k6', 'sarif', 'otel', 'generic', 'legacy']),
+  producer: z.enum([
+    'playwright',
+    'junit',
+    'robot',
+    'k6',
+    'zap',
+    'sarif',
+    'otel',
+    'generic',
+    'legacy',
+  ]),
   producerVersion: z.string().min(1),
   adapterVersion: z.string().min(1),
   sourceDigest: DigestSchema,
   sourceUri: z.string().min(1),
   project: z.string().min(1).optional(),
+  /**
+   * The cohort this result belongs to.
+   *
+   * These three were carried in the upload wire format from the first version of it and
+   * written to `runs.branch` / `runs.commitSha` — so the *projection* could filter by
+   * them while the *authority* could not, which meant a per-branch cohort comparison was
+   * answerable only by reading a table derived from the row that is supposed to be the
+   * authority. Declared here, optionally and additively: a producer that sends none is
+   * still a valid result, because an adapter that has parsed a JUnit file has no branch
+   * to report and inventing one would be a claim about the code that is false.
+   */
+  branch: z.string().min(1).optional(),
+  commitSha: z.string().min(1).optional(),
+  environment: z.string().min(1).optional(),
   shard: z.object({ index: z.number().int().min(0), total: z.number().int().min(1) }).optional(),
+  /**
+   * The producer's own measurements, verbatim.
+   *
+   * Present because a performance run's *numbers* are the result. The k6 adapter
+   * puts every metric here — `http_req_duration.p(95)`, `http_req_failed.value` —
+   * and the thresholds they were judged against, so the score and the dashboard
+   * read the same figures the producer reported rather than a verdict with the
+   * measurement discarded.
+   *
+   * `z.record(z.string(), z.unknown())` rather than a k6-specific shape: the
+   * contract does not know what a load generator will measure next, and a closed
+   * shape here would strip every field an adapter adds after it.
+   */
+  metrics: z.record(z.string(), z.unknown()).optional(),
+  thresholds: z.record(z.string(), z.unknown()).optional(),
 });
 const ProofSchema = z.object({
   state: z.enum([

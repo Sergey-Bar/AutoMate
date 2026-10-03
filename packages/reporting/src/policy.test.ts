@@ -74,6 +74,12 @@ describe('reporting policies', () => {
       expect(isProductOutcome(status)).toBe(true);
     }
     expect(isProductOutcome('unknown')).toBe(false);
+    // `running` is neither. A run that has not finished is not a pass, and it is not a
+    // harness failure either — the producer has simply not reported yet, so it is
+    // indeterminate on both counts.
+    expect(classifyStatus('running')).toBe('indeterminate');
+    expect(isNonProductStatus('running')).toBe(false);
+    expect(isProductOutcome('running')).toBe(false);
   });
 
   it('classifies every canonical status, with no status left unclassified', () => {
@@ -89,6 +95,7 @@ describe('reporting policies', () => {
       infraFailed: 'nonProduct',
       runnerFailed: 'nonProduct',
       unknown: 'indeterminate',
+      running: 'indeterminate',
     };
     expect(ALL_RUN_STATUSES.sort()).toEqual(Object.keys(expected).sort());
     for (const status of ALL_RUN_STATUSES) {
@@ -248,10 +255,31 @@ describe('reporting policies', () => {
         'infraFailed',
         'passed',
         'runnerFailed',
+        // `running` appeared in the canonical vocabulary for a streaming upload, and this
+        // assertion is the one that notices: a status the projection did not enumerate would
+        // have been silently absent from `byStatus`, which is a summary that claims to
+        // account for every attempt.
+        'running',
         'skipped',
         'timedOut',
         'unknown',
       ].sort(),
     );
+  });
+
+  it('counts a still-running attempt as indeterminate rather than dropping it', () => {
+    const attempt = result.attempts[0];
+    const summary = projectRunSummary({
+      ...result,
+      attempts: [
+        { ...attempt, index: 1, testId: 'a', status: 'passed', rawStatus: 'passed' },
+        { ...attempt, index: 2, testId: 'b', status: 'running', rawStatus: 'running' },
+      ],
+    });
+    // `running` is neither a product outcome nor a harness failure, so it must not reach
+    // `passed` and must not reach `nonProduct`. The partition has to account for it.
+    expect(summary.passed).toBe(1);
+    expect(summary.nonProduct).toBe(0);
+    expect(summary.unknown).toBe(1);
   });
 });

@@ -1,6 +1,14 @@
 /**
  * The one sanitiser for a caller-supplied path that is being *persisted*.
  *
+ * It lives here rather than in the API because **three** callers need it and one of them
+ * is an adapter: the canonical contract's `specPath` is a validated relative path, so a
+ * producer that sends `../../etc/passwd` for one test either fails the whole upload or has
+ * its path reduced before the result is built. Reducing is the right answer for a field
+ * the dashboard displays — an empty string loses the information an operator needs, and
+ * the basename still names the file — so the rule has to be reachable from the parse and
+ * from the write, and two copies is how they drift.
+ *
  * A different rule lives in `infrastructure/artifact-store.ts` (`resolveArtifactPath`)
  * and deliberately stays separate: it throws rather than reducing, because an artifact
  * key names a file about to be written, and silently substituting a basename would

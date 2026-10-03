@@ -33,6 +33,11 @@ const STATUS_CLASSIFICATION = {
   infraFailed: 'nonProduct',
   runnerFailed: 'nonProduct',
   unknown: 'indeterminate',
+  // A run that has not finished. Indeterminate rather than nonProduct: the harness has not
+  // decided anything yet, so it is not evidence about the product in either direction — and
+  // `satisfies` below is what forced the decision to be written down instead of left to
+  // whichever consumer read the status first.
+  running: 'indeterminate',
 } as const satisfies Record<RunResult['status'], 'product' | 'nonProduct' | 'indeterminate'>;
 
 export type StatusClass = (typeof STATUS_CLASSIFICATION)[keyof typeof STATUS_CLASSIFICATION];
@@ -54,6 +59,22 @@ export function isNonProductStatus(status: RunResult['status']): boolean {
 /** A determinate product outcome: neither unknown nor a non-product status. */
 export function isProductOutcome(status: RunResult['status']): boolean {
   return STATUS_CLASSIFICATION[status] === 'product';
+}
+
+/**
+ * How many of `attempts` produced no outcome at all.
+ *
+ * **By classification, not by comparing to the string `'unknown'`.** `unknown` is one
+ * indeterminate status and not the only one — `canonicalStatusSchema` gained `running` for
+ * a streaming upload, and a producer that declares a test has not reported yet says the
+ * same thing. A counter that only recognised the literal `unknown` would silently drop
+ * every such attempt from the partition, and the partition is the invariant that says a
+ * KPI's denominators add up to the attempts it was computed from.
+ */
+export function countIndeterminate(
+  attempts: ReadonlyArray<{ status: RunResult['status'] }>,
+): number {
+  return attempts.filter((attempt) => classifyStatus(attempt.status) === 'indeterminate').length;
 }
 
 /** The classification of a status, for reporting explicit exclusions. */

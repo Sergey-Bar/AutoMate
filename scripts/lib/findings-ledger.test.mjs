@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   auditLedger,
   auditWaveGates,
+  landedWaves,
   readLedger,
   readWaveGates,
   repoRoot,
@@ -505,7 +506,7 @@ test('a wave whose migrations are all absent is not landed, and the shape audit 
     { root },
   );
   assert.deepEqual(findings, [
-    'docs/quality/wave-gates.json: wave `W7` lists `packages/db/drizzle/9999_never_written.sql`, which does not exist. A migration that was renamed or deleted leaves the gate describing a wave that was never here.',
+    'docs/quality/wave-gates.json: wave `W7` lists `packages/db/drizzle/9999_never_written.sql`, which does not exist. A migration or landing artefact that was renamed or deleted leaves the gate describing a wave that was never here.',
   ]);
 });
 
@@ -543,9 +544,66 @@ test('a wave naming no migrations can never fire, which is a finding', () => {
   assert.ok(
     hasFinding(
       auditWaveGates(gatesWith({ migrations: [] }), { findings: [] }, { root }),
-      /names no `migrations`/,
+      /names neither `migrations` nor `landedBy`/,
     ),
   );
+});
+
+test('a wave that changes no schema names `landedBy`, and that is enough to fire', () => {
+  // Wave 0 unified the two ingestion systems and added no table. Before `landedBy` existed
+  // there was no way to say so: naming a migration would mean inventing one or claiming the
+  // RF-5 rehearsal had happened, and leaving `migrations` out made the wave a gate that
+  // could never fire — which is the state this file exists to end, reached by the other
+  // door.
+  //
+  // The fixture path is a real file in the real tree, for the reason `gatesWith` documents.
+  const gates = gatesWith({
+    migrations: undefined,
+    landedBy: ['apps/api/src/services/canonical-projection.ts'],
+  });
+  assert.deepEqual(
+    auditWaveGates(gates, { findings: [{ id: 'RF-5', status: 'open' }] }, { root }),
+    [],
+  );
+  assert.deepEqual(landedWaves(gates, { root }), ['W7']);
+});
+
+test('a `landedBy` path that is not on disk is a finding, and the wave has not landed', () => {
+  const gates = gatesWith({ migrations: undefined, landedBy: ['apps/api/src/services/gone.ts'] });
+  assert.ok(
+    hasFinding(
+      auditWaveGates(gates, { findings: [] }, { root }),
+      /lists `apps\/api\/src\/services\/gone\.ts`, which does not exist/,
+    ),
+  );
+  assert.deepEqual(landedWaves(gates, { root }), []);
+});
+
+test('both landing fields are read as one list, so neither can hide behind the other', () => {
+  // A wave that lists a migration *and* a landing artefact lands on whichever exists. If
+  // either field were read alone, deleting one artefact would leave the wave reading as
+  // landed on the strength of the other — a gate that reports clear because a file moved.
+  const both = gatesWith({ landedBy: ['apps/api/src/services/canonical-projection.ts'] });
+  const onlyMigration = gatesWith();
+  assert.deepEqual(landedWaves(both, { root }), ['W7']);
+  assert.deepEqual(landedWaves(onlyMigration, { root }), ['W7']);
+  const neitherOnDisk = gatesWith({
+    migrations: ['packages/db/drizzle/9999_never_written.sql'],
+    landedBy: ['apps/api/src/services/gone.ts'],
+  });
+  assert.deepEqual(landedWaves(neitherOnDisk, { root }), []);
+  const missing = auditWaveGates(
+    // The gating row is present, so the only findings are the two absent artefacts.
+    gatesWith({
+      migrations: ['packages/db/drizzle/9999_never_written.sql'],
+      landedBy: ['apps/api/src/services/gone.ts'],
+    }),
+    { findings: [{ id: 'RF-5', status: 'open' }] },
+    { root },
+  );
+  assert.equal(missing.length, 2, 'both absent paths are named, not just the first');
+  assert.ok(missing[0].includes('packages/db/drizzle/9999_never_written.sql'));
+  assert.ok(missing[1].includes('apps/api/src/services/gone.ts'));
 });
 
 test('`blocksWave` must name a wave the manifest declares', () => {

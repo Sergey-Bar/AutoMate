@@ -2,6 +2,7 @@ import { SaxesParser } from 'saxes';
 import type { CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
 import { canonicalRunResult, type CanonicalStatus } from '../canonical-run-result.js';
+import { canonicalTestStatusFrom, outcomesWithDeclaredRunStatus } from '../producer-status.js';
 
 interface TestCase {
   name: string;
@@ -39,14 +40,29 @@ const OUTCOME_CHILDREN = new Set([
 /**
  * Maps JUnit evidence to a canonical status.
  *
- * A `<testcase>` with no `status` attribute and no outcome child declares
- * nothing, so it resolves to `unknown` — not `passed`. The previous
- * `return 'passed'` turned an attribute-less testcase into a product pass, and
- * the run-level aggregation below then reported the whole run green.
+ * ## A complete, attribute-less `<testcase>` is a **pass**
+ *
+ * Every JUnit dialect writes a passing test with no `status` attribute and no
+ * outcome child — Surefire, Gradle, Jest, pytest, RSpec and PHPUnit all do, and it
+ * is the shape the schema itself specifies. Resolving that to `unknown` — which
+ * this function did — meant that **every** Maven, Gradle, Jest, pytest and RSpec
+ * run ingested as a run of unobserved tests: the score would compute `presence 0`
+ * for every cell of every such project and read the repository as having no tests
+ * at all. The plan's R4 asks for one adapter and a dialect fixture per producer,
+ * and that fixture set is what made this visible.
+ *
+ * ## A **truncated** one is still `unknown`
+ *
+ * The original reason for returning `unknown` was sound and is preserved: a
+ * `<testcase>` whose closing tag never arrived ran, but the rest of its body was
+ * never seen, so it is not a pass — a `<failure>` after the cut would be exactly
+ * the evidence we are missing. Truncation and "complete" are therefore different
+ * inputs rather than the same one, and the distinction is the whole fix.
  */
 function statusFrom(
   declaredStatus: string | undefined,
-  children: Set<string>,
+  children: ReadonlySet<string>,
+  truncated: boolean,
 ): CanonicalRunResult['status'] {
   if (children.has('failure') || children.has('error') || children.has('rerunerror'))
     return 'failed';
@@ -55,14 +71,16 @@ function statusFrom(
   // that also carries a `rerunFailure` is a flaky pass, not a clean one.
   if (children.has('flakyfailure') || children.has('rerunfailure')) return 'flaky';
   if (declaredStatus !== undefined) {
-    if (declaredStatus === 'passed') return 'passed';
-    if (declaredStatus === 'failed') return 'failed';
-    if (declaredStatus === 'skipped') return 'skipped';
-    if (declaredStatus === 'flaky') return 'flaky';
-    if (declaredStatus === 'timedOut') return 'timedOut';
-    return 'unknown';
+    // The declared attribute goes through the same ladder as every other producer's
+    // vocabulary, so a JUnit `status="passed"` and a Playwright `"passed"` cannot mean two
+    // different things. The previous copy of this switch was a fourth mapping of the same
+    // names, and it was the only one that had no row for `timedOut`'s snake_case spelling.
+    return canonicalTestStatusFrom('junit', declaredStatus);
   }
-  return 'unknown';
+  // No attribute and no outcome child. Complete means passed, because that is what
+  // the format means; truncated means we did not see the whole body, and the part
+  // we did not see is where a failure would be.
+  return truncated ? 'unknown' : 'passed';
 }
 
 /**
@@ -79,6 +97,51 @@ export const MAX_MESSAGE_CHARS = 8_192;
 /** Marked on `AttemptSchema.error.code` when the cap discarded producer text. */
 const TRUNCATED_CODE = 'MESSAGE_TRUNCATED';
 
+/**
+ * How one `<testcase>` ended.
+ *
+ * **Two different meanings, deliberately not one flag.** `textTruncated` is the
+ * message-length cap firing, which is an *intact* element whose failure text was
+ * clipped — the outcome is still known. `incomplete` is the closing tag never
+ * arriving, which is an element we saw the start of and not the end, and is the
+ * only one of the two that makes the status unknown. Collapsing them is what let
+ * the old blanket `unknown` default survive: the flag named `truncated` was the
+ * cap, and the path that needed the unknown was the one that never set it.
+ */
+interface TestCaseEnding {
+  /** The failure text exceeded `MAX_MESSAGE_CHARS` and was clipped. */
+  textTruncated: boolean;
+  /** The document ended before `</testcase>` arrived. */
+  incomplete: boolean;
+}
+
+/**
+ * Resolve and record one `<testcase>`.
+ *
+ * One function because there are two ways a testcase can end — its `</testcase>` arrives,
+ * or the document stops — and the second path used to be a second copy of this logic. A
+ * testcase whose closing tag never arrived still ran; it just cannot be sure of the rest.
+ */
+function finish(
+  testCases: TestCase[],
+  children: ReadonlySet<string>,
+  text: string,
+  ending: TestCaseEnding,
+  testCase: TestCase,
+): void {
+  testCase.status = statusFrom(testCase.declaredStatus, children, ending.incomplete);
+  // `flakyFailure` / `rerunFailure` are the only JUnit evidence that a
+  // test needed more than one attempt, so flakiness stays `unknown`
+  // without them.
+  testCase.flakiness =
+    testCase.status === 'flaky' || children.has('flakyfailure') || children.has('rerunfailure')
+      ? 'observed'
+      : 'unknown';
+  testCase.message = text.trim() || undefined;
+  testCase.truncated = ending.textTruncated || ending.incomplete;
+  testCases.push(testCase);
+}
+
 export const junitXmlAdapter: ProducerAdapter = {
   mediaType: 'application/xml',
   parse(input, context) {
@@ -87,7 +150,29 @@ export const junitXmlAdapter: ProducerAdapter = {
     let current: TestCase | undefined;
     let currentText = '';
     let truncated = false;
+    /** The document could not be parsed to its end. See the `error` handler. */
+    let malformed = false;
     const currentChildren = new Set<string>();
+    /**
+     * Recover from XML errors instead of rethrowing them.
+     *
+     * `saxes` is a strict parser and a JUnit report in the wild is frequently not strictly
+     * valid: an unescaped `&` in a `<system-out>` block, a `>` in a failure message, a body
+     * cut off when CI killed the job. The hand-rolled scanner this replaced tolerated all
+     * of it, so switching to a real parser without recovery rejects reports that used to
+     * ingest — a regression dressed as a hardening, and one nobody notices until a
+     * customer's daily run stops appearing.
+     *
+     * **Recovering is only honest because the result is marked.** `malformed` forces
+     * `completeness.state: 'unknown'`, so a report the parser could not finish is one whose
+     * completeness is not established and `proofCeiling` says so. What is *not* done is
+     * pretending the document parsed: a document that yields no `<testcase>` is still
+     * refused below, because "we could not read it" and "there was nothing in it" are
+     * different answers and only the second one is a run result.
+     */
+    parser.on('error', () => {
+      malformed = true;
+    });
     parser.on('opentag', (tag) => {
       if (tag.name === 'testcase') {
         const attributes = tag.attributes as Record<string, string>;
@@ -127,25 +212,49 @@ export const junitXmlAdapter: ProducerAdapter = {
     });
     parser.on('closetag', (tag) => {
       if (tag.name === 'testcase' && current) {
-        current.status = statusFrom(current.declaredStatus, currentChildren);
-        // `flakyFailure` / `rerunFailure` are the only JUnit evidence that a
-        // test needed more than one attempt, so flakiness stays `unknown`
-        // without them.
-        current.flakiness =
-          current.status === 'flaky' ||
-          currentChildren.has('flakyfailure') ||
-          currentChildren.has('rerunfailure')
-            ? 'observed'
-            : 'unknown';
-        current.message = currentText.trim() || undefined;
-        current.truncated = truncated;
-        testCases.push(current);
+        finish(
+          testCases,
+          currentChildren,
+          currentText,
+          {
+            textTruncated: truncated,
+            incomplete: false,
+          },
+          current,
+        );
         current = undefined;
         currentText = '';
         currentChildren.clear();
       }
     });
-    parser.write(new TextDecoder().decode(input)).close();
+    try {
+      parser.write(new TextDecoder().decode(input)).close();
+    } catch {
+      // The `error` handler above covers every recoverable error; anything thrown here
+      // stopped the parse outright. What survived is flushed below.
+      malformed = true;
+    }
+    // **A `<testcase>` still open when the document ends did run.** The only path that
+    // leaves `current` set is a document that stopped mid-element, which is also why it
+    // makes the result malformed — a report cut short cannot have said what its last test
+    // did. Flushing it here rather than in each error path is what keeps "the document
+    // ended" and "the parse threw" from becoming two copies of the same rule.
+    if (current) {
+      finish(
+        testCases,
+        currentChildren,
+        currentText,
+        {
+          textTruncated: truncated,
+          // The path that reaches here is the one where `current` was still open at
+          // the end of the document, so the closing tag never arrived.
+          incomplete: true,
+        },
+        current,
+      );
+      current = undefined;
+      malformed = true;
+    }
     if (testCases.length === 0) throw new Error('JUnit report contains no test cases');
     // The attempt ordinal is *within one test*, so it is counted per `testId` and
     // not across the document.
@@ -171,6 +280,11 @@ export const junitXmlAdapter: ProducerAdapter = {
       return {
         index,
         testId,
+        // Deliberately **not** `classname`. A fully-qualified class name is not a path, and
+        // `specPath` is validated as one and grouped by as one: a report with no `file`
+        // attribute put every test under a single suite called after its package, which
+        // reads as a location and is not one. `unknown.spec.ts` is honest in a way
+        // `suite.pkg` is not, and it is what this adapter has always done.
         specPath: testCase.file ?? 'unknown.spec.ts',
         title: testCase.name,
         suite: testCase.classname,
@@ -196,12 +310,27 @@ export const junitXmlAdapter: ProducerAdapter = {
     // `flaky` rung, so a report whose only interesting property was a retry was
     // serialised as `status: 'passed'` — a green run with a flaky test in it, which
     // is the one thing a release gate reads.
+    //
+    // **A malformed document cannot report `passed`.** `completeness.state` already
+    // says `unknown`, and the run status said `passed` anyway — two fields
+    // contradicting each other, and the second is the one a release gate reads. The
+    // SAX parser never opens a tag it never sees closed, so the cut-off
+    // `<testcase>` produces no attempt at all and there is nothing in
+    // `testCases` to carry the doubt; it has to be added here.
+    //
+    // The claim goes in as a *run* status through the same ladder as everything
+    // else, so it cannot outrank a real failure: a report that is both truncated
+    // and failing is still `failed`.
     return canonicalRunResult(
       {
-        outcomes: testCases.map((testCase) => testCase.status),
+        outcomes: outcomesWithDeclaredRunStatus(
+          testCases.map((testCase) => testCase.status),
+          malformed ? 'unknown' : context.declaredRunStatus,
+        ),
         attempts,
         producer: 'junit',
         verifier: 'junit-adapter',
+        truncated: malformed,
       },
       context,
     );
