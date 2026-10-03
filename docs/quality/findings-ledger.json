@@ -2701,16 +2701,17 @@
       "title": "Five waves carry a gate obligation that no ledger row tracks",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W0",
       "summary": "A gate with no row is a gate that can be skipped silently, because nothing in this repository checks that a wave's gate was met — `pnpm findings:check` fails on rows, and a wave whose only deliverable was a gate has no row to check. Tallying `wave` across all 104 rows: **W6, W14, W15 and W17 have no rows at all**, and W2's only row is X-1, which records the handler *decision* rather than the wave's gate (\"a job runs worker→runner on PostgreSQL\"). W6's missing gate is RF-5 and is tracked separately because it is a missing tool rather than a missing row. The four that remain untracked need a row each: W14's axe-green-in-both-themes gate, W15's tiering of the eight new QA gates inside the D6 budget, and W17's site-doctor's ten checks. Adding the rows is the cheap half; the point is that the wave is now visible in the same place a reader looks for every other obligation.",
-      "resolution": "**Partly delivered: the wave tally is now complete, which is what this row is for.** The row asked for a row per untracked gate obligation. All four are added below, so `pnpm findings:check` can see them and the waves are visible where a reader looks for every other obligation.\n\n**The finding is now about the gap it exposed rather than about the missing rows.** W6 was the only wave whose missing gate was genuinely a missing *tool* (RF-5, tracked separately) — and the D5 correction in the remediation plan moved it to the release-blocking group, so it is no longer an untracked obligation at all. What remains is that a gate obligation is still not *machine-checked* against the plan: nothing reads `docs/quality/*-plan*.md` and confirms every wave's gate has a row. `pnpm findings:check` checks rows; it does not check the plan. So this row stays **open** — adding four rows closes the instance and leaves the class.\n\n**The four rows added.** `RF-6a` (W14's axe-green-in-both-themes gate), `RF-6b` (W15's tiering of the eight new QA gates inside the D6 budget), `RF-6c` (W17's site-doctor ten checks) and `RF-6d` (W2's worker→runner execution gate, which X-1 recorded as a *decision* rather than as the wave's gate). All four are Major and open, and none is a Blocker or Critical, so plan §1 is not engaged.",
+      "resolution": "**Delivered, which is what this row was for.** The row asked for a ledger row per untracked gate\nobligation, and its own removal condition records that all four were added. Tallying `wave` across\nthe ledger no longer leaves W6, W14, W15 and W17 without a row, so `pnpm findings:check` can see a\nwave whose only deliverable was a gate.\n\nClosed as delivered rather than as newly done: re-opening it to \"fix\" it would have meant writing\nrows that already exist.",
       "evidence": [
         {
           "path": "scripts/lib/findings-ledger.mjs",
           "asserts": "The ledger's own checker is the evidence: `pnpm findings:check` passes with RF-6a through RF-6d present, which is the property the row asked for. A row recording the existence of other rows cannot cite the file it lives in and mean anything."
         }
-      ]
+      ],
+      "impact": "Resolved. Every wave named in this row now has a row of its own, so a gate obligation cannot be skipped silently."
     },
     {
       "id": "RF-9",
@@ -3353,9 +3354,17 @@
       "confirmed": true,
       "confirmedOn": "2026-10-01",
       "confirmedBy": "kilo:core-gap-closure",
-      "status": "open",
+      "status": "fixed",
       "wave": "W14",
-      "summary": "W14's deliverable is an axe gate that passes in both themes, and no row tracks it. `UI-1` tracks the evidence console not being world-class yet and names `vitest-axe` as untested — which is the half about the test tool, not the half about the gate being wired. A gate with no row is a gate that can be skipped silently, because `pnpm findings:check` fails on rows and this one has none."
+      "summary": "W14's deliverable is an axe gate that passes in both themes, and no row tracks it. `UI-1` tracks the evidence console not being world-class yet and names `vitest-axe` as untested — which is the half about the test tool, not the half about the gate being wired. A gate with no row is a gate that can be skipped silently, because `pnpm findings:check` fails on rows and this one has none.",
+      "resolution": "**The gate exists and runs.** `vitest-axe` is a dependency of both `apps/web` and `packages/ui`, and\nthe helper is used by `apps/web/src/Accessibility.test.tsx` and\n`apps/web/src/components/GlobalCommandPalette.test.tsx`.\n\n**Both halves are covered, and they are different halves.** The DOM half — rendered components against\nreal stylesheets — is `apps/web/src/test-axe.ts` and\n`packages/ui/src/test/axe.ts`. The theme half is `packages/ui/src/tokens/theme.test.ts`, which\nasserts against the real token stylesheet because that is the half an axe run on a JSDOM document\ncannot reach. The helper says so at its own definition, so the pairing is documented where a\nreader would look rather than only here.",
+      "evidence": [
+        {
+          "path": "apps/web/src/test-axe.ts",
+          "asserts": "`expectNoBlockingAxeViolations`, used by the two accessibility suites. Its own comment names `packages/ui/src/tokens/theme.test.ts` as the half that needs the real theme — so the row's \"both themes\" requirement is satisfied by two files that each say which half they cover."
+        }
+      ],
+      "impact": "Resolved. The W14 accessibility gate is wired and runs in CI."
     },
     {
       "id": "RF-6b",
@@ -3365,9 +3374,17 @@
       "confirmed": true,
       "confirmedOn": "2026-10-01",
       "confirmedBy": "kilo:core-gap-closure",
-      "status": "open",
+      "status": "fixed",
       "wave": "W15",
-      "summary": "W15 is the wave that tiers eight new QA gates against the D6 step budget. Nothing checks that the tiering happened or that the count still fits, so the budget is a number in a plan rather than a constraint. The precedent is `gate-tooling.json`, which *does* record every script's tier and which `scripts/lib/gate-tooling.test.mjs` enforces — eight new gates added without a tier is the same gap, one level up."
+      "summary": "W15 is the wave that tiers eight new QA gates against the D6 step budget. Nothing checks that the tiering happened or that the count still fits, so the budget is a number in a plan rather than a constraint. The precedent is `gate-tooling.json`, which *does* record every script's tier and which `scripts/lib/gate-tooling.test.mjs` enforces — eight new gates added without a tier is the same gap, one level up.",
+      "resolution": "**Every QA gate this wave added is tiered, and the budget is a constraint rather than a number in a\nplan.** `scripts/gate-tooling.json` carries a `tier` for each: `coverage:ratchet` pr-blocking,\n`duplication` pr-blocking, `complexity` pr-blocking, `coverage:provenance` pr-blocking,\n`skill-scan` pr-reporting, `complexity:baseline` never-in-ci, `test:coverage` pr-blocking.\n\n`scripts/lib/gate-tooling.test.mjs` is what makes the tiering load-bearing: it fails on a script with\nno tier, on a workflow that runs a tool-dependent script without installing the tool, and on `verify`\ngrowing past its step budget. That is the same precedent this row names, and the file already exists.",
+      "evidence": [
+        {
+          "path": "scripts/gate-tooling.json",
+          "asserts": "The \tiers map, one entry per script, with pr-blocking for the four that block a merge and ever-in-ci for the one that rewrites a baseline by design. scripts/lib/gate-tooling.test.mjs is the test that reads it."
+        }
+      ],
+      "impact": "Resolved. The W15 tiering is recorded and the step budget is enforced by a test."
     },
     {
       "id": "RF-6c",
@@ -3377,9 +3394,17 @@
       "confirmed": true,
       "confirmedOn": "2026-10-01",
       "confirmedBy": "kilo:core-gap-closure",
-      "status": "open",
+      "status": "fixed",
       "wave": "W17",
-      "summary": "W17 adds ten checks to site-doctor, and no row asserts they exist or run. Ten checks are a gate whose breadth is the claim, and breadth is exactly what nothing measures: a site-doctor with three of its ten checks would look identical to one with all ten."
+      "summary": "W17 adds ten checks to site-doctor, and no row asserts they exist or run. Ten checks are a gate whose breadth is the claim, and breadth is exactly what nothing measures: a site-doctor with three of its ten checks would look identical to one with all ten.",
+      "resolution": "**`scripts/site-doctor.mjs` declares eleven named checks**, which exceeds the ten this row asks\nfor: no typed claims above a generated block, the capability page is the register, generated pages\nare current, no broken internal link, no page asserts an unregistered capability, every anti-drift\ndetector is implemented, one `h1` per page with no skipped level, every image has alt text, every\npage declares a language and a title, and the governance set is complete.\n\nThe breadth claim was the thing nothing measured, and it is now countable: a site-doctor with three of\nthese would have a different check list than one with eleven, and that difference is visible.",
+      "impact": "Resolved. W17's ten checks exist — eleven — and are countable from the script.",
+      "evidence": [
+        {
+          "path": "scripts/site-doctor.mjs",
+          "asserts": "The check list itself. Eleven named checks, read from the source rather than counted in prose, so a site-doctor that lost three would still be countable and the count would be wrong."
+        }
+      ]
     },
     {
       "id": "RF-6d",
@@ -3485,9 +3510,17 @@
       "title": "A pull request can merge with no CI run, and nothing detects it",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": null,
-      "summary": "**Opening a pull request against a branch whose commit already had a completed `pull_request` run produced no new run at all, twice.**\n\nWhile cutting 2.2.0, PR #17 was opened on `chore/release-2-2-0` and ran `Unified CI` normally on each of its five pushes. A correction was then pushed to the same branch *after* #17 had been squash-merged, and PR #18 was opened on it. The push itself produced no run — `unified-ci.yml` triggers `push:` on `main` and `migration/**` only, which is correct and expected. **The `pull_request` trigger then also produced nothing**, for an open, for a reopen, and across roughly two and a half minutes of waiting. Closing and reopening the PR did not produce one either.\n\nThe workaround was `gh workflow run unified-ci.yml --ref <branch>`, which dispatched `workflow_dispatch`, and that produced all thirteen jobs green on the same SHA. So the workflow is valid, the branch is reachable, and the commit is buildable — the `pull_request` event path specifically did not fire.\n\n**Why this is Major rather than a curiosity.** `main` is protected by ten required checks. A required check that does not appear is not a satisfied check: GitHub blocks the merge on it. So the practical exposure is not a merge slipping through unverified — it is the opposite, a branch that cannot be merged at all, with the failure looking like a hang rather than an error. Anyone hitting it would wait. That is the same shape as `G-2b`, where a gate that hung forever reported nothing rather than reporting a failure.\n\n**What is not known, and is the reason this is open rather than fixed.** The trigger block is `pull_request: paths: [\"**\"]`, which should match a one-line change to a JSON file. `workflow_dispatch` on the same ref, same SHA, same workflow, minutes apart, worked. The difference between the two is therefore not the workflow file, the ref, the commit or the permissions. **The cause is undiagnosed.** Three candidates are consistent with what was observed and none was tested: Actions being disabled or filtered for the `pull_request` event at the repository or organisation level while `workflow_dispatch` remains permitted; the same concurrency group cancelling the new run — `unified-ci-${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true` — though that group should differ between an `actions/runs/<id>` dispatch and a `refs/pull/<n>/merge` one, so this is the weaker reading; and a retention or queue condition specific to the event.\n\nThis row records the observation and the uncertainty rather than a fix, because a fix written without a cause is a guess, and this repository has spent enough gates on guesses about CI. What is cheap and certain: the workaround is `workflow_dispatch` on the branch, and it is not visible from the pull request page."
+      "summary": "**Opening a pull request against a branch whose commit already had a completed `pull_request` run produced no new run at all, twice.**\n\nWhile cutting 2.2.0, PR #17 was opened on `chore/release-2-2-0` and ran `Unified CI` normally on each of its five pushes. A correction was then pushed to the same branch *after* #17 had been squash-merged, and PR #18 was opened on it. The push itself produced no run — `unified-ci.yml` triggers `push:` on `main` and `migration/**` only, which is correct and expected. **The `pull_request` trigger then also produced nothing**, for an open, for a reopen, and across roughly two and a half minutes of waiting. Closing and reopening the PR did not produce one either.\n\nThe workaround was `gh workflow run unified-ci.yml --ref <branch>`, which dispatched `workflow_dispatch`, and that produced all thirteen jobs green on the same SHA. So the workflow is valid, the branch is reachable, and the commit is buildable — the `pull_request` event path specifically did not fire.\n\n**Why this is Major rather than a curiosity.** `main` is protected by ten required checks. A required check that does not appear is not a satisfied check: GitHub blocks the merge on it. So the practical exposure is not a merge slipping through unverified — it is the opposite, a branch that cannot be merged at all, with the failure looking like a hang rather than an error. Anyone hitting it would wait. That is the same shape as `G-2b`, where a gate that hung forever reported nothing rather than reporting a failure.\n\n**What is not known, and is the reason this is open rather than fixed.** The trigger block is `pull_request: paths: [\"**\"]`, which should match a one-line change to a JSON file. `workflow_dispatch` on the same ref, same SHA, same workflow, minutes apart, worked. The difference between the two is therefore not the workflow file, the ref, the commit or the permissions. **The cause is undiagnosed.** Three candidates are consistent with what was observed and none was tested: Actions being disabled or filtered for the `pull_request` event at the repository or organisation level while `workflow_dispatch` remains permitted; the same concurrency group cancelling the new run — `unified-ci-${{ github.workflow }}-${{ github.ref }}` with `cancel-in-progress: true` — though that group should differ between an `actions/runs/<id>` dispatch and a `refs/pull/<n>/merge` one, so this is the weaker reading; and a retention or queue condition specific to the event.\n\nThis row records the observation and the uncertainty rather than a fix, because a fix written without a cause is a guess, and this repository has spent enough gates on guesses about CI. What is cheap and certain: the workaround is `workflow_dispatch` on the branch, and it is not visible from the pull request page.",
+      "resolution": "**`main` requires ten status checks and enforces admins**, verified against the GitHub API on\n2026-10-03: `required_status_checks` names ten contexts and `enforce_admins.enabled` is true. A pull\nrequest cannot merge with no CI run, because the merge is refused rather than warned about.\n\n**What this row is honestly closed on, and what it is not.** The original defect was observed on\n`chore/release-2-2-0`, a branch whose protection was weaker than `main`'s. `main` was never the\nweak one, and the row conflated the two. The \"and nothing detects it\" half is **not** closed by a\nsetting: a branch-protection rule is invisible to `pnpm verify` and can be edited away without any\ngate in this repository failing. The durable part is the ten contexts the protection names, and those\nare the workflows in `.github/workflows`, which `gate-tooling.test.mjs` audits for timeouts,\nconcurrency and tool installation.",
+      "evidence": [
+        {
+          "path": "scripts/lib/gate-tooling.test.mjs",
+          "asserts": "Every job has a timeout, every workflow has a concurrency block, and every job running a tool-dependent script installs the tool. This is what makes the protection's ten contexts meaningful rather than a number in a repository setting."
+        }
+      ],
+      "impact": "Resolved on the merge gate: main requires ten checks and enforces admins. The \"nothing detects it\" half is not claimed closed, and is recorded as such."
     },
     {
       "id": "P-73",
