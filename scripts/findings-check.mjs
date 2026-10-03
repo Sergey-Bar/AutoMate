@@ -6,7 +6,7 @@
  * makes the release criterion machine-checkable by holding the ledger as data and
  * failing when the data has drifted from the tree.
  *
- * Three things fail:
+ * Four things fail:
  *
  *  1. A `fixed` row's evidence path no longer exists. The proof was deleted, so the
  *     claim is open again.
@@ -15,13 +15,30 @@
  *  3. A blocking-band row is unowned, a debt row has no owner or no removal
  *     condition, a `sweep` row is closed without hand-confirmation, a
  *     `false-positive` row does not say what refuted it, or the ledger is empty.
+ *  4. `docs/quality/wave-gates.json` no longer describes this repository — a listed
+ *     migration that is gone, a gating row that is not in the ledger, a `blocksWave`
+ *     pointing at a wave nothing declares.
+ *
+ * What this deliberately does **not** do is judge whether a wave landed before its
+ * gate did. That is a merge-time question about the ledger, it is already answered for
+ * RF-5 twice over (as an open Blocker through `checkLedger`, and as §17's eleventh
+ * point through `pnpm status:10`), and putting it here made `pnpm verify` red on a
+ * defect nothing but `pnpm migrate:rehearse` against an installation can clear — the
+ * `test:render` construction this repository already refuses. It is
+ * `checkWaveBlocks` in `scripts/lib/merge-gate.mjs`.
  *
  * `pnpm findings:baseline` rewrites the recorded statuses. It is the only thing
  * that may move a status backwards, and it does so by being run on purpose.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { auditLedger, readLedger, repoRoot } from './lib/findings-ledger.mjs';
+import {
+  auditLedger,
+  auditWaveGates,
+  readLedger,
+  readWaveGates,
+  repoRoot,
+} from './lib/findings-ledger.mjs';
 
 const root = repoRoot();
 const LEDGER = 'docs/quality/findings-ledger.json';
@@ -86,6 +103,11 @@ if (previous === null) {
 }
 
 const { findings, byBand } = auditLedger(ledger, { root, previous });
+
+// The wave gates are read here rather than inside `auditLedger` because they are a
+// second policy document with a second question — a wave against the tree, not a row
+// against the rules — and `auditLedger` takes one document and answers about rows.
+findings.push(...auditWaveGates(readWaveGates(), ledger, { root }));
 
 if (findings.length > 0) {
   console.error(`Findings ledger check failed (${findings.length} finding(s))`);

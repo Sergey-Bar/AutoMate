@@ -122,9 +122,18 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     // API → browser path end to end, which eleven E2E tests were asserting and could not
     // see. `reporter-persistence.test.ts` pins the stamped value to the one the listing
     // filters on, and `run-repository.ts` holds the field and the single-tenant default.
+    //
+    // The three files under `services/` are the *canonical* write path and the projection
+    // it feeds. `canonical-projection.ts` takes the workspace off `identity` rather than
+    // from a parameter, so it cannot be given one that disagrees with the row it is
+    // projecting — and the run it writes is claimed by the ingestion service whose
+    // constructor-scoped workspace the row was accepted under.
     family: 'reporter persistence',
     files: [
       'services/reporter-persistence.ts',
+      'services/canonical-ingestion.ts',
+      'services/canonical-projection.ts',
+      'services/reporter-event-canonical.ts',
       'routes/reporter.ts',
       'repositories/drizzle-run-repository.ts',
       'repositories/in-memory-run-repository.ts',
@@ -132,6 +141,29 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     ],
   },
   { family: 'orchestration service', files: ['services/orchestration-service.ts'] },
+  {
+    /**
+     * The project registry and everything derived from it.
+     *
+     * Claimed rather than excluded because all three read a workspace id and all
+     * three were written against the *same* tenant: `project-registry-service.ts`
+     * takes `workspaceId` and puts it in every query; `qa-score-service.ts` reads
+     * `canonical_run_results` filtered by it; `routes/projects.ts` is the door that
+     * supplies it.
+     *
+     * Every read in the registry is `where(and(eq(workspaceId), ...))` — never a
+     * bare `eq(id)` — because `runs.project_id` gained a foreign key in migration
+     * 0023 and a run id is a uuid an attacker could supply. `routes/projects.test.ts`
+     * is the route that proves it: it registers under `ws-1` and reads the same
+     * project through a second, unowned id with no workspace of its own.
+     */
+    family: 'project registry',
+    files: [
+      'services/project-registry-service.ts',
+      'services/qa-score-service.ts',
+      'routes/projects.ts',
+    ],
+  },
 ];
 
 describe('the composed API refuses unauthenticated access everywhere it should', () => {

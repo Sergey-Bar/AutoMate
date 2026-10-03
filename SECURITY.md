@@ -63,9 +63,12 @@ reporter or runner and the API.
   `501 NOT_CONFIGURED` naming the domain and the action. An unconfigured engine cannot
   be exploited, so this is not a vulnerability; the thing to report would be an engine
   that answers as though configured.
-- **Cross-tenant access on a single-tenant install.** There is one tenant, so there is
-  no cross-tenant boundary to cross. A tenancy vulnerability becomes reportable the
-  moment W7 enters scope.
+- **Cross-tenant access.** `WORKSPACE_ID` is the tenancy boundary and the tenancy
+  migrations (`0015`, `0017`, `0018`, `0019`, `0020`) are on disk, so this is live
+  now: a workspace-scoped read or write that does not check the workspace is
+  reportable. What is _not_ here is row-level security beneath it, so the boundary is
+  one predicate at the query and not a database guarantee. The isolation matrix that
+  would prove each route holds is tracked as **C-6** and the open `Blocker` **RF-5**.
 
 ## What "fixed" means here
 

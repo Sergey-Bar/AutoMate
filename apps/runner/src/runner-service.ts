@@ -13,6 +13,7 @@ import {
   type TerminalCanonicalTestStatus,
 } from '@automate/shared-contracts';
 import { RunnerConfigurationError, type ExecutionProvider } from './execution.js';
+import { readGenericCommand } from './execution-router.js';
 import {
   ExecutionEventInputSchema,
   type ArtifactDescriptor,
@@ -362,7 +363,12 @@ export class RunnerService {
         },
       });
       state.phase = 'running';
-      const project = stringValue(specification['playwrightProject']);
+      // Read before the executor is called, and re-thrown as a configuration
+      // failure by `readGenericCommand` itself. A malformed argv must become a
+      // `CONFIG_FAILED` run, not a `spawn` of something nobody wrote.
+      const command = readGenericCommand(specification);
+      const project =
+        command === undefined ? stringValue(specification['playwrightProject']) : undefined;
       const targetUrl =
         stringValue(specification['targetUrl']) ?? stringValue(specification['baseUrl']);
       const remainingLeaseMs = Math.max(
@@ -373,6 +379,8 @@ export class RunnerService {
         jobId: claim.jobId,
         targetUrl,
         project,
+        playwrightProject: project,
+        command,
         deadlineMs: Math.min(claim.timeoutMs, remainingLeaseMs),
         signal: state.controller.signal,
         redactions: [...(this.options.redactions ?? [])],

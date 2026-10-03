@@ -53,6 +53,16 @@ const RunnerConfigSchema = z
     healthHost: z.string().min(1).default('0.0.0.0'),
     healthPort: z.coerce.number().int().min(0).max(65_535).default(3002),
     workspaceRoot: z.string().min(1).default(tmpdir()),
+    /**
+     * Where registered repositories live on this host.
+     *
+     * The generic spawn mode resolves every `workingDirectory` against this and
+     * refuses anything that escapes it, so it is a **boundary** and not a
+     * convenience: a job whose `cwd` is `../../etc` cannot be executed at all.
+     * Defaulted to the same root the Playwright adapter uses so a single-project
+     * install works with no extra configuration.
+     */
+    repoRoot: z.string().min(1).default(defaultProjectRoot),
     playwrightProjectRoot: z.string().min(1).default(defaultProjectRoot),
     allowedPlaywrightProjects: z.string().default('smoke-pass,smoke-failure').transform(csv),
     allowedTargetUrls: z.string().default('http://127.0.0.1:3000').transform(origins),
@@ -109,6 +119,7 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     healthHost: input['RUNNER_HEALTH_HOST'],
     healthPort: input['RUNNER_HEALTH_PORT'],
     workspaceRoot: input['RUNNER_WORKSPACE_ROOT'],
+    repoRoot: input['RUNNER_REPO_ROOT'],
     playwrightProjectRoot: input['RUNNER_PLAYWRIGHT_PROJECT_ROOT'],
     allowedPlaywrightProjects: input['RUNNER_PLAYWRIGHT_PROJECTS'],
     allowedTargetUrls: input['RUNNER_ALLOWED_TARGET_URLS'],

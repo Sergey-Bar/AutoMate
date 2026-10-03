@@ -38,9 +38,12 @@ all live in it.
 - **A migration is additive-first.** A `DROP TABLE` must be guarded by a row-count
   refusal, or written down in `docs/quality/schema-migration-backlog.md` with its
   expand step. `pnpm status:10` reports §17's ninth point from exactly that check.
-- **W7 must not start until RF-5 has one real run.** Ten irreversible tenancy
-  migrations sit behind a rehearsal that has never been performed on a real
-  installation. A harness is not a run.
+- **W7 landed before its rehearsal ran.** Five tenancy migrations are on disk —
+  `0015`, `0017`, `0018`, `0019`, `0020` — and the `pnpm migrate:rehearse` run that
+  decision **D1** put behind them has still never been performed on a real
+  installation. A harness is not a run. This record does not claim the wave is out of
+  scope; ledger **RF-5** carries it as an `open` Blocker and
+  `docs/quality/wave-gates.json` makes the check that fires on it.
 - The E2E suite throws without `DATABASE_URL` rather than falling back, because a
   suite that passes in memory reports success without PostgreSQL ever being
   involved.

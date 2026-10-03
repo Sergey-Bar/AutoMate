@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto';
 import type { CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
 import { canonicalRunResult } from '../canonical-run-result.js';
+import { canonicalTestStatusFrom, outcomesWithDeclaredRunStatus } from '../producer-status.js';
+
+type CanonicalStatus = CanonicalRunResult['status'];
 
 interface PlaywrightAttachment {
   name?: string;
@@ -26,35 +29,74 @@ interface PlaywrightSpec {
   title?: string;
   file?: string;
   tests?: PlaywrightTest[];
-  suites?: PlaywrightSpec[];
+  /** Real Playwright reports nest their specs here; `tests` on a suite is the shorthand. */
+  specs?: (PlaywrightSpec | null)[];
+  suites?: (PlaywrightSpec | null)[];
 }
 interface PlaywrightReport {
-  suites?: PlaywrightSpec[];
+  suites?: (PlaywrightSpec | null)[];
 }
 
-function collectSpecs(suites: PlaywrightSpec[] | undefined, output: PlaywrightSpec[] = []) {
+/** One spec, with the suite it was found under — a spec carries no file of its own. */
+interface CollectedSpec {
+  spec: PlaywrightSpec;
+  file: string;
+  suiteTitle: string;
+}
+
+/**
+ * Every spec in the report, paired with the suite that owns it.
+ *
+ * **A Playwright JSON report nests `specs[]` under `suites[]`; the tests live on the spec
+ * and the file lives on the suite.** This collector read `suite.tests`, which no real
+ * report has, so every spec it found had zero attempts and the adapter refused the document
+ * with "Playwright report contains no test attempts" — for a report Playwright had written
+ * itself. The upload door had its own walker, that walker handled `specs[]`, and the two
+ * disagreed; unifying the doors meant the canonical adapter had to learn the shape the
+ * product actually receives, which is the whole point of retiring the duplicate.
+ *
+ * Both spellings are accepted because both occur: `suites[].specs[]` is what Playwright
+ * emits and `suites[].tests[]` is what a hand-rolled wrapper produces, and neither is a
+ * mistake by its author.
+ */
+function collectSpecs(
+  suites: (PlaywrightSpec | null)[] | undefined,
+  output: CollectedSpec[] = [],
+  inheritedFile = '',
+  inheritedTitle = '',
+): CollectedSpec[] {
   for (const suite of suites ?? []) {
-    if (suite.file && suite.title) output.push(suite);
-    collectSpecs(suite.suites, output);
+    // **A `null` entry is real and common.** Playwright emits one for a project whose
+    // worker died before it reported, and the upload door's walker skipped them. Reading
+    // `suite.file` on `null` throws, so a report containing a crashed project was rejected
+    // wholesale — losing the tests that *did* run because one that did not was listed.
+    if (suite === null || suite === undefined) continue;
+    const file = suite.file ?? inheritedFile;
+    const title = suite.title ?? inheritedTitle;
+    // A node with `tests` *is* a spec, in either spelling. A node with `specs` is a suite
+    // and is not pushed itself: it carries no attempts, and pushing it would shift every
+    // ordinal after it and give a suite an evidence URI that names no test.
+    if (suite.tests !== undefined && file && title) {
+      output.push({ spec: suite, file, suiteTitle: title });
+    }
+    collectSpecs(suite.specs, output, file, title);
+    collectSpecs(suite.suites, output, file, title);
   }
   return output;
 }
 
-function mapStatus(status: string | undefined): CanonicalRunResult['status'] {
-  switch (status) {
-    case 'passed':
-      return 'passed';
-    case 'failed':
-      return 'failed';
-    case 'skipped':
-      return 'skipped';
-    case 'timedOut':
-      return 'timedOut';
-    case 'cancelled':
-      return 'cancelled';
-    default:
-      return 'unknown';
-  }
+/**
+ * Playwright's own test status, read through the one shared ladder.
+ *
+ * The switch this replaced had no `interrupted` rung, so Playwright's `interrupted` —
+ * emitted when the *harness* stopped the run — fell through to `unknown`, which is a
+ * different misreport from the one the blueprint found in the upload door but has the
+ * same cause: a status this adapter did not have a row for. The ladder has one, and it is
+ * `cancelled`, because cancelling a run yields no outcome at all and `policy.ts` already
+ * classifies `cancelled` as non-product for that reason.
+ */
+function mapStatus(status: string | undefined): CanonicalStatus {
+  return canonicalTestStatusFrom('playwright', status ?? 'unknown');
 }
 
 function evidenceFor(
@@ -154,8 +196,15 @@ export const playwrightJsonAdapter: ProducerAdapter = {
     // `trace.zip`, which Playwright emits for *every* test, is the normal case rather
     // than an unlucky one. Nothing downstream de-duplicates by URI, so both entries
     // survived carrying the same `uri` and different digests (ledger F-5).
-    const testCases = specs.flatMap((spec) => (spec.tests ?? []).map((test) => ({ spec, test })));
-    const attempts = testCases.flatMap(({ spec, test }, ordinal) => {
+    const testCases = specs.flatMap(({ spec, file, suiteTitle }) =>
+      // A `null` test entry is the same crashed-project case as a `null` suite: the worker
+      // died before it reported anything, and reading `test.results` on `null` would reject
+      // the whole report over the one project that never ran.
+      (spec.tests ?? [])
+        .filter((test): test is PlaywrightTest => test !== null)
+        .map((test) => ({ test, file, suiteTitle, spec })),
+    );
+    const attempts = testCases.flatMap(({ test, file, suiteTitle, spec }, ordinal) => {
       const results = test.results?.length ? test.results : [{ status: test.status }];
       const flaky = isFlaky(test);
       const statuses = results.map((attempt) => mapStatus(attempt.status));
@@ -163,16 +212,17 @@ export const playwrightJsonAdapter: ProducerAdapter = {
       finalOutcomes.push(flaky ? 'flaky' : last);
       return results.map((attempt, attemptIndex) => ({
         index: attemptIndex + 1,
-        testId: `${spec.file}:${test.title ?? ordinal}`,
-        // `collectSpecs` only pushes a suite that has **both** `file` and `title`,
-        // so these are present by construction. They were typed `string | undefined`
-        // and handed to `CanonicalRunResultSchema.parse`, which would have rejected
-        // the whole result — the throw is real, but it surfaced as an opaque Zod
-        // error on a legitimate-looking report rather than at the point where the
-        // invariant is established.
-        specPath: spec.file as string,
-        title: (test.title ?? spec.title) as string,
-        suite: spec.title,
+        testId: `${file}:${test.title ?? ordinal}`,
+        // The file is the *suite's*, and `collectSpecs` only pushes a pair when both the
+        // file and the title were found on the node or an ancestor. So these are present
+        // by construction. They were typed `string | undefined` and handed to
+        // `CanonicalRunResultSchema.parse`, which would have rejected the whole result —
+        // the throw is real, but it surfaced as an opaque Zod error on a
+        // legitimate-looking report rather than at the point where the invariant is
+        // established.
+        specPath: file,
+        title: test.title ?? spec.title ?? suiteTitle,
+        suite: suiteTitle,
         // Each attempt keeps its own status: the retry history is evidence and
         // must not be rewritten. Flakiness is recorded alongside it.
         status: mapStatus(attempt.status),
@@ -193,7 +243,7 @@ export const playwrightJsonAdapter: ProducerAdapter = {
     // attempt alone would report it passed.
     return canonicalRunResult(
       {
-        outcomes: finalOutcomes,
+        outcomes: outcomesWithDeclaredRunStatus(finalOutcomes, context.declaredRunStatus),
         attempts,
         evidence: attempts.flatMap((attempt) => attempt.evidence),
         producer: 'playwright',

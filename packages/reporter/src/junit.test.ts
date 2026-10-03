@@ -13,7 +13,7 @@ const context = {
 };
 
 describe('JUnit adapter', () => {
-  it('maps a testcase that declares nothing as unknown, and preserves files without treating classnames as paths', () => {
+  it('reads a complete testcase that declares nothing as a pass, and preserves files without treating classnames as paths', () => {
     const result = junitXmlAdapter.parse(
       new TextEncoder().encode(
         '<testsuite><testcase classname="suite.pkg" file="tests/self-closing.spec.ts" name="self-closing" time="0.1"/><testcase classname="suite.pkg" file="tests/plain.spec.ts" name="plain"></testcase><testcase classname="suite.pkg" name="fails"><failure>boom</failure></testcase></testsuite>',
@@ -21,11 +21,23 @@ describe('JUnit adapter', () => {
       context,
     );
     expect(result.attempts).toHaveLength(3);
-    // No `status` attribute and no outcome child means no declared outcome.
-    // These used to be recorded as passes.
+    // **This expectation was `'unknown'`, `'unknown'`, `'failed'` and that was
+    // wrong.** Every JUnit dialect — Surefire, Gradle, Jest, pytest, RSpec,
+    // PHPUnit — writes a passing test with no `status` attribute and no outcome
+    // child, because that is what the schema means. Resolving that to `unknown`
+    // made every Maven, Gradle, Jest, pytest and RSpec run ingest as a run of
+    // unobserved tests, so the score read such a project as having no tests at
+    // all. `new-adapter-parity.test.ts`'s six dialect fixtures are what made it
+    // visible; this file's single self-closing testcase could not, because one
+    // self-closing element looks like the malformed case it was written for.
+    //
+    // The guard that was protecting something real is kept, on the input that
+    // actually warrants it: a *truncated* testcase, whose unseen remainder is
+    // where a `<failure>` would be. `statusFrom` now takes `truncated` and returns
+    // `unknown` for it.
     expect(result.attempts.map((attempt) => attempt.status)).toEqual([
-      'unknown',
-      'unknown',
+      'passed',
+      'passed',
       'failed',
     ]);
     expect(result.status).toBe('failed');
@@ -65,12 +77,50 @@ describe('JUnit adapter', () => {
     expect(result.status).toBe('flaky');
   });
 
-  it('keeps a run with only undeclared testcases out of the passed column', () => {
+  it('reports a run of complete attribute-less testcases as passed, because that is what JUnit means', () => {
     const result = junitXmlAdapter.parse(
       new TextEncoder().encode('<testsuite><testcase name="a"/><testcase name="b"/></testsuite>'),
       context,
     );
+    // The old expectation was `unknown`, on the reasoning that an attribute-less
+    // testcase "declares nothing". It does declare something — it declares that the
+    // test ran and did not fail, which is how every dialect in the format writes a
+    // pass. `keeps a *truncated* testcase out of the passed column` below is the
+    // same property applied to the input that actually warrants it.
+    expect(result.status).toBe('passed');
+    expect(result.completeness.state).toBe('complete');
+  });
+
+  it('keeps a *truncated* document out of the passed column, because its remainder is unread', () => {
+    // The document stops mid-element, so the `<failure>` that would have been in
+    // the part we did not see is exactly what is missing. This is the case the
+    // old `unknown` default was written for.
+    //
+    // Note *where* the doubt lands: the SAX parser never opens a tag it never sees
+    // closed, so the cut-off `<testcase>` produces no attempt and there is no row
+    // to mark. The adapter therefore states the doubt at the **run** level, and
+    // the ladder orders it below a real failure — a report that is both truncated
+    // and failing is still `failed`.
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode('<testsuite><testcase name="a"/><testcase name="cut off"'),
+      context,
+    );
+    // Only the complete testcase became an attempt. Nothing is fabricated for the
+    // element we never finished opening.
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts?.[0]?.status).toBe('passed');
     expect(result.status).toBe('unknown');
+    expect(result.completeness.state).toBe('unknown');
+  });
+
+  it('still reports a truncated document that also failed as failed', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite><testcase name="boom"><failure>x</failure></testcase><testcase name="cut off"',
+      ),
+      context,
+    );
+    expect(result.status).toBe('failed');
     expect(result.completeness.state).toBe('unknown');
   });
 
@@ -231,5 +281,51 @@ describe('JUnit adapter', () => {
     // outright rather than appended, which is what keeps the bound a bound.
     expect(result.attempts[0]?.error?.message).toHaveLength(MAX_MESSAGE_CHARS);
     expect(result.attempts[0]?.error?.code).toBe('MESSAGE_TRUNCATED');
+  });
+});
+
+describe('a JUnit report that is not valid XML', () => {
+  // `saxes` is a strict parser and a JUnit report in the wild is frequently not strictly
+  // valid: an unescaped `&` in a `<system-out>` block, a `>` in a failure message, a body
+  // cut off when CI killed the job. The hand-rolled scanner this replaced tolerated all of
+  // it, so recovering is not optional — refusing is a regression dressed as a hardening, and
+  // nobody notices until a customer's daily run stops appearing.
+  //
+  // What makes it honest is the mark: a report the parser could not finish is one whose
+  // completeness is not established, and `proofCeiling` says so.
+  const truncated = (body: string) =>
+    junitXmlAdapter.parse(new TextEncoder().encode(body), context);
+
+  it('keeps the testcase that was open when the document stopped', () => {
+    const result = truncated('<testsuite><testcase name="a" status="passed">');
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]?.title).toBe('a');
+    expect(result.completeness.state).toBe('unknown');
+    expect(CanonicalRunResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('keeps everything before an undefined entity in a system-out block', () => {
+    // `&lol;` is not a defined XML entity. It is also exactly what a CI log full of shell
+    // output contains, and rejecting the report over it would lose every test in it.
+    const result = truncated(
+      '<testsuite><testcase name="a" status="passed"/><system-out>&lol;</system-out></testsuite>',
+    );
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]?.title).toBe('a');
+    expect(result.completeness.state, 'the document did not parse to its end').toBe('unknown');
+  });
+
+  it('refuses a document that yields no testcase at all, because that is not a run', () => {
+    expect(() => truncated('<testsuite></testsuite>')).toThrow(/no test cases/u);
+    expect(() => truncated('not xml at all')).toThrow();
+    expect(() => truncated('')).toThrow(/no test cases/u);
+  });
+
+  it('reads a well-formed document as complete', () => {
+    const result = truncated(
+      '<testsuite><testcase name="a" status="passed"/><testcase name="b" status="passed"/></testsuite>',
+    );
+    expect(result.completeness.state).toBe('complete');
+    expect(result.status).toBe('passed');
   });
 });

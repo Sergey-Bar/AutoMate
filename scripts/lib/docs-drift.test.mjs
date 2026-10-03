@@ -92,8 +92,10 @@ test('the collector reaches the documents, or every detector below passes on not
 test('every declared assertion has a detector', () => {
   assert.equal(
     ASSERTIONS.length,
-    7,
-    'roadmap E4 names seven; a sixth or eighth is a decision to record',
+    8,
+    'roadmap E4 names seven, and the eighth is `coverage-floors`, added on 2026-10-02 and ' +
+      "recorded in this file's header because `AGENTS.md` quoted a floor table that was wrong " +
+      'in every row. A ninth is another decision to record, not a number to bump.',
   );
   assert.deepEqual(
     unimplemented(),
@@ -260,6 +262,34 @@ test('each detector fires on the shape of claim it exists to catch', () => {
     [true],
   );
   assert.deepEqual(findingsFor('adrs', 'docs/x.md', 'See ADR-042 for the decision.', []).length, 1);
+
+  // The eighth assertion. Written against the defect rather than the implementation:
+  // the real `AGENTS.md` table was wrong in all eight rows, so the detector's whole
+  // value is the arm that fires.
+  const floor = environment.coverageFloors.get('apps/api');
+  assert.ok(floor !== undefined, 'apps/api must have a recorded floor, or this arm proves nothing');
+  assert.deepEqual(findingsFor('coverage-floors', 'AGENTS.md', `| \`apps/api\` | 93/84/93/96 |`), [
+    `AGENTS.md: quotes \`apps/api\`'s coverage floor as 93/84/93/96, and ` +
+      `\`coverage-baseline.json\` records ${floor}. A floor printed in prose is a copy, ` +
+      'and the ratchet moves the original every time a package gains tests.',
+  ]);
+  assert.deepEqual(
+    findingsFor('coverage-floors', 'AGENTS.md', `| \`apps/api\` | ${floor} |`),
+    [],
+    'the floor the baseline records is not a finding, or the detector fails the table it protects',
+  );
+  assert.deepEqual(
+    findingsFor('coverage-floors', 'AGENTS.md', '| `packages/ui` | 59/74/62/59 |'),
+    [
+      "AGENTS.md: quotes `packages/ui`'s coverage floor as 59/74/62/59, and `coverage-baseline.json` records 67/84/68/66. A floor printed in prose is a copy, and the ratchet moves the original every time a package gains tests.",
+    ],
+    'the real `AGENTS.md` tuple, so the arm fails if the detector stops matching the shape it exists for',
+  );
+  assert.deepEqual(
+    findingsFor('coverage-floors', 'docs/x.md', 'The gate runs 3 times, 4 times and 12 times.'),
+    [],
+    'a table that is not a floor table is not a floor table',
+  );
 });
 
 test('a quoted or struck-through claim is a recorded claim, not a fresh one', () => {

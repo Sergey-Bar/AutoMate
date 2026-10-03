@@ -6,12 +6,19 @@ import { Route as analyticsRoute } from './routes/dashboard/analytics.js';
 import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
+import { Route as scoreRoute } from './routes/dashboard/score.js';
+import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
 
 const dashboardTree = dashboardRoute.addChildren([
   runsListRoute,
   runDetailRoute,
   analyticsRoute,
   quarantineRoute,
+  scoreRoute,
+  GapsRoute,
+  HollowRoute,
+  FlakyRoute,
+  StructureRoute,
 ]);
 
 /**

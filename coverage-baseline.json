@@ -11,6 +11,12 @@
     "functions": 66.43,
     "lines": 72.01
   },
+  "apps/tui": {
+    "statements": 70.4,
+    "branches": 64.51,
+    "functions": 89.47,
+    "lines": 73.25
+  },
   "apps/web": {
     "statements": 96.18,
     "branches": 88.47,
@@ -76,6 +82,12 @@
     "branches": 100,
     "functions": 100,
     "lines": 91.89
+  },
+  "packages/projects": {
+    "statements": 91.75,
+    "branches": 72.29,
+    "functions": 91.54,
+    "lines": 95
   },
   "packages/realtime": {
     "statements": 94.5,

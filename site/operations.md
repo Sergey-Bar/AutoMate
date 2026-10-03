@@ -58,16 +58,17 @@ because the only data is in the source and the copy is what gets destroyed — t
 command refuses a restore target equal to the source.
 
 It needs a live second database, so it is `never-in-ci` and is not part of `verify`.
-**No run of it has happened against a real installation yet**, which is why the
-tenancy wave must not start on the strength of the harness. That is recorded as an
-open Blocker on the [Findings](/pages/quality/findings) page rather than left
-implicit.
+**No run of it has happened against a real installation yet — and the tenancy wave it
+was gating is already in the tree**, in five migrations. That is recorded as an open
+Blocker on the [Findings](/pages/quality/findings) page rather than left implicit, and
+`docs/quality/wave-gates.json` is what makes it a gate rather than a sentence: it fails
+when a migration exists on disk for a wave whose gating row is not `fixed`.
 
 ## What the gates mean
 
 | Command                  | What it is                                                      |
 | ------------------------ | --------------------------------------------------------------- |
-| `pnpm verify`            | The whole chain. Thirteen steps.                                |
+| `pnpm verify`            | The whole chain. Sixteen steps.                                 |
 | `pnpm verify:local`      | The same chain, scanners recorded `not_configured`.             |
 | `pnpm coverage:ratchet`  | Coverage floors; fails on a regression, never on a lower floor. |
 | `pnpm docs:check`        | No document cites a file that does not exist.                   |

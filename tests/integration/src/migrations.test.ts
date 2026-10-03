@@ -164,6 +164,8 @@ describe('migration graph', () => {
       '0020_connector_credentials_tenant',
       '0021_execution_jobs_lease_owner_idx',
       '0022_tests_error_message',
+      '0023_project_registry',
+      '0024_project_quality_gate',
     ]);
   });
 
@@ -186,6 +188,118 @@ describe('migration graph', () => {
     const columns = await columnNames(shared, 'canonical_run_results');
     for (const column of Object.values(getTableColumns(canonicalRunResults))) {
       expect(columns, `canonical_run_results.${column.name}`).toContain(column.name);
+    }
+  });
+
+  it('gives `projects` a repository path, a profile, and a detector version', async () => {
+    // The three columns that turn a `projects` row from a label into a registry
+    // entry. `detector_version` is `NOT NULL` because a profile written by a
+    // later detector must never be read as an earlier detector's shape, and a
+    // nullable column could not say which.
+    const columns = await columnNames(shared, 'projects');
+    for (const column of ['repo_path', 'profile', 'detector_version']) {
+      expect(columns, `projects.${column}`).toContain(column);
+    }
+
+    const nullability = await shared.query<{ column_name: string; is_nullable: string }>(
+      `SELECT column_name, is_nullable FROM information_schema.columns
+        WHERE table_name = 'projects' AND column_name = 'detector_version'`,
+    );
+    expect(nullability.rows[0]?.is_nullable).toBe('NO');
+  });
+
+  it('refuses a run that names a project the registry does not have', async () => {
+    // `runs.project_id` was a bare uuid for the whole life of migration 0003. A
+    // run could name any project id and the database accepted it, so the
+    // dashboard's per-project rollups could attribute a run to a repository
+    // nobody registered — and nothing recorded that the attribution was invented.
+    //
+    // Asserted through the database rather than through the Drizzle schema,
+    // because the whole point is that the database refuses.
+    const db = drizzle(shared, { schema });
+    const unknown = '00000000-0000-4000-8000-00000000dead';
+    await expect(
+      db.insert(runs).values({
+        id: '00000000-0000-4000-8000-00000000beef',
+        startedAt: new Date(),
+        projectId: unknown,
+      }),
+    ).rejects.toThrow();
+  });
+  it('scopes a quality gate to one project without a second thresholds table', async () => {
+    // Plan task 9: `quality_gate_config` is already read and written, so
+    // per-project thresholds are a column on it and not a new table. The
+    // alternative — a `project_thresholds` table nobody reads — is the dormant
+    // schema `capability-justification.md` exists to stop, and it would also
+    // leave two places that answer "what is this project's pass-rate threshold".
+    const columns = await columnNames(shared, 'quality_gate_config');
+    expect(columns).toContain('project_id');
+
+    const db = drizzle(shared, { schema });
+    const projectId = '00000000-0000-4000-8000-00000000f00d';
+    await db.insert(workspaces).values({
+      id: 'ws-gates',
+      name: 'default',
+      configPath: 'config',
+      createdAt: new Date(),
+    });
+    await db.insert(schema.projects).values({
+      id: projectId,
+      workspaceId: 'ws-gates',
+      name: 'demo',
+      slug: 'demo',
+    });
+
+    await expect(
+      db.insert(schema.qualityGateConfig).values({
+        id: 'gate-demo',
+        workspaceId: 'ws-gates',
+        projectId,
+        name: 'demo gate',
+        passRateThreshold: 95,
+        updatedAt: new Date(),
+      }),
+    ).resolves.toBeDefined();
+
+    // And a gate naming a project that does not exist is refused, which is the
+    // same defect class as `runs.project_id` having been a bare uuid.
+    await expect(
+      db.insert(schema.qualityGateConfig).values({
+        id: 'gate-ghost',
+        workspaceId: 'ws-gates',
+        projectId: '00000000-0000-4000-8000-00000000dead',
+        name: 'ghost gate',
+        updatedAt: new Date(),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('keeps a run readable when its project is deleted, and stops the attribution', async () => {
+    // `on delete set null`, deliberately: a run is evidence and must outlive the
+    // registry row, but it must not keep claiming a project that is gone.
+    // Asserted in both directions, because "the run survived" alone is also
+    // true of a cascade that deleted nothing.
+    const client = await createMigratedDatabase();
+    try {
+      const projectId = '00000000-0000-4000-8000-00000000cafe';
+      const runId = '00000000-0000-4000-8000-00000000babe';
+      await client.exec(`INSERT INTO workspaces (id, name, config_path, created_at)
+        VALUES ('ws-projects', 'default', 'config', now())`);
+      await client.exec(`INSERT INTO projects (id, workspace_id, name, slug, created_at)
+        VALUES ('${projectId}', 'ws-projects', 'demo', 'demo', now())`);
+      await client.exec(`INSERT INTO runs (id, started_at, project_id)
+        VALUES ('${runId}', now(), '${projectId}')`);
+
+      await client.exec(`DELETE FROM projects WHERE id = '${projectId}'`);
+
+      const survived = await client.query<{ id: string; project_id: string | null }>(
+        'SELECT id, project_id FROM runs WHERE id = $1',
+        [runId],
+      );
+      expect(survived.rows).toHaveLength(1);
+      expect(survived.rows[0]?.project_id).toBeNull();
+    } finally {
+      await client.close();
     }
   });
 });

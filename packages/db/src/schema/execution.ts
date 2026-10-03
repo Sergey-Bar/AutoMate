@@ -15,7 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { results, runs, runners, workspaces } from './dashboard.js';
+import { projects, results, runs, runners, workspaces } from './dashboard.js';
 
 // The controlled vocabularies live in `./vocabularies.js` rather than here, because
 // `dashboard.ts` needs `GATE_STATUSES` and importing it from this module would be a
@@ -54,26 +54,14 @@ import {
   type QualityPolicyRule,
 } from './vocabularies.js';
 
-export const projects = pgTable(
-  'projects',
-  {
-    id: uuid('id').primaryKey().defaultRandom(),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'restrict' }),
-    name: text('name').notNull(),
-    slug: text('slug').notNull(),
-    defaultBranch: text('default_branch'),
-    repositoryUrl: text('repository_url'),
-    settings: jsonb('settings').$type<Record<string, unknown>>().notNull().default({}),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    uniqueIndex('projects_workspace_slug_unique').on(table.workspaceId, table.slug),
-    index('projects_workspace_idx').on(table.workspaceId),
-  ],
-);
+// `projects` is declared in `./dashboard.js`, beside the `runs` row whose
+// `project_id` references it. It was declared here until migration 0023, and
+// giving `runs` that foreign key from here would have made the two modules import
+// each other — a cycle that resolves only because Drizzle defers every reference
+// to a callback, which is exactly the kind of thing that works until someone
+// reads one at module-evaluation time. It is re-exported below, so
+// `import { projects } from '@automate/db'` is unchanged.
+export { projects } from './dashboard.js';
 
 export const environments = pgTable(
   'environments',

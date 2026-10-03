@@ -94,3 +94,40 @@ export function hasSourceFiles(packageRoot: string): boolean {
   }
   return false;
 }
+
+/**
+ * The whole of a node package's `vitest.config.ts`.
+ *
+ * ## Why this exists
+ *
+ * Five packages shipped a byte-identical seventeen-line config file, and jscpd
+ * reported all five as clones. That is not untidy — it is five places a change has to
+ * be made, and the realistic outcome is that the sixth package copies the first one
+ * from an older commit and quietly keeps a different coverage reporter.
+ *
+ * `STANDARD_TEST_TIMEOUT_MS` already lives here for exactly this reason, and the
+ * timeout is the clause that mattered most: a package whose config predates it keeps
+ * Vitest's 5s default and reports a loaded machine as a failing repository.
+ *
+ * The one thing a package may still vary is `environment`, and `jsdom` packages
+ * override it explicitly rather than by copying the file.
+ */
+export function standardVitestConfig(
+  packageRoot: string,
+  overrides: { environment?: 'node' | 'jsdom' } = {},
+) {
+  return {
+    test: {
+      environment: overrides.environment ?? ('node' as const),
+      globals: true,
+      testTimeout: STANDARD_TEST_TIMEOUT_MS,
+      hookTimeout: STANDARD_TEST_TIMEOUT_MS,
+      coverage: {
+        ...standardCoverage(packageRoot),
+        provider: 'v8' as const,
+        reporter: ['text', 'json-summary', 'json', 'html'],
+        reportsDirectory: './coverage',
+      },
+    },
+  };
+}

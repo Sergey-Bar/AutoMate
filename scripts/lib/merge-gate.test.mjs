@@ -10,9 +10,11 @@ import {
   checkCommitSubjects,
   checkLedger,
   checkTestsPerChange,
+  checkWaveBlocks,
   readPolicy,
   worstOf,
 } from './merge-gate.mjs';
+import { landedWaves, readWaveGates } from './findings-ledger.mjs';
 
 const policy = readPolicy();
 
@@ -307,18 +309,153 @@ test('the committed ledger is the one the gate reads, and the verdict is derived
   );
   const real = checkLedger(ledger, policy);
 
+  assertGateNamesExactly(real, expected, 'open blocking row(s) in the ledger');
+});
+
+// ── The wave gates ───────────────────────────────────────────────────────────
+
+/**
+ * A gate's verdict must follow from the rows it was told to block on, and name
+ * exactly those rows.
+ *
+ * One helper for both ledger checks because the property is the same one and the two
+ * copies of it were a 24-line clone — and because the reason the expectation is
+ * *derived* rather than written down is worth stating once: a test that asserts
+ * `"fail"` is a test that fails the day RF-5 is re-banded, which is the day the work
+ * landed.
+ *
+ * @param {import('./merge-gate.mjs').Check} gate
+ * @param {Array<{ id: string }>} expected the rows the policy says block
+ * @param {string} what noun for the failure message
+ */
+function assertGateNamesExactly(gate, expected, what) {
   assert.equal(
-    real.outcome,
+    gate.outcome,
     expected.length === 0 ? 'pass' : 'fail',
-    `${String(expected.length)} open blocking row(s) in the ledger, so the gate must ${
-      expected.length === 0 ? 'pass' : 'fail'
-    }`,
+    `${String(expected.length)} ${what}, so the gate must ${expected.length === 0 ? 'pass' : 'fail'}`,
   );
   for (const row of expected) {
     assert.ok(
-      real.problems.some((problem) => problem.startsWith(row.id)),
-      `the gate must name ${row.id} specifically; got: ${real.problems.join(' | ')}`,
+      gate.problems.some((problem) => problem.startsWith(row.id)),
+      `the gate must name ${row.id} specifically; got: ${gate.problems.join(' | ')}`,
     );
   }
-  assert.equal(real.problems.length, expected.length, 'and must name nothing else');
+  assert.equal(gate.problems.length, expected.length, 'and must name nothing else');
+}
+
+/**
+ * @param {{ id: string, status: string, band: string, blocksWave?: string }} row
+ */
+function debtRow(row) {
+  return {
+    findings: [
+      {
+        id: row.id,
+        band: row.band,
+        status: row.status,
+        title: 'x',
+        ...(row.blocksWave === undefined ? {} : { blocksWave: row.blocksWave }),
+      },
+    ],
+  };
+}
+
+/** The manifest this repository ships, which is the one `runMergeGate` reads. */
+const committedGates = readWaveGates();
+
+/**
+ * A manifest whose one wave has not started.
+ *
+ * Built from the committed one rather than written out, so it cannot drift into a
+ * second description of W7 — and the point of it is precisely the migrations that
+ * are *not* on disk, which is the one state the committed file cannot show.
+ *
+ * @returns {unknown}
+ */
+function notLandedGates() {
+  const gates = JSON.parse(JSON.stringify(committedGates));
+  gates.waves['W7'] = { migrations: ['packages/db/drizzle/9999_never_written.sql'] };
+  return gates;
+}
+
+test('a deferred row that gates a landed wave blocks, which is the hole `blockingStatuses` leaves', () => {
+  // The exact state the policy describes and the ledger spent a year in: a `debt` row
+  // is excluded from `checkLedger` on purpose, which is right for a deferred *fix* and
+  // wrong for a deferred *wave*. `checkLedger` alone cannot see this; assert that too,
+  // so the pair is proven to be doing two different jobs.
+  const ledger = debtRow({ id: 'RF-5', status: 'debt', band: 'Major', blocksWave: 'W7' });
+  assert.equal(checkLedger(ledger, policy).outcome, 'pass', 'debt stays non-blocking in general');
+
+  const blocked = checkWaveBlocks(ledger, committedGates, policy);
+  assert.equal(blocked.outcome, 'fail');
+  assert.match(blocked.problems[0] ?? '', /RF-5 \(Major, debt\): x defers W7/);
+  assert.match(blocked.note, /cannot be deferred by a row nobody read/);
+});
+
+test('the same row is clear while its wave has not landed', () => {
+  assert.equal(
+    checkWaveBlocks(
+      debtRow({ id: 'RF-5', status: 'debt', band: 'Major', blocksWave: 'W7' }),
+      notLandedGates(),
+      policy,
+    ).outcome,
+    'pass',
+    'a wave nobody has started is not blocked by the row deferring it',
+  );
+});
+
+test('an open row is left to `checkLedger`, not double-reported here', () => {
+  // The two rules cover the two dispositions and must not overlap: an `open` Blocker
+  // already fails `checkLedger` by band and status, so reporting it here too would
+  // name one row twice for one reason.
+  const ledger = debtRow({ id: 'RF-5', status: 'open', band: 'Blocker', blocksWave: 'W7' });
+  assert.equal(checkWaveBlocks(ledger, committedGates, policy).outcome, 'pass');
+  assert.equal(checkLedger(ledger, policy).outcome, 'fail');
+});
+
+test('a row with no `blocksWave` is untouched by the wave gate', () => {
+  assert.equal(
+    checkWaveBlocks(debtRow({ id: 'C-6', status: 'debt', band: 'Major' }), committedGates, policy)
+      .outcome,
+    'pass',
+  );
+});
+
+test('an unreadable manifest or ledger is not_configured, not a pass', () => {
+  const ledger = debtRow({ id: 'RF-5', status: 'debt', band: 'Major', blocksWave: 'W7' });
+  const noManifest = checkWaveBlocks(ledger, null, policy);
+  assert.equal(noManifest.outcome, 'not_configured');
+  assert.match(noManifest.note, /must not report the policy as satisfied/);
+
+  const noLedger = checkWaveBlocks(null, committedGates, policy);
+  assert.equal(noLedger.outcome, 'not_configured');
+  assert.match(noLedger.note, /the ledger could not be read/);
+});
+
+test('the committed manifest is the one the gate reads, and the verdict is derived from it', () => {
+  const gates = JSON.parse(
+    readFileSync(path.join(ROOT, policy.ledger.blocksWave.manifest), 'utf8'),
+  );
+  const ledger = JSON.parse(
+    readFileSync(path.join(ROOT, 'docs', 'quality', 'findings-ledger.json'), 'utf8'),
+  );
+
+  assert.equal(policy.ledger.blocksWave.field, 'blocksWave');
+  assert.equal(policy.ledger.blocksWave.appliesToStatuses.join(), 'debt');
+  assert.deepEqual(
+    gates,
+    committedGates,
+    '`readWaveGates` must return the committed file rather than something assembled',
+  );
+
+  const landed = landedWaves(gates, { root: ROOT });
+  const expected = ledger.findings.filter(
+    (/** @type {{ status: string, blocksWave?: string }} */ row) =>
+      landed.includes(String(row.blocksWave ?? '')) &&
+      policy.ledger.blocksWave.appliesToStatuses.includes(row.status),
+  );
+  const real = checkWaveBlocks(ledger, gates, policy);
+
+  assert.ok(landed.length > 0, 'the committed manifest declares at least one landed wave');
+  assertGateNamesExactly(real, expected, 'deferred row(s) gating a landed wave');
 });

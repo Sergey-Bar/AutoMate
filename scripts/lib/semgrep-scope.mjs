@@ -51,6 +51,12 @@ export const SEMGREP_SCOPE = [
   'apps/web/src',
   'apps/runner/src',
   'apps/worker/src',
+  // `apps/tui` joined the list when it was added, and the config check failed
+  // immediately — which is the list doing the job it was written for. A terminal
+  // holds a repository path and spawns processes, so it is exactly the kind of
+  // package that must not go unexamined, and the omission would have reported the
+  // same clean result as an inclusion.
+  'apps/tui/src',
   // One entry per workspace group rather than per package: semgrep recurses, and
   // naming `packages` once covers every package under it, so a new package needs no
   // edit here. The config check enforces the same reasoning against the real

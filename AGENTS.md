@@ -50,6 +50,7 @@ pnpm security:verify      # audit + secrets + secrets history + config check + s
 pnpm security:static      # semgrep + gitleaks. Exits non-zero as not_configured without them
 pnpm security:secrets     # Dependency-free secret floor, working tree
 pnpm security:secrets:history  # The same patterns over every commit. CI step, not a pre-commit hook — it is proportional to the commit count
+pnpm skill-scan           # Scans .kilo/skills/ for prompt injection and exfiltration patterns. pr-reporting, needs skillspector
 pnpm duplication          # jscpd
 pnpm complexity           # Complexity gate against docs/quality/complexity-baseline.json
 pnpm test:render          # Rendering budget: LCP, INP, CLS, long tasks on the four primary routes
@@ -115,6 +116,91 @@ means adding a row there, not a silent red job.
 
 `migrate:apply` is never in `verify` and never in a workflow: CI has no persistent
 database, so applying a migration there proves nothing about the migration.
+
+### The agent's own instructions are supply-chain input
+
+`AGENTS.md`, the eleven personas in `.kilo/agent/`, and every `SKILL.md` are text the
+agent obeys. Nothing in the gate chain scanned them. `security:secrets` scans the
+repository, and a repository that has audited its secrets, its dependencies, and its
+licences has not thereby audited the prompt surface — which is the same shape as
+`P-6`'s three startup-policy authorities: a trust boundary that exists in the product
+and nowhere in the gates.
+
+`pnpm skill-scan` closes it. It wraps NVIDIA's SkillSpector, which found **26.1% of
+31,132 analysed skills carrying vulnerabilities and 5.2% showing likely malicious
+intent**. The script imports `isHostDegradationOptedIn`, `scanTimeoutMs`, and
+`notConfiguredMessage` from `scripts/lib/host-scanners.mjs` rather than restating them,
+because a second unavailable-tool policy would be a second authority, and a scanner
+killed at the ceiling exits 2 rather than reporting clean. It also fails **closed** on
+its own baseline: a missing or unreadable baseline makes every finding new.
+
+It is tier `pr-reporting` and **not in `verify`**, and the reason is a real run rather
+than a prediction. On 2026-10-02 it scanned the eight skills and returned
+**`DO_NOT_INSTALL` at risk score 56** — on the strength of six pattern matches against
+markdown prose: a React README sentence reading "Define clear context interfaces", a
+`dangerouslySetInnerHTML` inside a fenced code block in Vercel's own hydration guidance,
+and unpinned `npx` in command examples. The scanner works; the corpus is clean. So the
+gate **blocks on findings not in `docs/quality/skill-findings-baseline.json`, each with
+a stated reason**, and reports the aggregate verdict beside them — a permanently red gate
+is what SEM-2's 543 semgrep findings taught this repository. The baseline is keyed on
+`match_fingerprint`, never `finding_id`, because the id is regenerated per run and two
+scans of the same tree produced different ids for identical findings.
+
+The scan was also **not complete** — `is_complete: false` at 97.7%, with
+`static_patterns_tool_misuse` `degraded` — and the gate prints the coverage and the
+degraded set rather than a clean summary over them. Graduating needs one commit that
+installs the scanner in the `security` job and moves the tier together; the condition is
+a CI run that printed a `risk_assessment` with `is_complete: true`.
+
+The four vendored skills carry an upstream source repository and a content hash in
+`skills-lock.json`. A hash answers _did the file change_ and not _is the file safe_,
+which is why both exist.
+
+### The agent's configuration, and one planning system
+
+`.kilo/` is the canonical project config root, and the whole of it is inside
+`.prettierignore`.
+
+| Path                      | What it is                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.kilo/kilo.jsonc`        | Project config. Four lines today.                                                                                                                                                                                                                                                                                                                                          |
+| `.kilo/agent/*.md`        | **The eleven personas**, in Kilo's format: `mode`, `steps`, `color`, and `permission`. The three read-only ones carry `permission: edit: deny`, so "DO NOT edit files" is enforced by the harness rather than by prose — a guard you can forget to call is weaker than a permission you cannot call.                                                                       |
+| `.kilo/skills/*/SKILL.md` | **The nine project skills.** Five authored here — `ledger-row`, `evidence-test`, `no-second-authority`, `gate-tiering`, `capability-evidence` — and four vendored from `vercel-labs/agent-skills` and `supabase/agent-skills`.                                                                                                                                             |
+| `.kilo/command/*.md`      | **Three commands**, because the other two layers are only half a workflow without them: `/gate` (which gate applies, and can it pass today), `/close` (close a ledger row, or say why not), `/boundary` (add a table to the tenancy register, or diagnose a regression). Each composes a skill with the gate that decides it; none is a wrapper around one `pnpm` command. |
+| `.kilo/plans/`            | **The one planning system.** The only one of the three that is tracked in git.                                                                                                                                                                                                                                                                                             |
+| `.kilo/worktrees/`        | Agent Manager worktrees.                                                                                                                                                                                                                                                                                                                                                   |
+
+`.kilo/agent/` is the same eleven personas as `.github/agents/*.agent.md`, in the
+format Kilo reads, and the content is one copy: the thirteen review categories in
+`.github/review-rules/rules.json` map to seven of them, and `scripts/review/ruleset.mjs`
+keeps that file and the emitters in agreement in both directions. **`.github/agents/`
+is the GitHub Copilot copy and stays in sync by hand**; the frontmatter is the only
+difference, and the persona bodies are the authority for both.
+
+**Adding a skill.** Project skills go in `.kilo/skills/<name>/SKILL.md` with `name`
+and `description` in the frontmatter — that is the only discovery path, and the
+description is what the agent matches on, so it must name the _situation_ and not the
+tool. A third-party skill is vendored, not copied by hand:
+
+```bash
+npx --yes skills@latest add <owner>/<repo> --skill <name> -a kilo --copy -y
+# then move the folder from .agents/skills/<name> into .kilo/skills/<name>,
+# so the project has one skill root rather than two.
+```
+
+Do not run `skills update` here: it writes to `.agents/skills/`, which would
+reintroduce the split.
+
+**`.omo/` and `.sisyphus/` are dead state and are not the planning system.** They are
+byte-identical to each other, both point at `C:\VScode\QA\.sisyphus\plans\` — a path
+from a different machine — and they name packages that no longer exist
+(`@automate/server`, `dashboard-server`, `packages/cli`). They are gitignored, so
+nothing checks them, which is exactly why nothing noticed. **`.kilo/plans/` is the
+authority**; the other two can be deleted whenever nobody wants their session history.
+
+Seventeen of the eighteen files in `.kilo/plans/` are currently untracked, so a plan
+written in one session is invisible in the next. Committing them is a deliberate act,
+not an automatic one.
 
 ### The findings ledger
 
@@ -191,14 +277,23 @@ why they are open.
 | **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks                                                                 | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
 
 None of these is closable by writing more code, and none should be closed on the
-strength of its harness. The tenancy wave (W7) must not start until RF-5 has one
-real run behind it — that is the D1 rule, and the blocker is evidence, not scope.
+strength of its harness. The blocker is evidence, not scope — and for **RF-5** that
+distinction has already been settled against the record: the tenancy wave (W7) landed
+in five migrations, and the rehearsal it was gated on has still never been run, so the
+row is an `open` Blocker and `pnpm findings:check` says so. That rule is now
+`docs/quality/wave-gates.json` rather than a sentence, which is the only reason it
+survived as long as it did.
 
 ---
 
 ## Project Structure
 
 ```
+.kilo/                The canonical project config root
+  agent/              The eleven reviewer personas, in Kilo's format
+  skills/             The nine project skills (five authored, four vendored)
+  command/            Three commands: /gate, /close, /boundary
+  plans/              The one planning system; the only one tracked in git
 apps/
   api/               Hono v4 API + Effect services (:3000)
   web/               React 19 + TanStack Router + Tailwind CSS 4 (:5173)
@@ -240,9 +335,13 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - Unused variables must be prefixed with `_` (e.g., `_req`, `_unused`). Enforced by ESLint.
 - Use `prefer-const` — enforced as `"error"`.
 - Use `.js` extensions in relative imports (ESM requirement): `import { foo } from './bar.js'`.
-- Gate scripts in `scripts/` are plain `.mjs` with JSDoc types; they are not typechecked
-  by `tsc` (only `tsconfig.scripts.json` covers `scripts/review/`), so keep them
-  dependency-free and defensive.
+- Gate scripts in `scripts/` are plain `.mjs` with JSDoc types. They **are**
+  typechecked: `tsconfig.scripts.json` sets `allowJs`, `checkJs`, `strict`, and
+  includes `scripts/**/*.mjs` deliberately broadly, because "a gate script that
+  is excluded from type checking is a gate script whose wrong argument count
+  nothing catches". Index a parsed-JSON field through
+  `/** @type {Record<string, unknown>} */ (…)` rather than reaching through
+  `unknown`. Keep them dependency-free and defensive.
 
 ### Imports
 
@@ -291,14 +390,19 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 
   | Package                     | Floor       |
   | --------------------------- | ----------- |
-  | `apps/api`                  | 93/84/93/96 |
-  | `apps/web`                  | 95/86/96/97 |
-  | `apps/runner`               | 68/55/65/70 |
-  | `apps/worker`               | 56/43/62/58 |
-  | `packages/shared-contracts` | 99/97/97/99 |
-  | `packages/ui`               | 59/74/62/59 |
-  | `packages/db`               | 61/40/42/62 |
-  | `tools/migrate-cli`         | 59/41/85/59 |
+  | `apps/api`                  | 95/86/95/97 |
+  | `apps/web`                  | 96/88/96/98 |
+  | `apps/runner`               | 70/58/66/72 |
+  | `apps/worker`               | 63/57/69/65 |
+  | `packages/shared-contracts` | 99/98/97/99 |
+  | `packages/ui`               | 67/84/68/66 |
+  | `packages/db`               | 72/67/55/73 |
+  | `tools/migrate-cli`         | 59/42/85/60 |
+
+  Every row was wrong when this table was last read, by 2 to 20 points — the floors
+  move every time a package's tests grow, and nothing was checking. `coverage:baseline`
+  is the authority and `scripts/lib/docs-drift.mjs`'s `coverage-floors` assertion is
+  what holds this copy to it, so this table is a reading aid and not a source.
 
   A newly-measured file must be genuinely covered on the same PR. **Lowering a floor to
   make room is not a fix**; the ratchet exists to make that visible.
@@ -332,6 +436,11 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - Vault: AES-256-GCM encryption with PBKDF2 key derivation.
 - `WORKSPACE_ID` is the only tenancy boundary in the system. Any new workspace-scoped
   read or write needs a cross-workspace isolation test.
+  **`docs/quality/tenancy-scope.json` is which tables that covers** — one row per table,
+  each committing its scope, its observed column state, and the reason. `pnpm tenancy:check`
+  fails on an unclassified table or on one that loses a hard boundary; it reports the 28
+  workspace-scoped tables that do not have one rather than failing, because that debt is
+  tracked as `P-20` and a permanently red gate stops catching the regressions.
 
 ### Git / PR Workflow
 

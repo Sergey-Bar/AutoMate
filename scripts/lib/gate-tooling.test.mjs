@@ -14,6 +14,12 @@ import {
   tierRegisterProblems,
 } from './gate-tooling.mjs';
 import { phaseFor, tierProblems } from './render-gate-phase.mjs';
+import {
+  evaluate,
+  loadContext,
+  phaseFor as statusTenPhaseFor,
+  tierProblems as statusTenTierProblems,
+} from './status-ten.mjs';
 import { HOST_SCANNERS_ENV } from './host-scanners.mjs';
 
 /** The repository root, for the committed data files this suite also reads. */
@@ -333,6 +339,80 @@ test('every root script carries a tier, and every tier is one of the five', () =
   );
 });
 
+test('the step count `verify` is described with is the step count it has', () => {
+  // Two documents state this number by hand — the budget anchor in `gate-tooling.json`
+  // and the table in `site/operations.md` — and both were stale in the same session
+  // that `tenancy:check` made them stale. A number nobody derives is a number that
+  // will be wrong again, so it is asserted here against the chain itself rather than
+  // corrected a third time. Four lines, in the test that already counts the steps.
+  const steps = /** @type {string} */ (
+    /** @type {{ scripts: Record<string, string> }} */ (
+      JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'))
+    ).scripts.verify
+  )
+    .split('&&')
+    .map((step) => step.trim().replace(/^pnpm /, ''))
+    .filter((step) => step !== '');
+
+  // `gate-tooling.json` writes it as a digit and `site/operations.md` spells it,
+  // because one is a machine budget and the other is prose. Both are accepted.
+  const spelled = [
+    '',
+    'one',
+    'two',
+    'three',
+    'four',
+    'five',
+    'six',
+    'seven',
+    'eight',
+    'nine',
+    'ten',
+    'eleven',
+    'twelve',
+    'thirteen',
+    'fourteen',
+    'fifteen',
+    'sixteen',
+    'seventeen',
+    'eighteen',
+    'nineteen',
+    'twenty',
+  ];
+
+  // Each pattern is the claim that file actually makes, not a scan for a number. A
+  // generic `\d+` scan matched "Four of the nine jobs" three hundred lines before the
+  // sentence under test, which is the same mistake as reading a count out of prose.
+  //
+  // The annotation is not decoration. Without it the array literal infers
+  // `(string | RegExp)[][]`, the destructured `pattern` is `string | RegExp`, and
+  // `pattern.exec` is a type error — which is how `pnpm typecheck:scripts` came to
+  // be red at HEAD on a tree nobody had touched.
+  //
+  // It is on a **named binding** rather than on the `for…of` expression because a
+  // JSDoc type applies where the value is declared, not where it is consumed; put
+  // on the loop it is read as the loop's type and the literal is still inferred
+  // from itself.
+  /** @type {Array<[string, RegExp]>} */
+  const documentedSteps = [
+    ['scripts/gate-tooling.json', /`verify` may grow from (\d+)/],
+    ['site/operations.md', /The whole chain\. (\w+) steps/],
+  ];
+  for (const [file, pattern] of documentedSteps) {
+    const text = readFileSync(path.join(REPO_ROOT, file), 'utf8');
+    const found = pattern.exec(text)?.[1]?.toLowerCase();
+    const expected = [String(steps.length), spelled[steps.length] ?? ''].map((word) =>
+      word.toLowerCase(),
+    );
+    assert.ok(
+      found !== undefined && expected.includes(found),
+      `${file} does not describe \`verify\` as ${expected[1] ?? expected[0]} steps. ` +
+        `\`pnpm verify\` runs ${steps.join(', ')}, and a hand-written count drifts the moment ` +
+        'one of them moves.',
+    );
+  }
+});
+
 test('a tolerated failure around a pr-blocking gate is a finding, and one around a reporting job is not', () => {
   // W0.9's `no-silent-skip` rule, and the reason it is tier-aware rather than
   // absolute. `continue-on-error` on a `pr-reporting` or `nightly` job is a
@@ -514,6 +594,26 @@ test("the rendering gate's tier follows its baseline, in both directions", () =>
     [],
     `test:render is ${phaseFor(baseline)} but is tiered "${declared}". ` +
       'See scripts/lib/render-gate-phase.mjs.',
+  );
+});
+
+test('the status:10 tier is what its own reports require, not a hand-set constant', () => {
+  // The same rule as the test above, for the same reason. `status:10` was armed
+  // `pr-blocking` on 2026-10-01 when the fails were zero and the count went back to
+  // one on 2026-10-02 when RF-5 returned to `open`/`Blocker` — a fail whose removal
+  // condition needs an installation. Left as a hand-set tier it is either a required
+  // check that can never pass, or a real gate nobody is required to satisfy, and
+  // nothing else in the repository would notice either way.
+  const manifest = readManifest();
+  const declared = (manifest.tiers ?? {})['status:10'];
+  assert.equal(typeof declared, 'string', 'status:10 needs a tier in gate-tooling.json');
+
+  const reports = evaluate(loadContext(REPO_ROOT));
+  assert.deepEqual(
+    statusTenTierProblems(reports, declared),
+    [],
+    `status:10 is ${statusTenPhaseFor(reports)} but is tiered "${declared}". See phaseFor in ` +
+      'scripts/lib/status-ten.mjs.',
   );
 });
 

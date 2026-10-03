@@ -1,5 +1,5 @@
 import type { CanonicalProof, CanonicalRunResult } from '@automate/shared-contracts';
-import { isNonProductStatus, isProductOutcome } from './policy.js';
+import { countIndeterminate, isNonProductStatus, isProductOutcome } from './policy.js';
 
 export type ProofCeiling = CanonicalProof['state'] | 'unknown' | 'rejected';
 
@@ -72,7 +72,9 @@ export function calculateKpis(results: CanonicalRunResult[], now = new Date()): 
   // Non-product and unknown attempts are excluded from every product rate so a
   // blocked or infra-broken run can never be reported as a product pass or fail.
   const productAttempts = attempts.filter((attempt) => isProductOutcome(attempt.status));
-  const unknown = attempts.filter((attempt) => attempt.status === 'unknown').length;
+  // Indeterminate, counted by **classification** rather than by comparing to `'unknown'` —
+  // see `countIndeterminate`, which is the one place that rule is written.
+  const unknown = countIndeterminate(attempts);
   const nonProduct = attempts.filter((attempt) => isNonProductStatus(attempt.status)).length;
   const passed = productAttempts.filter((attempt) => attempt.status === 'passed').length;
   const failed = productAttempts.filter((attempt) => attempt.status === 'failed').length;
