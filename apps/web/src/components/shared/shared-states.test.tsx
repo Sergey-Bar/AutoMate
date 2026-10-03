@@ -1,80 +1,77 @@
-/// <reference types="vitest/globals" />
-import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { EmptyState } from './EmptyState';
-import { ErrorState } from './ErrorState';
-import { LoadingState } from './LoadingState';
+import { render, screen } from '@testing-library/react';
+import { expect, test, vi } from 'vitest';
+import { EmptyState, Alert, AlertDescription, AlertTitle, Skeleton } from '@automate/ui';
 
-describe('EmptyState', () => {
-  it('renders title', () => {
-    render(<EmptyState title="No items found" />);
-    expect(screen.getByText('No items found')).toBeInTheDocument();
-  });
+/**
+ * The one place the three states a screen can be in are asserted together.
+ *
+ * **They are `packages/ui`'s, and the application no longer has its own.** For a
+ * while `apps/web/src/components/shared/` carried `EmptyState`, `ErrorState` and
+ * `LoadingState` — hand-rolled, three different shapes, and imported by nothing
+ * except their own test file. So a route picking one got whichever it picked, and
+ * the axe sweep over "the shared states" was auditing components no screen rendered.
+ *
+ * The replacements are not renames and the differences are the point:
+ *
+ * - **`EmptyState`** → `packages/ui`'s, same name, same intent.
+ * - **`ErrorState`** → `Alert` with `variant="danger"`. There is no `ErrorState` in
+ *   `packages/ui`, and inventing one would have been the second family the removal
+ *   was meant to end. `Alert` already carries `role="alert"`, which is what the old
+ *   component's `role="alert"` was for, plus the icon slot this design uses.
+ * - **`LoadingState`** → `Skeleton`, which is a placeholder rather than an
+ *   announcement. The old one was an animated emoji with `role="status"`, so a
+ *   screen reader said "Loading…" on every mount — including route changes, where
+ *   the content behind it never went away.
+ */
 
-  it('renders description when provided', () => {
-    render(<EmptyState title="Empty" description="Nothing here yet." />);
-    expect(screen.getByText('Nothing here yet.')).toBeInTheDocument();
-  });
-
-  it('does not render description when omitted', () => {
-    render(<EmptyState title="Empty" />);
-    expect(screen.queryByText('Nothing here yet.')).not.toBeInTheDocument();
-  });
-
-  it('renders action button and fires onClick', () => {
-    const onClick = vi.fn();
-    render(<EmptyState title="Empty" action={{ label: 'Add item', onClick }} />);
-    fireEvent.click(screen.getByText('Add item'));
-    expect(onClick).toHaveBeenCalledTimes(1);
-  });
-
-  it('renders icon when provided', () => {
-    render(<EmptyState title="Empty" icon={<span data-testid="custom-icon">★</span>} />);
-    expect(screen.getByTestId('custom-icon')).toBeInTheDocument();
-  });
+test('the empty state renders its heading, description and action', () => {
+  const onAction = vi.fn();
+  render(
+    <EmptyState
+      data-testid="empty"
+      title="No execution evidence"
+      description="No canonical runs are available."
+      // A node, not `{ label, onClick }`. `packages/ui`'s `EmptyState` takes
+      // `action?: ReactNode` so a caller can put a link, a button or a row of
+      // buttons there; the removed application copy hard-coded the pair, which meant
+      // its empty state could never hold anything else.
+      action={
+        <button type="button" onClick={onAction}>
+          Open Command Center
+        </button>
+      }
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'No execution evidence' })).toBeInTheDocument();
+  expect(screen.getByText('No canonical runs are available.')).toBeInTheDocument();
+  const button = screen.getByRole('button', { name: 'Open Command Center' });
+  expect(button).toBeInTheDocument();
+  button.click();
+  expect(onAction).toHaveBeenCalledOnce();
 });
 
-describe('ErrorState', () => {
-  it('renders default title and message', () => {
-    render(<ErrorState message="Network error occurred." />);
-    expect(screen.getByText('Something went wrong')).toBeInTheDocument();
-    expect(screen.getByText('Network error occurred.')).toBeInTheDocument();
-  });
-
-  it('renders custom title', () => {
-    render(<ErrorState title="Load failed" message="Could not load data." />);
-    expect(screen.getByText('Load failed')).toBeInTheDocument();
-  });
-
-  it('renders retry button and fires onRetry callback', () => {
-    const onRetry = vi.fn();
-    render(<ErrorState message="Error" onRetry={onRetry} />);
-    fireEvent.click(screen.getByTestId('retry-button'));
-    expect(onRetry).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not render retry button when onRetry is not provided', () => {
-    render(<ErrorState message="Error" />);
-    expect(screen.queryByTestId('retry-button')).not.toBeInTheDocument();
-  });
-
-  it('renders error icon', () => {
-    render(<ErrorState message="Error" />);
-    expect(screen.getByTestId('error-icon')).toBeInTheDocument();
-  });
+test('the error state is an alert, so it is announced without a live region', () => {
+  render(
+    <Alert variant="danger" data-testid="error">
+      <AlertTitle>Evidence unavailable</AlertTitle>
+      <AlertDescription>The API did not answer.</AlertDescription>
+    </Alert>,
+  );
+  // `role="alert"` is the property the old hand-rolled `ErrorState` set by hand, and
+  // it is what makes a failure interrupt a screen reader rather than wait for the
+  // next focus stop.
+  expect(screen.getByRole('alert')).toBeInTheDocument();
+  expect(screen.getByText('Evidence unavailable')).toBeInTheDocument();
 });
 
-describe('LoadingState', () => {
-  it('renders loading container', () => {
-    render(<LoadingState />);
-    expect(screen.getByTestId('loading-state')).toBeInTheDocument();
-  });
-
-  it('renders skeleton elements', () => {
-    render(<LoadingState />);
-    expect(screen.getByTestId('skeleton-1')).toBeInTheDocument();
-    expect(screen.getByTestId('skeleton-2')).toBeInTheDocument();
-    expect(screen.getByTestId('skeleton-3')).toBeInTheDocument();
-    expect(screen.getByTestId('skeleton-4')).toBeInTheDocument();
-  });
+test('the loading state is a placeholder, and is hidden from assistive technology', () => {
+  render(<Skeleton data-testid="loading" />);
+  const loading = screen.getByTestId('loading');
+  expect(loading).toBeInTheDocument();
+  // Deliberately *not* a live region. The old `LoadingState` was `role="status"`
+  // with the text "Loading…", so every mount announced a state the reader had not
+  // asked about — and a route change announces it again with the previous page's
+  // content still on screen.
+  expect(loading).toHaveAttribute('aria-hidden', 'true');
+  expect(screen.queryByRole('status')).toBeNull();
 });

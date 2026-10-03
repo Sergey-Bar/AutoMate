@@ -209,6 +209,26 @@
       "fix": "Default to refusing. Where an escape hatch is genuinely needed, make it an explicit named constant with a comment saying which environment uses it, so the switch is a line a reviewer can find — not a default buried in a call."
     },
     {
+      "id": "no-glass-over-data",
+      "category": "Boundary design",
+      "severity": "Major",
+      "source": "custom",
+      "pathGlobs": [
+        "packages/ui/src/components/Table/**",
+        "packages/ui/src/components/StatCard/**",
+        "apps/web/src/routes/dashboard/run-detail.tsx",
+        "apps/web/src/routes/dashboard/quarantine.tsx",
+        "apps/web/src/routes/dashboard/gaps.tsx",
+        "apps/web/src/components/RunList.tsx",
+        "apps/web/src/components/RunExplorer.tsx",
+        "packages/ui/src/components/CommandPalette/**",
+        "apps/web/src/**",
+        "packages/ui/src/**"
+      ],
+      "rationale": "A backdrop-filter, or a translucent fill, on an element whose job is to hold evidence. The pixels behind a panel in this product are usually the evidence itself — a run log, a stack trace, a table of digests — so a lens over them makes legibility a function of what happens to be underneath, and two readers can see the same line differently. Phase 1 bans backdrop-filter outright in `eslint.config.js`, and that ban reaches only the property: it cannot know what is behind the element, which is the question this rule asks. Major rather than Critical because the surface still renders and still reads at a glance; the cost is degraded legibility rather than a wrong answer. The `pathGlobs` name the forbidden components first so that reading the rule says which ones, and `apps/web/src/**` last so a glass surface in a file that did not exist when this rule was written is still asked about.",
+      "fix": "Paint the panel opaque from the plane tokens and separate it with an elevation shadow. A full-viewport scrim is the one allowed case — it is chrome over chrome and nothing is read through it — and it still gets no backdrop-filter."
+    },
+    {
       "id": "double-assertion",
       "category": "Boundary design",
       "severity": "Major",

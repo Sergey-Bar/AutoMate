@@ -8,8 +8,8 @@
   "scripts": {
     "prepare": "husky",
     "dev": "turbo run dev --filter=@automate/api --filter=@automate/unified-web",
-    "format": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --write",
-    "format:check": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --check",
+    "format": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs,vue,html}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --write",
+    "format:check": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs,vue,html}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --check",
     "build": "turbo run build",
     "test": "turbo run test",
     "coverage:ratchet": "node ./scripts/coverage-ratchet.mjs",

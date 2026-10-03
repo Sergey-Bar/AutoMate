@@ -33,29 +33,52 @@ export default defineConfig({
   srcDir: '.',
   themeConfig: {
     nav: [
-      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Guide', link: '/guide/' },
       { text: 'Architecture', link: '/architecture' },
       { text: 'Operations', link: '/operations' },
+      { text: 'Design', link: '/guide/design-language' },
       { text: 'Capabilities', link: '/pages/capabilities' },
       { text: 'Findings', link: '/pages/quality/findings' },
       { text: 'Coverage', link: '/pages/quality/coverage' },
       { text: '10/10', link: '/pages/quality/ten' },
     ],
+    /**
+     * Section landing pages, and the sidebar points at them.
+     *
+     * `guide/index.md`, `pages/index.md` and `pages/quality/index.md` exist so a reader
+     * who lands in a section has something to land *on*. Without them VitePress puts a
+     * section heading in the sidebar that goes nowhere, which is worse than not grouping
+     * at all: it looks like navigation and is not.
+     *
+     * The trailing slashes matter. `link: '/guide'` resolves to the section's `index.md`
+     * only because `cleanUrls` is on and VitePress rewrites it; the explicit `/guide/`
+     * is what the build and `site-doctor` check 4 compare against, and it is the form
+     * that survives being copied out of the address bar.
+     */
     sidebar: [
       {
         text: 'Guide',
-        items: [{ text: 'Getting started', link: '/guide/getting-started' }],
+        collapsed: false,
+        items: [
+          { text: 'Guide', link: '/guide/' },
+          { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'The design language', link: '/guide/design-language' },
+        ],
       },
       {
         text: 'Reference',
+        collapsed: false,
         items: [
+          { text: 'Reference', link: '/pages/' },
           { text: 'Architecture', link: '/architecture' },
           { text: 'Operations', link: '/operations' },
         ],
       },
       {
         text: 'Status',
+        collapsed: false,
         items: [
+          { text: 'Quality', link: '/pages/quality/' },
           { text: 'Capabilities', link: '/pages/capabilities' },
           { text: 'Findings', link: '/pages/quality/findings' },
           { text: 'Coverage', link: '/pages/quality/coverage' },

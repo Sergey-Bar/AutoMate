@@ -10,9 +10,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { expectNoBlockingAxeViolations } from './test-axe.js';
 import { RunExplorer } from './components/dashboard/RunExplorer.js';
-import { EmptyState as WebEmptyState } from './components/shared/EmptyState.js';
-import { ErrorState } from './components/shared/ErrorState.js';
-import { LoadingState } from './components/shared/LoadingState.js';
+import { EmptyState, Alert, AlertDescription, AlertTitle, Skeleton } from '@automate/ui';
 import { RunList } from './components/RunList.js';
 import { Sidebar } from './components/Sidebar.js';
 import { ThemeToggle } from './components/ThemeToggle.js';
@@ -95,16 +93,31 @@ describe('axe sweep over the client components', () => {
     await expectNoBlockingAxeViolations(container);
   });
 
+  /**
+   * The three states a screen can be in, from `packages/ui`.
+   *
+   * **The application no longer has its own copies.** `components/shared/` held
+   * `EmptyState`, `ErrorState` and `LoadingState` — hand-rolled, three different
+   * shapes, imported by nothing except their own test file, so "the shared states" in
+   * the sweep below were components no screen rendered. `ErrorState` and
+   * `LoadingState` have no `packages/ui` counterpart by name and did not get one:
+   * `Alert variant="danger"` is the error state, and `Skeleton` is the loading one.
+   * `components/shared/shared-states.test.tsx` covers all three; this case is the axe
+   * sweep over the same components, which is a different question.
+   */
   it('reports no violations for the shared empty, error and loading states', async () => {
     const { container } = render(
       <div>
-        <WebEmptyState
+        <EmptyState
           title="No execution evidence"
           description="No canonical runs are available."
-          action={{ label: 'Open Command Center', onClick: () => {} }}
+          action={<button type="button">Open Command Center</button>}
         />
-        <ErrorState message="API unavailable" onRetry={() => {}} />
-        <LoadingState />
+        <Alert variant="danger">
+          <AlertTitle>Evidence unavailable</AlertTitle>
+          <AlertDescription>The API did not answer.</AlertDescription>
+        </Alert>
+        <Skeleton data-testid="loading" />
       </div>,
     );
     await expectNoBlockingAxeViolations(container);
@@ -150,7 +163,22 @@ describe('NavBar keyboard operation', () => {
     );
   });
 
-  it('cycles the theme with Enter on the focused button', async () => {
+  /**
+   * The cycle order is `dark → light → system → dark`, which is `THEMES` in
+   * `ThemeProvider.tsx` and the order a reader meets from the provider's default of
+   * `system`.
+   *
+   * **The expectation changed, and the old one was wrong.** This asserted
+   * `light → dark`, which was the order of the *inline* copy `NavBar` used to
+   * render — a second control with its own idea of what "toggle" meant, which no
+   * other test disagreed with because `ThemeToggle.test.tsx` mocked the hook and
+   * never saw the other component. `NavBar` now renders `ThemeToggle`, so the two
+   * cycles are one cycle. The assertion is kept here rather than left to
+   * `ThemeToggle.test.tsx` because this is the one that renders the real provider
+   * and the real storage, and a mocked cycle proves the arithmetic rather than the
+   * wiring.
+   */
+  it('cycles the theme on Enter, from the theme the provider read out of storage', async () => {
     const user = userEvent.setup();
     localStorage.setItem('automate-theme', 'light');
     renderRouted(
@@ -163,6 +191,42 @@ describe('NavBar keyboard operation', () => {
     screen.getByTestId('theme-toggle').focus();
     await user.keyboard('{Enter}');
 
-    expect(localStorage.getItem('automate-theme')).toBe('dark');
+    // `light` advances to `system`, which is `THEMES[2]`.
+    expect(localStorage.getItem('automate-theme')).toBe('system');
+  });
+
+  /**
+   * One control for one setting.
+   *
+   * `NavBar` carried an inline button with the same `data-testid="theme-toggle"` as
+   * `ThemeToggle.tsx`, and `getByTestId` returns the first match rather than
+   * complaining — so a suite asserting on the toggle could have been asserting on
+   * either one, and neither test would have said so. `getAllByTestId` plus a length
+   * of one is the assertion that would have caught it, because it fails on a
+   * duplicate instead of choosing.
+   */
+  it('renders exactly one theme control', async () => {
+    renderRouted(
+      <ThemeProvider>
+        <NavBar />
+      </ThemeProvider>,
+    );
+    // `waitFor` rather than a bare `getAllByTestId`: `renderRouted` mounts through a
+    // memory router, so the outlet is not in the document on the first tick. A
+    // synchronous query here would fail for a reason unrelated to what it asserts.
+    await waitFor(() => expect(screen.getAllByTestId('theme-toggle')).toHaveLength(1));
+  });
+
+  it('gives the theme control a name that says where pressing it lands', async () => {
+    // Not "Toggle theme": a name that does not say which theme is active and which
+    // one comes next makes the control's effect something the reader has to discover
+    // by pressing it.
+    renderRouted(
+      <ThemeProvider>
+        <NavBar />
+      </ThemeProvider>,
+    );
+    const toggle = await screen.findByTestId('theme-toggle');
+    expect(toggle).toHaveAccessibleName(/Theme: .*\. Switch to .*\./);
   });
 });

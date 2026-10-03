@@ -44,9 +44,47 @@ describe('QuarantinePage', () => {
     expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('Status: pending');
   });
 
+  it('ignores a submit with nothing filled in, and does not clear the form', async () => {
+    // The guard at the top of `addAsync`. Submitting an empty form must not send a
+    // request and must not wipe what the reader has already typed — losing work is
+    // the reason this page keeps its field values on a failure.
+    const addQuarantine = vi.fn();
+    render(<QuarantinePage api={stubApi({ addQuarantine })} />);
+    await waitFor(() => expect(screen.getByTestId('quarantine-page')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('add-quarantine-btn'));
+    await waitFor(() => expect(screen.getByTestId('quarantine-form')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByTestId('input-test-title'), { target: { value: 'a test' } });
+    // `fireEvent.submit` on the form rather than a click on the button: the guard is
+    // inside the submit handler, and clicking a `type="submit"` button only reaches
+    // it through jsdom's implicit submission, which is one more indirection between
+    // the test and the branch it is meant to exercise.
+    fireEvent.submit(screen.getByTestId('quarantine-form'));
+
+    expect(addQuarantine).not.toHaveBeenCalled();
+    expect(screen.getByTestId('input-test-title')).toHaveValue('a test');
+  });
+
   it('says so when there is nothing in quarantine', async () => {
     render(<QuarantinePage api={stubApi({ getQuarantine: vi.fn().mockResolvedValue([]) })} />);
     await waitFor(() => expect(screen.getByTestId('quarantine-empty')).toBeInTheDocument());
+  });
+
+  /**
+   * The route renders `<QuarantinePage />` with no props, so the default is the
+   * production call shape and every other case here passes a stub.
+   *
+   * That made the default parameter an untested branch on the only path a user
+   * actually takes, and `useQuarantine(undefined)` is what resolves it — a real
+   * client against a real `fetch`. Asserted on the outcome the reader sees rather
+   * than on the network: a failed request must render the error state, because a
+   * page that renders neither the list nor the error has told the reader nothing.
+   */
+  it('renders the error state when it has to build its own client and the API is unreachable', async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down'));
+    render(<QuarantinePage />);
+    await waitFor(() => expect(screen.getByTestId('quarantine-error')).toBeInTheDocument());
+    expect(screen.getByTestId('quarantine-error')).toHaveTextContent('network down');
   });
 
   it('reports a failed load rather than rendering an empty list', async () => {
@@ -173,5 +211,45 @@ describe('QuarantinePage', () => {
     );
     await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
     expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('Status: approved');
+  });
+
+  /**
+   * The colour each verdict is painted in, asserted against the class rather than
+   * the rendered colour, because jsdom has no stylesheet.
+   *
+   * **These three cases exist because the mapping was inverted.** `approved` rendered
+   * in `text-error` and `rejected` in `text-success`, so on the screen whose whole
+   * job is to say which is which an approval read as a failure and a rejection as a
+   * pass — and a reader scanning for red found the one entry that had been approved.
+   */
+  it.each([
+    ['approved', 'text-success'],
+    ['rejected', 'text-danger'],
+    ['pending', 'text-warning'],
+  ] as const)('paints %s in %s', async (status, tone) => {
+    render(
+      <QuarantinePage
+        api={stubApi({
+          getQuarantine: vi.fn().mockResolvedValue([{ ...entry, status }]),
+        })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
+    expect(screen.getByTestId('quarantine-status-q-1')).toHaveClass(tone);
+  });
+
+  it('does not paint a verdict it does not recognise', async () => {
+    // A status the API has since added must not inherit `pending`'s amber. The
+    // table is typed `Partial<Record<QuarantineEntry['status'], string>>` for exactly
+    // this, and the fallback is the neutral muted colour rather than a colour that
+    // means "someone still has to look at this".
+    const unknown = { ...entry, status: 'appealed' } as unknown as QuarantineEntry;
+    render(
+      <QuarantinePage api={stubApi({ getQuarantine: vi.fn().mockResolvedValue([unknown]) })} />,
+    );
+    await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
+    const status = screen.getByTestId('quarantine-status-q-1');
+    expect(status).toHaveClass('text-text-secondary');
+    expect(status).not.toHaveClass('text-warning');
   });
 });

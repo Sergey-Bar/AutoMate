@@ -4,6 +4,50 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Automate Unified</title>
+    <!--
+      The two fonts, preloaded.
+
+      `crossorigin` is required on a font preload even for a same-origin file,
+      and its absence is the reason a preloaded font is fetched twice: the
+      preload goes out in CORS mode and the `@font-face` request does not match
+      it, so the browser keeps both — a second copy of a 90KB file on the
+      critical path. These two attributes look redundant and are not.
+
+      The `href`s are **relative to this file on purpose**, and that is a
+      build-time fact rather than a convenience. The binaries live in one place
+      (`packages/ui/src/assets/fonts/`) because the product and the
+      documentation site both consume them, which means Vite — not this file —
+      decides what URL each one gets. Writing a path by hand would pin a URL
+      that no longer matches the `@font-face` it is meant to warm, and a preload
+      whose URL does not match is a wasted request rather than a saved one.
+
+      So the path is relative, Vite resolves it against `apps/web/`, and the
+      built `dist/index.html` carries the same fingerprinted URL the compiled
+      stylesheet does — verified, not assumed, and `fonts.test.ts` keeps the two
+      lists in step on the source side.
+
+      **In `pnpm dev` the two URLs differ** and the preload does not dedupe:
+      Vite rewrites a `url()` in CSS to `/@fs/<absolute path>` while leaving
+      `link[href]` alone, so the preload normalises to `/packages/ui/src/…` and
+      the stylesheet asks for `/@fs/C:/…`. Both serve the same bytes — the dev
+      server resolves the workspace root — so the cost is one extra uncached
+      request in dev and nothing in production, which is the only place a
+      preload earns its keep.
+    -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../../packages/ui/src/assets/fonts/archivo-latin-var.woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="../../packages/ui/src/assets/fonts/jetbrains-mono-latin-var.woff2"
+      crossorigin
+    />
   </head>
   <body>
     <div id="root"></div>

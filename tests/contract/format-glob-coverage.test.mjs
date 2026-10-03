@@ -48,9 +48,26 @@ import { globToRegExp } from '../../scripts/review/glob.mjs';
  */
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
-/** Exactly what `format:check` asks prettier to look at. */
+/**
+ * Exactly what `format:check` asks prettier to look at.
+ *
+ * `vue` and `html` were added on 2026-10-03, and their absence here is the same
+ * defect this file was written about one level down: the site gained two Vue
+ * components and `apps/web/index.html` gained two `<link rel="preload">` tags, and
+ * none of them were in the glob, so `format:check` stayed green on files it was not
+ * looking at. The pre-commit hook caught them — it globs the *staged file list* rather
+ * than the scripts' globs — and its advice was "run `pnpm format`", which could not
+ * fix them either, because the scripts did not match them. Both halves were the same
+ * omission.
+ *
+ * `TREE_GLOBS` below had the same two extensions missing, so the coverage comparison
+ * was not noticing either: it asked "does the format glob reach everything prettier
+ * could format" and answered it with a list that excluded the two new ones. Widening
+ * `FORMAT_GLOBS` without widening `TREE_GLOBS` would have made the gate agree with
+ * itself while still not looking.
+ */
 const FORMAT_GLOBS = [
-  '**/*.{ts,tsx,mts,cts,js,mjs,cjs}',
+  '**/*.{ts,tsx,mts,cts,js,mjs,cjs,vue,html}',
   '**/*.{json,yaml,yml,md,css}',
   '.github/workflows/*.{yml,yaml}',
 ];
@@ -149,26 +166,20 @@ describe('the format scripts cover the tree', () => {
     }
   });
 
-  it('ignores the generated drizzle metadata, and only that of the tracked files', () => {
-    // The reason it is ignored: it is generated, and formatting it makes `db:generate`
-    // show a diff nobody made. Named rather than inferred, because the old glob list
-    // omitted `packages/db/drizzle/**` entirely and so never had to say this.
+  it('covers the site components and the preload block, which nothing did before', () => {
+    // The two `.vue` files and the `.html` file this change added. Named because the
+    // coverage comparison above would not have caught them if `TREE_GLOBS` had been
+    // left alone — it compares two lists, and both were missing the same extensions,
+    // so it agreed.
     const considered = coveredFiles(FORMAT_GLOBS);
-    expect(considered.has('packages/db/drizzle/meta/_journal.json')).toBe(false);
-    expect(readFileSync(path.join(repoRoot, '.prettierignore'), 'utf8')).toContain(
-      'packages/db/drizzle/meta/',
-    );
-  });
-
-  it('ignores the generated drizzle metadata, which is the one real exclusion', () => {
-    // The reason it is ignored at all: it is generated, and formatting it makes
-    // `db:generate` show a diff nobody made. Named rather than inferred, because the old
-    // glob list omitted `packages/db/drizzle/**` entirely and so never had to say this.
-    const considered = coveredFiles(FORMAT_GLOBS);
-    expect(considered.has('packages/db/drizzle/meta/_journal.json')).toBe(false);
-    expect(readFileSync(path.join(repoRoot, '.prettierignore'), 'utf8')).toContain(
-      'packages/db/drizzle/meta/',
-    );
+    for (const file of [
+      'site/.vitepress/theme/Layout.vue',
+      'site/.vitepress/theme/Home.vue',
+      'apps/web/index.html',
+    ]) {
+      expect(trackedFiles()).toContain(file);
+      expect(considered.has(file), `${file} is not covered by the format globs`).toBe(true);
+    }
   });
 
   it('never switches itself off with a bare wildcard', () => {

@@ -27,7 +27,7 @@ export interface DrawerProps extends DialogHTMLAttributes<HTMLDialogElement> {
 }
 
 const drawerVariants = cva(
-  'fixed z-50 bg-surface text-fg shadow-xl transition-transform duration-300 ease-in-out open:animate-in open:fade-in-90 backdrop:bg-surface/50 p-0 m-0',
+  'fixed z-50 bg-surface text-fg shadow-elevation-3 transition-transform duration-300 ease-in-out open:animate-fade-in open:duration-150 backdrop:bg-surface/50 p-0 m-0',
   {
     variants: {
       position: {

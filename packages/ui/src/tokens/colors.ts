@@ -33,17 +33,17 @@ export const ramps = {
     950: '#0a0a0a',
   },
   blue: {
-    50: '#eff6ff',
-    100: '#dbeafe',
-    200: '#bfdbfe',
-    300: '#93c5fd',
-    400: '#60a5fa',
-    500: '#3b82f6',
-    600: '#2563eb',
-    700: '#1d4ed8',
-    800: '#1e40af',
-    900: '#1e3a8a',
-    950: '#172554',
+    50: '#e1edfd',
+    100: '#bad8fc',
+    200: '#8ec1fc',
+    300: '#68aefd',
+    400: '#489fff',
+    500: '#3d9bff',
+    600: '#368dea',
+    700: '#237bd3',
+    800: '#1466b5',
+    900: '#124e8b',
+    950: '#0d3762',
   },
   green: {
     50: '#f0fdf4',
@@ -93,11 +93,29 @@ export const ramps = {
  * name here with no mapping in `theme.css` is a drift the test catches.
  */
 export const semanticColorTokens = {
+  /**
+   * The four-step plane (D6-1).
+   *
+   * `surface` is the base a panel is painted on, `surface-sunken` is behind it
+   * (the page, the inset well), `surface-raised` is a control sitting on the
+   * base and `surface-muted` is the recessed fill inside one. Four names because
+   * there are four steps in `theme.css`, and a fifth surface would be a hand-
+   * painted value with no token and no contrast case.
+   */
+  'surface-sunken': '--automate-surface-sunken',
   surface: '--automate-surface',
+  'surface-raised': '--automate-surface-raised',
   'surface-muted': '--automate-surface-muted',
   fg: '--automate-fg',
   'fg-muted': '--automate-fg-muted',
   border: '--automate-border',
+  /**
+   * The border that delineates a control, as opposed to the one that decorates
+   * one. WCAG 1.4.11's 3:1 applies to the first and not the second, and before
+   * this token existed `Input`, `Select`, `Textarea` and `Toggle` drew their
+   * only edge from the decorative token and measured 1.31:1.
+   */
+  'border-strong': '--automate-border-strong',
   accent: '--automate-accent',
   primary: '--automate-accent',
   success: '--automate-success',
@@ -115,6 +133,8 @@ export const semanticColorTokens = {
   'text-muted': '--automate-fg-muted',
   'bg-primary': '--automate-surface',
   'bg-base': '--automate-surface',
+  'bg-sunken': '--automate-surface-sunken',
+  'bg-raised': '--automate-surface-raised',
   'bg-elevated': '--automate-surface-muted',
   'bg-secondary': '--automate-surface-muted',
   'bg-muted': '--automate-surface-muted',
@@ -123,8 +143,6 @@ export const semanticColorTokens = {
   'brand-500': '--automate-accent',
   'brand-50': '--automate-surface-muted',
   'brand-700': '--automate-accent',
-  'success-500': '--automate-success',
-  'error-500': '--automate-danger',
   /**
    * The foreground for text on a saturated fill, which is why it is a token and
    * not `text-white`. The dark palette's fills are light and the light palette's

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Button } from '@automate/ui';
+import { Button, PanelLeftClose, PanelLeftOpen } from '@automate/ui';
 import { visibleRoutes } from '../route-manifest.js';
 
 export function Sidebar() {
@@ -32,7 +32,14 @@ export function Sidebar() {
           aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
           className="w-full"
         >
-          {isCollapsed ? '›' : 'Collapse'}
+          {isCollapsed ? (
+            <PanelLeftOpen size={16} aria-hidden="true" />
+          ) : (
+            <>
+              <PanelLeftClose size={16} aria-hidden="true" />
+              Collapse
+            </>
+          )}
         </Button>
       </div>
       <nav className="flex flex-col gap-1 p-2" aria-label="Primary navigation">

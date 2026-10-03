@@ -98,12 +98,25 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
   }
 
   return (
+    /*
+     * The evidence surfaces sit one step *below* the panels, not on them.
+     *
+     * `--automate-surface-sunken` is the plane step for content that is being
+     * inspected rather than acted on: the test block and each timeline entry are
+     * both things a reader is reading closely, and painting them on the same step as
+     * the `Card` around them makes the page a field of identical rectangles with no
+     * distinction between the chrome and the claim.
+     *
+     * `border-border-default` rather than `border-border-strong`, and the
+     * distinction is not cosmetic: the strong border is the edge that is the only
+     * thing delineating a *control*, which these are not.
+     */
     <div className="space-y-3">
       {tests.map((test) => (
         <details
           key={test.id}
           data-testid={`test-${test.id}`}
-          className="rounded-md border border-border-default p-4"
+          className="rounded-md border border-border-default bg-surface-sunken p-4"
         >
           <summary className="cursor-pointer">
             <span className="font-medium">{test.title}</span>
@@ -346,7 +359,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 {events.map((event) => (
                   <li
                     key={event.eventId}
-                    className="rounded-md border border-border-default p-3 text-sm"
+                    className="rounded-md border border-border-default bg-surface-sunken p-3 text-sm"
                   >
                     <div className="flex justify-between gap-3">
                       <span className="font-medium">{event.type}</span>

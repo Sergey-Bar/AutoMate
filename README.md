@@ -25,30 +25,32 @@ flows**. The authoritative per-capability status is
 [`docs/migration/capability-register.md`](docs/migration/capability-register.md); this
 README's table is a summary of it, not a substitute for it.
 
-## What makes this repository unusual
-
-Most projects describe what the software does. This one is also about **how it decides
-what is true**, and the evidence is in the tree rather than in a wiki:
-
-- **Every gate is reproducible from a clean checkout.** `pnpm verify` runs 17 steps, and
-  `scripts/gate-tooling.json` records which external binary each one needs and the tier of
-  every root script. A test that runs a suite nobody can reproduce is a claim, not a check.
-- **A rule that silently stops matching is treated as a defect.** `.semgrep.yml` has a
-  fixture suite (`scripts/lib/semgrep-rules.test.mjs`) that runs each rule over a known
-  hazard and asserts it still fires — because six mechanisms in that file once read as
-  exclusions and were not, and a rule that loads while matching nothing is
-  indistinguishable from a rule that works.
-- **Dead code is removed, not covered.** Deleting an unused auth middleware closed a
-  coverage shortfall on its own; the alternative would have been 164 lines of tests
-  asserting behaviour nothing depends on, in a file that reads like protection.
-- **Findings are a ledger, not a document.** `docs/quality/findings-ledger.json` is
-  machine-checked: a `fixed` row whose evidence path no longer exists **fails**, because the
-  proof was deleted and the claim is open again.
-- **`status:10` reads the roadmap and reports what it cannot verify.** Twelve of its points
-  are `not_configured` rather than `pass`, each naming the command that would decide it,
-  because a script that reads committed files cannot watch a gate run.
-
 ## Why Automate?
+
+<!--
+  Kept first and kept short on purpose.
+
+  **This README is for someone deciding whether to look at the code, not for someone
+  who already has.** Everything below "Quick start" is for the second person, and the
+  order used to put the project's argument above the thing that gets it running — so
+  the first screen of a repository whose whole thesis is "evidence before claims" was
+  a paragraph of claims.
+
+  What moved and why:
+
+  - The four-line pitch is here, because it is the only thing worth reading before
+    running anything.
+  - "What makes this repository unusual" moved to `CONTRIBUTING.md`, where it is
+    actionable rather than decorative — each of those five points is something a
+    contributor can trip over, and they are all rules the gates enforce.
+  - The full capability table moved to `docs/migration/capability-register.md`, which
+    is its authority and which `pnpm site:doctor` check 2 asserts is what
+    `site/pages/capabilities.md` publishes. A summary table in a README goes stale in
+    a way nothing notices; a generated page does not.
+  - The run/attempt/evidence diagram is the one thing kept here, because a reader
+    deciding whether this is the repository they want has to be able to see the shape
+    of it without clicking.
+-->
 
 QA teams commonly stitch together reporters, CI logs, dashboards, spreadsheets, and separate execution tools. Automate focuses on the evidence and control layer between them:
 
@@ -59,7 +61,12 @@ QA teams commonly stitch together reporters, CI logs, dashboards, spreadsheets, 
 - **Clear runner boundaries** so customer automation code never executes inside the dashboard process.
 - **Evidence before claims** — mock behavior is documented as mock, not presented as production parity.
 
-## Current vertical slice
+**A run is a chain, not a green tick:** job → lease → attempt → normalized result →
+artifact → SHA-256. Each link can be missing, and saying which is the product's whole
+job. The [front page of the documentation site](site/index.md) draws the chain; the
+[architecture reference](site/architecture.md) carries the detail behind each link.
+
+## The shape of it
 
 ```mermaid
 flowchart LR
@@ -77,17 +84,29 @@ flowchart LR
     Connectors["GitHub, Jira, and Slack adapters"] -. "not production-wired" .-> Control
 ```
 
-| Capability                     | Current state                                                                                                                                                                                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Reporter ingestion             | **Implemented** — canonical, versioned, and legacy events; Playwright JSON and JUnit upload                                                                                                                                                                        |
-| Run persistence                | **Implemented** — Drizzle/PostgreSQL with an explicit in-memory development fallback                                                                                                                                                                               |
-| RunExplorer and dashboard APIs | **Implemented** — run detail, tests, suites, analytics, quarantine, and quality gates                                                                                                                                                                              |
-| Realtime                       | **Partial** — versioned SSE and replay boundary exist; API composition currently uses a process-local bus                                                                                                                                                          |
-| Authentication                 | **Partial** — revocable sessions and Drizzle storage exist; multi-instance and retention evidence remain                                                                                                                                                           |
-| Runner and orchestration       | **Boundary only** — SDK, state machine, leases, and OCI files exist; production execution is not proven                                                                                                                                                            |
-| AI chat                        | **Partial** — `/api/v1/chat/*` streams a completion through the `AiGateway` port; the provider is chosen at startup from `KILO_GATEWAY_URL`/`KILO_API_KEY` or `OLLAMA_BASE_URL`, and an unconfigured installation answers a coded 503 rather than failing to start |
-| Connectors                     | **Boundary only** — GitHub, Jira, and Slack adapters exist without durable, provider-backed product flows                                                                                                                                                          |
-| Deployment                     | **Local only** — loopback Compose assets exist; there is no approved production topology                                                                                                                                                                           |
+### Where the evidence comes from
+
+The chain is a diagram; this is the table that goes with it, and it is a **summary**.
+The authority is
+[`docs/migration/capability-register.md`](docs/migration/capability-register.md) — 42
+rows, 26 of which are not `real`. `pnpm site:doctor` check 5 fails if any page here or
+in the site claims a capability the register does not mark `real`, so the table below
+and that file cannot drift apart silently.
+
+| Layer                          | Current state                                                                                                                                                   |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reporter ingestion             | **Implemented** — canonical, versioned, and legacy events; Playwright JSON and JUnit upload                                                                     |
+| Run persistence                | **Implemented** — Drizzle/PostgreSQL with an explicit in-memory development fallback                                                                            |
+| RunExplorer and dashboard APIs | **Implemented** — run detail, tests, suites, analytics, quarantine, and quality gates                                                                           |
+| Realtime                       | **Partial** — versioned SSE and replay boundary exist; API composition currently uses a process-local bus                                                       |
+| Authentication                 | **Partial** — revocable sessions and Drizzle storage exist; multi-instance and retention evidence remain                                                        |
+| Runner and orchestration       | **Boundary only** — SDK, state machine, leases, and OCI files exist; production execution is not proven                                                         |
+| AI chat                        | **Partial** — `/api/v1/chat/*` streams a completion through the `AiGateway` port; an unconfigured installation answers a coded 503 rather than failing to start |
+| Connectors                     | **Boundary only** — GitHub, Jira, and Slack adapters exist without durable, provider-backed product flows                                                       |
+| Deployment                     | **Local only** — loopback Compose assets exist; there is no approved production topology                                                                        |
+
+Three rows in the register are **waiting on a measurement, not on code**, and one of them
+is the reason this repository's own site is not online: `SITE-1`.
 
 ## Quick start
 
@@ -313,9 +332,24 @@ pnpm security:verify
 
 ## Documentation
 
+The **[documentation site](site/index.md)** is the published form of all of this. It is
+built from the product's own palette — `site/.vitepress/theme/custom.css` imports
+`packages/ui/src/tokens/theme.css` rather than copying it, and `pnpm site:doctor` check 8
+fails if it ever does.
+
+**The site is not deployed.** Nothing in this repository publishes it, and the address
+that would serve it returns nothing. That is recorded as `SITE-1` in the findings ledger
+with an owner and a removal condition, rather than left as a link that 404s. Until it is,
+the markdown files _are_ the documentation.
+
 | Document                                                                            | Use it for                                                                             |
 | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| [Getting started](site/guide/getting-started.md)                                    | Getting the stack up and running                                                       |
+| [The design language](site/guide/design-language.md)                                | The plane, the accent, the type, the motion, and the numbers each one has to clear     |
+| [Architecture](site/architecture.md)                                                | The runtime, the evidence chain, and the tenancy boundary                              |
+| [Operations](site/operations.md)                                                    | Running it, and the retry and artifact policies                                        |
 | [`Capability register`](docs/migration/capability-register.md)                      | The current source of truth for what is real, partial, missing, deferred, or obsolete  |
+| [`Findings ledger`](docs/quality/findings-ledger.json)                              | Every confirmed defect, with evidence, band, and removal condition                     |
 | [`Migration decision record`](docs/migration/phase-0-decision-record.md)            | Scope, evidence, approvals, and implementation status                                  |
 | [`Unified migration specification`](docs/migration/unified-repository-migration.md) | Target architecture, data model, runtime topology, and migration rules                 |
 | [`Architecture ADR`](docs/architecture/unified-platform.md)                         | Original architecture proposal; superseded where the migration decision record differs |
@@ -327,21 +361,27 @@ pnpm security:verify
 | [`Parity matrix`](docs/parity-matrix.md)                                            | Capability-by-capability migration evidence                                            |
 | [`Changelog`](CHANGELOG.md)                                                         | Current unified implementation summary                                                 |
 | [`AGENTS.md`](AGENTS.md)                                                            | Repository-specific engineering and validation rules                                   |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md)                                                | The five rules this repository actually holds contributors to, and how to satisfy them |
 
 ## Contributing
 
-1. Branch from `main` and keep changes focused.
-2. Add or update executable evidence for every behavior change.
-3. Run `pnpm verify` and the relevant E2E suite — or `pnpm verify:local` on a host
-   without `semgrep` and `gitleaks`, which runs the same chain with those two
-   scanners recorded as `not_configured`. It is never run in CI, where the
-   scanners are installed and enforced.
-4. Use Conventional Commit subjects enforced by the root tooling.
-5. Do not weaken tests, delete failing cases, or describe mock behavior as production-ready.
+**[`CONTRIBUTING.md`](CONTRIBUTING.md) is the place to start.** It leads with the five
+properties that make this repository unusual, each one with the command that enforces it,
+and then the three-commit rule that this project's testing depends on.
 
-`CONTRIBUTING.md` has the full rules, including the three-commit rule: write the
-test, run it with the defect still present, watch it fail for the reason you
-expect, then fix it. A test written only against fixed code is not evidence.
+The short version:
+
+1. Branch from `main` and keep changes focused.
+2. **Write the test, run it with the defect still present, watch it fail for the reason
+   you expect, then fix it.** Three times in this programme's history a suite was fully
+   green while checking the wrong thing, and none of them was caught by reading the code
+   carefully.
+3. Run `pnpm verify` — or `pnpm verify:local` on a host without `semgrep` and `gitleaks`,
+   which runs the same chain with those two scanners recorded as `not_configured`. It is
+   never run in CI, where the scanners are installed and enforced.
+4. Use Conventional Commit subjects enforced by the root tooling.
+5. Do not weaken tests, delete failing cases, or describe mock behavior as
+   production-ready.
 
 ## License
 

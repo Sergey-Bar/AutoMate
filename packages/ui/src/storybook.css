@@ -1,0 +1,34 @@
+/*
+ * The stylesheet Storybook renders this package's components in.
+ *
+ * **It lives in `src/` rather than in `.storybook/` for one reason, and the reason
+ * is measured.** Tailwind's automatic source detection starts from the directory
+ * of the stylesheet it is compiling. With this file in `.storybook/`, that
+ * directory holds two config files and no component, so every semantic utility in
+ * the twenty-nine stories below — `bg-surface-muted`, `text-fg-muted`,
+ * `shadow-elevation-2`, `animate-zoom-in-95` — compiled to nothing, and Storybook
+ * built cleanly and rendered unstyled boxes. The tokens were not broken; they
+ * were not in the candidate set.
+ *
+ * An `@source` directive would normally fix that, and four spellings of one were
+ * tried here (`../src`, `./src`, `src`, an absolute path substituted in
+ * `.storybook/main.ts`) against the built stylesheet. Every one either changed
+ * nothing or resolved to a directory that is not this one. A silent no-op is the
+ * worst available failure, because the build is green and only the rendering is
+ * wrong, so the fix chosen was the one that does not depend on how a relative
+ * path is rebased: put the stylesheet where the components are.
+ *
+ * **Why the tokens are imported rather than inlined here.** `theme.css` owns the
+ * colour plane, `fonts.css` owns the two families, `motion.css` owns the
+ * durations. Copying their contents in would be a second place for each, and a
+ * second place is the failure this repository keeps recording. The order matters
+ * and matches `apps/web/src/index.css`: fonts, then theme, then motion.
+ *
+ * Deliberately *not* importing `apps/web/src/index.css`. Storybook renders this
+ * package's components, not the application, and the app's `body` rules target an
+ * element that does not exist inside a story.
+ */
+@import 'tailwindcss';
+@import './tokens/fonts.css';
+@import './tokens/theme.css';
+@import './tokens/motion.css';

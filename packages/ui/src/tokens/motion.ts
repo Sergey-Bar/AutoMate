@@ -52,6 +52,11 @@ export function durationVariableName(step: number): string {
   return `--automate-duration-${step}`;
 }
 
+/** The custom property an easing step is published under. */
+export function easingVariableName(step: string): string {
+  return `--automate-ease-${step}`;
+}
+
 /**
  * Every duration step, as CSS declarations in terms of the scale.
  *
@@ -65,5 +70,21 @@ export function motionDurationDeclarations(scaleVariable = MOTION_SCALE_VARIABLE
       ([step, value]) =>
         `  ${durationVariableName(Number(step))}: calc(${value} * var(${scaleVariable}));`,
     )
+    .join('\n');
+}
+
+/**
+ * Every easing step, as the CSS declaration that publishes it.
+ *
+ * The easings had no published form before the enter/exit animations needed
+ * one — `--animate-*` has to name a timing function, and hard-coding
+ * `cubic-bezier(0, 0, 0.2, 1)` into the animation shorthand would have been a
+ * second copy of the value this table already owns. Same shape as
+ * `motionDurationDeclarations`, and asserted in both directions by
+ * `motion.test.ts` for the same reason.
+ */
+export function motionEasingDeclarations(): string {
+  return Object.entries(motion.easing)
+    .map(([step, value]) => `  ${easingVariableName(step)}: ${value};`)
     .join('\n');
 }

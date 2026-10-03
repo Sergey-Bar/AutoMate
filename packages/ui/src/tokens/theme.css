@@ -3,18 +3,61 @@
  *
  * This is the only stylesheet that defines colour tokens. It is imported by
  * `apps/web/src/index.css`, which is the only stylesheet Vite loads, so what
- * Tailwind emits and what the app renders come from exactly one place.
+ * Tailwind emits and what the app renders come from exactly one place. The
+ * documentation site imports this file too (D6-7), so the site and the product
+ * cannot drift into two palettes.
  *
  * The token names come from `tokens/colors.ts` (`semanticColorTokens`); the
  * values live here because they are theme-dependent. `tokens/theme.test.ts`
  * fails if the two drift.
+ *
+ * ## The plane (D6-1)
+ *
+ * Four steps, and the order is the property under test rather than a comment:
+ * in dark mode the plane gets *lighter* as it rises, in light mode it gets
+ * *closer to white*. Every elevation is one of these four, so there is no
+ * hand-painted fifth surface. `--automate-surface` is the base; everything else
+ * is named for how far above or below it it sits.
+ *
+ * The values are neutral to within a rounding step. The dark plane is
+ * `#0B0B0C`, not Tailwind's `neutral-950` `#0A0A0A` — a blue cast on a plane
+ * this dark is invisible as a colour and very visible as a *temperature*, and a
+ * console that is going to spend its life at 0–2% luminance is the last place
+ * to let one.
+ *
+ * ## The accent (D6-2)
+ *
+ * `oklch(0.682 0.172 252.9)` — cyan-shifted electric blue, `#3D9BFF`. It reads
+ * as emitted light rather than as a blue theme because of *where* it is
+ * allowed: the active-run rail, the focus ring, the LIVE pulse, the hover
+ * underline, and one bloom behind the Command Center hero. It is a hairline and
+ * a glow, never a large fill. `tokens/colors.ts` carries the 11-step ramp it
+ * sits in.
+ *
+ * ## Info is not the accent (D6-3)
+ *
+ * `--automate-info` was literally `var(--automate-accent)`, which made the brand
+ * colour double as a verdict. A reader who has learned that blue means "this is
+ * running" is being told something different by the same pixel. It is steel
+ * now — hue 258, chroma 0.048, and visibly not the accent.
+ *
+ * ## Run state (D6-4)
+ *
+ * Restated off the Tailwind 500 steps onto hues 148 / 72 / 25, which is what
+ * keeps them distinguishable from the accent's 253 without relying on the
+ * saturation difference alone. Chroma is pulled back to ~0.13 because a status
+ * colour at 0.20 chroma on a near-black plane is a light source, not a label.
+ * Measured hue and chroma for every value here are recorded in `theme.test.ts`.
  */
 @theme inline {
+  --color-surface-sunken: var(--automate-surface-sunken);
   --color-surface: var(--automate-surface);
+  --color-surface-raised: var(--automate-surface-raised);
   --color-surface-muted: var(--automate-surface-muted);
   --color-fg: var(--automate-fg);
   --color-fg-muted: var(--automate-fg-muted);
   --color-border: var(--automate-border);
+  --color-border-strong: var(--automate-border-strong);
   --color-accent: var(--automate-accent);
   --color-primary: var(--automate-accent);
   --color-success: var(--automate-success);
@@ -30,64 +73,213 @@
   --color-bg-elevated: var(--automate-surface-muted);
   --color-bg-secondary: var(--automate-surface-muted);
   --color-bg-muted: var(--automate-surface-muted);
+  --color-bg-sunken: var(--automate-surface-sunken);
+  --color-bg-raised: var(--automate-surface-raised);
   --color-border-default: var(--automate-border);
   --color-border-focus: var(--automate-accent);
   --color-brand-500: var(--automate-accent);
   --color-brand-50: var(--automate-surface-muted);
   --color-brand-700: var(--automate-accent);
-  --color-success-500: var(--automate-success);
-  --color-error-500: var(--automate-danger);
   --color-on-fill: var(--automate-on-fill);
+}
+
+/*
+ * Elevation, as three steps rather than one.
+ *
+ * A single `shadow-sm` cannot describe a plane with four levels: it is either
+ * invisible on the base surface or heavy on the top one. So elevation is a
+ * three-value scale whose only job is to say *which* of the four plane tokens a
+ * surface is painted on, and the shadow follows the plane rather than leading
+ * it.
+ *
+ * The blur and the y-offset grow together with the step. `--shadow-elevation-3`
+ * is for a dialog or a palette; it is not for a card.
+ *
+ * This is a `@theme` block rather than `@theme inline` because the values are
+ * literals — there is no per-theme variable behind them, and a shadow that
+ * changed with the colour scheme would be a second thing to keep in agreement.
+ */
+@theme {
+  --shadow-elevation-1: 0 1px 2px rgb(0 0 0 / 0.32);
+  --shadow-elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.44), 0 1px 3px rgb(0 0 0 / 0.28);
+  --shadow-elevation-3: 0 18px 48px -12px rgb(0 0 0 / 0.62), 0 4px 12px rgb(0 0 0 / 0.36);
 }
 
 :root,
 [data-theme='dark'] {
-  --automate-surface: #0a0a0a;
-  --automate-surface-muted: #171717;
-  --automate-fg: #fafafa;
-  --automate-fg-muted: #a3a3a3;
-  --automate-border: #262626;
-  --automate-accent: #3b82f6;
-  --automate-success: #22c55e;
-  --automate-warning: #f59e0b;
-  --automate-danger: #ef4444;
-  --automate-info: #3b82f6;
+  /* The plane. Sunken is the page, surface is a panel, raised is a control. */
+  --automate-surface-sunken: #08080a;
+  --automate-surface: #0b0b0c;
+  --automate-surface-raised: #131316;
+  --automate-surface-muted: #17171b;
+  --automate-fg: #f7f7f8;
+  --automate-fg-muted: #a8a8ac;
+  /*
+   * Two borders, because WCAG 1.4.11 applies to some of what this token draws
+   * and not to the rest.
+   *
+   * `--automate-border` is the decorative edge: a card outline, a divider, a
+   * table rule. It sits below 3:1 on purpose, and `theme.test.ts` asserts that
+   * it stays there — a card edge at 3:1 on this plane is a mid-grey line around
+   * every rectangle on the screen.
+   *
+   * `--automate-border-strong` is the edge that is the *only* thing delineating
+   * a control, which is the case 1.4.11 does cover. `Input`, `Select`,
+   * `Textarea` and `Toggle` use it; nothing else needs to. Before this token
+   * existed they drew their 1px edge from the decorative border and measured
+   * 1.31:1, so a low-vision keyboard user had no way to see where the field
+   * ended.
+   */
+  --automate-border: #2a2a2e;
+  --automate-border-strong: #66666b;
+  --automate-accent: #3d9bff;
+  /* Restated off the Tailwind 500 steps. Hues 148 / 72 / 25 against 253. */
+  --automate-success: #66bb74;
+  --automate-warning: #e4a247;
+  --automate-danger: #d9716b;
+  --automate-info: #7c8da6;
   /*
    * The foreground for text sitting *on* a saturated fill — the primary button,
    * the destructive button, the filled badge. It is its own token because the
-   * dark palette's fills are light enough that white text on them measures
-   * 3.68:1 for accent and 2.13:1 for success, both short of the 4.5:1 that
-   * `text-sm` button and badge labels need. These fills are light in dark mode
-   * and dark in light mode, so no single `text-white` or `text-fg` can be right
-   * for both.
+   * fills are light in dark mode and dark in light mode, so no single
+   * `text-white` or `text-fg` can be right for both. Dark here, because the
+   * accent is light: `oklch(0.682 0.172 252.9)` needs a dark label, and white on
+   * it measures 3.42:1.
    */
-  --automate-on-fill: #0a0a0a;
+  --automate-on-fill: #0b0b0c;
   color-scheme: dark;
 }
 
 [data-theme='light'] {
+  /* The plane, inverted: elevation moves towards white rather than away from
+     black, so a raised surface in light mode is the *nearest* to the page. */
+  --automate-surface-sunken: #f1f1f4;
   --automate-surface: #ffffff;
+  --automate-surface-raised: #fbfbfd;
   --automate-surface-muted: #f4f4f5;
   --automate-fg: #09090b;
-  /* Was #71717a: 4.40:1 on `--automate-surface-muted`, just short of AA. */
   --automate-fg-muted: #6b6b74;
   --automate-border: #e4e4e7;
-  --automate-accent: #2563eb;
+  /* 3:1 has to be measured against the *darkest* plane step, not the base. */
+  --automate-border-strong: #898990;
   /*
-   * The status colours moved from the 500/600 steps to the 700/800 steps.
-   *
-   * They are used as body text — `Alert` and `Toast` render `text-success` over
-   * `bg-success/10`, and `StatCard` renders the trend in `--automate-success` —
-   * so they owe 4.5:1, not the 3:1 that would apply to a swatch. The old values
-   * measured 3.30:1 for success and 3.19:1 for warning against white, and 2.96:1
-   * and 2.86:1 against their own 10% tint. Darkening them is what lets the
-   * tinted alert pass; the cost is that a filled badge needs the on-fill
-   * foreground above rather than `text-fg`.
+   * The 800 step of the accent ramp, not the 500. The dark theme can afford
+   * `#3D9BFF` on a near-black plane because the contrast is enormous; the same
+   * value on white is 2.86:1, and the accent backs link and button text there,
+   * so it owes 4.5:1 like any other text.
    */
-  --automate-success: #166534;
-  --automate-warning: #92400e;
-  --automate-danger: #b91c1c;
-  --automate-info: #2563eb;
+  --automate-accent: #1466b5;
+  /*
+   * The status colours are used as body text — `Alert` and `Toast` render
+   * `text-success` over `bg-success/10`, and `StatCard` renders the trend in
+   * `--automate-success` — so they owe 4.5:1, not the 3:1 that would apply to a
+   * swatch, and a second 4.5:1 against their own 10% tint. The 10% tint raises
+   * the background luminance and *lowers* the contrast, so a ratio computed
+   * against the untinted surface would pass while the shipped rendering failed.
+   */
+  --automate-success: #206c32;
+  --automate-warning: #7e5415;
+  --automate-danger: #9f3331;
+  /* The dark steel, one step down: `#7C8DA6` is 2.53:1 on white. */
+  --automate-info: #4d5f79;
   --automate-on-fill: #ffffff;
   color-scheme: light;
+}
+
+/*
+ * The three escape hatches, and they are Phase 1 rather than Phase 2.
+ *
+ * D6-6's allowlist bans `backdrop-filter` everywhere except the chrome, and
+ * D6-9 means Phase 1 ships none at all — so these cannot be "degrade the
+ * glass". They are the two other things the same media queries are for, and
+ * both of those *do* apply to a plane this dark: a user who has asked the
+ * operating system for more contrast or for a transparency-free display is
+ * asking about every pixel, not only the translucent ones.
+ *
+ * Each is its own block rather than one selector list, because they are three
+ * different requests and only one of them is about alpha. `theme.test.ts`
+ * asserts each block independently: a merged block would satisfy "there is a
+ * media query" while losing the distinction, which is the shape of a check that
+ * measures nothing.
+ */
+
+/*
+ * `prefers-reduced-transparency: reduce` — the plane becomes fully opaque and
+ * the decoration borders become the control border. Phase 2's glass tokens
+ * resolve to an opaque surface here too; the rule is written so that adding
+ * `backdrop-filter` needs no change here.
+ */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  [data-theme='dark'] {
+    --automate-surface-sunken: #060607;
+    --automate-surface: #0b0b0c;
+    --automate-surface-raised: #131316;
+    --automate-surface-muted: #17171b;
+    /* Measured 3.14:1 on the *lightest* step above, not the base: a border that
+       clears 3:1 on `#0B0B0C` and misses it on `#17171B` identifies a control on
+       a card and not on a panel. */
+    --automate-border: #66666d;
+    --automate-border-strong: #8b8b92;
+  }
+
+  [data-theme='light'] {
+    --automate-surface-sunken: #f1f1f4;
+    --automate-surface: #ffffff;
+    --automate-surface-raised: #fbfbfd;
+    --automate-surface-muted: #f4f4f5;
+    /* 3.08:1 on `--automate-surface-sunken`, the darkest step, which is the
+       binding constraint in this theme. */
+    --automate-border: #898990;
+    --automate-border-strong: #6b6b72;
+  }
+}
+
+/*
+ * `prefers-contrast: more` — the two greys that carry the least information in
+ * each theme are pushed apart: the muted text moves toward the full foreground
+ * and both borders go to the control border. The status hues are untouched on
+ * purpose; they already carry 4.5:1 and pushing them further would put
+ * `--automate-on-fill` below it, which would fix a contrast request by breaking a
+ * different one.
+ */
+@media (prefers-contrast: more) {
+  :root,
+  [data-theme='dark'] {
+    --automate-fg-muted: #e6e6ea;
+    --automate-border: #6e6e76;
+    --automate-border-strong: #9c9ca5;
+  }
+
+  [data-theme='light'] {
+    --automate-fg-muted: #3f3f47;
+    --automate-border: #7c7c84;
+    --automate-border-strong: #4a4a51;
+  }
+}
+
+/*
+ * `forced-colors: active` — Windows High Contrast replaces the palette with the
+ * user's own, so the tokens that matter are the ones the OS will *not* paint:
+ * `--automate-border`, which is how a control is identified when every other
+ * colour has been substituted, and `--automate-border-strong` behind it. Both
+ * themes collapse to `CanvasText`, because in forced-colors mode the two themes
+ * are the same screen and keeping two values would be keeping a distinction the
+ * user cannot see.
+ *
+ * `forced-color-adjust` is deliberately not set to `none` anywhere. Overriding
+ * it is how a component ends up with a colour the user did not choose, which is
+ * the one outcome this media query exists to prevent.
+ */
+@media (forced-colors: active) {
+  :root,
+  [data-theme='dark'],
+  [data-theme='light'] {
+    --automate-border: CanvasText;
+    --automate-border-strong: CanvasText;
+    --automate-surface-sunken: Canvas;
+    --automate-surface: Canvas;
+    --automate-surface-raised: Canvas;
+    --automate-surface-muted: Canvas;
+  }
 }

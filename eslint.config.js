@@ -9,6 +9,41 @@ import {
   SKIPPED_TEST_PROPERTY_SET,
 } from './scripts/disabled-tests.mjs';
 
+/**
+ * The one `no-restricted-syntax` selector for the glass ban.
+ *
+ * **Exported rather than written inline, because flat config merges by last-wins and
+ * that is a trap.** Two blocks that both set `no-restricted-syntax` for the same file
+ * do not combine: the later one *replaces* the earlier. Adding the ban as its own
+ * `ts`/`tsx` block silently switched off the double-assertion rule on
+ * `packages/db/src/schema/**` and `packages/shared-contracts/src/**`, because that
+ * block is scoped to the same extensions and this repository already has a rule there
+ * doing something else. The only symptom was
+ * `scripts/lib/contract-double-assertion.test.mjs` starting to fail — a gate
+ * reporting the regression rather than causing it, which is the shape of failure this
+ * file exists to prevent twice now.
+ *
+ * So the selector is one exported constant and every block that sets
+ * `no-restricted-syntax` spreads it in. One copy of the rule, and a future fifth
+ * block cannot drop it.
+ */
+export const GLASS_SELECTOR = {
+  selector:
+    'Literal[value=/(^|[\\s"\'`])backdrop-(blur|filter|saturate|brightness|contrast|grayscale|invert|sepia|hue-rotate|opacity)\\b/]',
+  message:
+    'No backdrop-filter. It makes readability depend on what is behind the element. ' +
+    'Phase 1 ships no glass at all (D6-9); if you are reaching for a translucent ' +
+    'overlay, use an opaque surface token and an elevation shadow.',
+};
+
+/** The same ban for a value written in code rather than in a class string. */
+export const GLASS_PROPERTY_SELECTOR = {
+  selector: "Property[key.name='backdropFilter'], Property[key.name='webkitBackdropFilter']",
+  message:
+    'No backdrop-filter. It makes readability depend on what is behind the element. ' +
+    'Phase 1 ships no glass at all (D6-9).',
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -18,6 +53,24 @@ export default tseslint.config(
       '**/playwright-report/**',
       '**/test-results/**',
       '**/.kilo/**',
+      /**
+       * Storybook's static build, and **the reason it has to be listed here rather
+       * than left to `.gitignore`** is that ESLint does not read `.gitignore`.
+       *
+       * Its output is 21,900 lines of minified bundle across `assets/`, and linting
+       * it produced 21,907 errors — every one of them a `prefer-const` in a build
+       * artefact, none of them about this repository's code. A gate that reports
+       * 22,000 findings from a generated directory is a gate nobody reads, which is
+       * the failure `SEM-2`'s 543 semgrep findings already taught this repository
+       * once.
+       *
+       * The `dist` rule covers `site/dist` and the application builds; `storybook
+       * build` writes to `packages/ui/storybook-static`, which is not a configured
+       * `outDir` — it is Storybook's own default — so there is no Vite key to point
+       * somewhere already ignored. It is listed in `.gitignore` as well, and both
+       * listings are load-bearing for a different tool.
+       */
+      '**/storybook-static/**',
       // `site/` needs nothing here. Its only source file is `.vitepress/config.mts`,
       // the `**/*` blocks lint it, and its build output and dependency cache are
       // already covered by the `dist/` and `node_modules/` rules above — which is
@@ -228,6 +281,29 @@ export default tseslint.config(
     },
   },
   {
+    /**
+     * The glass ban, repo-wide (D6-9).
+     *
+     * **Declared before the two blocks that also set `no-restricted-syntax`, on
+     * purpose.** Flat config is last-wins: two blocks that both set the rule for the
+     * same file do not combine, the later one replaces the earlier. As the last
+     * `ts`/`tsx` block this ban replaced the double-assertion rule on every schema
+     * and contract file in the repository — which is why the selectors are shared
+     * into those blocks rather than living only here, and why the ordering here is
+     * load-bearing rather than incidental.
+     *
+     * Test files are excluded, because their whole purpose is to assert on markup
+     * that may well contain the banned class. The selectors are spread into the
+     * test-file block at the end of this file so the ban is not silently absent from
+     * the one place it would matter most to forbid writing it at all.
+     */
+    files: ['**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.spec.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': ['error', GLASS_SELECTOR, GLASS_PROPERTY_SELECTOR],
+    },
+  },
+  {
     // The two contract trees refuse a double assertion.
     //
     // `new Date(0) as unknown as Date` and its relatives assert twice: the first
@@ -243,10 +319,17 @@ export default tseslint.config(
     // across the whole tree on day one is a rule that gets switched off. The
     // review ruleset carries the same rule as `double-assertion`, scoped the same
     // way, so the human review and the lint gate speak one vocabulary.
+    //
+    // The glass selectors are repeated here because the rule object replaces rather
+    // than merges. Dropping them would silently un-ban `backdrop-filter` in exactly
+    // the files where a hand-written assertion is most likely, so the repetition is
+    // the point rather than an oversight.
     files: ['packages/db/src/schema/**/*.ts', 'packages/shared-contracts/src/**/*.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',
+        GLASS_SELECTOR,
+        GLASS_PROPERTY_SELECTOR,
         {
           selector: 'TSAsExpression > TSAsExpression',
           message:
@@ -267,6 +350,8 @@ export default tseslint.config(
       // them a way to commit a test that never runs.
       'no-restricted-syntax': [
         'error',
+        GLASS_SELECTOR,
+        GLASS_PROPERTY_SELECTOR,
         ...[...SKIPPED_TEST_PROPERTY_SET, ...FOCUSED_TEST_PROPERTY_SET].map((property) => ({
           selector: `MemberExpression[property.name=${JSON.stringify(property)}]`,
           message: `Do not commit .${property}() in test files.`,

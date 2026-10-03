@@ -3,7 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils.js';
 
 const emptyStateVariants = cva(
-  'flex w-full flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500',
+  'flex w-full flex-col items-center justify-center p-8 text-center animate-fade-in',
   {
     variants: {
       variant: {

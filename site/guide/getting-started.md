@@ -98,10 +98,16 @@ every test suite, the coverage ratchet, the build, the migration check, the
 documentation drift check, and the security gates.
 
 On a host without `semgrep` and `gitleaks`, use `pnpm verify:local`. It runs the
-**same chain** with those two scanners recorded as `not_configured`. It is never run
-in CI, where the scanners are installed and enforced — the opt-in exists so a
-contributor without the binaries can still run the other twelve steps, not so the
-security scan can be skipped.
+same chain with those two scanners recorded as `not_configured`.
+
+::: warning The opt-in is for the scanners, not for the chain
+It is never run in CI, where the scanners are installed and enforced. The flag exists so
+a contributor without the binaries can still run the other steps — not so a security
+scan can be skipped, and not so a red scanner can be turned green.
+
+A scanner that _ran_ and reported something still fails with the flag set. Only a
+scanner that could not run at all is recorded as unavailable.
+:::
 
 See `CONTRIBUTING.md` for the rules, including the one that matters most: write the
 test, run it with the defect still present, watch it fail for the reason you
