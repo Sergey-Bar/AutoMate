@@ -31,3 +31,13 @@ export * from './components/NavItem/NavItem.js';
 export * from './components/Toast/Toast.js';
 export * from './components/Drawer/Drawer.js';
 export * from './components/Popover/Popover.js';
+// The icon list. Exported so an application component can draw a shape without
+// taking a second dependency edge on `lucide-react` to do it — see the header in
+// `icons.ts` for the measured reason that matters here.
+//
+// A flat module and not `components/Icon/`, because it ships no component: it is a
+// named re-export. A directory under `components/` that renders nothing makes the
+// axe sweep's `covers every component directory` assertion — which finds components
+// by looking for a non-test `.tsx` — ask for an accessibility case with no element
+// to audit.
+export * from './icons.js';

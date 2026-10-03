@@ -1,0 +1,249 @@
+/*
+ * The documentation site's palette, and it is not its own.
+ *
+ * **The product's `theme.css` is imported, not restated.** That is the whole point
+ * of this file existing: the site and the product ship one set of colour tokens, so
+ * a screenshot in this site and the screen it documents cannot disagree. Every
+ * value below is either a `var()` into those tokens or a VitePress variable mapped
+ * onto one. There is no hex in this file that is not a comment.
+ *
+ * The consequence is a real constraint rather than a virtue: adding a colour here
+ * is impossible by construction, and a value that only makes sense on a page of
+ * prose — a link underline at rest, a code-block gutter — has to be expressed as a
+ * token or not at all. Two of them are expressed below, in `--vp-c-*`, and they say
+ * so.
+ *
+ * ## What is *not* imported
+ *
+ * `fonts.css`. The product's `fonts.css` resolves its two binaries through
+ * `../assets/fonts/`, and Vite resolves that from the importing stylesheet — so
+ * importing it here works and emits the woff2 files once into the site's bundle
+ * rather than once per consumer. The site is a separate Vite build, so "once" means
+ * once for this site; the files are committed once.
+ *
+ * ## Why the site's own overrides exist at all
+ *
+ * VitePress ships its own palette as CSS variables, and its default is a light
+ * theme with a blue accent. Three overrides do the work:
+ *
+ * 1. the dark default, because this product is authored dark-first and a site that
+ *    opens light shows a different product than the one it documents;
+ * 2. the accent, mapped onto `--automate-accent`, so a link in this site is the
+ *    same colour as a link in the console;
+ * 3. the page background, mapped onto the sunken plane step, so the surface a page
+ *    of prose sits on is one of the four the product defines.
+ *
+ * The remaining VitePress surfaces — the nav bar, the sidebar, the edit link — are
+ * mapped rather than hidden, because a documentation site with its own idea of
+* where a link goes is the same failure as a second palette.
+ *
+ * The relative path is three levels up because this file lives in
+ * `site/.vitepress/theme/`: theme → .vitepress → site → the repository root, and
+ * then into `packages/ui`. The product's `apps/web/src/index.css` reaches the same
+ * two files by a different three levels, and `site-doctor` check 8 is what makes the
+ * two agreeing on *which* files a check rather than a coincidence.
+ */
+@import '../../../packages/ui/src/tokens/fonts.css';
+@import '../../../packages/ui/src/tokens/theme.css';
+
+/* The plane, and the accent, behind every VitePress surface. */
+:root {
+  --vp-c-bg: var(--automate-surface-sunken);
+  --vp-c-bg-soft: var(--automate-surface);
+  --vp-c-bg-alt: var(--automate-surface-muted);
+  --vp-c-bg-elv: var(--automate-surface-raised);
+  --vp-c-divider: var(--automate-border);
+  --vp-c-gutter: var(--automate-border);
+
+  --vp-c-text-1: var(--automate-fg);
+  --vp-c-text-2: var(--automate-fg-muted);
+  --vp-c-text-3: var(--automate-fg-muted);
+
+  /* The accent, in both of the roles VitePress gives it. `--vp-c-brand-1` is the
+     link colour in prose, so it is measured as text: 4.5:1 on the page background,
+     which is why the light theme uses the 800 step rather than the 500 the product's
+     dark theme can get away with. See `theme.test.ts` for both numbers. */
+  --vp-c-brand-1: var(--automate-accent);
+  --vp-c-brand-2: var(--automate-accent);
+  --vp-c-brand-3: var(--automate-accent);
+  --vp-c-brand-soft: color-mix(in oklab, var(--automate-accent) 14%, transparent);
+
+  --vp-c-default-1: var(--automate-accent);
+  --vp-c-default-2: var(--automate-surface-raised);
+  --vp-c-default-3: var(--automate-border-strong);
+  --vp-c-default-soft: color-mix(in oklab, var(--automate-accent) 14%, transparent);
+
+  --vp-c-code-1: var(--automate-fg);
+  --vp-c-code-2: var(--automate-fg-muted);
+  --vp-c-code-3: var(--automate-surface-muted);
+  --vp-c-code-bg: var(--automate-surface);
+
+  --vp-font-family-base: var(--automate-font-sans);
+  --vp-font-family-mono: var(--automate-font-mono);
+
+  --vp-layout-max-width: 1440px;
+  color-scheme: dark;
+}
+
+/*
+ * The light theme, mapped rather than inverted.
+ *
+ * Every value above is a `var()` into a token that both themes define, so this
+ * block only has to change `color-scheme` and let the tokens do the rest. That is
+ * the payoff of importing the product's theme instead of copying it: a second
+ * palette is a file nobody reviews against the first, and a light-mode block here
+ * that drifted from `theme.css` would be invisible until somebody compared them.
+ */
+html[data-theme='light'] {
+  color-scheme: light;
+}
+
+/* Dark is the default and the mode the design was drawn in; see the header. */
+html:not([data-theme='light']) {
+  color-scheme: dark;
+}
+
+/*
+ * The evidence reading differently from the prose.
+ *
+ * The thesis this product is built on — prose is a claim, evidence is an instrument
+ * reading — has to be visible on the site too, or the site is decoration. A fenced
+ * code block, a table of gate results, a metrics row: those are readings, and they
+ * get the sunken plane step and a mono face while the paragraph above them does not.
+ *
+ * `pre` gets `bg-surface` and `border-border`, and the *page* gets
+ * `bg-surface-sunken`, so a block of evidence is a step above its own prose rather
+ * than the same step.
+ */
+.vp-doc pre,
+.vp-doc [class*='language-'] {
+  background-color: var(--automate-surface) !important;
+  border: 1px solid var(--automate-border);
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vp-doc th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--automate-fg-muted);
+  border-bottom: 1px solid var(--automate-border-strong);
+}
+
+.vp-doc td {
+  border-bottom: 1px solid var(--automate-border);
+}
+
+/* Numerals in a table are readings, so they line up. */
+.vp-doc td code,
+.vp-doc th code {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * `h1` and `h2` carry the page's argument, so they are the foreground colour and
+ * the weight Archivo can actually render.
+ *
+ * The size scale is in `rem` against VitePress's own spacing rather than against
+ * its type variables, because the type variables are part of the thing this file is
+ * overriding and mixing the two would mean a heading whose colour comes from a token
+ * and whose size comes from a value two files own.
+ */
+.vp-doc h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.vp-doc h2 {
+  font-size: 1.375rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  margin-top: 2.5rem;
+}
+
+.VPHome .VPHero .name {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.VPHome .VPHero .text {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/*
+ * Admonitions, and they are four run states.
+ *
+ * **VitePress's default is five: tip, warning, danger, info and details.** `info` is
+ * the one that mattered and it is the one this product cannot use for it: in a
+ * repository where `--automate-info` is steel *because* the brand blue means a
+ * verdict, an information box drawn in the brand blue would be making the same claim
+ * in a second place. So the mapping here is deliberate — `tip` takes the accent,
+ * `info` takes the status steel, and the other three take the run states they are
+ * named after.
+ *
+ * Every colour is a token. There is no hex in this file, which is the whole of what
+ * `site-doctor` check 8's second half asserts — a literal colour here would be a
+ * surface that has quietly stopped using the product's palette.
+ */
+.vp-doc .custom-block.tip {
+  border-left-color: var(--automate-accent);
+}
+
+.vp-doc .custom-block.info {
+  border-left-color: var(--automate-info);
+}
+
+.vp-doc .custom-block.warning {
+  border-left-color: var(--automate-warning);
+}
+
+.vp-doc .custom-block.danger {
+  border-left-color: var(--automate-danger);
+}
+
+.vp-doc .custom-block p,
+.vp-doc .custom-block li {
+  color: var(--automate-fg-muted);
+}
+
+.vp-doc .custom-block .custom-block-title {
+  color: var(--automate-fg);
+  font-weight: 600;
+}
+
+/*
+ * The three escape hatches, in the site's own stylesheet as well.
+ *
+ * `theme.css` carries the token-side degradation for the product. This carries the
+ * parts that are about *this* document: a nav bar and a sidebar that stay legible
+ * when the plane changes. Two rules, and the second one is the important one —
+ * without `forced-color-adjust: none` being left alone, a reader who has asked for a
+ * specific palette gets ours instead, which is the one outcome the query exists to
+ * prevent.
+ */
+@media (prefers-contrast: more) {
+  .VPDoc,
+  .VPNav,
+  .VPSidebar {
+    --vp-c-divider: var(--automate-border-strong);
+  }
+}
+
+@media (forced-colors: active) {
+  .vp-doc pre,
+  .vp-doc [class*='language-'] {
+    border: 1px solid CanvasText;
+  }
+
+  .vp-doc .custom-block {
+    border-left: 3px solid CanvasText;
+  }
+}

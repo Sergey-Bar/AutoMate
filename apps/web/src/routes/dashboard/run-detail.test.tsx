@@ -228,6 +228,47 @@ describe('RunDetailPage', () => {
     expect(screen.getByText(/No events have been observed/iu)).toBeInTheDocument();
   });
 
+  /**
+   * An artifact with no `name` is labelled by its kind.
+   *
+   * `{artifact.name ?? artifact.kind}` is the difference between a link that says
+   * "screenshot" and one that says nothing at all, because the API omits `name` for
+   * an artifact produced by a reporter that never named it. Rendering an empty link
+   * would be the alternative, and an empty link in an evidence panel is unreadable:
+   * a reader cannot tell which of four screenshots they are about to open.
+   */
+  it('labels an artifact by its kind when the API gives it no name', async () => {
+    const unnamed = { ...artifact, name: null as unknown as string };
+    const unnamedRun = makeRun({ id: 'unnamed', artifacts: [unnamed] });
+    render(
+      <RunDetailPage
+        id="unnamed"
+        api={detailApi(unnamedRun, { getRunArtifacts: vi.fn().mockResolvedValue([unnamed]) })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('run-detail-page')).toBeInTheDocument());
+    expect(screen.getByRole('link', { name: 'trace' })).toHaveAttribute(
+      'href',
+      '/api/v1/artifacts/artifact-1',
+    );
+  });
+
+  /**
+   * A finished run says RECONNECTING, and nothing on the page says LIVE.
+   *
+   * The badge distinguishes "the event stream is attached" from "the page has
+   * loaded a run and is no longer watching it", which is the difference between
+   * evidence you can expect to update and evidence you are looking at frozen. The
+   * `LIVE` half was asserted and the other half was not, so a page that rendered
+   * `LIVE` unconditionally would have passed every test here.
+   */
+  it('marks a completed run as not live rather than as LIVE', async () => {
+    render(<RunDetailPage id="run-123" api={detailApi(passedRun)} />);
+    await waitFor(() => expect(screen.getByTestId('run-detail-page')).toBeInTheDocument());
+    expect(screen.queryByText('LIVE')).toBeNull();
+    expect(screen.getByText('RECONNECTING')).toBeInTheDocument();
+  });
+
   it('records live canonical events in the timeline', async () => {
     let emit: ((event: ReturnType<typeof makePhaseEvent>) => void) | undefined;
     const api = detailApi(passedRun, {

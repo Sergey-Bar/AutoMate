@@ -5,6 +5,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# `contents: read` is the **whole workflow's** default, and the deploy job below
+# overrides it with exactly the two scopes Pages needs. Least privilege is the
+# reason this is a job-level block rather than a workflow-level one: `id-token:
+# write` mints an OIDC token that GitHub exchanges for permission to publish,
+# and it has no business being granted to a job that installs dependencies and
+# runs `pnpm docs:check`. The build half of this workflow never touches either.
 permissions:
   contents: read
 
@@ -20,6 +26,15 @@ concurrency:
 env:
   NODE_VERSION: 24.x
   PNPM_VERSION: 10.30.2
+  # The Pages base, derived rather than hardcoded.
+  #
+  # A GitHub *project* page is served from `/<repo>/`, so every asset URL in the
+  # built HTML has to carry that prefix or the site renders unstyled and blank —
+  # which is what `site/.vitepress/config.mts` warns about when it defaults to `/`.
+  # Deriving it from the repository name rather than writing `/AutoMate/` means a
+  # fork under a different owner is still correct, and it means renaming the
+  # repository cannot silently leave a stale prefix in a workflow file.
+  SITE_BASE: /${{ github.event.repository.name }}/
 
 jobs:
   build:
@@ -74,3 +89,36 @@ jobs:
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
         with:
           path: site/dist
+
+  # `SITE-1` in the findings ledger was the row saying this job did not exist. It
+  # does now, and the row's removal condition was written before it was written:
+  # a workflow that publishes `site/dist` **and** runs `SITE_DOCTOR_BUILT=1 pnpm
+  # site:doctor` against the built output.
+  deploy:
+    name: Publish to GitHub Pages
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      # `pages: write` — publish the uploaded artifact.
+      pages: write
+      # `id-token: write` — mint the OIDC token GitHub's Pages infrastructure
+      # exchanges for permission to deploy. This is the scope the plan named as
+      # "a security decision, not a design one", and it is why this is a
+      # job-level grant on a job whose only step is one pinned action.
+      id-token: write
+    environment:
+      # Required by Pages, and the thing that makes a deployment a reviewable
+      # event: it gives the repository a place to put protection rules and a URL
+      # for the deployment history, rather than publishing on trust.
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # A separate group from the build's, so a queued deploy is not cancelled by a
+    # build that happens to share the workflow's group name.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4, the pair for upload-pages-artifact v3 above

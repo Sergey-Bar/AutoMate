@@ -3,13 +3,34 @@ import { createRoute } from '@tanstack/react-router';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useQuarantine } from '../../hooks/useDashboard.js';
 import { EmptyState } from '@automate/ui';
-import type { ApiClient } from '../../lib/api.js';
+import type { ApiClient, QuarantineEntry } from '../../lib/api.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
   path: '/quarantine',
   component: () => <QuarantinePage />,
 });
+
+/**
+ * The colour each verdict is painted in, and it has to agree with the word.
+ *
+ * This started life as a nested ternary, and the two non-obvious branches were
+ * both inverted: `approved` was `text-error` and `rejected` was `text-success`.
+ * On the screen whose whole job is to say which is which, an approval rendered in
+ * the failure colour and a rejection in the pass colour is worse than no colour at
+ * all — a reader scanning for red finds the one entry that passed review.
+ *
+ * Typed as `Partial<Record<...>>` rather than `Record<...>` on purpose. The key
+ * set is `QuarantineEntry['status']`, so adding a verdict to the API schema makes
+ * this table visibly incomplete, and the fallback below answers "we do not know
+ * this verdict" in the neutral muted colour rather than inheriting `pending`'s
+ * amber. A `Record` would have forced a placeholder nobody wanted to write.
+ */
+const QUARANTINE_STATUS_TONE: Partial<Record<QuarantineEntry['status'], string>> = {
+  approved: 'text-success',
+  rejected: 'text-danger',
+  pending: 'text-warning',
+};
 
 export function QuarantinePage({ api }: { api?: ApiClient }) {
   const { data, isLoading, error, addQuarantine } = useQuarantine(api);
@@ -175,22 +196,27 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
                 <div className="text-sm text-warning mt-2">Reason: {entry.reason}</div>
               )}
               {/*
-                The status is the point of the list. `pending` means the test is
-                quarantined but nobody has decided yet, so it still counts in the
-                pass rate; `approved` is the decision that removes it. Showing the
-                file without that is how a reader concludes every entry listed here
-                is already excluded, which is false for every entry until somebody
-                acts on it.
+                The status is the point of the list, and the colour is the part a
+                reader trusts fastest, so it has to agree with the word.
+
+                It did not. `approved` was `text-error` and `rejected` was
+                `text-success` — an approval rendered in the failure colour and a
+                rejection in the pass colour, on the screen whose entire job is to
+                say which is which. Both branches are now the plain verdict: green
+                for approved, danger for rejected, warning for pending, and
+                `text-text-secondary` for a status this component does not know,
+                which is what an unrecognised value deserves rather than being
+                silently coloured as "pending".
+
+                `pending` still means quarantined but undecided, so it counts in
+                the pass rate; `approved` is the decision that removes it. Showing
+                the file without that is how a reader concludes every entry listed
+                here is already excluded, which is false for every entry until
+                somebody acts on it.
               */}
               <div
                 data-testid={`quarantine-status-${entry.id}`}
-                className={`text-sm mt-2 ${
-                  entry.status === 'approved'
-                    ? 'text-error'
-                    : entry.status === 'rejected'
-                      ? 'text-success'
-                      : 'text-warning'
-                }`}
+                className={`text-sm mt-2 ${QUARANTINE_STATUS_TONE[entry.status] ?? 'text-text-secondary'}`}
               >
                 Status: {entry.status}
               </div>

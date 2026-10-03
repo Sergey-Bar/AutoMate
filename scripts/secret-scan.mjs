@@ -31,10 +31,29 @@ const patterns = [
   ['connection string with inline password', /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]{3,}@/],
 ];
 
-/** A file that must never be scanned for content: it is data, not source. */
-/** @param {string} file */
+/**
+ * A file that must never be scanned for content: it is data, not source.
+ *
+ * The web-font extensions are here for a measured reason rather than a general
+ * one. `archivo-latin-var.woff2` and `jetbrains-mono-latin-var.woff2` are
+ * committed binaries, and reading either as UTF-8 hands the pattern list ~130KB
+ * of mojibake per file. The connection-string pattern is the one that matters:
+ * `[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]{3,}@` needs a run of printable
+ * bytes around `://` and `@`, and a compressed woff2 table is a better source of
+ * that by accident than a scanned source file is by design. The finding would
+ * be a false positive on a font, on a hook, in front of a commit — so the
+ * extension is skipped by name, the way `png` and `zip` already are.
+ *
+ * `scripts/lib/secret-scan-binary-extensions.test.mjs` asserts a `.woff2`
+ * containing the shape of a hit is skipped, so the entry cannot quietly go away
+ * and leave the next contributor to discover it.
+ *
+ * @param {string} file
+ */
 function isBinaryPath(file) {
-  return /\.(png|jpg|jpeg|gif|webp|ico|pdf|zip|gz|wasm|db|sqlite|mp4|mov)$/i.test(file);
+  return /\.(png|jpg|jpeg|gif|webp|ico|pdf|zip|gz|wasm|db|sqlite|mp4|mov|woff2|woff|ttf|otf|eot)$/i.test(
+    file,
+  );
 }
 
 /**

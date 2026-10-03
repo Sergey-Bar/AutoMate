@@ -1,0 +1,76 @@
+{
+  "$comment": [
+    "The two committed font binaries, with the upstream they came from and a",
+    "sha256 for each. `fonts.test.ts` is what reads this file, and it reads it in",
+    "both directions: a recorded digest that does not match the file, and a file",
+    "in `assets/fonts/` with no row here. The second direction is the one that",
+    "matters — a binary nobody recorded is a binary nobody checked.",
+    "",
+    "A hash answers 'did the file change', not 'is the file safe'. That is why the",
+    "upstream URL and the version string are recorded next to it: replacing the",
+    "file with something else requires editing this row, which is a diff somebody",
+    "reads. It is the same reasoning `skills-lock.json` carries for the vendored",
+    "skills, and it is why both exist.",
+    "",
+    "Latin subset only. `unicode-range` in `fonts.css` is the other half of that",
+    "decision and the two are asserted together: a subset the stylesheet does not",
+    "declare, or a range it declares with no file behind it, is a font that silently",
+    "falls back for part of the text."
+  ],
+  "fonts": [
+    {
+      "family": "Archivo",
+      "file": "archivo-latin-var.woff2",
+      "upstream": "https://fonts.gstatic.com/s/archivo/v25/k3kQo8UDI-1M0wlSfdnoLg.woff2",
+      "source": "Google Fonts css2 API, `family=Archivo:wdth,wght@62..125,100..900`, latin subset",
+      "version": "v25",
+      "licence": "SIL Open Font License 1.1",
+      "axisNote": "`axes` is in CSS descriptor form — `wght` and `wdth` as they appear in `@font-face` — rather than the OpenType `100..900` spelling, because that is the form `fonts.test.ts` asserts against the stylesheet. The API request in `source` uses the OpenType spelling.",
+      "axes": { "wght": "100 900", "wdth": "62% 125%" },
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "sha256": "e3a28eade21a900c7155a247757f4b2834c07bb7ef07ad7efa55cebaac1e8f5e"
+    },
+    {
+      "family": "JetBrains Mono",
+      "file": "jetbrains-mono-latin-var.woff2",
+      "upstream": "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbV2o-flEEny0FZhsfKu5WU4xD7OwE.woff2",
+      "source": "Google Fonts css2 API, `family=JetBrains+Mono:wght@100..800`, latin subset",
+      "version": "v24",
+      "licence": "SIL Open Font License 1.1",
+      "axes": { "wght": "100 800" },
+      "unicodeRange": "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+      "sha256": "18be452724bfdc236c074ca94a249a7f41a86752c7d04ab258ce9ed5651f6a7e"
+    }
+  ],
+  "unitsPerEm": 1000,
+  "measuredMetrics": {
+    "$comment": [
+      "The vertical metrics `fonts.css` writes into its `ascent-override` /",
+      "`descent-override` / `line-gap-override` descriptors, read out of each face's",
+      "`hhea` table at `unitsPerEm` above.",
+      "",
+      "`fonts.test.ts` asserts these are the numbers in the stylesheet. That is a",
+      "link, not a measurement — a test cannot read a woff2 — so the provenance has",
+      "to be recorded here where a reviewer can check it, and the assertion is what",
+      "stops someone re-tuning the overrides without re-measuring."
+    ],
+    "Archivo": {
+      "ascent": 878,
+      "descent": -210,
+      "lineGap": 0,
+      "xHeight": 526,
+      "capHeight": 686,
+      "fallbackFace": "Arial",
+      "fallbackXHeightPerCent": 51.86
+    },
+    "JetBrains Mono": {
+      "ascent": 1020,
+      "descent": -300,
+      "lineGap": 0,
+      "xHeight": 550,
+      "capHeight": 730,
+      "fallbackFace": "Consolas",
+      "fallbackXHeightPerCent": 52.9
+    }
+  }
+}

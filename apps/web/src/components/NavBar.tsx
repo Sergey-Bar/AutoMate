@@ -1,12 +1,10 @@
 import React from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { Button } from '@automate/ui';
-import { useTheme } from '../theme/ThemeProvider.js';
+import { ThemeToggle } from './ThemeToggle.js';
 
 export function NavBar() {
   const routerState = useRouterState();
   const currentPath = routerState.location.pathname;
-  const { theme, setTheme } = useTheme();
 
   // **No Logout button.** There is no session to end: the install is open, so there is
   // nothing to log out of, and a button that appeared to sign you out of an install you
@@ -23,20 +21,19 @@ export function NavBar() {
       >
         Release Command Center
       </Link>
-      <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          data-testid="theme-toggle"
-          aria-label="Toggle theme"
-          onClick={() => {
-            const themes = ['light', 'dark', 'system'] as const;
-            const current = themes.indexOf(theme as (typeof themes)[number]);
-            setTheme(themes[(current + 1) % themes.length]);
-          }}
-        >
-          Theme: {theme}
-        </Button>
-      </div>
+      {/*
+        `ThemeToggle` used to sit *next to* an inline `<Button variant="ghost">Theme:
+        {theme}</Button>` that shared its `data-testid="theme-toggle"` and cycled
+        the themes in a different order. Two controls for one setting, one of them
+        reachable only from a test, and a `getByTestId` that resolved to whichever
+        the caller happened to render.
+
+        Rendering the component removes the second one. The state is announced by
+        the control that changes it — `ThemeToggle`'s accessible name says both the
+        current theme and where pressing it lands — so the bar does not need a
+        second representation of the same fact beside it.
+      */}
+      <ThemeToggle />
     </nav>
   );
 }

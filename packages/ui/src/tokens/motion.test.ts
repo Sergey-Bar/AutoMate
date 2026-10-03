@@ -7,8 +7,10 @@ import {
   REDUCED_MOTION_DURATION,
   REDUCED_MOTION_SCALE,
   durationVariableName,
+  easingVariableName,
   motion,
   motionDurationDeclarations,
+  motionEasingDeclarations,
 } from './motion.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -43,6 +45,92 @@ describe('motion tokens', () => {
   it('still ships the durations and easings it always did', () => {
     expect(Object.keys(motion.duration)).toEqual(['75', '100', '150', '200', '300']);
     expect(Object.keys(motion.easing)).toEqual(['linear', 'in', 'out', 'in-out']);
+  });
+
+  it('publishes every easing, so the animation shorthand names one', () => {
+    // `--animate-*` has to name a timing function. Before the easings had a
+    // published form, the only ways to satisfy that were to hard-code
+    // `cubic-bezier(0, 0, 0.2, 1)` into the shorthand — a second copy of a value
+    // this table already owns — or to leave the animation at its default curve,
+    // which is why every overlay in this product used to arrive with the same
+    // unconsidered easing.
+    for (const declaration of motionEasingDeclarations().split('\n')) {
+      expect(motionCss, `${declaration.trim()} is not published by motion.css`).toContain(
+        declaration.trim(),
+      );
+    }
+    for (const step of Object.keys(motion.easing)) {
+      expect(motionCss).toContain(
+        `${easingVariableName(step)}: ${motion.easing[step as keyof typeof motion.easing]};`,
+      );
+    }
+  });
+});
+
+/**
+ * The enter/exit animations, and the utilities the components actually write.
+ *
+ * Sixteen class names across six components — `animate-in`, `fade-in`,
+ * `fade-in-0`, `fade-in-90`, `zoom-in-95` and their `open:`-prefixed forms — were
+ * written against `tailwindcss-animate`, which is not a dependency of this
+ * repository. There are no `@keyframes` for them anywhere in the tree, so every
+ * one compiled to nothing and the dialog, the drawer, the palette, the popover,
+ * the tooltip and the empty state all appeared instantly — with their class
+ * strings intact, which is why every test asserting on the class name passed.
+ *
+ * So they are declared as tokens rather than by adding the plugin, and these
+ * assertions are what stops the same class of bug from recurring: a class in a
+ * component's `className` that no `--animate-*` entry backs is a no-op that looks
+ * exactly like a working one.
+ */
+describe('the enter and exit animations are declared, not assumed', () => {
+  const ANIMATIONS = [
+    '--animate-fade-in',
+    '--animate-fade-out',
+    '--animate-zoom-in-95',
+    '--animate-zoom-out-95',
+  ] as const;
+
+  it('publishes every animation a component can ask for', () => {
+    for (const name of ANIMATIONS) {
+      expect(motionCss, `${name} is not published by motion.css`).toContain(`${name}: `);
+    }
+  });
+
+  it('names a keyframes rule that exists, for every animation', () => {
+    // The link that was missing for the sixteen dead classes: an `--animate-*`
+    // entry whose keyframes name has no `@keyframes` in this stylesheet is an
+    // animation that runs for its duration and changes nothing.
+    for (const name of ANIMATIONS) {
+      const declaration = new RegExp(`${name}:\\s*([^;]+);`).exec(motionCss)?.[1]?.trim() ?? '';
+      const keyframes = declaration.split(/\s+/)[0];
+      expect(keyframes, `${name} declares no keyframes name`).not.toBe('');
+      expect(
+        motionCss,
+        `${name} animates \`${keyframes}\` and motion.css has no @keyframes for it, so the ` +
+          'element changes nothing for the length of the duration',
+      ).toContain(`@keyframes ${keyframes} {`);
+    }
+  });
+
+  it('takes every duration from the scaled tokens rather than a literal', () => {
+    // A literal time here would be unreachable by the `prefers-reduced-motion`
+    // multiplier above, and the drawer would slide for a reader who asked their
+    // operating system for it not to.
+    for (const name of ANIMATIONS) {
+      const declaration = new RegExp(`${name}:\\s*([^;]+);`).exec(motionCss)?.[1] ?? '';
+      expect(declaration, `${name} hard-codes a duration`).toContain('var(--automate-duration-');
+      expect(declaration, `${name} hard-codes a timing function`).toContain('var(--automate-ease-');
+    }
+  });
+
+  it('has a keyframes rule per direction, because an overlay has to be able to leave', () => {
+    // Tailwind's state variants (`data-[state=closed]:animate-fade-out`) need the
+    // exit half to be a real utility. A pair where only the entry side exists is
+    // an overlay that arrives and never leaves.
+    for (const direction of ['enter', 'exit'] as const) {
+      expect(motionCss).toContain(`@keyframes automate-${direction} {`);
+    }
   });
 });
 
@@ -89,9 +177,9 @@ describe('the shipped stylesheet honours prefers-reduced-motion', () => {
 
   it('neutralises the Tailwind duration and animate utilities the components actually use', () => {
     // The components set their motion with `duration-150`, `transition-all`,
-    // `animate-in` and `animate-pulse`, which compile to literal times. A scale
-    // variable cannot reach them, so the rule has to clamp the properties
-    // themselves or the drawer still slides.
+    // `animate-fade-in`, `animate-zoom-in-95` and `animate-pulse`, which compile to
+    // literal times. A scale variable cannot reach them, so the rule has to clamp the
+    // properties themselves or the drawer still slides.
     for (const declaration of [
       `animation-duration: ${REDUCED_MOTION_DURATION} !important;`,
       'animation-iteration-count: 1 !important;',

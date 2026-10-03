@@ -5,11 +5,14 @@ product and the gates around it. Until now that list was the one number here wit
 no command behind it — every other claim has a gate behind it, and "10/10" had a
 plan section.
 
-`pnpm status:10` reports those twelve as `pass`, `fail` or `not_configured`. It is a
-**measurement, not a gate**: the exit code is 0 whatever the verdicts are, because a
-required check that can never pass blocks every pull request and teaches reviewers to
-read red as noise. It graduates when the fails are zero, in the commit that makes
-them zero.
+`pnpm status:10` reports those twelve as `pass`, `fail` or `not_configured`.
+
+::: warning It is a measurement, not a gate
+The exit code is 0 whatever the verdicts are, because a required check that can never
+pass blocks every pull request and teaches reviewers to read red as noise.
+
+It graduates when the fails are zero, in the commit that makes them zero.
+:::
 
 Three properties make the table worth reading:
 

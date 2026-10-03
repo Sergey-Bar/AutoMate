@@ -1,0 +1,122 @@
+/*
+ * The two families, self-hosted (D6-5).
+ *
+ * Two families and no more: Archivo for everything that is read, JetBrains Mono
+ * for everything that is a reading — run ids, digests, stack traces, JUnit
+ * output, every tabular numeral. A third face is a decision somebody will make
+ * in a component and not in this file.
+ *
+ * `index.css` used to name `Inter` and load nothing, so the product rendered in
+ * whatever the operating system had. That is a real defect rather than a taste
+ * one: the type in a QA console is half of what makes a timestamp legible
+ * against a column of hex.
+ *
+ * ## The binaries
+ *
+ * `assets/fonts/` is the canonical directory and both consumers resolve through
+ * it — the product imports this file and the documentation site imports this
+ * file — so each face is committed exactly once.
+ *
+ * Latin subset, variable, `woff2` only. One file per family rather than per
+ * weight: a variable face covers 100–900 in about 90KB where eight static cuts
+ * of the same family would be about 400KB, and the axis the product actually
+ * moves is weight. `fonts-lock.json` beside them records the upstream source and
+ * a sha256 per file, and `fonts.test.ts` checks both directions — the recorded
+ * digest, and that no binary has been added to the directory without a row. A
+ * hash answers *did the file change*, not *is the file safe*, which is why the
+ * upstream URL is recorded next to it.
+ *
+ * ## The fallback
+ *
+ * `Archivo Fallback` and `JetBrains Mono Fallback` are local faces carrying
+ * metrics overrides, and that is the whole reason the swap does not move a
+ * line. Without them a reader on a cold cache gets the local face's line box
+ * for the length of the download and every block of text below it shifts; with
+ * them the fallback occupies the same height before the webfont arrives.
+ *
+ * The percentages are **measured**, not conventional. Read out of the `hhea`
+ * table of each face at `unitsPerEm` 1000:
+ *
+ *   Archivo        ascent  878  descent -210  lineGap 0  xHeight 526
+ *   JetBrains Mono ascent 1020  descent -300  lineGap 0  xHeight 550
+ *
+ * `ascent-override` and `descent-override` are percentages of the em, so they
+ * hold whichever local face is actually selected and they are what fixes the
+ * line box. `size-adjust` compares x-heights and is therefore specific to the
+ * face it was measured against: 52.6/51.86 for Archivo against Arial, and
+ * 55.0/52.9 for the mono against Consolas. Those are the two faces this
+ * fallback is measured for; a third platform's fallback will get the right line
+ * box and a slightly wrong glyph size, which is the acceptable half of the
+ * problem. One `local()` per face rather than a list, so that approximation is
+ * never silently compounded by picking a face the numbers do not describe.
+ *
+ * `line-gap-override: 0%` is stated on both rather than left to the local face.
+ * Arial's own line gap is 67/2048, and leaving it in is the difference between
+ * the fallback matching the webfont's line box and being three pixels taller
+ * per line for the length of the download.
+ *
+ * `font-display: swap` on all four faces. `optional` would avoid the swap flash
+ * by never swapping on a slow connection, which trades a layout shift for a
+ * reader looking at the wrong type and never seeing the right one — the wrong
+ * trade for a product whose thesis is that the evidence is legible.
+ */
+
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-display: swap;
+  src: url('../assets/fonts/archivo-latin-var.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Archivo Fallback';
+  src: local('Arial');
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  ascent-override: 87.8%;
+  descent-override: 21%;
+  line-gap-override: 0%;
+  size-adjust: 101.43%;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono-latin-var.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono Fallback';
+  src: local('Consolas');
+  font-style: normal;
+  font-weight: 100 800;
+  ascent-override: 102%;
+  descent-override: 30%;
+  line-gap-override: 0%;
+  size-adjust: 103.97%;
+}
+
+/*
+ * The two custom properties every `font-family` in the tree names.
+ *
+ * Published here rather than restated at each `font-family`, because there are
+ * three of them — `index.css` on `body`, `typography.ts` for the token record,
+ * and the documentation site's own stylesheet — and three copies of a font
+ * stack is three chances to change one and forget another. A component that
+ * needs the mono reaches for `var(--automate-font-mono)`.
+ */
+:root {
+  --automate-font-sans: 'Archivo', 'Archivo Fallback', ui-sans-serif, system-ui, sans-serif;
+  --automate-font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', ui-monospace, monospace;
+}

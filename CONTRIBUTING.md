@@ -1,11 +1,67 @@
 # Contributing
 
-This repository has one rule that matters more than the others. Everything else is
-ordinary engineering.
+There is one rule here that matters more than the others, and it is the one this file
+used to open with four paragraphs of preamble in front of it. So: the rule is below, and
+the four properties of the repository come first **because each of them is something you
+will trip over**, not because they are what makes it interesting.
+
+## The four properties, and the command that enforces each
+
+Most projects describe what the software does. This one is also about **how it decides
+what is true**, and the evidence is in the tree rather than in a wiki.
+
+### 1. Every gate is reproducible from a clean checkout
+
+`pnpm verify` runs the whole chain, and `scripts/gate-tooling.json` records which external
+binary each step needs and the tier of every root script. A test that runs a suite nobody
+can reproduce is a claim, not a check.
+
+```bash
+pnpm verify              # the chain, which includes the gate-tooling test
+pnpm verify:local        # the same chain on a host without semgrep and gitleaks
+```
+
+**What you will trip over:** a new script with no tier in `scripts/gate-tooling.json`, and
+a job that runs a tool it never installed. `scripts/lib/gate-tooling.test.mjs` fails on
+both, and on `verify` growing past twenty steps.
+
+### 2. A rule that silently stops matching is a defect
+
+`.semgrep.yml` has a fixture suite (`scripts/lib/semgrep-rules.test.mjs`) that runs each
+rule over a known hazard and asserts it still fires — because six mechanisms in that file
+once read as exclusions and were not, and a rule that loads while matching nothing is
+indistinguishable from a rule that works.
+
+**What you will trip over:** a gate that passes because its input was empty. That is the
+same failure one level up, and this repository has three separate mechanisms for it: a
+`GAP` outcome in `site-doctor` and `status:10`, a provenance hash beside every coverage
+summary, and `pnpm findings:check` failing on an empty ledger.
+
+### 3. Dead code is removed, not covered
+
+Deleting an unused auth middleware closed a coverage shortfall on its own; the alternative
+would have been 164 lines of tests asserting behaviour nothing depends on, in a file that
+reads like protection.
+
+**What you will trip over:** `pnpm coverage:ratchet` failing because you added source and
+not a test. The floors only ever go up. The correct response is to write the test or to
+delete the code — never to move the floor.
+
+### 4. Findings are a ledger, not a document
+
+`docs/quality/findings-ledger.json` is machine-checked. A `fixed` row whose evidence path
+no longer exists **fails**, because the proof was deleted and the claim is open again. A
+status moving backwards fails. A row disappearing fails. An open Blocker with no owning
+wave fails.
+
+**What you will trip over:** closing a row you did not read the code for. `provenance:
+"sweep"` means an automated sweep produced it and nobody has looked; `pnpm findings:check`
+refuses to let a `sweep` row be closed without `confirmed: true`.
 
 ## Write the test, watch it fail, then fix it
 
-Not "add a test". **Watch it fail.**
+Not "add a test". **Watch it fail.** This is the rule the rest of the file is arranged
+around.
 
 1. Write the test that describes the correct behaviour.
 2. Run it **while the defect is still in the code**.
@@ -78,8 +134,8 @@ budget you may spend.
 
 ## Working on a findings row
 
-`docs/quality/findings-ledger.json` is the machine-checked scope: 119 rows, currently
-**75 fixed, 39 open, 4 refuted, 1 debt**. Read the row's `summary` — it names the files and
+`docs/quality/findings-ledger.json` is the machine-checked scope: 153 rows, currently
+**134 fixed, 7 open, 5 refuted, 7 debt**. Read the row's `summary` — it names the files and
 lines — and then **read the code it points at**, because roughly a third of the rows were
 wrong when last read.
 
@@ -93,6 +149,14 @@ If you fix a row:
 
 `pnpm findings:check` fails if a `fixed` row's evidence file has been deleted, so the
 proof has to be a file that exists.
+
+**`false-positive` is terminal.** A refutation somebody has not read is not a
+refutation, so a row that was refuted on a premise which has since changed is corrected
+**on the row** — a `premiseExpires` field with the date the premise stops holding and
+what to do instead. `RF-10` is the worked example: it refuted the cross-engine
+`backdrop-filter` risk on the grounds that the property is in no stylesheet here, which
+is true today and stops being true the day the glass allowlist opens. Reopening it would
+be a regression the ratchet forbids; annotating it is the honest move.
 
 ## Picking up an open issue
 

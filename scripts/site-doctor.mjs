@@ -381,26 +381,180 @@ function checkHeadings(pages) {
 }
 
 /**
- * 8. Every image has an alt attribute, and a decorative one is marked decorative.
+ * 8. The site's palette is the product's palette, and every image has alt text.
  *
- * `GAP` without the built site. The check is worth having on a site whose screenshots
- * are the product's evidence: an evidence console's images are the only content a
- * screen reader cannot get from the text around them.
+ * Two checks in one number, and the pairing is the point: the DOM half is worth having
+ * on a site whose screenshots are the product's evidence, because an evidence console's
+ * images are the only content a screen reader cannot get from the text around them.
+ * The token half is the newer one and it is what keeps a redesign from producing two
+ * sites — the product's console and a documentation site that documents a palette
+ * nobody ships.
+ *
+ * **The token half runs without a build, so it never reports `GAP`.** The DOM half
+ * needs `site/dist`, which does not exist on a fresh checkout, and it says `GAP` when
+ * that is the case. But a token mismatch is visible from the source, so a check that
+ * could report a real failure behind a `GAP` would be hiding it — the same shape as
+ * `RF-9`'s gate protecting drift from a baseline nobody measured. So: token problems
+ * `fail` on every host, and `GAP` is only ever reported when the token half is clean
+ * and there is nothing built to inspect.
  */
-/** @param {Array<{ file: string, html: string }> | null} pages
- * @returns {Check} */
-function checkImages(pages) {
-  if (pages === null) return domGap(8, 'every image has alt text', 'site/dist');
+/**
+ * @param {Array<{ file: string, html: string }> | null} pages
+ * @returns {Check}
+ */
+/**
+ * The two stylesheets check 8 compares, named once.
+ *
+ * Read as constants rather than as literals inside the check, so the failure message
+ * and the comparison cannot disagree about which files they are.
+ */
+const SITE_THEME_CSS = 'site/.vitepress/theme/custom.css';
+const PRODUCT_ENTRY_CSS = 'apps/web/src/index.css';
+
+/** The name both halves of check 8 report under, so a dropped half is visible. */
+const CHECK_8_NAME = 'the site uses the product palette, and every image has alt text';
+
+/**
+ * The token stylesheets a stylesheet `@import`s, as paths.
+ *
+ * Typed through a cast rather than a `@param` tag: a JSDoc block on an arrow function
+ * assigned to a `const` is not attached to the function's parameters by `tsc` under
+ * `checkJs`, and the parameter types are the part that matters.
+ *
+ * @type {(css: string) => string[]}
+ */
+const tokenImports = (css) =>
+  [...css.matchAll(/@import\s+['"]([^'"]*tokens\/(?:theme|fonts|motion)\.css)['"]/g)].map((match) =>
+    match[1].replace(/\\/g, '/'),
+  );
+
+/**
+ * The file names in a list, deduplicated and sorted.
+ *
+ * Sorted so a failure message reads the same twice, which is the only thing that makes
+ * a message quotable in a commit.
+ *
+ * @type {(paths: string[]) => string[]}
+ */
+const tokenNames = (paths) => [...new Set(paths.map((p) => p.split('/').pop() ?? p))].sort();
+
+/**
+ * Every literal colour in a stylesheet, as problems.
+ *
+ * Comment lines are skipped by the second filter rather than by stripping comments,
+ * because stripping them is a bigger claim than this check needs to make and a
+ * backtick-quoted `#rrggbb` inside a sentence is prose.
+ *
+ * @param {string} css
+ * @param {string} label
+ * @returns {string[]}
+ */
+function literalColours(css, label) {
+  return css
+    .split(/\r?\n/)
+    .map((line, index) => ({ line, number: index + 1 }))
+    .filter(({ line }) => /#[0-9a-f]{3,8}\b/i.test(line))
+    .filter(({ line }) => !line.trim().startsWith('*'))
+    .map(
+      ({ line, number }) => `\`${label}:${String(number)}\` has a literal colour: ${line.trim()}`,
+    );
+}
+
+/**
+ * 8a. The site's colours are the product's colours.
+ *
+ * **Source-level, so it is never a `GAP`.** The DOM half needs `site/dist`, which does
+ * not exist without a build; the token half does not — so it runs on every host
+ * including CI and reports a real failure rather than an honest absence.
+ *
+ * The assertion is that the site's stylesheet reaches only token stylesheets the
+ * product's entry stylesheet also reaches, rather than that it contains the same
+ * colours. A token list in a site stylesheet is a second palette: it is a copy nobody
+ * reviews against the first, and it drifts the first time somebody adds a surface. An
+ * `@import` of the same file cannot drift, and this check is what makes that true
+ * rather than merely intended.
+ *
+ * @returns {string[]}
+ */
+function checkSitePalette() {
+  const themeCss = read(SITE_THEME_CSS);
+  if (themeCss === '') {
+    return [`\`${SITE_THEME_CSS}\` is missing, so the site has no theme to check.`];
+  }
+  const siteTokens = tokenNames(tokenImports(themeCss));
+  const productTokens = tokenNames(tokenImports(read(PRODUCT_ENTRY_CSS)));
+  const problems = [];
+
+  if (siteTokens.length === 0) {
+    problems.push(
+      `\`${SITE_THEME_CSS}\` imports no token stylesheet, so the site is shipping its own palette.`,
+    );
+  } else {
+    // One direction, not equality. **The site importing fewer token files is correct,
+    // not drift**: it animates nothing, so it has no use for `motion.css`, and
+    // demanding the file would be demanding dead weight so that a comparison could be
+    // an equality.
+    const foreign = siteTokens.filter((name) => !productTokens.includes(name));
+    if (foreign.length > 0) {
+      problems.push(
+        `the site imports ${foreign.join(', ')}, which the product's entry stylesheet does not. ` +
+          'A token file only this site imports is a second palette.',
+      );
+    }
+    if (!siteTokens.includes('theme.css')) {
+      problems.push("the site does not import `theme.css`, so its colours are not the product's.");
+    }
+  }
+
+  // A literal hex in the site's stylesheet is a colour that does not come from a token.
+  // One exception and it is spelled out: the `Canvas` and `CanvasText` values inside
+  // `forced-colors` are the *operating system's* palette by name, and a hex there
+  // would be the one place the user has explicitly overridden us.
+  problems.push(...literalColours(themeCss, SITE_THEME_CSS));
+  return problems;
+}
+
+/**
+ * 8b. Every image has alt text.
+ *
+ * @param {Array<{ file: string, html: string }>} pages
+ * @returns {string[]}
+ */
+function checkImageAlts(pages) {
   const problems = [];
   for (const { file, html } of contentPages(pages)) {
     for (const match of html.matchAll(/<img\b[^>]*>/g)) {
-      if (!/\salt=/.test(match[0]))
+      if (!/\salt=/.test(match[0])) {
         problems.push(`\`${file}\` has an <img> with no alt attribute.`);
+      }
     }
+  }
+  return problems;
+}
+
+/** @param {Array<{ file: string, html: string }> | null} pages
+ * @returns {Check} */
+function checkImages(pages) {
+  // Two halves in two functions, because one function doing both scored over the
+  // complexity ceiling. The `GAP` decision is the only thing that needs to see both,
+  // which is why the composition lives here rather than in either half.
+  const problems = [...checkSitePalette(), ...(pages === null ? [] : checkImageAlts(pages))];
+
+  if (pages === null) {
+    if (problems.length > 0) {
+      return {
+        number: 8,
+        name: CHECK_8_NAME,
+        outcome: 'fail',
+        problems,
+        note: 'The image half needs a built site (`SITE_DOCTOR_BUILT=1`) and did not run.',
+      };
+    }
+    return domGap(8, CHECK_8_NAME, 'site/dist');
   }
   return {
     number: 8,
-    name: 'every image has alt text',
+    name: CHECK_8_NAME,
     outcome: problems.length === 0 ? 'pass' : 'fail',
     problems,
     note: '',
@@ -526,7 +680,15 @@ export function runSiteDoctor() {
 /** @param {string} html
  * @returns {boolean} */
 function hasLangAttribute(html) {
-  const tag = /^<html\b[^>]*>/.exec(html.trim())?.[0];
+  // **Not anchored to the first token.** It was `html.trim()` matched against
+  // `^<html`, and every file VitePress emits starts with `<!DOCTYPE html>` — so this
+  // returned `false` for every page, every time, and check 9 failed on all nine the
+  // first time anyone ran `site:doctor` against a build. That is the recorded reason
+  // `SITE_DOCTOR_BUILT` is unset in CI: the DOM half of this file had never run, and
+  // a check nobody has run is not a check that works. The search is now over the
+  // document rather than over its first line, which is what "does this page declare a
+  // language" actually asks.
+  const tag = /<html\b[^>]*>/.exec(html)?.[0];
   if (tag === undefined) return false;
   // The attribute is read off the tag rather than matched out of the whole document, so
   // the pattern is a single anchored literal with no adjacent quantifier — which is what

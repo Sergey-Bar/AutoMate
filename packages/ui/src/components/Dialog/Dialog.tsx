@@ -119,7 +119,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
       <dialog
         ref={internalRef}
         className={cn(
-          'backdrop:bg-surface/50 open:animate-in open:fade-in-90 p-0 rounded-lg shadow-lg border border-border bg-surface text-fg max-w-lg w-full',
+          'backdrop:bg-surface/50 open:animate-fade-in open:duration-150 p-0 rounded-lg shadow-elevation-3 border border-border bg-surface text-fg max-w-lg w-full',
           className,
         )}
         onKeyDown={handleKeyDown}

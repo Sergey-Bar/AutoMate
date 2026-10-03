@@ -8,9 +8,9 @@ loses its evidence — so a row here is a claim with a path behind it.
 
 | Status           | Rows |
 | ---------------- | ---- |
-| `debt`           | 6    |
+| `debt`           | 7    |
 | `false-positive` | 5    |
-| `fixed`          | 134  |
+| `fixed`          | 135  |
 | `open`           | 6    |
 
 ## Open (6)

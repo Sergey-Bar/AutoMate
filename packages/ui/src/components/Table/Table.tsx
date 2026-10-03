@@ -5,6 +5,7 @@ import {
   type ThHTMLAttributes,
 } from 'react';
 import { cn } from '../../lib/utils.js';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 
 export type TableProps = HTMLAttributes<HTMLTableElement>;
 
@@ -93,11 +94,31 @@ export const TableHead = forwardRef<HTMLTableCellElement, TableHeadProps>(
             className="flex h-12 w-full items-center gap-1 px-4 text-left font-medium text-inherit hover:text-text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             {children}
-            <span aria-hidden="true" className="flex flex-col text-[10px] leading-none opacity-50">
-              <span className={cn(sortDirection === 'asc' && 'opacity-100 text-brand-500')}>▲</span>
-              <span className={cn(sortDirection === 'desc' && 'opacity-100 text-brand-500')}>
-                ▼
-              </span>
+            {/*
+              Lucide triangles rather than the `▲`/`▼` they replace.
+
+              `▲` and `▼` are *geometric shapes*, not glyphs: they render in whatever
+              font the browser picks for U+25B2 and U+25BC, so the sort indicator
+              changed appearance between a Windows machine, a Mac and a Linux
+              container, and on a machine with no coverage for them it renders as
+              `?`. They also have no `stroke-width` to inherit, so they cannot be
+              sized consistently with the rest of the row.
+
+              Still `aria-hidden`, and still only decoration: `aria-sort` on the `<th>`
+              is what tells a screen-reader user which column is sorted and in which
+              direction, and a name would now contradict it.
+            */}
+            <span aria-hidden="true" className="flex flex-col leading-none opacity-50">
+              <ArrowUp
+                size={10}
+                strokeWidth={2.5}
+                className={cn(sortDirection === 'asc' && 'opacity-100 text-accent')}
+              />
+              <ArrowDown
+                size={10}
+                strokeWidth={2.5}
+                className={cn(sortDirection === 'desc' && 'opacity-100 text-accent')}
+              />
             </span>
           </button>
         ) : (

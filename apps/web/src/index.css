@@ -4,7 +4,17 @@
  * `@source` directive makes Tailwind scan the component sources so a utility
  * used inside `packages/ui` is generated even though the class string lives
  * outside this app.
+ *
+ * Order matters and is the reason these three are adjacent rather than appended:
+ * `fonts.css` declares `--automate-font-sans` / `--automate-font-mono` and the
+ * `@font-face` rules that need the committed binaries, `theme.css` declares the
+ * colour plane and elevation, and `motion.css` declares the durations and the
+ * enter/exit animations. `body` below reads the font variables, so `fonts.css`
+ * has to be resolved first — which is true of any `@import` in CSS, but is worth
+ * saying because the three files are one design authority split by concern and
+ * the order is the only thing holding them together.
  */
+@import '../../../packages/ui/src/tokens/fonts.css';
 @import '../../../packages/ui/src/tokens/theme.css';
 @import '../../../packages/ui/src/tokens/motion.css';
 @source "../../../packages/ui/src";
@@ -20,7 +30,36 @@
     margin: 0;
     background: var(--automate-surface);
     color: var(--automate-fg);
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    /*
+     * `var(--automate-font-sans)`, not a literal stack. The same two custom
+     * properties are what `tokens/typography.ts` records and what the
+     * documentation site resolves, so there is one list of families rather than
+     * three — and the fallback faces carry the metrics overrides that keep the
+     * swap from moving a line.
+     */
+    font-family: var(--automate-font-sans);
+    /*
+     * `font-synthesis` off, because Archivo is a variable face loaded from a
+     * subset: with synthesis left on, a weight the subset did not ship is
+     * synthesised by smearing the nearest outline, and `wght` 100–900 is a range
+     * a browser may legitimately ask for mid-file. The range is declared on the
+     * `@font-face`, so the honest answer is to let the variable axis answer.
+     */
+    font-synthesis-weight: none;
+  }
+
+  /*
+   * Every reading is mono. Run ids, digests, stack traces, JUnit output and the
+   * tabular numerals in a column of numbers — the four places this product's
+   * reader is comparing two values character by character, which is the one job
+   * a proportional face cannot do.
+   */
+  code,
+  kbd,
+  samp,
+  pre {
+    font-family: var(--automate-font-mono);
+    font-variant-numeric: tabular-nums;
   }
 
   button,

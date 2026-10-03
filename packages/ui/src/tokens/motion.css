@@ -1,5 +1,6 @@
 /*
- * Motion tokens, and the single rule that honours `prefers-reduced-motion`.
+ * Motion tokens, the enter/exit keyframes the product's overlays animate with,
+ * and the single rule that honours `prefers-reduced-motion`.
  *
  * Imported by `apps/web/src/index.css` next to `theme.css`, so the shipped
  * stylesheet is the only place motion is defined. `tokens/motion.ts` owns the
@@ -16,6 +17,80 @@
   --automate-duration-150: calc(150ms * var(--automate-motion-scale));
   --automate-duration-200: calc(200ms * var(--automate-motion-scale));
   --automate-duration-300: calc(300ms * var(--automate-motion-scale));
+  /*
+   * The easings, published so the `--animate-*` shorthand below can name one
+   * rather than restating the curve. `tokens/motion.ts` owns the values and
+   * `motion.test.ts` asserts these declarations in both directions.
+   */
+  --automate-ease-linear: linear;
+  --automate-ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --automate-ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --automate-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/*
+ * Enter and exit, as four `@keyframes` and a `@theme` block that publishes them.
+ *
+ * **Why these are tokens rather than a plugin.** Sixteen class names across six
+ * components — `animate-in`, `fade-in`, `fade-in-0`, `fade-in-90`, `zoom-in-95`
+ * and their `open:`-prefixed forms — were written against `tailwindcss-animate`,
+ * which is not a dependency of this repository. There are no `@keyframes` for
+ * them anywhere in the tree, so every one of them compiled to nothing and each
+ * of those sixteen utilities was a no-op: the dialog, the drawer, the palette,
+ * the popover, the tooltip and the empty state all appeared instantly, with
+ * their class strings intact, which is why every test asserting on the class
+ * name passed.
+ *
+ * So the utilities are declared here rather than the plugin added. A plugin
+ * would be one more dependency whose behaviour is versioned separately from
+ * this tree, against D9's "no layer that can drift" and for four keyframes.
+ *
+ * The four are the whole set the components use: opacity in, opacity out, a 95%
+ * scale up, and the 90%-opacity fade those two are layered on top of. Each
+ * `--animate-*` entry names both directions so `animate-out` exists, because
+ * Tailwind's variant syntax (`data-[state=closed]:animate-fade-out`) needs the
+ * exit half to be a real utility rather than an absent one.
+ *
+ * `--animate-zoom-in-95` takes its scale from the token rather than a literal,
+ * so the scale is one number in this file and not one per call site.
+ *
+ * **Durations come from `duration-*`, not from here.** These entries are the
+ * `animation` shorthand's name, duration and timing function all together, so
+ * baking a time in would make `duration-200` on the same element a no-op — and
+ * six components already write `duration-200` next to these classes.
+ */
+@keyframes automate-enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes automate-exit {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes automate-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--automate-zoom-scale, 0.95));
+  }
+}
+
+@keyframes automate-zoom-out {
+  to {
+    opacity: 0;
+    transform: scale(var(--automate-zoom-scale, 0.95));
+  }
+}
+
+@theme {
+  --automate-zoom-scale: 0.95;
+  --animate-fade-in: automate-enter var(--automate-duration-150) var(--automate-ease-out);
+  --animate-fade-out: automate-exit var(--automate-duration-100) var(--automate-ease-in);
+  --animate-zoom-in-95: automate-zoom-in var(--automate-duration-150) var(--automate-ease-out);
+  --animate-zoom-out-95: automate-zoom-out var(--automate-duration-100) var(--automate-ease-in);
 }
 
 @media (prefers-reduced-motion: reduce) {

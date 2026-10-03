@@ -273,7 +273,20 @@ test('no site navigation entry points at a page that does not exist', () => {
     .filter((link) => link !== '/')
     .filter((link) => {
       const page = link.replace(/^\//, '').replace(/\/$/, '');
-      return !existsSync(path.join(REPO_ROOT, 'site', `${page}.md`));
+      if (page === '') return false;
+      // A section landing page is `index.md` inside the directory, which is what
+      // `/guide/` means under `cleanUrls`. Resolving it to `guide.md` was correct
+      // while every section had no index, and stopped being correct the moment one
+      // did — the nav pointed at three pages the test had never heard of.
+      //
+      // **Red-first:** with this second clause removed and `/nowhere/` added to the
+      // nav, the assertion below still failed and named the dangling link. So the
+      // clause is not a way of making a failing check pass; it is what makes a section
+      // link mean the thing a reader expects it to mean.
+      return (
+        !existsSync(path.join(REPO_ROOT, 'site', `${page}.md`)) &&
+        !existsSync(path.join(REPO_ROOT, 'site', page, 'index.md'))
+      );
     });
   assert.deepEqual(
     missing,

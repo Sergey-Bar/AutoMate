@@ -1,6 +1,32 @@
-# AGENTS.md — QA Monorepo
+# AGENTS.md — the rules for changing this repository
 
-> Guidelines for AI coding agents operating in this repository.
+> For an agent or an engineer working _in_ this tree.
+
+**What this is not.** Not a contributor guide — [`CONTRIBUTING.md`](CONTRIBUTING.md) is,
+and it leads with the four properties of this repository and the three-commit testing
+rule. Not a design document — [`site/guide/design-language.md`](site/guide/design-language.md)
+is, and it carries the plane, the accent, the type and the motion with every measured
+number attached.
+
+**What this is.** The commands that must run, the gates that must not be weakened, and
+the conventions nothing else enforces. Where a rule has a gate behind it the gate is
+named, because a rule with no gate is a preference and this file used to be hard to tell
+apart from one.
+
+## The design system, and what will fail if you ignore it
+
+Six rules an agent working in this tree will otherwise violate by writing something that
+looks right. The **why** behind each is on the design-language page; this is the _what
+fails_.
+
+| Rule                                                                                                                                                                 | What enforces it                                                                                                                                                                                      |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Colour is a token. A literal hex in a `.ts` or `.tsx` file is a build failure.                                                                                       | `apps/web/src/theme-resolution.test.ts` scans **both** `packages/ui/src` and `apps/web/src`, resolves each utility against a real Tailwind compile, and fails on any class that generates nothing     |
+| `backdrop-filter` is an error. Phase 1 ships no glass at all.                                                                                                        | `eslint.config.js` — `GLASS_SELECTOR`, spread into every block that sets `no-restricted-syntax`, because a standalone block silently replaced the double-assertion rule the first time it was written |
+| `animate-in`, `fade-in-*`, `zoom-in-*` and `slide-in-from-*` do not exist — no plugin is installed, and sixteen class names written against one compiled to nothing. | `PLUGIN_PROVIDED_UTILITIES` in `theme-resolution.test.ts`. Use `animate-fade-in`, `animate-fade-out`, `animate-zoom-in-95`, `animate-zoom-out-95`                                                     |
+| `lucide-react` is a dependency of `packages/ui` and **not** of `apps/web`, so an application component cannot import it                                              | pnpm's isolated `node_modules`. Import icons from `@automate/ui`; the list is `packages/ui/src/icons.ts`, and adding one is a line a reviewer reads                                                   |
+| The two font binaries are committed once, in `packages/ui/src/assets/fonts/`, each with a sha256 and an upstream beside it                                           | `packages/ui/src/tokens/fonts.test.ts`, in both directions — the recorded digest, and no binary in the directory without a row                                                                        |
+| The documentation site imports the product's `theme.css`; it does not copy it                                                                                        | `pnpm site:doctor` check 8, which runs without a build so a palette drift fails on every host rather than hiding behind a `GAP`                                                                       |
 
 ## Repository Overview
 

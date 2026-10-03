@@ -145,7 +145,7 @@ export const PopoverContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivE
     <div
       ref={ref}
       className={cn(
-        'absolute z-50 mt-2 w-72 rounded-md border border-border bg-surface p-4 text-fg shadow-md outline-none animate-in fade-in-0 zoom-in-95',
+        'absolute z-50 mt-2 w-72 rounded-md border border-border bg-surface p-4 text-fg shadow-md outline-none animate-zoom-in-95 duration-150',
         className,
       )}
       {...props}

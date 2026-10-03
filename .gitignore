@@ -7,6 +7,11 @@ build/
 .turbo/
 *.tsbuildinfo
 
+# Storybook's static build. Not under `dist/` because `storybook build` writes to
+# `packages/ui/storybook-static` — its own `default`, not a configured `outDir`, so
+# there is no config key to point somewhere already ignored.
+storybook-static/
+
 # `site/` needs nothing here. Its build output is `site/dist` (covered by `dist/`
 # above, which `outDir: 'dist'` in site/.vitepress/config.mts exists to make true)
 # and VitePress's dependency cache is under `node_modules` (covered above). An
