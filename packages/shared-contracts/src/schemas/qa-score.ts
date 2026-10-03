@@ -62,8 +62,20 @@ export type ScoreRowId = ScoreCategory | typeof PYRAMID_ROW;
 
 export const QaScoreRowSchema = z.enum([...SCORE_CATEGORIES, PYRAMID_ROW]);
 
-/** `unit:backend` — the key a target, a cell and a report row all share. */
-export const QaCellKeySchema = z
+/**
+ * `unit:backend` — the key a target, a cell and a report row all share.
+ *
+ * **`ScoreCellKey`, and the shorter spelling is not available.** The four-letter
+ * prefix this schema would naturally take is also, read through
+ * `scripts/lib/product-name.test.mjs`, this repository's retired product name —
+ * the identifier and the old brand are the same four characters. The gate is
+ * right and the name was wrong: a reader searching the tree for the old brand
+ * should not find a schema.
+ *
+ * Recorded here so the shorter, more natural spelling does not come back —
+ * including in a comment that only meant to explain why it went away.
+ */
+export const ScoreCellKeySchema = z
   .string()
   .regex(/^(unit|integration|e2e|performance|security):(backend|frontend|platform)$/u);
 
@@ -76,7 +88,7 @@ export const QaCellKeySchema = z
  * frontend-only repository scores zero for ever.
  */
 export const ScoreCellSchema = z.object({
-  key: QaCellKeySchema,
+  key: ScoreCellKeySchema,
   category: QaScoreCategorySchema,
   surface: QaScoreSurfaceSchema,
   /** `0`–`1`. */
@@ -114,7 +126,7 @@ export type ScoreRowValue = z.infer<typeof ScoreRowValueSchema>;
 
 /** One missing thing, and what would close it. Ranked by what closing it is worth. */
 export const GapSchema = z.object({
-  cell: QaCellKeySchema,
+  cell: ScoreCellKeySchema,
   category: QaScoreCategorySchema,
   surface: QaScoreSurfaceSchema,
   current: z.number().min(0).max(1),

@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 
 import {
   QaScoreCategorySchema,
-  QaCellKeySchema,
+  ScoreCellKeySchema,
   QaScoreRowSchema,
   SCORE_CATEGORIES,
 } from './qa-score.js';
@@ -158,7 +158,7 @@ export const CopilotSuggestionSchema = z
     /** Why this is the next thing to do, in one sentence naming the number. */
     why: z.string().min(1),
     /** The cell or row this moves. Required, so a suggestion always has a place. */
-    target: z.union([QaCellKeySchema, QaScoreRowSchema]),
+    target: z.union([ScoreCellKeySchema, QaScoreRowSchema]),
     /**
      * How much this is worth to the total, in `[-1, 1]`.
      *

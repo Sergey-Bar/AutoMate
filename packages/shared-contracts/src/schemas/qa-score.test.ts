@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   QaScoreSchema,
   type ScoreCell,
-  QaCellKeySchema,
+  ScoreCellKeySchema,
   ScoreDeltaSchema,
   ScoreProvenanceSchema,
   type QaScore,
@@ -158,10 +158,10 @@ describe('the score contract', () => {
   });
 
   it('rejects a cell key that is not category:surface', () => {
-    expect(QaCellKeySchema.safeParse('unit').success).toBe(false);
-    expect(QaCellKeySchema.safeParse('smoke:backend').success).toBe(false);
-    expect(QaCellKeySchema.safeParse('unit:mobile').success).toBe(false);
-    expect(QaCellKeySchema.safeParse('unit:backend').success).toBe(true);
+    expect(ScoreCellKeySchema.safeParse('unit').success).toBe(false);
+    expect(ScoreCellKeySchema.safeParse('smoke:backend').success).toBe(false);
+    expect(ScoreCellKeySchema.safeParse('unit:mobile').success).toBe(false);
+    expect(ScoreCellKeySchema.safeParse('unit:backend').success).toBe(true);
   });
 
   it('distinguishes an unmeasured coverage from a measured zero', () => {
