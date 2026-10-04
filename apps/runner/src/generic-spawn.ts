@@ -13,6 +13,7 @@ import {
   type ExecutionStatus,
   type ProcessSpawner,
 } from './execution.js';
+import { artifactKind } from './artifact-kind.js';
 
 /**
  * The one recorded spawn. Exported so a test can assert the *shape* of the spawn
@@ -462,17 +463,6 @@ function contentType(path: string): string {
   if (path.endsWith('.info')) return 'text/plain';
   if (path.endsWith('.out')) return 'text/plain';
   return 'application/octet-stream';
-}
-
-function artifactKind(path: string): string {
-  const lower = path.toLowerCase();
-  if (lower.includes('junit') && lower.endsWith('.xml')) return 'junit';
-  if (lower.includes('k6') && lower.endsWith('.json')) return 'k6-json';
-  if (lower.includes('zap') && lower.endsWith('.xml')) return 'zap-xml';
-  if (lower.includes('coverage') || lower.includes('lcov') || lower.includes('cobertura')) {
-    return 'coverage';
-  }
-  return 'evidence';
 }
 
 /** Bounded stdout/stderr capture. */

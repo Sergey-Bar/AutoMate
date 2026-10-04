@@ -60,6 +60,26 @@ nul
 # OpenCode agent state
 .omo/
 
+# Kilo project config. `.git/info/exclude` already lists `.kilo/`, but that file is
+# per-clone and untracked, so a decision recorded in a plan lived only on the machine
+# that wrote it. The two negations exist because git cannot re-include a file whose
+# parent directory is excluded: `.kilo/plans/` re-includes the directory, and
+# `.kilo/plans/*.md` re-includes the documents inside it. Everything else under
+# `.kilo/` — personas, skills, commands, session state, and worktrees — stays out.
+#
+# Verified on git 2.55.0, and the two behave differently: the negations DO un-ignore
+# `.kilo/` and `.kilo/plans/` themselves, but a `.md` file *inside* them is still
+# reported ignored by `git check-ignore`, attributed to `.git/info/exclude:9`. The
+# documented precedence puts `.gitignore` above `$GIT_DIR/info/exclude`; for a path
+# under an excluded directory the exclude file wins instead. So on a clone whose
+# `info/exclude` carries the Kilo block — every clone Kilo itself has set up — a new
+# plan is invisible to `git status` and to `git add -A`, and has to be added with
+# `git add -f`. Once tracked it stays tracked; ignore rules only govern untracked
+# files. A fresh clone (and CI) has the stock `info/exclude` and needs no `-f`.
+.kilo/*
+!.kilo/plans/
+!.kilo/plans/*.md
+
 # Coverage and test output
 coverage/
 test-results/

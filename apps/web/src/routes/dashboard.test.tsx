@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from '../router.js';
 import { LaunchRunForm } from './dashboard.js';
 import { makeApi, makeRun } from '../test-utils.js';
@@ -23,7 +23,44 @@ function fillLaunchForm(): void {
 }
 
 describe('dashboard routes', () => {
-  it('renders the active dashboard as the release command center', async () => {
+  /**
+   * One `useRuns` on `/dashboard/runs`, not two.
+   *
+   * `useRuns` opens the shared run-event stream and arms a five-second poller for as
+   * long as it is mounted. The dashboard component used to call it **before** its
+   * `if (!isExactDashboard) return <Outlet />` guard, so every child route ran a
+   * second copy: two pollers, two list fetches per cycle while the stream was down,
+   * and two sets of state that nothing reconciled. The code carried a comment saying
+   * the fix cost a line of coverage, which is a trade a red ratchet is right to
+   * refuse — so the fix and its test land together.
+   *
+   * Asserted on **`setInterval`**, not on the rendered output: two pollers and one
+   * list render the same page, and the leak is the poller.
+   */
+  it('arms one run poller on the runs route, not one per level', async () => {
+    // Counted as **live** intervals, not as calls. `clearInterval` has to be
+    // intercepted too, or an effect that re-runs looks like three mounted pollers
+    // when only one is still armed — and "how many are armed" is the claim.
+    let nextId = 1;
+    const live = new Map<number, () => void>();
+    const arm = vi.spyOn(window, 'setInterval').mockImplementation(((
+      handler: TimerHandler,
+      ms?: number,
+    ) => {
+      if (ms !== 5_000 || typeof handler !== 'function') return 0 as unknown as number;
+      const id = nextId;
+      nextId += 1;
+      live.set(id, handler as () => void);
+      return id as unknown as number;
+    }) as typeof window.setInterval);
+    const disarm = vi.spyOn(window, 'clearInterval').mockImplementation(((id?: number) => {
+      live.delete(id as unknown as number);
+    }) as typeof window.clearInterval);
+    const runListFetches = () =>
+      vi
+        .mocked(globalThis.fetch)
+        .mock.calls.filter(([input]) => String(input).endsWith('/api/v1/runs')).length;
+
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -33,12 +70,66 @@ describe('dashboard routes', () => {
         return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
       }),
     );
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
+    await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
+
+    expect(live.size, 'one armed poller per mounted useRuns').toBe(1);
+    // And one initial list fetch, which is the other half of the same claim: two
+    // mounted copies would fetch twice before either rendered.
+    expect(runListFetches()).toBe(1);
+
+    // One tick, one fetch. Two mounted copies would fetch twice per cycle.
+    const before = runListFetches();
+    for (const tick of live.values()) tick();
+    await waitFor(() => expect(runListFetches()).toBe(before + 1));
+    arm.mockRestore();
+    disarm.mockRestore();
+  });
+
+  it('renders the cockpit at /dashboard and the launch form at /dashboard/runs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
+        if (url.endsWith('/api/v1/runs')) return new Response('[]', { status: 200 });
+        if (url.endsWith('/api/v1/projects')) {
+          return new Response(JSON.stringify({ projects: [] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+      }),
+    );
+
     render(<MemoryRouter initialEntries={['/dashboard']} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Release Command Center' })).toBeInTheDocument();
+    // The registry answered with no projects, so the cockpit's onboarding state is
+    // what a bare install renders. The screen is chosen here, not a sub-state: the
+    // cockpit has a report state too, and `Cockpit.test.tsx` is what covers it.
+    await waitFor(() => expect(screen.getByTestId('cockpit-onboarding')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument();
+    expect(screen.queryByTestId('home-page')).not.toBeInTheDocument();
+    // **A home page that asks you to fill in a form before it tells you anything is a
+    // form.** The cockpit reports; the runs route asks for input. Both halves asserted,
+    // because moving the form without moving the evidence would have left the cockpit
+    // with an empty right-hand column.
+    expect(screen.queryByTestId('launch-run-form')).not.toBeInTheDocument();
+    cleanup();
+  });
+
+  it('hosts the launch form and the run evidence on /dashboard/runs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
+        if (url.endsWith('/api/v1/runs')) return new Response('[]', { status: 200 });
+        return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
+      }),
+    );
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
+    await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
     expect(screen.getByTestId('launch-run-form')).toBeInTheDocument();
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('UNKNOWN');
-    expect(screen.queryByTestId('home-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cockpit')).not.toBeInTheDocument();
   });
 
   it('creates a canonical browser run with registered execution context', async () => {
@@ -104,7 +195,7 @@ describe('dashboard routes', () => {
         return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
       }),
     );
-    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() => expect(screen.getByTestId('release-readiness')).toHaveTextContent('READY'));
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('browserPASSED');
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('apiNOT_CONFIGURED');
@@ -114,7 +205,7 @@ describe('dashboard routes', () => {
     );
   });
 
-  it('shows the command center error state without placeholder success', async () => {
+  it('shows the runs error state without placeholder success', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -125,9 +216,9 @@ describe('dashboard routes', () => {
         });
       }),
     );
-    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() =>
-      expect(screen.getByTestId('command-center-error')).toHaveTextContent('run store unavailable'),
+      expect(screen.getByTestId('runs-list-error')).toHaveTextContent('run store unavailable'),
     );
     expect(screen.queryByText(/all systems operational/iu)).not.toBeInTheDocument();
   });
@@ -190,7 +281,7 @@ describe('dashboard routes', () => {
         return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
       }),
     );
-    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() => expect(screen.getByTestId('run-status-live-run')).toBeInTheDocument());
 
     // The badge is a polite live region, so the status flip is spoken. Without
@@ -214,7 +305,7 @@ describe('dashboard routes', () => {
         return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
       }),
     );
-    render(<MemoryRouter initialEntries={['/dashboard']} />);
+    render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() => expect(screen.getByTestId('run-status-live-run')).toBeInTheDocument());
 
     const status = screen.getByTestId('run-status-live-run');

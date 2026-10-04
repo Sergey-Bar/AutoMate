@@ -81,6 +81,29 @@
   --color-brand-50: var(--automate-surface-muted);
   --color-brand-700: var(--automate-accent);
   --color-on-fill: var(--automate-on-fill);
+
+  /*
+   * The alpha dimension, as exactly one utility per token.
+   *
+   * `bg-glass` is the translucent fill and the two `backdrop-*` entries are the effect.
+   * One token, one utility: a component that wanted a blur of its own would have to
+   * invent a class name here, and `apps/web/src/theme-resolution.test.ts` fails on any
+   * `backdrop-*` class `theme.css` does not declare here.
+   *
+   * **No `--radius-glass`, deliberately.** `--automate-glass-radius` is a *ceiling* of
+   * 12px and every surface that adopts glass is already under it — `rounded-md` 6px,
+   * `rounded-lg` 8px, `rounded-xl` 12px. Exposing a ceiling as a utility would invite
+   * treating it as a default, and every panel that took it would flatten the radius scale
+   * for nothing. `theme.test.ts` holds the ceiling; a token no component has to apply
+   * cannot be forgotten by one that never sees it.
+   *
+   * `shadow-glass` is deliberately **not** in this block. It is a literal, like the three
+   * elevation steps it sits beside, so it belongs to the `@theme` block below — a shadow
+   * that changed with the colour scheme would be a second thing to keep in agreement.
+   */
+  --color-glass: var(--automate-glass-fill);
+  --backdrop-blur-glass: var(--automate-glass-blur);
+  --backdrop-saturate-glass: var(--automate-glass-saturate);
 }
 
 /*
@@ -103,6 +126,219 @@
   --shadow-elevation-1: 0 1px 2px rgb(0 0 0 / 0.32);
   --shadow-elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.44), 0 1px 3px rgb(0 0 0 / 0.28);
   --shadow-elevation-3: 0 18px 48px -12px rgb(0 0 0 / 0.62), 0 4px 12px rgb(0 0 0 / 0.36);
+  /*
+   * Glass is described by elevation rather than by a border.
+   *
+   * The design language has two borders because WCAG 1.4.11 covers some of what they
+   * draw and not the rest. A glass border is a third case and cannot be either: its job
+   * is to describe the panel's edge against *whatever is behind it*, so it is a
+   * function of the backdrop, and a token cannot hold a function. A 1px hairline at a fixed alpha
+   * is invisible on a light backdrop and a hard line on a dark one.
+   *
+   * So the edge is the shadow's own contrast against the sampled backdrop, and this is
+   * the fourth elevation step: stronger than the dialog's, because a translucent panel
+   * has to be separated from what shows through it rather than from an opaque neighbour.
+   */
+  --shadow-glass: 0 24px 64px -16px rgb(0 0 0 / 0.68), 0 6px 16px rgb(0 0 0 / 0.4);
+}
+
+/*
+ * The non-colour scales: type, space, radius, and stacking.
+ *
+ * **This block exists because none of them were declared anywhere that shipped.**
+ * `typography.ts`, `spacing.ts`, `radii.ts`, `shadows.ts` and `z-index.ts` existed in
+ * this directory and were imported only by `tailwindPreset` at `index.ts:30`, which had
+ * no importer in the repository. So the product's `h1` rendered as `text-3xl` against
+ * Tailwind's default scale — a size the stylesheet never mentioned — `shadows.ts` was a
+ * second copy of Tailwind's default shadow scale standing three declarations above this
+ * block's measured elevation steps, and `theme.test.ts` asserted six sizes from the
+ * dead table while the stylesheet that owns the type had no test at all.
+ *
+ * `theme.test.ts` now reads these scales out of this file and asserts the *relations*
+ * rather than a list of values: the type ladder is a stated ratio, the line-height floor
+ * holds at the text end, letter-spacing closes up large and opens up small, and the
+ * panel radius stays under `--automate-glass-radius`. A list of numbers is a preference;
+ * the relation between them is a test.
+ *
+ * ## The type ladder
+ *
+ * A geometric ladder at **1.2**, because a dense console needs small, closely spaced
+ * steps and the relationship has to be checkable: `lg` is `base` × 1.2, `2xl` is `base`
+ * × 1.2², and so on to the one display step. A hand-tuned ladder has no such property,
+ * which is precisely why the previous scale could only be reviewed.
+ *
+ * **`xs` and `sm` are not on the ladder.** Both sit below `base`, and `xs` cannot be a
+ * multiple of a 1.2 ladder above a 16px base without landing under 12px — which is the
+ * floor for a caption, for anything under iOS Safari's input-zoom rule, and for the
+ * helper text this product renders at 49 places. They are stated as their own two
+ * values with the reason, rather than being forced onto the ladder and quietly
+ * breaking the assertion that makes the ladder worth having.
+ *
+ * ## The measure
+ *
+ * `--max-w-measure` is 68ch and it is a *ceiling on prose only*. `Cockpit.tsx`'s
+ * explanatory paragraphs and this product's helper text get it; a table, a score, a
+ * stack trace and a run log never do, because a capped line length is a reading
+ * decision and a column of figures is not prose. The registry
+ * `glass-over-unstable-backdrop` says the same thing about colour and this is the type
+ * half of it.
+ */
+@theme {
+  /*
+   * The ratio, as a number rather than as something the sizes imply.
+   *
+   * `--automate-type-ratio` is read by `theme.test.ts` and checked against every step,
+   * so retuning a size without retuning the ladder is a failing assertion rather than a
+   * reviewer's memory.
+   */
+  --automate-type-ratio: 1.2;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.4;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.4286;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5;
+  --text-lg: 1.2rem;
+  --text-lg--line-height: 1.5;
+  --text-xl: 1.44rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.728rem;
+  --text-2xl--line-height: 1.333;
+  --text-3xl: 2.074rem;
+  --text-3xl--line-height: 1.2;
+  --text-4xl: 2.488rem;
+  --text-4xl--line-height: 1.111;
+  --text-5xl: 2.986rem;
+  --text-5xl--line-height: 1.05;
+
+  /*
+   * Line-height by role, as a named scale rather than as `leading-*` arbitrary values.
+   *
+   * The rule the sizes obey: **1.4 at the text end, tightening above `xl`.** Anything
+   * that wraps to three or more lines needs 1.4 even in a height-constrained row, and
+   * `text-xs` and `text-sm` carry 149 uses between them in this product. A display
+   * size is short by definition, so it can sit at 1.05 without colliding its own second
+   * line — and `leading-none`, which four headings used to carry, is `1`, which clips
+   * descenders at every size and is wrong at all of them.
+   */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /*
+   * Letter-spacing, and the sign is the rule.
+   *
+   * A display size at positive tracking reads loose and a 12px uppercase label at
+   * negative tracking reads crowded, so `normal` is the hinge and the two sides are
+   * named for what they are for: `tight`/`tighter` for a large heading,
+   * `wide`/`wider`/`widest` for the uppercase eyebrow labels this product uses on its
+   * card titles. `tracking-widest` was in the product at 0.1em from Tailwind's default
+   * with nothing in the stylesheet saying so.
+   */
+  --tracking-tighter: -0.03em;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.07em;
+  --tracking-widest: 0.12em;
+
+  /*
+   * Space, at a 4px base with the 8px rhythm living in the even multiples.
+   *
+   * Declared rather than inherited so it is a token: `p-6` is 1.5rem because this says
+   * so, not because Tailwind's default happens to agree today. The base is 4px rather
+   * than 8px because `gap-1` and `p-1.5` are load-bearing in a dense interface — an
+   * 8px base would double every odd multiple already in the tree.
+   */
+  --spacing: 0.25rem;
+
+  /*
+   * Radius, ending at `xl` = 12px.
+   *
+   * **That last value is cross-checked against `--automate-glass-radius` in
+   * `theme.test.ts`,** which is the whole reason it is written down here. `xl` is the
+   * largest radius any panel uses and 12px is the ceiling for a panel with a
+   * translucent fill; past that a radius starts rounding the data inside the panel, and
+   * two numbers in two files that have to agree are worse than one number.
+   */
+  --radius-none: 0px;
+  --radius-sm: 0.125rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-full: 9999px;
+
+  /*
+   * Stacking, by what each layer *is*.
+   *
+   * `z-10` and `z-50` were in six components and neither said what it was for. The
+   * numbers are not the decision — "a toast is above a modal" is — so the numbers are
+   * named and `theme-resolution.test.ts` fails on a bare `z-<number>` in either tree.
+   */
+  --z-index-base: 0;
+  --z-index-chrome: 10;
+  --z-index-overlay: 20;
+  --z-index-popover: 30;
+  --z-index-modal: 40;
+  --z-index-toast: 50;
+
+  /* The measure, for prose and not for data. See the header above. */
+  --max-w-measure: 68ch;
+
+  /*
+   * The page wash, and the boundary it must not cross.
+   *
+   * Every plane in this product is a flat `color-mix` of the same two inks, four steps
+   * apart. That is correct for an instrument and flat as a page: a reader arrives, sees a
+   * rectangle of one grey, and has no idea whether the top of the window is meant to be
+   * different from the bottom. The wash is the one piece of depth in the product, and it
+   * earns its place by answering that question rather than by being decoration.
+   *
+   * **It is a gradient on the page plane and nowhere else.** It is not on a card, a panel,
+   * a table, a figure or a log — those are read against a known flat background, and a
+   * figure whose backdrop changes across the width of a column is a figure two of whose
+   * values differ by the wash. `.github/review-rules/rules.json`'s
+   * `glass-over-unstable-backdrop` says the same thing about blur, and
+   * `theme.test.ts` asserts it quantitatively: it composites the wash at its strongest
+   * over every plane step and re-checks every status hue against the result, so "the wash
+   * stays out of the evidence regions" is a number rather than an intention.
+   *
+   * **`in oklab`, and only here.** A gradient interpolated in sRGB darkens and mutes its
+   * midpoint — the arc passes through a colour nobody chose. OKLCH interpolates
+   * perceptually, so the midpoint is the mixture a reader expects. That is the whole
+   * argument for OKLCH and it applies *only to interpolation*: the eleven-step ramps stay in
+   * hex, because they are a fixed palette where the contrast maths in `theme.test.ts`
+   * parses `#rrggbb`, and converting them would trade a measured palette for a guess about
+   * how a display renders a colour space.
+   */
+  --automate-page-wash:
+    radial-gradient(
+      120% 90% at 50% -30%,
+      color-mix(in oklab, var(--automate-accent) 14%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--automate-accent) 5%, transparent) 0%,
+      transparent 38%
+    );
+}
+
+/*
+ * `bg-page-wash`, published rather than hand-written.
+ *
+ * A component that reached for `background-image: var(--automate-page-wash)` would have the
+ * right value and the wrong name, and the second thing is what
+ * `apps/web/src/theme-resolution.test.ts` can check: this utility resolves, and a literal
+ * declaration of the same gradient in a component would not be caught by anything.
+ */
+@utility bg-page-wash {
+  background-image: var(--automate-page-wash);
 }
 
 :root,
@@ -148,6 +384,44 @@
    */
   --automate-on-fill: #0b0b0c;
   color-scheme: dark;
+
+  /*
+   * The effect, and it does not depend on the theme.
+   *
+   * **The floor of both scheduled ranges, deliberately.** The cinematic plan scheduled
+   * blur 8–16px and saturation 1.05–1.15, and this declares the bottom of each. The whole
+   * argument against glass is compositing cost and legibility, and both scale with the
+   * radius of the kernel and the strength of the saturation: 8px and 1.05 deliver the
+   * material read — you can see there is something behind the panel — at roughly a third
+   * of the cost of 16px and 1.15. The top of each range is reachable by changing one
+   * number here, and only a rendering measurement is allowed to be that reason.
+   *
+   * Declared in this shared block rather than in both themes so there is one copy; the
+   * light block deliberately does not restate any of it, and `theme.test.ts` fails if it
+   * starts to.
+   */
+  --automate-glass-blur: 8px;
+  --automate-glass-saturate: 1.05;
+  /*
+   * A ceiling, not a default: a radius that grows past a panel's content starts rounding
+   * the data inside it, and rounded evidence columns are harder to compare down a column.
+   */
+  --automate-glass-radius: 12px;
+  /*
+   * The translucent fill, derived from the plane rather than restated beside it.
+   *
+   * 72% is the **floor**, and it is a floor because of what it is measured against: the
+   * text on a glass panel sits on a composite of this fill and whatever plane is behind
+   * it, so the contrast case is "token vs backdrop" rather than "token vs plane".
+   * `theme.test.ts` computes that composite for all four plane steps in both themes and
+   * requires 4.5:1 on each, which is the mechanism that answers the readability concern
+   * glass over data raises.
+   *
+   * `in oklab` because the mix is against `transparent`, which premultiplies: the result
+   * is `--automate-surface` at 72% alpha with its hue and chroma intact, rather than a
+   * colour mixed toward black.
+   */
+  --automate-glass-fill: color-mix(in oklab, var(--automate-surface) 72%, transparent);
 }
 
 [data-theme='light'] {
@@ -221,6 +495,21 @@
        a card and not on a panel. */
     --automate-border: #66666d;
     --automate-border-strong: #8b8b92;
+    /*
+     * The glass half, and it is the half that is load-bearing. Someone who has told the
+     * operating system they do not want translucency gets an opaque panel and no effect:
+     * the fill becomes the plane, the kernel radius goes to zero and the saturation to
+     * 1. Blurring an opaque fill is invisible, so setting only the fill would have been
+     * enough to *look* right and would have left the compositor repainting a backdrop
+     * for a result nobody can see — which is the cost half of the argument against glass.
+     *
+     * Neutralised through the tokens rather than through a separate rule, so a glass
+     * surface inherits the fallback by existing and there is no second stylesheet to keep
+     * in step.
+     */
+    --automate-glass-fill: var(--automate-surface);
+    --automate-glass-blur: 0px;
+    --automate-glass-saturate: 1;
   }
 
   [data-theme='light'] {
@@ -232,6 +521,10 @@
        binding constraint in this theme. */
     --automate-border: #898990;
     --automate-border-strong: #6b6b72;
+    /* The same three, for the reason above. Restated per theme because the block is. */
+    --automate-glass-fill: var(--automate-surface);
+    --automate-glass-blur: 0px;
+    --automate-glass-saturate: 1;
   }
 }
 

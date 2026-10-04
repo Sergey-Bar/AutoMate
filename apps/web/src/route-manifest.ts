@@ -1,5 +1,5 @@
 export const routeManifest = [
-  { id: 'command-center', path: '/dashboard', label: 'Command Center', visible: true },
+  { id: 'command-center', path: '/dashboard', label: 'Cockpit', visible: true },
   { id: 'runs', path: '/dashboard/runs', label: 'Runs', visible: true },
   { id: 'run-detail', path: '/dashboard/runs/:runId', label: 'Run Detail', visible: false },
   { id: 'analytics', path: '/dashboard/analytics', label: 'Analytics', visible: true },

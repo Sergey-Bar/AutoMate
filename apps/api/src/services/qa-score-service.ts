@@ -50,7 +50,11 @@ export async function qaScore(
   at: string,
   coverage: ReadonlyArray<{ format: CoverageFormat; bytes: Uint8Array }> = [],
 ): Promise<QaScore> {
-  const inputs = await assemble(options, projectId, coverage);
+  // **`at` is threaded into the read, not just stamped on the result.** It used to be
+  // only the latter, which meant a diff of two readings read every row twice and
+  // subtracted a number from itself; `score()` states that `inputs` is the whole
+  // window, so the window has to be cut here or not at all.
+  const inputs = await assemble(options, projectId, coverage, at);
   return QaScoreSchema.parse(score(inputs, at));
 }
 
@@ -58,8 +62,9 @@ async function assemble(
   options: ProjectRegistryServiceOptions,
   projectId: string,
   coverageDocuments: ReadonlyArray<{ format: CoverageFormat; bytes: Uint8Array }>,
+  at: string,
 ): Promise<ScoreInputs> {
-  const read = await readScoreInputs(options, projectId);
+  const read = await readScoreInputs(options, projectId, at);
   const runRows = read.runs as ReadonlyArray<{
     id: string;
     startedAt: Date;

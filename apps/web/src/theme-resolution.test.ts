@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { compile } from 'tailwindcss';
+import { GLASS_SURFACE_CLASSES } from '@automate/ui';
 
 /**
  * The check that would have caught the unstyled destructive button.
@@ -163,6 +164,35 @@ const NON_COLOR_ARGUMENTS = new Set([
 
 /** Argument shapes that are widths, not colours: `outline-offset-2`, `z-10`. */
 const NON_COLOR_SHAPES = [/^offset-\d+$/, /^z-\d+$/, /^gap-\d+$/];
+
+/**
+ * `text-` arguments that are `text-wrap` values rather than colours.
+ *
+ * `text-balance` and `text-pretty` are the two declarations the typography wave added —
+ * `text-wrap: balance` on a heading and `text-wrap: pretty` on a description — and both
+ * read as a `text-` colour name to anything matching a prefix. Left unhandled they failed
+ * this gate as "Tailwind emits no colour for these classes; the components render
+ * unstyled", which is a *true-sounding* report of a false positive: the classes compile,
+ * and the gate is the only thing in the repository that says otherwise.
+ *
+ * Named rather than matched by pattern, because the set of `text-wrap` values is short and
+ * closed and a pattern would quietly admit a future `text-balance-ish` that is a colour.
+ */
+const NON_COLOR_TEXT_WRAP = new Set(['balance', 'pretty']);
+
+/**
+ * `border-` arguments that are a *style* rather than a colour.
+ *
+ * `border-dashed` is what the unmeasured state of `Meter` draws, and it read as a colour
+ * name to anything matching the `border-` prefix. Left unhandled it failed this gate as
+ * "Tailwind emits no colour for these classes; the components render unstyled", which is a
+ * true-sounding report of a false positive: the class compiles, and it compiles to
+ * `border-style: dashed`, which is what was asked for.
+ *
+ * The six are named rather than pattern-matched, so a future `border-*-style` addition has
+ * to be added deliberately — and so `border-danger` can never be mistaken for one of them.
+ */
+const NON_COLOR_BORDER_STYLES = new Set(['solid', 'dashed', 'dotted', 'double', 'hidden', 'none']);
 /**
  * A size argument: digits with an optional unit suffix.
  *
@@ -281,6 +311,24 @@ function collectUtilityCandidates(): string[] {
   return [...candidates].sort();
 }
 
+/**
+ * Which component files take the glass composition.
+ *
+ * A separate walk from `collectUtilityCandidates` because that one matches *class literals*,
+ * and adoption is deliberately not a class literal: `GLASS_SURFACE_CLASSES` is composed once
+ * in `packages/ui/src/tokens` and imported by the components that adopt the material, so
+ * `bg-glass` never appears written out anywhere. Searching for the identifier is therefore
+ * the only way to ask the question — and it is the honest one, because the alternative
+ * assertion (some file spells out `bg-glass`) would pass on a file that adopted the material
+ * by copy and paste, which is the thing the composition exists to prevent.
+ */
+function glassAdopters(): string[] {
+  return [uiComponentsRoot, webSourceRoot]
+    .flatMap((root) => listSourceFiles(root))
+    .filter((file) => readFileSync(file, 'utf8').includes('GLASS_SURFACE_CLASSES'))
+    .map((file) => path.relative(repoRoot, file).replace(/\\/g, '/'));
+}
+
 function colorUtilities(candidates: readonly string[]): string[] {
   return candidates.filter((candidate) => {
     for (const prefix of COLOR_UTILITIES) {
@@ -289,6 +337,8 @@ function colorUtilities(candidates: readonly string[]): string[] {
       if (argument.length === 0) continue;
       if (NON_COLOR_ARGUMENTS.has(argument)) continue;
       if (NON_COLOR_SHAPES.some((pattern) => pattern.test(argument))) continue;
+      if (prefix === 'text' && NON_COLOR_TEXT_WRAP.has(argument)) continue;
+      if (prefix === 'border' && NON_COLOR_BORDER_STYLES.has(argument)) continue;
       if (isSizeArgument(argument)) continue;
       if (!isColorName(argument)) continue;
       return true;
@@ -376,6 +426,19 @@ function ruleBodiesFor(css: string, className: string): string[] {
 }
 
 /**
+ * `background-image` counts as generated for a `bg-*` class.
+ *
+ * Not a special case for `bg-page-wash` — a general one. `bg-gradient-to-r` is a stock
+ * Tailwind utility that emits only `background-image`, and it would fail a colour-only
+ * check exactly as `bg-page-wash` does. The question this file asks is "does Tailwind emit
+ * a rule for the class a component writes", and a gradient is an emitted rule.
+ *
+ * Scoped to `bg-` on purpose: a `text-` class emitting `background-image` would be a
+ * different mistake, and admitting it here would let a misnamed utility through.
+ */
+const BACKGROUND_IMAGE_DECLARATION = /(?:^|[;{\s])background-image\s*:/;
+
+/**
  * Whether Tailwind emitted a *rule for this class* carrying a colour
  * declaration.
  *
@@ -385,7 +448,11 @@ function ruleBodiesFor(css: string, className: string): string[] {
  * up the rule whose selector names the class, then inspects that rule.
  */
 function utilityIsGenerated(css: string, className: string): boolean {
-  return ruleBodiesFor(css, className).some((body) => COLOR_DECLARATIONS.test(body));
+  const bodies = ruleBodiesFor(css, className);
+  if (bodies.some((body) => COLOR_DECLARATIONS.test(body))) return true;
+  return (
+    className.startsWith('bg-') && bodies.some((body) => BACKGROUND_IMAGE_DECLARATION.test(body))
+  );
 }
 
 /** The same question, about an `animation` declaration instead of a colour. */
@@ -396,6 +463,117 @@ function animationIsGenerated(css: string, className: string): boolean {
 const allCandidates = collectUtilityCandidates();
 const colorCandidates = colorUtilities(allCandidates);
 const animationCandidates = [...new Set(allCandidates.filter((c) => /^animate-/.test(c)))].sort();
+
+/**
+ * The glass utilities, each with the `@theme` token that carries its value.
+ *
+ * Asserting that a class *resolves* is not enough for these. `bg-glass` emits a colour and
+ * would pass `utilityIsGenerated`; `shadow-glass` emits `box-shadow` and the two
+ * `backdrop-*` entries emit a `backdrop-filter` composed from a custom property. None of
+ * those is a colour declaration, so the lookup below names the token each rule has to carry
+ * — which is a stronger claim anyway, because it is the token, not the class, that the value
+ * lives in.
+ */
+const GLASS_UTILITIES: ReadonlyArray<readonly [utility: string, token: string]> = [
+  ['bg-glass', '--color-glass'],
+  ['shadow-glass', '--shadow-glass'],
+  ['backdrop-blur-glass', '--backdrop-blur-glass'],
+  ['backdrop-saturate-glass', '--backdrop-saturate-glass'],
+];
+
+/** The two `@theme` blocks, comments stripped: `inline` and the literal one. */
+function themeBlocks(): { inline: string; literal: string } {
+  const css = readFileSync(path.join(repoRoot, 'packages/ui/src/tokens/theme.css'), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    '',
+  );
+  return {
+    inline: css.match(/@theme inline\s*\{([^{}]*)\}/)?.[1] ?? '',
+    literal: css.match(/@theme\s*\{([^{}]*)\}/)?.[1] ?? '',
+  };
+}
+
+/**
+ * The fragments a compiled rule must carry for one `@theme` token, **derived from how the
+ * token is exposed rather than from what it holds.**
+ *
+ * Two forms, and the difference is Tailwind's, not this test's:
+ *
+ * - `@theme inline` entries holding a `var()` reference compile to a rule that names the
+ *   *referenced* variable. `--backdrop-blur-glass: var(--automate-glass-blur)` becomes
+ *   `blur(var(--automate-glass-blur))` — which is the whole point of `inline`, and why
+ *   `--color-glass` still follows the light theme. So the rule carries the **`--automate-*`
+ *   name, not the length**, and a test that demanded `8px` here would be failing on a
+ *   correctness property of the stylesheet.
+ * - A literal `@theme` entry — `--shadow-glass`, like the three elevation steps beside it —
+ *   compiles to the value itself, so the variable never appears. And there **only the
+ *   geometry is compared**: Tailwind rewrites each colour inside a shadow as
+ *   `var(--tw-shadow-color, rgb(0 0 0 / 0.68))` so a `shadow-*` colour utility can retint it,
+ *   so the declared value never appears verbatim. The lengths do, and they are what the token
+ *   is for — a glass panel's elevation is `--shadow-glass` *because* of its spread and offset.
+ */
+function expectedFragments(token: string, blocks: { inline: string; literal: string }): string[] {
+  const declaration = (block: string): string | undefined =>
+    new RegExp(`${token}\\s*:\\s*([^;]+);`).exec(block)?.[1]?.trim();
+
+  const inlineValue = declaration(blocks.inline);
+  if (inlineValue !== undefined) {
+    const referenced = [...inlineValue.matchAll(/var\((--[a-z0-9-]+)\)/g)].map(
+      (match) => match[1] ?? '',
+    );
+    if (referenced.length > 0) return referenced;
+  }
+
+  const literalValue = declaration(blocks.literal);
+  if (literalValue === undefined) {
+    throw new Error(
+      `theme.css declares neither ${token} in @theme inline nor in @theme, so there is ` +
+        'nothing for a compiled rule to carry.',
+    );
+  }
+  // `\d*\.?\d+` rather than `\d+(?:\.\d+)?` — the same language, and written without a
+  // quantifier inside a quantifier so `security/detect-unsafe-regex` stops flagging a
+  // pattern that cannot actually backtrack. The rule is right to be conservative about the
+  // shape and the rewrite costs nothing.
+  const lengths = [
+    ...new Set([...literalValue.matchAll(/-?\d*\.?\d+px\b/g)].map((match) => match[0])),
+  ];
+  return lengths.length > 0 ? lengths : [literalValue];
+}
+
+const BACKDROP_CANDIDATE = /^backdrop-/;
+const glassCandidates = [
+  ...new Set([
+    ...allCandidates.filter(
+      (candidate) => BACKDROP_CANDIDATE.test(candidate) || candidate === 'bg-glass',
+    ),
+    // `GLASS_SURFACE_CLASSES` is composed in `packages/ui/src/tokens`, which the scanner
+    // deliberately excludes, so the classes an adopting component takes from it are added
+    // here explicitly. Without this the utilities would only be compiled once some
+    // component also spelled them out, and spelling them out is not the design.
+    ...GLASS_SURFACE_CLASSES.split(/\s+/),
+  ]),
+].sort();
+
+/**
+ * The `backdrop-*` utilities `theme.css` actually exposes, derived rather than listed.
+ *
+ * `@theme inline` is the only place a `backdrop-*` utility can come from, so the token
+ * names in it *are* the set a component is allowed to write. Deriving from the stylesheet
+ * rather than restating it in a second list is the point: a blur radius that is not
+ * declared there cannot be written, so it cannot be invented per component.
+ */
+function glassBackdropUtilities(): string[] {
+  const themeCss = readFileSync(path.join(repoRoot, 'packages/ui/src/tokens/theme.css'), 'utf8');
+  const inline = themeCss.match(/@theme inline\s*\{([^{}]*)\}/)?.[1] ?? '';
+  return [
+    ...new Set(
+      [...inline.matchAll(/--backdrop-([a-z0-9-]+)\s*:/g)].map(
+        (match) => `backdrop-${match[1] ?? ''}`,
+      ),
+    ),
+  ].sort();
+}
 
 /**
  * One Tailwind compile of every candidate, shared by the assertions below.
@@ -410,7 +588,11 @@ const animationCandidates = [...new Set(allCandidates.filter((c) => /^animate-/.
  * class generated" is the same question about both and the batch is cheaper than
  * two batches.
  */
-const compiledAll = await buildCss([...colorCandidates, ...animationCandidates]);
+const compiledAll = await buildCss([
+  ...colorCandidates,
+  ...animationCandidates,
+  ...glassCandidates,
+]);
 describe('shipped theme class resolution', () => {
   it('does not hardcode a colour instead of using a token', () => {
     const offenders: string[] = [];
@@ -546,17 +728,162 @@ describe('shipped theme class resolution', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The blur radius cannot be invented per component.
+   *
+   * Phase 1 answered the readability concern with a total ban on `backdrop-filter`,
+   * and `.github/review-rules/rules.json` named the reason: *the pixels behind a panel in
+   * this product are usually the evidence itself*. The concern was right; the ban was the
+   * wrong instrument, because it could not say which panels were safe — so it is replaced
+   * by a measured rule (the contrast case in `packages/ui/src/tokens/theme.test.ts`) and
+   * this list.
+   *
+   * Both directions are asserted, and the second one is the reason a *list* rather than a
+   * pattern is used. Forward: no component writes a `backdrop-*` class outside
+   * `GLASS_BACKDROP_UTILITIES`, so `backdrop-blur-md` cannot appear in one panel while the
+   * other five use 8px. Backward: every entry is named, by a scanned component source or by
+   * `GLASS_SURFACE_CLASSES` — the single composition every adopting component takes — so a
+   * token renamed in `theme.css` without the composition following it fails here rather
+   * than leaving a utility nothing resolves to.
+   *
+   * The composition is named separately because `collectUtilityCandidates` deliberately
+   * excludes `packages/ui/src/tokens`, where the token module names tokens in a way that
+   * looks like a class.
+   */
+  it('permits exactly the glass backdrop utilities the product declares', () => {
+    const writtenByComponents = allCandidates.filter((candidate) =>
+      BACKDROP_CANDIDATE.test(candidate),
+    );
+    const writtenByTheComposition = GLASS_SURFACE_CLASSES.split(/\s+/).filter((tokenClass) =>
+      BACKDROP_CANDIDATE.test(tokenClass),
+    );
+    const declared = new Set([...writtenByComponents, ...writtenByTheComposition]);
+
+    expect(
+      [...declared].filter((candidate) => !glassBackdropUtilities().includes(candidate)).sort(),
+      'A component writes a `backdrop-*` class that theme.css does not declare, so its blur ' +
+        'radius is its own. Use the token: the whole argument against glass is compositing ' +
+        'cost, and cost scales with the radius of the kernel.',
+    ).toEqual([]);
+
+    expect(
+      glassBackdropUtilities()
+        .filter((entry) => !declared.has(entry))
+        .sort(),
+      'theme.css declares a `backdrop-*` utility that no component and no composition uses, ' +
+        'so it is a token with no user. Either a component should adopt it or the token ' +
+        'should go.',
+    ).toEqual([]);
+  });
+
+  /**
+   * The lint's allowlist and the stylesheet's tokens are the same list.
+   *
+   * `eslint.config.js` cannot import `packages/ui/src/tokens/glass.ts` — it is a
+   * configuration file loaded by Node, and a TypeScript import there would put a compiler
+   * between the linter and its own policy. So it holds a literal, and this is what stops
+   * the literal from drifting: opening the Phase 1 ban without widening it in the same
+   * place is how a `backdrop-blur-md` ends up allowed in one panel and 8px in the other
+   * five, which is the exact failure the list was written to prevent.
+   *
+   * Read as source text rather than imported, because `eslint.config.js` pulls in the
+   * whole TypeScript-ESLint dependency tree to run a test about two string literals.
+   */
+  it('keeps the lint allowlist and the theme tokens in step', () => {
+    const config = readFileSync(path.join(repoRoot, 'eslint.config.js'), 'utf8');
+    const literal = config.match(/GLASS_ALLOWLIST\s*=\s*\[([^\]]*)\]/)?.[1];
+    expect(literal, 'eslint.config.js has no readable GLASS_ALLOWLIST literal').toBeDefined();
+    const inLint = [...(literal ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
+    expect(
+      inLint.filter((entry) => !BACKDROP_CANDIDATE.test(entry)),
+      'GLASS_ALLOWLIST holds something that is not a `backdrop-*` utility, so it would allow ' +
+        'a class the glass tokens cannot produce.',
+    ).toEqual([]);
+    expect(
+      [...inLint].sort(),
+      'eslint.config.js permits a different set of `backdrop-*` classes than theme.css ' +
+        'declares, so a component can write a blur radius the tokens do not carry.',
+    ).toEqual(glassBackdropUtilities());
+  });
+
+  it('generates the glass surface utilities, each carrying its own token', () => {
+    const blocks = themeBlocks();
+    for (const [utility, token] of GLASS_UTILITIES) {
+      const bodies = ruleBodiesFor(compiledAll, utility);
+      expect(
+        bodies,
+        `Tailwind emits no rule for ${utility}. The tokens are declared in ` +
+          'packages/ui/src/tokens/theme.css, so this means the class name and the token have ' +
+          'drifted apart.',
+      ).not.toEqual([]);
+      const fragments = expectedFragments(token, blocks);
+      const normalised = bodies.map((body) => body.replace(/\s+/g, ' '));
+      expect(
+        fragments.filter((fragment) => !normalised.some((body) => body.includes(fragment))),
+        `The rule for ${utility} does not carry ${fragments.join(', ')}, which is what ${token} ` +
+          'contributes in theme.css. A generated class that resolves to a hardcoded value is ' +
+          'the unstyled-destructive-button defect with a different name.',
+      ).toEqual([]);
+    }
+
+    // The utilities resolving is not the same as anything using them, and a token set that
+    // compiles cleanly while every panel stays opaque is a documented design that nothing
+    // shipped. So adoption is part of the assertion rather than something a reviewer has to
+    // notice — and it is checked as *the composition being imported*, because a component
+    // that spelled `bg-glass` out by hand would be the copy-and-paste the composition is
+    // there to prevent.
+    expect(
+      glassAdopters(),
+      'No component takes GLASS_SURFACE_CLASSES, so the glass tokens compile and nothing uses ' +
+        'them. The surfaces that adopt the material are named in ' +
+        '.kilo/plans/1791096500000-full-glassmorphism-plan.md §5, G4.',
+    ).not.toEqual([]);
+  });
+
   it('generates the destructive variant, which is the "Cancel run" button', () => {
     expect(utilityIsGenerated(compiledAll, 'bg-error')).toBe(true);
     expect(compiledAll).toContain('--automate-danger');
   });
 
   it('generates the error-state utilities used by Input and Select', () => {
-    for (const candidate of ['text-error', 'border-error', 'outline-error']) {
+    // **`outline-error` is deliberately not here any more.** `Input`, `Select` and
+    // `Textarea` each added `focus-visible:outline-error` on top of the base's
+    // `focus-visible:outline-border-focus`, which is two classes setting one property on
+    // one element — and which one wins is decided by CSS order, not by the order they
+    // appear in the class string. The border carries the error instead, so the ring is
+    // the same ring everywhere. The assertion that used to name `outline-error` here was
+    // holding the duplication in place.
+    for (const candidate of ['text-error', 'border-error']) {
       expect(utilityIsGenerated(compiledAll, candidate), `${candidate} generates no colour`).toBe(
         true,
       );
     }
+    expect(
+      allCandidates.filter((candidate) => /outline-(error|danger)$/.test(candidate)),
+      'a field in error is colouring its ring again. The ring says where focus is; the border says ' +
+        'what is wrong with the field, and one ring that means one thing is the point of the idiom.',
+    ).toEqual([]);
+  });
+
+  /**
+   * The stacking scale is used by name.
+   *
+   * `z-10` and `z-50` were in four components and neither said what it was for, so
+   * "is this toast above the modal?" was answered by whichever number somebody typed. The
+   * numbers are not the decision — *what the layer is* is — so `theme.css` declares
+   * `--z-index-chrome` through `--z-index-toast` and this fails on a bare number.
+   *
+   * A bare `z-50` still compiles, which is the trap: Tailwind accepts any integer whether
+   * or not the theme declares a name for it, so the defect is invisible to every
+   * resolution check in this file and only a naming rule catches it.
+   */
+  it('writes no bare stacking number, so every layer says what it is', () => {
+    const offenders = [...new Set(allCandidates.filter((candidate) => /^z-\d+$/.test(candidate)))];
+    expect(
+      offenders.sort(),
+      'A component writes a bare `z-<number>`. theme.css declares the six named layers, and the ' +
+        'name is the decision — "a toast is above a modal" is answerable, "50 is above 40" is not.',
+    ).toEqual([]);
   });
 
   it('generates the muted-text, brand-shade and base-background utilities', () => {

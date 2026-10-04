@@ -109,6 +109,14 @@ const DEDICATED_SPECS = [
   // budget is named here. It gets its own project below so `pnpm test:e2e` still runs
   // it, rather than the derivation quietly dropping it.
   'durable-path.spec.ts',
+  // The route-level axe gate, and the wave the glass work is sequenced behind
+  // (`.kilo/plans/1791096500000-full-glassmorphism-plan.md` §3.4). It is 66 generated
+  // tests — every manifest route in two themes plus four forced data states — and it is
+  // a gate rather than a product spec for the same reason the rendering budget is: it
+  // measures something, it is read by `pnpm status:10`, and folding it into `product`
+  // would add 66 page loads to every pull request to buy a number the product suite
+  // does not read. It gets its own project below so `pnpm test:e2e` still runs it.
+  'accessibility/routes.spec.ts',
 ];
 
 /** Normalized so the comparison is a suffix match on any platform's separator. */
@@ -247,6 +255,21 @@ export default defineConfig({
       timeout: 120_000,
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // axe over every route. Its own project, for the reason the rendering budget has
+      // one, and the non-empty assertion below covers it: a gate whose project matches
+      // nothing is a green job that ran no accessibility check at all, which is the one
+      // outcome this whole wave exists to prevent.
+      name: 'accessibility',
+      testMatch: '**/accessibility/routes.spec.ts',
+      // Motion off at the source, because axe reads computed colour with no reference to
+      // opacity: sampled mid-fade it reports a `color-contrast` violation against a
+      // background nobody will ever see, which is how the first run of this spec failed
+      // three tests that all passed on the retry. `motion.css` already honours the
+      // preference, so this measures the state a person actually reads, and it removes
+      // the race rather than papering over it.
+      use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
+    },
   ],
 });
 
@@ -273,6 +296,10 @@ if (productSpecFiles.length === 0) {
 for (const [name, matched] of [
   ['durable-path', durablePathSpecFiles.length],
   ['vertical-slice', specFiles.filter((file) => file.includes('vertical-slice.spec.ts')).length],
+  [
+    'accessibility',
+    specFiles.filter((file) => baseNameOf(file).endsWith('accessibility/routes.spec.ts')).length,
+  ],
 ] as const) {
   if (matched === 0) {
     throw new Error(

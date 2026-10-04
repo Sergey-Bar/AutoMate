@@ -49,7 +49,22 @@ export function ThemeToggle() {
       type="button"
       onClick={() => setTheme(next)}
       data-testid="theme-toggle"
-      className="p-2 rounded-md hover:bg-bg-muted text-text-secondary hover:text-text-primary transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      /*
+       * `h-11 w-11` is the 44×44 target, and it is a *layout* change rather than a
+       * padding one on purpose: the glyph is 16px, so `p-2` gave a 32×32 button whose
+       * icon sat in the middle of nothing. This is the one control in the chrome with no
+       * text at all, so its pixels are the entire affordance and there is no label to aim
+       * at. `inline-flex` centres the glyph inside the larger box.
+       *
+       * The focus idiom is `focus-visible:outline-2 focus-visible:outline-offset-2
+       * focus-visible:outline-border-focus` — the same three classes every other control
+       * in the product draws. This one wrote `focus:outline-none focus-visible:ring-2
+       * focus-visible:ring-accent`: a ring rather than the outline, on `focus:` rather than
+       * `focus-visible:`, so it fired on mouse press as well as on keyboard focus. That
+       * was the third idiom in the repository, and it lived in an application component,
+       * which is why the library's sweep never saw it.
+       */
+      className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-bg-muted text-text-secondary hover:text-text-primary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
       title={`Current theme: ${theme}. Click to change.`}
       /*
        * The name says where pressing it lands, not just that it is a toggle.

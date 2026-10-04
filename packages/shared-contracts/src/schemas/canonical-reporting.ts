@@ -1,4 +1,5 @@
 import { z } from 'zod/v4';
+import { ReportProducerSchema } from './report-formats.js';
 
 /**
  * Canonical run/event wire contract (`automate.run@2`).
@@ -112,17 +113,7 @@ const AttemptSchema = z.object({
   flakiness: z.enum(['unknown', 'observed']).default('unknown'),
 });
 const ProvenanceSchema = z.object({
-  producer: z.enum([
-    'playwright',
-    'junit',
-    'robot',
-    'k6',
-    'zap',
-    'sarif',
-    'otel',
-    'generic',
-    'legacy',
-  ]),
+  producer: ReportProducerSchema,
   producerVersion: z.string().min(1),
   adapterVersion: z.string().min(1),
   sourceDigest: DigestSchema,

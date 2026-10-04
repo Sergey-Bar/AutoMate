@@ -22,7 +22,7 @@ import type {
   QaHollowResponse,
   QaStructureResponse,
 } from '../../lib/qa.js';
-import { useResource } from './use-resource.js';
+import { useResource } from '../../hooks/useResource.js';
 
 /**
  * The four deep-dive screens, and the state machine they share.

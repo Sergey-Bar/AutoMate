@@ -120,3 +120,27 @@
   --automate-font-sans: 'Archivo', 'Archivo Fallback', ui-sans-serif, system-ui, sans-serif;
   --automate-font-mono: 'JetBrains Mono', 'JetBrains Mono Fallback', ui-monospace, monospace;
 }
+
+/*
+ * …and the same two, published to Tailwind.
+ *
+ * **Without this block, `font-mono` was Tailwind's default mono stack** —
+ * `ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, …` — so every `font-mono`
+ * in this product rendered in whatever the operating system happened to have, which
+ * on Windows is Consolas. The run id, the digest, the score and the stack trace all
+ * set `font-mono`, in a product whose own header says "JetBrains Mono for everything
+ * that is a reading". The committed binary was loaded and then not used.
+ *
+ * `@theme inline`, not `@theme`, and the difference is the point: `inline` substitutes
+ * the `var()` into the utility so `font-mono` compiles to
+ * `font-family: var(--automate-font-mono)`. A plain `@theme` would emit a variable
+ * pointing at a variable, which is legal and one indirection more than this needs.
+ *
+ * `theme.test.ts` asserts both names resolve to these two variables rather than to a
+ * default, because a `font-*` utility that quietly disagrees with `body` is a
+ * second authority for the one decision this file exists to make.
+ */
+@theme inline {
+  --font-sans: var(--automate-font-sans);
+  --font-mono: var(--automate-font-mono);
+}

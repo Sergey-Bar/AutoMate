@@ -1,17 +1,19 @@
 import React, { useRef, useState } from 'react';
 import { createRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { Badge, Button, Card, EmptyState } from '@automate/ui';
+import { Badge, Button, Card } from '@automate/ui';
 import { Route as rootRoute } from './__root.js';
 import type { CreateRunRequest, DomainReadinessStatus } from '@automate/shared-contracts';
 import { useReleaseReadiness } from '../hooks/useDashboard.js';
-import { isRunActive, useRuns } from '../hooks/useRuns.js';
+import { isRunActive } from '../hooks/useRuns.js';
+import { Cockpit } from '../components/Cockpit.js';
+import { createQaClient } from '../lib/qa-client.js';
 import { defaultApiClient, type ApiClient, type Run } from '../lib/api.js';
 import { formatDate } from '../lib/format.js';
 
 export const Route = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
-  component: DashboardComponent,
+  component: DashboardLayout,
 });
 
 const DEFAULT_DOMAIN_STATUS: Record<string, DomainReadinessStatus> = {
@@ -229,7 +231,7 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
           Run queued.{' '}
           <a
             href={`/dashboard/runs/${encodeURIComponent(createdRun.id)}`}
-            className="font-mono underline"
+            className="rounded-sm font-mono underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             {createdRun.id}
           </a>
@@ -239,7 +241,13 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
   );
 }
 
-function ReleaseReadinessCard({ releaseId, api }: { releaseId: string | null; api: ApiClient }) {
+export function ReleaseReadinessCard({
+  releaseId,
+  api,
+}: {
+  releaseId: string | null;
+  api: ApiClient;
+}) {
   const { data, isLoading, error } = useReleaseReadiness(releaseId, api);
 
   if (isLoading) {
@@ -295,15 +303,13 @@ function ReleaseReadinessCard({ releaseId, api }: { releaseId: string | null; ap
   );
 }
 
-function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
-  if (runs.length === 0) {
-    return (
-      <EmptyState
-        title="No release evidence"
-        description="No canonical runs exist. The system will not infer a passing release without browser evidence."
-      />
-    );
-  }
+export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
+  // **Nothing, not an empty state.** This card now sits on the runs page beside the
+  // full run table, which renders its own empty state. Two "there is nothing here"
+  // panels on one screen is noise that reads as two separate failures, and the older
+  // panel said "No canonical runs exist" while the newer one said "No execution
+  // evidence" — the same fact in two words.
+  if (runs.length === 0) return null;
 
   return (
     <Card className="overflow-hidden">
@@ -318,7 +324,7 @@ function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
             to="/dashboard/runs/$runId"
             params={{ runId: run.id }}
             data-testid={`run-item-${run.id}`}
-            className="flex items-center justify-between gap-4 p-4 no-underline hover:bg-surface-muted"
+            className="flex items-center justify-between gap-4 p-4 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             <div className="min-w-0">
               <div className="truncate font-mono text-sm">{run.id}</div>
@@ -357,67 +363,37 @@ function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
   );
 }
 
-function DashboardComponent() {
-  const routerState = useRouterState();
-  const isExactDashboard = routerState.location.pathname === '/dashboard';
-  const api = defaultApiClient;
-  const { runs, isLoading, error, isLive, refresh } = useRuns(api);
-  const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
-
-  // Ledger W-5 is confirmed and still open: `useRuns` runs before this early return,
-  // so `/dashboard/runs` opens a second `EventSource('/api/v1/events')` and a second
-  // 5-second poller that nothing renders — the child lists runs again by itself
-  // (`dashboard/index.tsx:48`).
-  //
-  // The fix is to give the hook a component boundary to live behind: split this into a
-  // layout that returns `<Outlet />` and a `CommandCenter` that calls `useRuns`, since
-  // a hook cannot be called conditionally. **That change is written and it works, but
-  // it costs one line of coverage in this package, and `apps/web` sits at a floor that
-  // was raised deliberately** — so landing it without the covering test would trade a
-  // real resource leak for a red ratchet, which is a worse trade than leaving the row
-  // open where it can be finished properly.
-  if (!isExactDashboard) return <Outlet />;
+/**
+ * The dashboard layout, and the only component on the `/dashboard` path.
+ *
+ * ## What it does, and what it deliberately does not
+ *
+ * `/dashboard` is the cockpit: open the install, see what is blocking you. A home
+ * page that asks you to fill in a form before it tells you anything is a form, so
+ * the launch form moved to `/dashboard/runs` and this layout either renders the
+ * cockpit or renders the child route.
+ *
+ * **It calls no hook that opens a resource.** That is the whole of ledger W-5, which
+ * stayed open here for a year: `useRuns` used to be called here *before* the
+ * `if (!isExactDashboard) return <Outlet />` guard, so every child route ran a second
+ * copy of it — a second armed five-second poller and a second list fetch that nothing
+ * rendered, because a hook cannot be called conditionally and the early return came
+ * too late. The shared `EventSource` was fixed separately; the duplicate poller was
+ * not, and it was left open because landing the fix without its covering test would
+ * have cost a line against `apps/web`'s deliberately raised floor.
+ *
+ * `useRouterState` is a subscription, not a resource: it holds no socket and arms no
+ * timer, so reading the path here costs nothing. The test that says so is
+ * `dashboard.test.tsx` ? "arms one run poller on the runs route, not one per level".
+ */
+function DashboardLayout() {
+  const isExactDashboard = useRouterState({
+    select: (state) => state.location.pathname === '/dashboard',
+  });
 
   return (
     <div data-testid="dashboard-page" className="space-y-6">
-      <header>
-        <p className="text-xs font-semibold uppercase tracking-widest text-accent">
-          Browser QA evidence
-        </p>
-        <h1 className="mt-2 text-3xl font-bold">Release Command Center</h1>
-        <p className="mt-2 max-w-3xl text-sm text-fg-muted">
-          Launch registered browser runs, inspect canonical phase and outcome, and gate releases
-          from persisted evidence. Non-browser domains remain unknown or not configured until
-          executable adapters exist.
-        </p>
-      </header>
-
-      {error ? (
-        <div
-          data-testid="command-center-error"
-          role="alert"
-          className="rounded-md border border-danger p-4 text-sm text-danger"
-        >
-          {error.message}
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,0.8fr)]">
-        <div className="space-y-6">
-          <LaunchRunForm api={api} onCreated={() => void refresh()} />
-          <section aria-labelledby="recent-runs-heading">
-            <h2 id="recent-runs-heading" className="sr-only">
-              Recent runs
-            </h2>
-            {isLoading ? (
-              <Card className="p-6 text-sm text-fg-muted">Loading canonical run state...</Card>
-            ) : (
-              <RecentRuns runs={runs} isLive={isLive} />
-            )}
-          </section>
-        </div>
-        <ReleaseReadinessCard releaseId={latestReleaseId} api={api} />
-      </div>
+      {isExactDashboard ? <Cockpit qa={createQaClient()} api={defaultApiClient} /> : <Outlet />}
     </div>
   );
 }

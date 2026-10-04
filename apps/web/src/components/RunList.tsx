@@ -26,7 +26,7 @@ export function RunList({ api }: { api?: ApiClient }) {
           key={run.id}
           href={runDetailPath(run.id)}
           data-testid={`run-item-${run.id}`}
-          className="flex items-center justify-between rounded-lg border border-border-default bg-surface-muted p-4 no-underline transition-colors hover:bg-surface"
+          className="flex items-center justify-between rounded-lg border border-border-default bg-surface-muted p-4 no-underline transition-colors hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           aria-label={`View run ${run.id}`}
         >
           <div>

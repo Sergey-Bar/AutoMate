@@ -6,6 +6,9 @@ Generated from `coverage-baseline.json` — the **floors** the ratchet compares
 against, not a measured run. A floor only moves up, so this page cannot report
 a number that has not been earned.
 
+The numbers above are derived. To change one, edit the file this page names as
+its source, then run `pnpm site:generate`.
+
 There is no per-package Vitest threshold, and that is deliberate: a threshold that
 blocks every run gets raised until it means nothing. `pnpm coverage:ratchet` fails
 on a regression instead.

@@ -24,6 +24,78 @@
       "sourceType": "github",
       "skillPath": "skills/web-design-guidelines/SKILL.md",
       "computedHash": "d8e7d3afe37dcc8a97b99ffb5afdb4d0919ae0092ea8b68f44eb201f035e33ac"
+    },
+    "swiss-design": {
+      "source": "zeke/swiss-design-skill",
+      "sourceType": "github",
+      "skillPath": "zeke/swiss-design-skill/main/swiss-design/SKILL.md",
+      "computedHash": "7b7b471950e66d68491c8320e1acaa781e6cefb32a3fe04dcefc650ed8ac4eb8"
+    },
+    "better-typography": {
+      "source": "jakubkrehel/skills",
+      "sourceType": "github",
+      "skillPath": "jakubkrehel/skills/main/skills/better-typography/SKILL.md",
+      "computedHash": "717f615910470bd2b7c662cce2af2ebd11cd887379a6ea93455c45f3c5ba378d"
+    },
+    "better-colors": {
+      "source": "jakubkrehel/skills",
+      "sourceType": "github",
+      "skillPath": "jakubkrehel/skills/main/skills/better-colors/SKILL.md",
+      "computedHash": "cde9dd40cb183b383514e1a2c76bf74c9d914f5f6722ee6079d3f9cd121862c1"
+    },
+    "better-accessibility": {
+      "source": "jakubkrehel/skills",
+      "sourceType": "github",
+      "skillPath": "jakubkrehel/skills/main/skills/better-accessibility/SKILL.md",
+      "computedHash": "59a0d8ad310be843566a18bfd839a38f46335110aa31673c4468c9e0172c5350"
+    },
+    "animation-vocabulary": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "emilkowalski/skills/main/skills/animation-vocabulary/SKILL.md",
+      "computedHash": "40d2b27adfdfeb0570a9f20e7d0255109d9233c50603878bcd0dcd04c923fd94"
+    },
+    "review-animations": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "emilkowalski/skills/main/skills/review-animations/SKILL.md",
+      "computedHash": "6ff590d29e436766135aa3d137be1fac2a867165c7257fc315b189361f1873af"
+    },
+    "pick-ui-library": {
+      "source": "emilkowalski/skills",
+      "sourceType": "github",
+      "skillPath": "emilkowalski/skills/main/skills/pick-ui-library/SKILL.md",
+      "computedHash": "675fdce308683256ed617351a9b74d23457a5fbd0a562d9831b9c764b8c5e682"
+    },
+    "fixing-accessibility": {
+      "source": "ibelick/ui-skills",
+      "sourceType": "github",
+      "skillPath": "ibelick/ui-skills/main/skills/fixing-accessibility/SKILL.md",
+      "computedHash": "549261e8a53b53a1a20c0ddbf736821e5fc0876ad82eee76e0efab8e9ee9dadf"
+    },
+    "fixing-motion-performance": {
+      "source": "ibelick/ui-skills",
+      "sourceType": "github",
+      "skillPath": "ibelick/ui-skills/main/skills/fixing-motion-performance/SKILL.md",
+      "computedHash": "0a2d654902bc04263ce68c8c02967ef03f17b482e855360a5463211d99d7baa9"
+    },
+    "beautiful-shadows": {
+      "source": "MengTo/Skills",
+      "sourceType": "github",
+      "skillPath": "MengTo/Skills/main/agent-skills/web-design/beautiful-shadows/SKILL.md",
+      "computedHash": "10b6cc0964919118218ffe0845e4a00954f39788d89d4ec29827d100f254e135"
+    },
+    "build-primitive": {
+      "source": "PrototyperAI/prototyper-ui",
+      "sourceType": "github",
+      "skillPath": "PrototyperAI/prototyper-ui/main/apps/docs/skill/build-primitive/SKILL.md",
+      "computedHash": "c9dfd37d61e476520fe77b6014d8ec229c1e3eb2a067bb58f514d32fb0792016"
+    },
+    "web-quality-audit": {
+      "source": "addyosmani/web-quality-skills",
+      "sourceType": "github",
+      "skillPath": "addyosmani/web-quality-skills/main/skills/web-quality-audit/SKILL.md",
+      "computedHash": "1903cfb4dcba987d50dc7a51f6c19ec43830ff924c2c8f78979d8775fbe20f91"
     }
   }
 }

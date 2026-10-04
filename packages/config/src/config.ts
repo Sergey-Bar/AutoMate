@@ -204,6 +204,17 @@ const EnvironmentSchema = z.object({
   SSE_REPLAY_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   RETENTION_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  /**
+   * The folder the API registers and re-detects at boot, and **opt-in with no
+   * default**.
+   *
+   * There is deliberately no fallback to the working directory. In compose the cwd
+   * is `/app`, which has a `package.json`, so a default would register the container
+   * as the operator's project and the cockpit would analyse the wrong tree with total
+   * confidence. An empty value is absence rather than an empty path, because
+   * `parseConfig` filters empty strings out before the schema sees them.
+   */
+  AUTOMATE_PROJECT_ROOT: z.string().min(1).optional(),
 });
 
 export type AppConfig = {
@@ -244,6 +255,8 @@ export type AppConfig = {
   sseReplayRetentionHours: number;
   auditRetentionDays: number;
   retentionSweepIntervalSeconds: number;
+  /** `undefined` means discovery is off. There is no working-directory default. */
+  projectRoot?: string;
 };
 
 export function parseConfig(
@@ -294,5 +307,6 @@ export function parseConfig(
     sseReplayRetentionHours: parsed.SSE_REPLAY_RETENTION_HOURS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
     retentionSweepIntervalSeconds: parsed.RETENTION_SWEEP_INTERVAL_SECONDS,
+    projectRoot: parsed.AUTOMATE_PROJECT_ROOT,
   };
 }

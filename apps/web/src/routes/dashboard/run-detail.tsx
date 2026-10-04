@@ -94,7 +94,11 @@ function PhaseTimeline({ phase }: { phase: RunPhase }) {
 
 function TestEvidence({ tests }: { tests: Run['tests'] }) {
   if (tests.length === 0) {
-    return <p className="text-sm text-fg-muted">No normalized test attempts have been reported.</p>;
+    return (
+      <p className="text-sm text-fg-muted max-w-measure text-pretty">
+        No normalized test attempts have been reported.
+      </p>
+    );
   }
 
   return (
@@ -142,7 +146,20 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
             </div>
           ) : null}
           <div className="mt-4 space-y-2">
-            <h4 className="text-xs font-semibold uppercase text-fg-muted">Attempts</h4>
+            {/*
+              `h3`, not `h4`, and the eyebrow idiom the rest of the product uses.
+              *
+              * It was an `<h4>`, which in a file whose screen heading is an `<h1>` and whose
+              * section is an `<h2>` skipped a level — and it was the *first* heading in the
+              * file, so the screen's heading list began at `h4` and the `h1` came third. The
+              * `Composition` sweep found it, and it found it only because that sweep starts
+              * from zero and checks the first heading rather than checking that each level
+              * follows the one before it: an `h4` first satisfies "no level is skipped"
+              * vacuously.
+              */}
+            <h3 className="font-semibold uppercase tracking-widest text-fg-muted text-xs">
+              Attempts
+            </h3>
             {test.attempts.length > 0 ? (
               test.attempts.map((attempt) => (
                 <div key={attempt.attempt} className="rounded bg-surface-muted p-3 text-sm">
@@ -159,7 +176,9 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
                 </div>
               ))
             ) : (
-              <p className="text-sm text-fg-muted">No retry attempts were reported.</p>
+              <p className="text-sm text-fg-muted max-w-measure text-pretty">
+                No retry attempts were reported.
+              </p>
             )}
           </div>
         </details>
@@ -252,7 +271,10 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     <div data-testid="run-detail-page" className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <a href="/dashboard/runs" className="text-sm text-accent no-underline hover:underline">
+          <a
+            href="/dashboard/runs"
+            className="rounded-sm text-sm text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
             ← Runs
           </a>
           <h1 className="mt-2 text-2xl font-bold">Run detail</h1>
@@ -324,7 +346,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
           <Card className="p-6">
             <h2 className="text-lg font-semibold">Artifacts</h2>
             {evidenceError ? (
-              <p className="mt-3 text-sm text-warning">
+              <p className="mt-3 text-sm text-warning max-w-measure text-pretty">
                 Some artifact metadata could not be refreshed.
               </p>
             ) : null}
@@ -334,7 +356,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                   <li key={artifact.id} className="py-3">
                     <a
                       href={getArtifactUrl(artifact.id)}
-                      className="font-medium text-accent hover:underline"
+                      className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                     >
                       {artifact.name ?? artifact.kind}
                     </a>
@@ -346,7 +368,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 ))}
               </ul>
             ) : (
-              <p className="mt-4 text-sm text-fg-muted">
+              <p className="mt-4 text-sm text-fg-muted max-w-measure text-pretty">
                 No persisted artifacts have been reported.
               </p>
             )}
@@ -370,7 +392,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 ))}
               </ol>
             ) : (
-              <p className="mt-4 text-sm text-fg-muted">
+              <p className="mt-4 text-sm text-fg-muted max-w-measure text-pretty">
                 No events have been observed in this browser session. Run state above is the
                 authoritative API snapshot.
               </p>
@@ -445,13 +467,13 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                   ))}
                 </ul>
                 {gate.evidenceRefs.length > 0 ? (
-                  <p className="mt-4 text-xs text-fg-muted">
+                  <p className="mt-4 text-xs text-fg-muted max-w-measure text-pretty">
                     Evidence: {gate.evidenceRefs.join(', ')}
                   </p>
                 ) : null}
               </>
             ) : (
-              <p className="mt-3 text-sm text-fg-muted">
+              <p className="mt-3 text-sm text-fg-muted max-w-measure text-pretty">
                 UNKNOWN — no persisted gate evaluation is available.
               </p>
             )}
@@ -516,7 +538,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
               <a
                 data-testid="retry-run-link"
                 href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
-                className="mt-3 block text-sm text-accent hover:underline"
+                className="mt-3 block rounded-sm text-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
               >
                 Open retried run {retryTarget}
               </a>

@@ -542,24 +542,85 @@ describe('every remaining endpoint of the group is reachable and validated', () 
     }
   });
 
-  it('serves a provenance diff between two readings', async () => {
+  it('refuses a diff whose two ends read the same rows', async () => {
     const { client, app, projectId } = await registered();
     try {
+      // The project has never run, so both readings read no rows and nothing moved.
+      // **This used to answer 200 with an empty `contributions` array**, and the
+      // comment beside it called that "a true answer rather than an error" — which is
+      // what let the defect survive review. It is not an answer: nothing was compared.
+      // A `ScoreDelta` whose every contribution must cite evidence would otherwise
+      // have rendered a confident, sourced, wrong diff.
       const response = await app.request(
         `/api/v1/projects/${projectId}/qa/score/diff?since=2026-10-01T00:00:00.000Z`,
       );
+      expect(response.status).toBe(400);
+      expect(await response.text()).toMatch(/nothing to nothing/iu);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('serves a real diff once `since` selects a different window', async () => {
+    const { client, db, app, projectId } = await registered();
+    try {
+      // Two runs, one either side of `since`. The first observes a passing security
+      // test; the second observes it failing. Before this fix the two reads were
+      // unfiltered, so both ends saw both runs and the diff was empty — which the
+      // endpoint's own comment called "a true answer rather than an error".
+      //
+      // **Dated in 2020, deliberately.** The current reading is taken at
+      // `new Date().toISOString()`, so any fixture near "today" makes this test
+      // correct until the calendar moves past it — and a test that expires is a
+      // test that was lying about the time it proved something.
+      await client.query(
+        `INSERT INTO runs (id, workspace_id, project_id, started_at, phase, outcome)
+         VALUES
+           ('00000000-0000-4000-8000-00000000bbb1', 'ws-1', $1, '2020-01-01T00:00:00.000Z', 'complete', 'passed'),
+           ('00000000-0000-4000-8000-00000000bbb2', 'ws-1', $1, '2020-06-01T00:00:00.000Z', 'complete', 'failed')`,
+        [projectId],
+      );
+      const result = (runId: string, status: 'passed' | 'failed') => ({
+        identity: { runId, projectId },
+        metadata: {
+          fingerprint: 'zap/auth-check',
+          category: 'security',
+          surface: 'backend',
+          assertionCount: 2,
+          trivialAssertionCount: 0,
+          touchedIo: true,
+        },
+        provenance: { commitSha: 'c1' },
+        attempts: [{ testId: 'zap/auth-check', status, durationMs: 25 }],
+      });
+      await db.insert(schema.canonicalRunResults).values([
+        {
+          workspaceId: 'ws-1',
+          runId: '00000000-0000-4000-8000-00000000bbb1',
+          fingerprint: 'zap/auth-check',
+          result: result('00000000-0000-4000-8000-00000000bbb1', 'passed'),
+        },
+        {
+          workspaceId: 'ws-1',
+          runId: '00000000-0000-4000-8000-00000000bbb2',
+          fingerprint: 'zap/auth-check',
+          result: result('00000000-0000-4000-8000-00000000bbb2', 'failed'),
+        },
+      ]);
+
+      const response = await app.request(
+        `/api/v1/projects/${projectId}/qa/score/diff?since=2020-03-01T00:00:00.000Z`,
+      );
       expect(response.status).toBe(200);
-      const delta = (await response.json()) as unknown;
-      // Parsed through the **contract**, because a diff is the one payload where a
-      // missing field is the difference between an explanation and a number.
-      expect(ScoreDeltaSchema.safeParse(delta).success).toBe(true);
-      const parsed = ScoreDeltaSchema.parse(delta);
-      expect(parsed.projectId).toBe(projectId);
-      expect(parsed.from).toBe('2026-10-01T00:00:00.000Z');
-      // The project has never run, so both readings score zero and the diff is empty.
-      // **Empty is the right answer**, and asserting it says so: a diff that listed
-      // fifteen cells at `0 → 0` would bury whatever later matters.
-      expect(parsed.contributions).toEqual([]);
+      const delta = ScoreDeltaSchema.parse(await response.json());
+      expect(delta.projectId).toBe(projectId);
+      expect(delta.from).toBe('2020-03-01T00:00:00.000Z');
+      // **Non-empty, and every contribution cites a row.** This is what the endpoint
+      // could not produce before: a window that actually advances.
+      expect(delta.contributions.length).toBeGreaterThan(0);
+      for (const contribution of delta.contributions) {
+        expect(contribution.evidence.length, contribution.cause).toBeGreaterThan(0);
+      }
     } finally {
       await client.close();
     }
@@ -569,9 +630,8 @@ describe('every remaining endpoint of the group is reachable and validated', () 
     const { client, app, projectId } = await registered();
     try {
       // There is no stored score to diff against, and that is deliberate — a
-      // `health_scores` table would be a fourth blocking number that has to agree
-      // with the coverage floor, the threshold and the gate tier. So the caller
-      // names the instant to recompute from, and omitting it would mean guessing
+      // `health_scores` table would be a fourth `no-second-authority` number. So the
+      // caller names the instant to recompute from, and omitting it would mean guessing
       // one.
       expect((await app.request(`/api/v1/projects/${projectId}/qa/score/diff`)).status).toBe(400);
       expect(

@@ -36,7 +36,7 @@ export const Breadcrumbs = forwardRef<HTMLElement, BreadcrumbsProps>(
                 ) : (
                   <a
                     href={item.href}
-                    className="truncate hover:text-text-primary hover:underline transition-colors"
+                    className="truncate rounded-sm hover:text-text-primary hover:underline transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                   >
                     {item.label}
                   </a>

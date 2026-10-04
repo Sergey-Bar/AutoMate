@@ -106,7 +106,10 @@ describe('PlaywrightExecutionAdapter', () => {
     expect(result.stdout).toContain('[REDACTED]');
     expect(result.stdout).not.toContain('super-secret');
     expect(result.artifacts.map((artifact) => artifact.kind)).toEqual(
-      expect.arrayContaining(['event-log', 'playwright-json', 'junit', 'stderr', 'stdout']),
+      // `junit-xml`, not `junit`: one classifier in `artifact-kind.ts` names every artifact,
+      // and it uses the contract's id for a report so the label the runner sends is the label
+      // the upload door and `packages/projects` look for.
+      expect.arrayContaining(['event-log', 'playwright-json', 'junit-xml', 'stderr', 'stdout']),
     );
     expect(calls).toHaveLength(1);
     expect(calls[0]?.command).toBe(process.execPath);

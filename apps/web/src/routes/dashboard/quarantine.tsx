@@ -2,8 +2,16 @@ import React, { useState } from 'react';
 import { createRoute } from '@tanstack/react-router';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useQuarantine } from '../../hooks/useDashboard.js';
-import { EmptyState } from '@automate/ui';
+import {
+  Badge,
+  DefinitionList,
+  DefinitionListDetail,
+  DefinitionListTerm,
+  EmptyState,
+  type BadgeProps,
+} from '@automate/ui';
 import type { ApiClient, QuarantineEntry } from '../../lib/api.js';
+import { formatDate } from '../../lib/format.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -26,11 +34,28 @@ export const Route = createRoute({
  * this verdict" in the neutral muted colour rather than inheriting `pending`'s
  * amber. A `Record` would have forced a placeholder nobody wanted to write.
  */
-const QUARANTINE_STATUS_TONE: Partial<Record<QuarantineEntry['status'], string>> = {
-  approved: 'text-success',
-  rejected: 'text-danger',
-  pending: 'text-warning',
+/**
+ * The verdict-to-tone table, and why it maps to a Badge variant rather than to a class.
+ *
+ * It used to hold CSS classes (	ext-success, 	ext-danger, 	ext-warning) applied to a
+ * <div>, which meant **the word and the colour were two elements** and a verdict could read
+ * "approved" in amber. The mapping itself was right and the mechanism was the defect, so the
+ * table stays and its values became Badge variants — one element that owns both.
+ */
+const QUARANTINE_STATUS_TONE: Partial<Record<QuarantineEntry['status'], BadgeProps['variant']>> = {
+  approved: 'success',
+  rejected: 'danger',
+  pending: 'warning',
 };
+
+/**
+ * The tone for a verdict this component does not recognise.
+ *
+ * undefined rather than 'warning', because inheriting pending's amber for a verdict the
+ * API added last week tells a reader that somebody still has to look at it. The Badge
+ * default variant is the neutral pill, which says the same thing as the text and nothing more.
+ */
+const UNKNOWN_STATUS_TONE = 'default';
 
 export function QuarantinePage({ api }: { api?: ApiClient }) {
   const { data, isLoading, error, addQuarantine } = useQuarantine(api);
@@ -91,10 +116,10 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
   return (
     <div data-testid="quarantine-page" className="p-8 space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-text-primary">Quarantine Management</h2>
+        <h1 className="text-balance text-3xl font-bold text-text-primary">Quarantine Management</h1>
         <button
           data-testid="add-quarantine-btn"
-          className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700"
+          className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           onClick={() => {
             setIsAdding(!isAdding);
             setAddError(null);
@@ -110,7 +135,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
           onSubmit={(event) => void addAsync(event)}
           className="bg-bg-elevated border border-border-default rounded-lg p-6 space-y-4"
         >
-          <h3 className="text-lg font-medium text-text-primary">Quarantine a Test</h3>
+          <h2 className="font-medium text-lg text-text-primary">Quarantine a Test</h2>
           <div>
             <label
               htmlFor="quarantine-test-title"
@@ -164,7 +189,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
           <button
             data-testid="submit-quarantine-btn"
             type="submit"
-            className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700"
+            className="px-4 py-2 bg-brand-500 text-on-fill rounded-md hover:bg-brand-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             Submit
           </button>
@@ -185,40 +210,74 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
       ) : (
         <div data-testid="quarantine-list" className="space-y-4">
           {data.map((entry) => (
-            <div
-              key={entry.id}
-              data-testid={`quarantine-item-${entry.id}`}
-              className="bg-bg-elevated border border-border-default rounded-lg p-4"
-            >
-              <div className="font-medium text-text-primary">{entry.testTitle}</div>
-              <div className="text-sm text-text-secondary">{entry.testFile}</div>
-              {entry.reason && (
-                <div className="text-sm text-warning mt-2">Reason: {entry.reason}</div>
-              )}
+            <div key={entry.id} data-testid={`quarantine-item-${entry.id}`}>
               {/*
-                The status is the point of the list, and the colour is the part a
-                reader trusts fastest, so it has to agree with the word.
+                A row with a surface, and its facts in a definition list.
+              *
+              * **Both halves are the primitives the plan said were missing.** The entry was
+              * four sibling `<div>`s — title, file, reason, status — which is a definition
+              * list that no screen reader can read as one: `DefinitionListDetail` is a `<dd>`,
+              * so the pair is announced as a unit rather than as four strings. And the row had
+              * no hover or focus treatment, so a list a person scans with their eye gave the
+              * eye nothing to track — the same defect the Cockpit's queue had and the same
+              * fix, because it is now a rule rather than a decision.
 
-                It did not. `approved` was `text-error` and `rejected` was
-                `text-success` — an approval rendered in the failure colour and a
-                rejection in the pass colour, on the screen whose entire job is to
-                say which is which. Both branches are now the plain verdict: green
-                for approved, danger for rejected, warning for pending, and
-                `text-text-secondary` for a status this component does not know,
-                which is what an unrecognised value deserves rather than being
-                silently coloured as "pending".
-
-                `pending` still means quarantined but undecided, so it counts in
-                the pass rate; `approved` is the decision that removes it. Showing
-                the file without that is how a reader concludes every entry listed
-                here is already excluded, which is false for every entry until
-                somebody acts on it.
+              `border-transparent` at rest and `border-border` on hover, so the resting state
+              is still a list rather than a stack of boxes.
               */}
-              <div
-                data-testid={`quarantine-status-${entry.id}`}
-                className={`text-sm mt-2 ${QUARANTINE_STATUS_TONE[entry.status] ?? 'text-text-secondary'}`}
-              >
-                Status: {entry.status}
+              <div className="rounded-lg border border-transparent bg-bg-elevated p-4 transition-colors hover:border-border-default">
+                <DefinitionList>
+                  <DefinitionListTerm>Test</DefinitionListTerm>
+                  <DefinitionListDetail>{entry.testTitle}</DefinitionListDetail>
+
+                  <DefinitionListTerm>File</DefinitionListTerm>
+                  <DefinitionListDetail>{entry.testFile}</DefinitionListDetail>
+
+                  {entry.reason === null ? null : (
+                    <>
+                      <DefinitionListTerm>Reason</DefinitionListTerm>
+                      <DefinitionListDetail>{entry.reason}</DefinitionListDetail>
+                    </>
+                  )}
+
+                  <DefinitionListTerm>Quarantined</DefinitionListTerm>
+                  <DefinitionListDetail>
+                    {formatDate(entry.quarantinedAt, 'not recorded')}
+                  </DefinitionListDetail>
+
+                  <DefinitionListTerm>Status</DefinitionListTerm>
+                  <DefinitionListDetail>
+                    {/*
+                      The status is the point of the list, and the colour is the part a
+                      reader trusts fastest, so it has to agree with the word.
+
+                      It did not. `approved` was `text-error` and `rejected` was
+                      `text-success` — an approval rendered in the failure colour and a
+                      rejection in the pass colour, on the screen whose entire job is to
+                      say which is which. Both branches are now the plain verdict: green
+                      for approved, danger for rejected, warning for pending, and
+                      `text-text-secondary` for a status this component does not know,
+                      which is what an unrecognised value deserves rather than being
+                      silently coloured as "pending".
+
+                      `pending` still means quarantined but undecided, so it counts in
+                      the pass rate; `approved` is the decision that removes it. Showing
+                      the file without that is how a reader concludes every entry listed
+                      here is already excluded, which is false for every entry until
+                      somebody acts on it.
+
+                      The word and the colour now sit together in a `Badge` rather than a
+                      class on a `<div>`, so the verdict cannot be read one way and
+                      coloured another: one element owns both.
+                    */}
+                    <Badge
+                      data-testid={`quarantine-status-${entry.id}`}
+                      variant={QUARANTINE_STATUS_TONE[entry.status] ?? UNKNOWN_STATUS_TONE}
+                    >
+                      {entry.status}
+                    </Badge>
+                  </DefinitionListDetail>
+                </DefinitionList>
               </div>
             </div>
           ))}

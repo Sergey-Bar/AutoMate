@@ -18,7 +18,7 @@ import {
 import { Route as dashboardRoute } from '../dashboard.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
 import type { QaScore } from '../../lib/qa.js';
-import { useResource } from './use-resource.js';
+import { useResource } from '../../hooks/useResource.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,

@@ -119,7 +119,17 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
       <dialog
         ref={internalRef}
         className={cn(
-          'backdrop:bg-surface/50 open:animate-fade-in open:duration-150 p-0 rounded-lg shadow-elevation-3 border border-border bg-surface text-fg max-w-lg w-full',
+          /*
+           * **The dialog rises.** `animate-automate-slide-in` is the transition role:
+           * opacity plus an 8% `translateY`, over 300 ms on `in-out`, because a dialog is
+           * crossing the viewport and a panel that only fades in place reads as appearing
+           * — which is the `enter` role, and a different thing.
+           *
+           * The name is the decision. `open:animate-fade-in` said "it animates" and left the
+           * direction to whoever read it next, which is how a drawer, a dialog, a popover
+           * and a palette all ended up on whatever the first one used.
+           */
+          'backdrop:bg-surface/50 open:animate-automate-slide-in p-0 rounded-lg shadow-elevation-3 border border-border bg-surface text-fg max-w-lg w-full',
           className,
         )}
         onKeyDown={handleKeyDown}
@@ -158,7 +168,7 @@ export const DialogTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHea
   ({ className, children, ...props }, ref) => (
     <h2
       ref={ref}
-      className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      className={cn('text-lg font-semibold leading-snug tracking-tight text-balance', className)}
       {...props}
     >
       {children}

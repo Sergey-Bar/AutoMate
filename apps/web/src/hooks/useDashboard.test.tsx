@@ -557,6 +557,44 @@ function signalAt(call: unknown[] | undefined, index: number): AbortSignal | und
 }
 
 describe('dashboard hook cancellation', () => {
+  /**
+   * The blank run-detail page, as the route-level axe gate found it.
+   *
+   * A superseded refresh settles *after* its replacement has started, and **its `finally`
+   * is what clears the loading flag**. `mountedRef.current` cannot answer "am I still the
+   * refresh that matters?", because it is a single boolean shared by every refresh the
+   * component has ever started: by the time the aborted request rejects, the next effect
+   * has already set it back to `true`. So the flag goes false, the run is still `null`,
+   * and `RunDetailPage` returns `null` — `<main>` renders an empty `<div>`, and a person
+   * waiting on a slow run looks at a blank screen.
+   *
+   * Two things produce a superseded refresh, and both are ordinary: `React.StrictMode`,
+   * which `main.tsx` mounts and which runs every first-commit effect twice, and a route
+   * change from one run to another. The test drives the second because it does not depend
+   * on the React build's development-mode behaviour.
+   *
+   * `useAnalytics` has always had the right guard (`if (!signal.aborted)`), which is what
+   * makes this a one-line fix rather than a redesign.
+   */
+  it('keeps run detail loading when the refresh that settles is a superseded one', async () => {
+    const api = makeApi({ getRun: vi.fn((_id, options) => fetchAborting(options?.signal)) });
+    const { result, rerender } = renderHook(({ id }) => useRunDetail(id, api), {
+      initialProps: { id: 'run-a' },
+    });
+    await waitFor(() => expect(api.getRun).toHaveBeenCalledTimes(1));
+
+    rerender({ id: 'run-b' });
+    await waitFor(() => expect(api.getRun).toHaveBeenCalledTimes(2));
+    // Run A's abort rejection and its `finally` have now run; run B is still in flight,
+    // so the route must still be in its loading state.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.run).toBeNull();
+  });
+
   it('aborts the run request and cancels the whole snapshot on unmount', async () => {
     const signals: Record<string, AbortSignal> = {};
     const record = (key: string) => (signal: AbortSignal) => {

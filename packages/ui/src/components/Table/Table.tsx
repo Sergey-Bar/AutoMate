@@ -130,11 +130,34 @@ export const TableHead = forwardRef<HTMLTableCellElement, TableHeadProps>(
 );
 TableHead.displayName = 'TableHead';
 
-export const TableCell = forwardRef<HTMLTableCellElement, TdHTMLAttributes<HTMLTableCellElement>>(
-  ({ className, ...props }, ref) => (
+export interface TableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {
+  /**
+   * This cell holds a figure rather than a word.
+   *
+   * **A prop, not a heuristic.** `TableCell` cannot know which of its cells are numbers —
+   * the caller knows that — and a heuristic that guessed from the text would right-align a
+   * run id and set a digest in tabular figures. Saying so is also what makes the three
+   * properties below one decision instead of three call sites each.
+   */
+  numeric?: boolean;
+}
+
+export const TableCell = forwardRef<HTMLTableCellElement, TableCellProps>(
+  ({ className, numeric, ...props }, ref) => (
     <td
       ref={ref}
-      className={cn('p-4 align-middle [&:has([role=checkbox])]:pr-0', className)}
+      className={cn(
+        'p-4 align-middle [&:has([role=checkbox])]:pr-0',
+        /*
+         * `tabular-nums` because a digit is proportional by default and a column of scores
+         * shifts sideways every time one updates; `text-right` because a right edge is the
+         * only alignment that puts the last digit in the same place on every row; and
+         * `font-mono` because the design language sets JetBrains Mono for anything a
+         * person compares character by character, which a column of scores is.
+         */
+        numeric && 'tabular-nums text-right font-mono',
+        className,
+      )}
       {...props}
     />
   ),

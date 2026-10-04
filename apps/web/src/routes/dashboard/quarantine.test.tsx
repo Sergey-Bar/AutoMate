@@ -41,7 +41,7 @@ describe('QuarantinePage', () => {
     await waitFor(() => expect(screen.getByTestId('quarantine-item-q-1')).toBeInTheDocument());
     expect(screen.getByText(entry.testTitle)).toBeInTheDocument();
     expect(screen.getByText(entry.testFile)).toBeInTheDocument();
-    expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('Status: pending');
+    expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('pending');
   });
 
   it('ignores a submit with nothing filled in, and does not clear the form', async () => {
@@ -210,7 +210,7 @@ describe('QuarantinePage', () => {
       />,
     );
     await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
-    expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('Status: approved');
+    expect(screen.getByTestId('quarantine-status-q-1')).toHaveTextContent('approved');
   });
 
   /**
@@ -223,10 +223,10 @@ describe('QuarantinePage', () => {
    * pass — and a reader scanning for red found the one entry that had been approved.
    */
   it.each([
-    ['approved', 'text-success'],
-    ['rejected', 'text-danger'],
-    ['pending', 'text-warning'],
-  ] as const)('paints %s in %s', async (status, tone) => {
+    ['approved', 'bg-success'],
+    ['rejected', 'bg-danger'],
+    ['pending', 'bg-warning'],
+  ] as const)('paints %s in the %s tone', async (status, tone) => {
     render(
       <QuarantinePage
         api={stubApi({
@@ -235,7 +235,38 @@ describe('QuarantinePage', () => {
       />,
     );
     await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
-    expect(screen.getByTestId('quarantine-status-q-1')).toHaveClass(tone);
+    const element = screen.getByTestId('quarantine-status-q-1');
+    expect(element).toHaveClass(tone);
+    // The other two tones, by name. `Badge` paints a verdict as a filled pill, so asserting
+    // one tone is not enough: a badge carrying both `bg-success` and `bg-danger` would pass
+    // the check above and tell the reader two things at once.
+    for (const other of ['bg-success', 'bg-danger', 'bg-warning'].filter(
+      (candidate) => candidate !== tone,
+    )) {
+      expect(element.className, 'a verdict carries exactly one tone').not.toContain(other);
+    }
+  });
+
+  /**
+   * The word and the tone are the same element.
+   *
+   * **This is the property DESIGN-1 was about, and nothing here asserted it.** The screen
+   * once rendered the status as text in one element and coloured a different one, so a verdict
+   * could read "approved" in amber. Both are now one `Badge`, and this is the case that fails
+   * if someone splits them again.
+   */
+  it('puts the verdict and its colour in one element', async () => {
+    render(
+      <QuarantinePage
+        api={stubApi({
+          getQuarantine: vi.fn().mockResolvedValue([{ ...entry, status: 'approved' }]),
+        })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
+    const element = screen.getByTestId('quarantine-status-q-1');
+    expect(element.textContent?.trim()).toBe('approved');
+    expect(element).toHaveClass('bg-success');
   });
 
   it('does not paint a verdict it does not recognise', async () => {
@@ -249,7 +280,12 @@ describe('QuarantinePage', () => {
     );
     await waitFor(() => expect(screen.getByTestId('quarantine-status-q-1')).toBeInTheDocument());
     const status = screen.getByTestId('quarantine-status-q-1');
-    expect(status).toHaveClass('text-text-secondary');
-    expect(status).not.toHaveClass('text-warning');
+    // The neutral badge, not `pending`'s amber. `Badge`'s default variant is
+    // `border-transparent bg-accent`, so the assertion is on the absence of the three
+    // verdict tones rather than on a muted text class the badge does not use.
+    for (const tone of ['bg-success', 'bg-danger', 'bg-warning']) {
+      expect(status.className, 'an unrecognised verdict inherits no tone').not.toContain(tone);
+    }
+    expect(status.textContent?.trim()).toBe('appealed');
   });
 });

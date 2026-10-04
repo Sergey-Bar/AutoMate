@@ -151,3 +151,63 @@ describe('Table keyboard operation', () => {
     expect(screen.getByRole('columnheader', { name: 'Run' }).querySelector('button')).toBeNull();
   });
 });
+
+/**
+ * A numeric cell, and the three things it has to be.
+ *
+ * `TableCell` cannot know which of its cells hold figures — a caller knows that and the
+ * component does not — so `numeric` is the caller saying so, and it is a prop rather than
+ * a heuristic because a heuristic that guessed "this looks like a number" would right-align
+ * a run id and set a digest in tabular figures.
+ *
+ * Three properties, and each is a decision:
+ *
+ * 1. **`tabular-nums`** — a digit is proportional by default, so a column of scores shifts
+ *    sideways every time one updates. This is the defect the documentation site has not had
+ *    since it was written and the product has had throughout.
+ * 2. **`text-right`** — figures are compared down a column, and a right edge is the only
+ *    alignment where the *last* digit is in the same place on every row.
+ * 3. **`font-mono`** — the design language says JetBrains Mono for anything a person
+ *    compares character by character, and a column of scores is that.
+ */
+describe('a numeric cell', () => {
+  function renderNumeric(extra?: { className?: string }): HTMLElement {
+    render(
+      <Table>
+        <TableBody>
+          <TableRow>
+            <TableCell numeric {...extra}>
+              0.72
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    return screen.getByRole('cell');
+  }
+
+  it('aligns figures to the right, in tabular numerals, in the reading face', () => {
+    const cell = renderNumeric();
+    expect(cell).toHaveClass('tabular-nums', 'text-right', 'font-mono');
+  });
+
+  it('leaves a text cell alone', () => {
+    render(
+      <Table>
+        <TableBody>
+          <TableRow>
+            <TableCell>security</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    const cell = screen.getByRole('cell');
+    expect(cell.className).not.toContain('tabular-nums');
+    expect(cell.className).not.toContain('font-mono');
+  });
+
+  it('lets a caller add a class without losing the three', () => {
+    const cell = renderNumeric({ className: 'text-fg-muted' });
+    expect(cell).toHaveClass('tabular-nums', 'text-right', 'font-mono', 'text-fg-muted');
+  });
+});

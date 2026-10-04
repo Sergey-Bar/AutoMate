@@ -93,17 +93,28 @@ export async function authenticate(
 }
 
 /**
- * Exchange the installation key for a session, waiting out the login rate limit
- * once if it is hit.
+ * Exchange the installation key for a session, waiting out the login rate limit.
  *
  * The limit is 5 attempts per address per 60 seconds, and it is real on purpose —
  * login is the one unauthenticated endpoint. One mint per worker process normally
- * keeps the suite well inside it, but a developer who runs the suite twice inside
- * a minute spends the budget of the first run, and a 429 in the second run is an
- * artefact of how fast it was started, not a product failure. One bounded retry
- * turns that into a slower pass; it never turns a real refusal into a pass,
- * because the wait is bounded and the second attempt is still asserted.
+ * keeps the suite well inside it, but two things spend more than that:
+ *
+ *  - a developer who runs the suite twice inside a minute, which spends the first
+ *    run's budget; and
+ *  - **a retry.** Playwright's `retries` re-runs a failed test in a fresh worker,
+ *    and a fresh worker has an empty module cache, so `minted` is null again and
+ *    the session is minted a second time. The accessibility project made this
+ *    visible: 66 generated tests, one real mint, and then every retry after it
+ *    spending another of the five.
+ *
+ * So the wait loops, bounded, rather than retrying once. **A loop cannot turn a
+ * real refusal into a pass**: the bound is a count of attempts, every attempt is
+ * still asserted to be 200, and a permanently refused login fails on the last
+ * one with the server's own message. What it removes is a failure that says
+ * `LOGIN_RATE_LIMITED` about the test suite's own pacing.
  */
+const RATE_LIMIT_ATTEMPTS = 4;
+
 async function mintSession(request: APIRequestContext): Promise<string | undefined> {
   const attempt = async (): Promise<{ status: number; setCookie?: string; body: string }> => {
     const response = await request.post(`${API_BASE}/api/v1/auth/login`, {
@@ -118,29 +129,25 @@ async function mintSession(request: APIRequestContext): Promise<string | undefin
     };
   };
 
-  const first = await attempt();
-  if (first.status === 200) return first.setCookie;
-
-  if (first.status === 429) {
+  let last = await attempt();
+  for (let round = 0; last.status === 429 && round < RATE_LIMIT_ATTEMPTS; round += 1) {
     const retryAfter = (() => {
       try {
-        return Number((JSON.parse(first.body) as { retryAfterSeconds?: number }).retryAfterSeconds);
+        return Number(
+          (JSON.parse(last.body) as { error?: { details?: { retryAfterSeconds?: number } } }).error
+            ?.details?.retryAfterSeconds,
+        );
       } catch {
         return Number.NaN;
       }
     })();
     const waitMs = Number.isFinite(retryAfter) ? Math.min(retryAfter, 60) * 1000 + 500 : 5_000;
     await new Promise((resolve) => setTimeout(resolve, waitMs));
-    const second = await attempt();
-    expect(
-      second.status,
-      `POST /api/v1/auth/login after waiting out the rate limit -> ${second.status} ${second.body}`,
-    ).toBe(200);
-    return second.setCookie;
+    last = await attempt();
   }
 
-  expect(first.status, `POST /api/v1/auth/login -> ${first.status} ${first.body}`).toBe(200);
-  return first.setCookie;
+  expect(last.status, `POST /api/v1/auth/login -> ${last.status} ${last.body}`).toBe(200);
+  return last.setCookie;
 }
 
 /** The session cookie the browser is currently presenting, if any. */

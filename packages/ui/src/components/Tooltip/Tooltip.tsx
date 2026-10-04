@@ -22,7 +22,7 @@ export const Tooltip = forwardRef<HTMLDivElement, TooltipProps>(
         {children}
         {isVisible && (
           <div
-            className="absolute z-50 px-3 py-1.5 text-xs text-fg bg-surface-muted rounded-md shadow-md -top-2 left-1/2 transform -translate-x-1/2 -translate-y-full animate-zoom-in-95 duration-150 pointer-events-none whitespace-nowrap border border-border"
+            className="absolute z-popover px-3 py-1.5 text-xs text-fg bg-surface-muted rounded-md shadow-md -top-2 left-1/2 transform -translate-x-1/2 -translate-y-full animate-zoom-in-95 duration-150 pointer-events-none whitespace-nowrap border border-border"
             role="tooltip"
           >
             {content}

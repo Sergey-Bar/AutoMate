@@ -68,7 +68,7 @@
  * `is_complete: true` and no degraded analyzers.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -85,13 +85,45 @@ const repoRoot = path.resolve(import.meta.dirname, '..');
 /** The one directory this gate reads. Scoped, so a new tree cannot silently widen it. */
 export const SKILL_ROOT = path.join(repoRoot, '.kilo', 'skills');
 
-/** The vendored skills, by name. Each is recorded with a hash in `skills-lock.json`. */
-export const VENDORED = Object.freeze([
-  'supabase-postgres-best-practices',
-  'vercel-composition-patterns',
-  'vercel-react-best-practices',
-  'web-design-guidelines',
-]);
+/**
+ * The vendored skills, by name — **derived from `skills-lock.json`, never restated.**
+ *
+ * This was a hand-written array of four names. The lock file beside it records every
+ * vendored skill with its upstream and a content hash, so the two were two authorities
+ * for one list, and vendoring a fifth skill did not change the count the gate printed:
+ * the provenance line read "4 authored, 4 vendored" over a tree of twenty-one
+ * directories, because the number came from the array and the skills came from the
+ * lock. `scripts/lib/skill-scan.test.mjs` now fails if the two disagree, in both
+ * directions — an array cannot be checked against a file that moves.
+ *
+ * Read at module load rather than per call because it is printed once per scan and the
+ * lock is three lines.
+ *
+ * @returns {readonly string[]} the sorted vendored skill names
+ */
+export const VENDORED = Object.freeze(
+  Object.keys(
+    JSON.parse(readFileSync(path.join(repoRoot, 'skills-lock.json'), 'utf8')).skills,
+  ).sort(),
+);
+
+/**
+ * The skills this repository wrote itself, counted from the tree rather than typed in.
+ *
+ * The `4` beside `VENDORED.length` used to be a literal in the format string, which is
+ * the same defect one string over: the gate reported "4 authored" while nine directories
+ * in `SKILL_ROOT` had no upstream. A folder that carries neither a lock row nor an
+ * upstream is an instruction surface with no provenance, so the count is read from the
+ * tree — a directory that is not in the lock is this repository's own.
+ *
+ * @returns {number}
+ */
+export function authoredSkillCount() {
+  return readdirSync(SKILL_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => !VENDORED.includes(name)).length;
+}
 
 /**
  * Whether `skillspector` can produce a scan on this host.
@@ -316,7 +348,7 @@ export function main() {
     lines.push(`  degraded analyzers   ${completeness.degraded.join(', ')}`);
   }
   lines.push(
-    `  provenance           4 authored, ${VENDORED.length} vendored; source + hash in skills-lock.json`,
+    `  provenance           ${authoredSkillCount()} authored, ${VENDORED.length} vendored; source + hash in skills-lock.json`,
   );
 
   if (!verdict.ok && newFindings.length === 0) {

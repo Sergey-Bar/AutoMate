@@ -8,7 +8,7 @@ const selectVariants = cva(
     variants: {
       variant: {
         default: 'border-border-default text-text-primary',
-        error: 'border-error text-error focus-visible:outline-error',
+        error: 'border-error text-error',
       },
     },
     defaultVariants: {

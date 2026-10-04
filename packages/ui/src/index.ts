@@ -4,7 +4,23 @@ export * from './components/Select/Select.js';
 export * from './components/Toggle/Toggle.js';
 export * from './components/EmptyState/EmptyState.js';
 export * from './lib/utils.js';
-export * from './tokens/index.js';
+/*
+ * The glass policy, and nothing else.
+ *
+ * There used to be a `tokens/` barrel here that also exported a `tokens` object and a
+ * `tailwindPreset` carrying seven token groups. The preset had no importer anywhere in
+ * the repository, and the five non-colour tables it fed — typography, spacing, radii,
+ * shadows, z-index — were asserted by a test and rendered by nothing. Their scales are
+ * declared in `theme.css` and asserted against the stylesheet there, and the tables are
+ * gone. `colors.ts` and `motion.ts` are read directly by `theme.test.ts` and
+ * `motion.test.ts`, which is where they belong.
+ *
+ * `glass.ts` is re-exported because it is not a value table: it is the *rules* — a
+ * fill floor, two scheduled ranges, a radius ceiling and the list of `backdrop-*`
+ * utilities a component may write — and `eslint.config.js`, `theme.test.ts` and
+ * `theme-resolution.test.ts` all import it by name.
+ */
+export * from './tokens/glass.js';
 
 export * from './components/Card/Card.js';
 export * from './components/Badge/Badge.js';
@@ -31,6 +47,17 @@ export * from './components/NavItem/NavItem.js';
 export * from './components/Toast/Toast.js';
 export * from './components/Drawer/Drawer.js';
 export * from './components/Popover/Popover.js';
+/*
+ * The three primitives that were missing, added by the frontend-finish plan's W7.
+ *
+ * Each one is a *decision* rather than a convenience, and the decision is named at the
+ * top of its own file: `DefinitionList` is the only markup that says "term, value" to a
+ * screen reader; `Meter` has three states because "no measurement" is not a low value;
+ * `Sparkline` shows shape and stops short of being a chart.
+ */
+export * from './components/DefinitionList/DefinitionList.js';
+export * from './components/Meter/Meter.js';
+export * from './components/Sparkline/Sparkline.js';
 // The icon list. Exported so an application component can draw a shape without
 // taking a second dependency edge on `lucide-react` to do it — see the header in
 // `icons.ts` for the measured reason that matters here.

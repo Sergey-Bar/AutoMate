@@ -30,6 +30,13 @@ function mockAuthenticatedApi(): void {
       const url = String(input);
       if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
       if (url.endsWith('/api/v1/runs')) return new Response('[]', { status: 200 });
+      // `/dashboard` is the cockpit now, and the cockpit reads the registry first. An
+      // empty registry is the cheapest honest answer here: these tests are about
+      // *routing*, and the onboarding screen is what an install with no project
+      // renders.
+      if (url.endsWith('/api/v1/projects')) {
+        return new Response(JSON.stringify({ projects: [] }), { status: 200 });
+      }
       return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
     }),
   );
@@ -43,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the root route owns the redirect to the command center', () => {
+describe('the root route owns the redirect to the cockpit', () => {
   // This is the shape that made the render above cost 15 seconds instead of 1.5.
   //
   // The redirect was a rendered `<Navigate>` on a child route declared with
@@ -79,20 +86,26 @@ describe('the root route owns the redirect to the command center', () => {
 });
 
 describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
-  it('activates the dashboard route and renders the release command center', async () => {
+  it('activates the dashboard route and renders the cockpit', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Release Command Center' })).toBeInTheDocument();
+    await waitFor(
+      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      { timeout: RENDER_TIMEOUT_MS },
+    );
+    expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
   });
 
-  it('redirects the root route to the command center instead of a placeholder home', async () => {
+  it('redirects the root route to the cockpit instead of a placeholder home', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/']} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument(), {
-      timeout: RENDER_TIMEOUT_MS,
-    });
-    expect(screen.getByRole('heading', { name: 'Release Command Center' })).toBeInTheDocument();
+    // The heading, not a sub-state testid: the cockpit has two states — a report and
+    // an onboarding screen — and both are named `Automate`, so this assertion holds
+    // whichever one a bare install is in.
+    await waitFor(
+      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      { timeout: RENDER_TIMEOUT_MS },
+    );
   });
 
   it('settles in one navigation rather than looping toward the update bound', async () => {
@@ -110,10 +123,15 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(container.querySelectorAll('[data-testid="dashboard-page"]')).toHaveLength(1);
   });
 
-  it('navigates from the command center to the runs list in one click', async () => {
+  it('navigates from the cockpit to the runs list in one click', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
-    await waitFor(() => expect(screen.getByTestId('dashboard-page')).toBeInTheDocument());
+    await waitFor(
+      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      {
+        timeout: RENDER_TIMEOUT_MS,
+      },
+    );
 
     // Asserted on what rendered, not on `window.location`: `MemoryRouter` builds a
     // memory history, so the browser location is `/` for the whole test and an
@@ -123,8 +141,13 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     const runs = screen.getAllByRole('link', { name: /runs/i })[0];
     expect(runs).toBeDefined();
     fireEvent.click(runs as HTMLElement);
-    await waitFor(() => expect(screen.queryByTestId('dashboard-page')).not.toBeInTheDocument(), {
+    // The **cockpit body** goes, not the layout: `/dashboard-page` is the layout that
+    // wraps either the cockpit or the child, so it is still here — and it *should* be,
+    // because a layout that unmounted with its child would remount every child on
+    // every navigation.
+    await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument(), {
       timeout: RENDER_TIMEOUT_MS,
     });
+    expect(screen.queryByTestId('cockpit')).not.toBeInTheDocument();
   });
 });

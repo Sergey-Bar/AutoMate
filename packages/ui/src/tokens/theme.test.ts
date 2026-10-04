@@ -1,9 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { builtInColorNames, ramps, semanticColorTokens } from './colors.js';
-import { tokens } from './index.js';
+import { builtInColorNames, colors, ramps, semanticColorTokens } from './colors.js';
+import {
+  GLASS_BLUR_PX,
+  GLASS_MAX_RADIUS_PX,
+  GLASS_MIN_FILL_PERCENT,
+  GLASS_SATURATE,
+} from './glass.js';
+import { motion as motionTokens } from './motion.js';
+
+/** The two surviving token groups, as the barrel no longer assembles them. */
+const tokens = { colors, motion: motionTokens };
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const themeCss = readFileSync(path.join(here, 'theme.css'), 'utf8');
@@ -177,17 +186,514 @@ const DARK_SELECTOR = ':root,[data-theme="dark"]';
 const LIGHT_SELECTOR = '[data-theme="light"]';
 const BOTH_SELECTORS = [DARK_SELECTOR, LIGHT_SELECTOR];
 
+const normalise = (text: string): string => text.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Every `@theme` block in the stylesheet, concatenated, with comments removed.
+ *
+ * `@theme` and `@theme inline` are both read, and the two are told apart at the point
+ * of use rather than here — `theme.css` puts the per-theme `color-mix` fills in an
+ * `inline` block because they have to resolve against the theme in force, and a helper
+ * that lost that distinction would let a literal into the block meant for references.
+ *
+ * **Comments are stripped before the at-rules are located**, because this stylesheet's
+ * comments mention `@theme` by name several times: the elevation block's own header
+ * says "This is a `@theme` block rather than `@theme inline`", and an `indexOf` that
+ * did not strip comments would start a block at that sentence and pair it with the next
+ * `{` in the file. The symptom is a scale that reads as absent while it is right there.
+ *
+ * Brace-matched rather than regex-matched, because the blocks contain nested rules and
+ * a regex would stop at the first `}` and pass.
+ */
+function themeBlocks(): string {
+  const declarationsOnly = themeCss.replace(/\/\*[\s\S]*?\*\//g, '');
+  const bodies: string[] = [];
+  let index = 0;
+  for (;;) {
+    const start = declarationsOnly.indexOf('@theme', index);
+    if (start === -1) break;
+    const open = declarationsOnly.indexOf('{', start);
+    if (open === -1) break;
+    let depth = 0;
+    let closed = -1;
+    for (let cursor = open; cursor < declarationsOnly.length; cursor += 1) {
+      if (declarationsOnly[cursor] === '{') depth += 1;
+      else if (declarationsOnly[cursor] === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          closed = cursor;
+          break;
+        }
+      }
+    }
+    if (closed === -1) break;
+    bodies.push(declarationsOnly.slice(open + 1, closed));
+    index = closed + 1;
+  }
+  return bodies.join('\n');
+}
+
+/** The `@theme` declarations whose name starts with `prefix`, name → value. */
+function themeScale(prefix: string): Map<string, string> {
+  const declared = new Map<string, string>();
+  for (const body of themeBlocks().split('\n')) {
+    const match = new RegExp(
+      `^\\s*(${prefix.replace(/-/g, '\\-')}[a-z0-9-]+)\\s*:\\s*(.+?);?\\s*$`,
+    ).exec(body);
+    if (match?.[1] === undefined || match[2] === undefined) continue;
+    // Modifiers stay in the map. `--text-xs--line-height` is a line-height rather than a
+    // size, and a size lookup is an exact `get('--text-xs')`, so the extra key cannot be
+    // mistaken for one.
+    //
+    // Filtering it out with `includes('--')` was the first attempt and it removed *every*
+    // declaration in the stylesheet, because a custom property opens with `--`. The scale
+    // then read as "theme.css declares nothing" from every call site at once, which is a
+    // misleading failure rather than a merely wrong one.
+    declared.set(match[1], match[2].trim());
+  }
+  return declared;
+}
+
+/** One declaration by exact name, wherever in the `@theme` blocks it sits. */
+function themeValue(variable: string): string | undefined {
+  const escaped = variable.replace(/-/g, '\\-');
+  for (const line of themeBlocks().split('\n')) {
+    const match = new RegExp(`^\\s*${escaped}\\s*:\\s*(.+?);?\\s*$`).exec(line);
+    if (match?.[1] !== undefined) return match[1].trim();
+  }
+  return undefined;
+}
+
+/**
+ * One declaration by exact name, **including a value that spans several lines**.
+ *
+ * `--automate-page-wash` is a two-stop gradient written across seven lines, and the
+ * single-line reader above returned the first line of it — which then contained neither
+ * `in oklab` nor a closing brace, and read as a declaration the product never made.
+ * Anything that is not a scalar has to be read up to its terminator, which is why this is
+ * a separate function rather than a flag on the other one.
+ */
+function themeValueBlock(variable: string): string | undefined {
+  const blocks = themeBlocks();
+  const start = blocks.search(new RegExp(`^\\s*${variable.replace(/-/g, '\\-')}\\s*:`, 'm'));
+  if (start === -1) return undefined;
+  const terminator = blocks.indexOf(';', start);
+  return (terminator === -1 ? blocks.slice(start) : blocks.slice(start, terminator + 1)).trim();
+}
+
+/** A `rem` declaration as rem. Throws on anything else, because a typo is not a value. */
+function rem(variable: string, scales: Map<string, string>): number {
+  const raw = scales.get(variable);
+  if (raw === undefined) throw new Error(`theme.css does not declare ${variable}`);
+  const match = /^(-?[\d.]+)rem$/.exec(raw);
+  if (match?.[1] === undefined) {
+    throw new Error(`${variable} is "${raw}", which is not a rem length`);
+  }
+  return Number(match[1]);
+}
+
+/**
+ * The order of a named scale, largest name last.
+ *
+ * Written out rather than derived, because the names are a *sequence* and a test that
+ * sorted them would be testing its own comparator. `xs` and `sm` come first for the
+ * reason given in the stylesheet: a dense console's caption and UI sizes sit below the
+ * ladder's base step and are floored at 12px.
+ */
+const TYPE_STEPS = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl'] as const;
+
+/** The steps on the geometric ladder — everything at or above `base`. */
+const LADDER_STEPS = TYPE_STEPS.slice(TYPE_STEPS.indexOf('base'));
+
+const LEADING_STEPS = ['none', 'tight', 'snug', 'normal', 'relaxed', 'loose'] as const;
+const TRACKING_STEPS = ['tighter', 'tight', 'normal', 'wide', 'wider', 'widest'] as const;
+const RADIUS_STEPS = ['none', 'sm', 'md', 'lg', 'xl', '2xl', 'full'] as const;
+const Z_INDEX_STEPS = ['base', 'chrome', 'overlay', 'popover', 'modal', 'toast'] as const;
+
+/** Every `.ts` module in this directory, as `{ name, body }`. */
+function tokenSourceFiles(): Array<{ name: string; body: string }> {
+  return readdirSync(here, { withFileTypes: true })
+    .filter(
+      (entry) => entry.isFile() && entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts'),
+    )
+    .map((entry) => ({
+      name: entry.name,
+      body: readFileSync(path.join(here, entry.name), 'utf8'),
+    }));
+}
+
+/**
+ * Every application source file that is not a test, as `{ name, body }`.
+ *
+ * Reached across the workspace rather than inside `packages/ui`, because the claim the wash
+ * exclusion makes is about where a *product* component puts it and `AppShell` is the only
+ * class that may. Walking the tree rather than importing it keeps this a source-level rule,
+ * which is the level at which "one place puts the background" is even a question.
+ */
+function webSourceFiles(): Array<{ name: string; body: string }> {
+  // Four levels, not three: `here` is `packages/ui/src/tokens`, so `../../..` is
+  // `packages/` — which has no `apps/` under it, so the walk found nothing and every
+  // assertion below it passed vacuously. A gate that measures nothing is the shape this
+  // file's own header complains about, and it is the reason the control arm exists.
+  const root = path.resolve(here, '../../../..');
+  const collected: Array<{ name: string; body: string }> = [];
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!/\.tsx?$/.test(entry.name) || entry.name.includes('.test.')) continue;
+      collected.push({
+        name: path.relative(root, full).replace(/\\/g, '/'),
+        body: readFileSync(full, 'utf8'),
+      });
+    }
+  };
+  for (const app of ['apps/web/src', 'packages/ui/src']) {
+    const full = path.join(root, app);
+    if (existsSync(full)) walk(full);
+  }
+  return collected;
+}
+
+/**
+ * The non-colour scales, read from the stylesheet that ships them.
+ *
+ * **This block is the wave's whole point.** `typography.ts`, `spacing.ts`, `radii.ts`,
+ * `shadows.ts` and `z-index.ts` existed, were asserted by a test, and rendered nothing:
+ * the only importer was `tailwindPreset`, and `tailwindPreset` had no importer at all.
+ * So `text-3xl` — the product's `h1` — compiled against whatever Tailwind ships by
+ * default, and `shadows.ts` was a second copy of Tailwind's default shadow scale
+ * standing beside `theme.css`'s three measured elevation steps. The assertions below
+ * read the stylesheet instead, which is what makes every later wave checkable: a
+ * heading's size, a panel's radius and a modal's stacking order are now properties a
+ * test can contradict rather than preferences a reviewer has to hold in their head.
+ */
+describe('the scales the product renders from', () => {
+  const text = themeScale('--text-');
+  const leading = themeScale('--leading-');
+  const tracking = themeScale('--tracking-');
+  const radius = themeScale('--radius-');
+  const zIndex = themeScale('--z-index-');
+
+  it('states the type ladder as a ratio, rather than leaving it to be inferred', () => {
+    // The ratio is a *number in the stylesheet*. A ladder whose steps are hand-tuned
+    // can only be reviewed, which is what happened: `theme.test.ts:278` asserted six
+    // sizes in a table nobody rendered while the product's heading was a seventh value
+    // no test could see.
+    const declared = themeScale('--automate-type-').get('--automate-type-ratio');
+    if (declared === undefined) {
+      throw new Error(
+        'theme.css does not declare --automate-type-ratio, so the relationship between ' +
+          'the sizes is implied rather than stated. That is the defect this assertion exists for.',
+      );
+    }
+    const ratio = Number(declared);
+    expect(Number.isFinite(ratio), `--automate-type-ratio is "${declared}"`).toBe(true);
+    expect(ratio).toBeGreaterThan(1.05);
+    expect(ratio).toBeLessThan(1.35);
+  });
+
+  it.each(LADDER_STEPS)('puts %s one declared ratio above the step below it', (step) => {
+    const ratio = Number(themeScale('--automate-type-').get('--automate-type-ratio'));
+    const base = rem('--text-base', text);
+    const position = LADDER_STEPS.indexOf(step);
+    const expected = base * Math.pow(ratio, position);
+    const measured = rem(`--text-${step}`, text);
+    expect(
+      Math.abs(measured - expected) / expected,
+      `--text-${step} is ${String(measured)}rem and the ladder says it should be ` +
+        `${expected.toFixed(4)}rem (base ${String(base)}rem x ${String(ratio)}^${String(position)})`,
+    ).toBeLessThan(0.005);
+  });
+
+  it('orders every size, and floors the two sub-base steps at 12px', () => {
+    const sizes = TYPE_STEPS.map((step) => ({ step, size: rem(`--text-${step}`, text) }));
+    for (const [index, entry] of sizes.entries()) {
+      const next = sizes[index + 1];
+      expect(
+        next === undefined || entry.size < next.size,
+        `--text-${entry.step} (${String(entry.size)}rem) is not smaller than ` +
+          `${next === undefined ? 'nothing' : `--text-${next.step} (${String(next.size)}rem)`}`,
+      ).toBe(true);
+    }
+    // 12px, not 11: `xs` is a caption size and a helper-text size, and it is also the
+    // floor for anything that has to survive iOS Safari's 16px input zoom rule and the
+    // "rarely below 12px" guidance. `sm` is 14px — the dense-console UI size — and is
+    // why the product uses it 94 times.
+    for (const step of ['xs', 'sm']) {
+      const px = rem(`--text-${step}`, text) * 16;
+      expect(px, `--text-${step} is ${String(px)}px`).toBeGreaterThanOrEqual(12);
+      expect(
+        px,
+        `--text-${step} is ${String(px)}px, which is body size wearing a caption's name`,
+      ).toBeLessThan(16);
+    }
+  });
+
+  it('gives every size a line-height, and keeps the text end at or above 1.4', () => {
+    // 1.4 is the floor from the typography checklist: anything that wraps to three or
+    // more lines needs it, even in a height-constrained row. `text-xs` and `text-sm`
+    // carry 149 uses between them in this product — helper text, run ids, timestamps,
+    // captions — and most of it wraps.
+    for (const step of TYPE_STEPS) {
+      const value = text.get(`--text-${step}--line-height`);
+      expect(value, `--text-${step} has no declared line-height`).toBeDefined();
+    }
+    for (const step of TYPE_STEPS) {
+      const lineHeight = Number(text.get(`--text-${step}--line-height`));
+      if (rem(`--text-${step}`, text) <= rem('--text-lg', text)) {
+        expect(
+          lineHeight,
+          `--text-${step} sits at ${String(lineHeight)}, under the 1.4 that three wrapped ` +
+            'lines need',
+        ).toBeGreaterThanOrEqual(1.4);
+      }
+    }
+  });
+
+  it('tightens headings and declares the standalone leading scale in order', () => {
+    // Two claims, one block. The named scale exists because `leading-*` is what
+    // components write, and a component writing an arbitrary `leading-[1.05]` is
+    // writing a value the stylesheet does not own.
+    for (const step of TYPE_STEPS) {
+      const lineHeight = Number(text.get(`--text-${step}--line-height`));
+      if (rem(`--text-${step}`, text) >= rem('--text-3xl', text)) {
+        expect(
+          lineHeight,
+          `--text-${step} is a display size and sits at ${String(lineHeight)}, where a ` +
+            'wrapped heading collides its own second line',
+        ).toBeLessThanOrEqual(1.2);
+      }
+    }
+    const values = LEADING_STEPS.map((step) => Number(leading.get(`--leading-${step}`)));
+    for (const value of values) expect(Number.isFinite(value)).toBe(true);
+    for (const [index, value] of values.entries()) {
+      const next = values[index + 1];
+      if (next === undefined) continue;
+      expect(
+        value,
+        `--leading-${LEADING_STEPS[index]} (${String(value)}) is not below ` +
+          `--leading-${LEADING_STEPS[index + 1]} (${String(next)})`,
+      ).toBeLessThan(next);
+    }
+  });
+
+  it('declares a letter-spacing scale that closes up large and opens up small', () => {
+    // The sign is the rule, not the magnitude: a display size at positive tracking
+    // reads loose and a 12px uppercase label at negative tracking reads crowded. So
+    // `normal` is the hinge and the assertion is on the sides of it.
+    const values = TRACKING_STEPS.map((step) => {
+      const raw = tracking.get(`--tracking-${step}`);
+      expect(raw, `theme.css does not declare --tracking-${step}`).toBeDefined();
+      const match = /^(-?[\d.]+)em$/.exec(raw ?? '');
+      if (match?.[1] === undefined) {
+        throw new Error(`--tracking-${step} is "${String(raw)}", which is not an em length`);
+      }
+      return { step, em: Number(match[1]) };
+    });
+    for (const [index, entry] of values.entries()) {
+      const next = values[index + 1];
+      if (next === undefined) continue;
+      expect(
+        entry.em,
+        `--tracking-${entry.step} (${String(entry.em)}em) is not below ` +
+          `--tracking-${next.step} (${String(next.em)}em)`,
+      ).toBeLessThan(next.em);
+    }
+    for (const entry of values) {
+      if (entry.step === 'tighter' || entry.step === 'tight') {
+        expect(entry.em, `--tracking-${entry.step} is not negative`).toBeLessThan(0);
+      }
+      if (entry.step === 'wide' || entry.step === 'wider' || entry.step === 'widest') {
+        expect(entry.em, `--tracking-${entry.step} is not positive`).toBeGreaterThan(0);
+      }
+      if (entry.step === 'normal') expect(entry.em).toBe(0);
+    }
+  });
+
+  it('declares the spacing base unit, and declares it in rem', () => {
+    // 0.25rem is a 4px base with the 8px rhythm living in the even multiples. A bare
+    // number here is not a unit and cannot be asserted.
+    const declared = themeValue('--spacing');
+    expect(declared, 'theme.css does not declare --spacing').toBe('0.25rem');
+  });
+
+  it('declares the radius scale in order, and keeps the panel radius under the glass ceiling', () => {
+    const pixels = RADIUS_STEPS.map((step) => {
+      const raw = radius.get(`--radius-${step}`);
+      if (raw === undefined) throw new Error(`theme.css does not declare --radius-${step}`);
+      const match = /^(-?[\d.]+)(px|rem)$/.exec(raw);
+      if (match?.[1] === undefined || match[2] === undefined) {
+        throw new Error(`--radius-${step} is "${raw}", which is not a length`);
+      }
+      return { step, px: Number(match[1]) * (match[2] === 'rem' ? 16 : 1) };
+    });
+    for (const [index, entry] of pixels.entries()) {
+      const next = pixels[index + 1];
+      if (next === undefined || next.step === 'full') continue;
+      expect(
+        entry.px,
+        `--radius-${entry.step} (${String(entry.px)}px) is not smaller than ` +
+          `--radius-${next.step} (${String(next.px)}px)`,
+      ).toBeLessThan(next.px);
+    }
+    // The cross-check with the other authority. `--automate-glass-radius` is a 12px
+    // *ceiling* on the radius of a panel that has a translucent fill, and `xl` is the
+    // largest radius a panel uses. If `xl` grew past the ceiling, every glass surface
+    // would be rounding its own content, and the two numbers would disagree silently
+    // because they live in different files.
+    const xl = pixels.find((entry) => entry.step === 'xl');
+    expect(
+      xl?.px,
+      `--radius-xl (${String(xl?.px)}px) is past the glass radius ceiling of ` +
+        `${String(GLASS_MAX_RADIUS_PX)}px`,
+    ).toBeLessThanOrEqual(GLASS_MAX_RADIUS_PX);
+  });
+
+  it('names every stacking step, so no component has to know the numbers', () => {
+    // `z-50` and `z-10` were in six components and neither said what it was for. The
+    // numbers are not the decision; "toast above a modal" is. Both directions are
+    // asserted — the scale is declared, and nothing may write a bare number.
+    const values = Z_INDEX_STEPS.map((step) => {
+      const raw = zIndex.get(`--z-index-${step}`);
+      if (raw === undefined) throw new Error(`theme.css does not declare --z-index-${step}`);
+      return { step, value: Number(raw) };
+    });
+    for (const value of values) expect(Number.isFinite(value.value)).toBe(true);
+    for (const [index, entry] of values.entries()) {
+      const next = values[index + 1];
+      if (next === undefined) continue;
+      expect(
+        entry.value,
+        `--z-index-${entry.step} (${String(entry.value)}) is not below ` +
+          `--z-index-${next.step} (${String(next.value)})`,
+      ).toBeLessThan(next.value);
+    }
+  });
+
+  it('publishes the two families as Tailwind font utilities, not only as custom properties', () => {
+    // `--automate-font-sans` and `--automate-font-mono` were declared in `fonts.css`
+    // and read by `body`, so nothing inherited the wrong face — but `font-mono` was
+    // Tailwind's *default* mono stack, which on Windows resolves to Consolas. Every
+    // `font-mono` in this product — the run id, the digest, the score — was therefore
+    // rendering in the operating system's face rather than the committed one, in a
+    // product whose thesis is that evidence is set in JetBrains Mono.
+    //
+    // The two `@theme inline` declarations are what make the utility name the same
+    // decision `body` makes, and `inline` is required: it substitutes the `var()`
+    // rather than emitting a variable that points at another variable.
+    const fontsCss = readFileSync(path.join(here, 'fonts.css'), 'utf8');
+    for (const [utility, variable] of [
+      ['--font-sans', '--automate-font-sans'],
+      ['--font-mono', '--automate-font-mono'],
+    ]) {
+      expect(
+        fontsCss,
+        `fonts.css does not publish ${utility}, so ${utility} resolves to Tailwind's ` +
+          `default rather than to ${variable}`,
+      ).toMatch(new RegExp(`${utility}\\s*:\\s*var\\(${variable}\\)`));
+    }
+    // And the property they name has to exist, or the utility points at nothing.
+    for (const variable of ['--automate-font-sans', '--automate-font-mono']) {
+      expect(
+        new RegExp(`${variable.replace(/-/g, '\\-')}\\s*:\\s*[^;]+;`).test(fontsCss),
+        `fonts.css does not define ${variable}`,
+      ).toBe(true);
+    }
+  });
+
+  it('publishes a measure for prose and states that data is not prose', () => {
+    // 68ch, not Tailwind's `max-w-prose` and not the 60ch the swiss checklist asks
+    // for: the product's prose is a paragraph of explanation next to an instrument, and
+    // it runs a little wider than a magazine column because it is not being read as
+    // continuous text. It is a *ceiling on prose only*, which is why the value is a
+    // named utility rather than a `max-w-*` on a container.
+    const declared = themeScale('--max-w-').get('--max-w-measure');
+    expect(declared, 'theme.css does not declare --max-w-measure').toBe('68ch');
+  });
+});
+
+/**
+ * The body of a `@media` block, found by brace-matching from the at-rule.
+ *
+ * Brace-matching rather than a regex up to the first `}`, because these blocks
+ * contain nested selector lists with their own braces — a regex that stopped at
+ * the first `}` would assert against half the rule and pass.
+ */
+function mediaBody(atRule: string): string {
+  const start = themeCss.indexOf(atRule);
+  if (start === -1) throw new Error(`theme.css emits no ${atRule} rule`);
+  const open = themeCss.indexOf('{', start);
+  let depth = 0;
+  for (let index = open; index < themeCss.length; index += 1) {
+    if (themeCss[index] === '{') depth += 1;
+    else if (themeCss[index] === '}') {
+      depth -= 1;
+      if (depth === 0) return themeCss.slice(open + 1, index);
+    }
+  }
+  throw new Error(`the ${atRule} rule in theme.css is never closed`);
+}
+
+/**
+ * The `--automate-*` a selector declares inside an at-rule.
+ *
+ * Found by selector rather than by source text, for the reason `themeBlock`
+ * above gives: the stylesheet goes through Prettier, which collapses a
+ * selector list onto two lines with single quotes, and matching the exact
+ * source would fail on a formatting pass rather than on a token.
+ *
+ * At module scope rather than inside the escape-hatch `describe` it grew up in,
+ * because the glass assertions below read the same blocks and a second copy of a
+ * brace-matcher is a second thing to keep correct.
+ */
+function declaredIn(atRule: string, selector: string): Map<string, string> {
+  const body = mediaBody(atRule);
+  const wanted = normalise(selector).split(',').map(normalise);
+  for (const match of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const [, selectors, declarations] = match;
+    if (selectors === undefined || declarations === undefined) continue;
+    const each = selectors.split(',').map(normalise).filter(Boolean);
+    if (!each.every((part) => wanted.includes(part))) continue;
+    const declared = new Map<string, string>();
+    for (const entry of declarations.matchAll(/(--automate-[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+      const name = entry[1];
+      const value = entry[2];
+      if (name !== undefined && value !== undefined) declared.set(name, value.trim());
+    }
+    return declared;
+  }
+  throw new Error(`${atRule} has no block for ${selector}`);
+}
+
+const TRANSPARENCY = '@media (prefers-reduced-transparency: reduce)';
+const MORE_CONTRAST = '@media (prefers-contrast: more)';
+const FORCED = '@media (forced-colors: active)';
+const PLANE = [
+  '--automate-surface-sunken',
+  '--automate-surface',
+  '--automate-surface-raised',
+  '--automate-surface-muted',
+];
+
 describe('design token source', () => {
   it('exports the token groups consumers index into', () => {
-    expect(Object.keys(tokens).sort()).toEqual([
-      'colors',
-      'motion',
-      'radii',
-      'shadows',
-      'spacing',
-      'typography',
-      'zIndex',
-    ]);
+    // **Two, and that is the fix.** This used to assert seven — `colors`, `motion`,
+    // `radii`, `shadows`, `spacing`, `typography`, `zIndex` — over five tables whose
+    // only importer was this assertion. `tailwindPreset` built from them had no
+    // importer anywhere in the repository, so `text-3xl` (the cockpit's `h1`)
+    // compiled against Tailwind's default scale rather than any declared one, and
+    // `shadows.ts` was a second copy of Tailwind's default shadow scale beside
+    // `theme.css`'s measured `--shadow-elevation-1..3`.
+    //
+    // `colors` and `motion` survive because they have readers: `theme.test.ts` and
+    // `motion.test.ts` import them directly, and both assert against the stylesheet
+    // the values ship in. The five that had neither are gone, and their scales are
+    // asserted from `theme.css` below instead.
+    expect(Object.keys(tokens).sort()).toEqual(['colors', 'motion']);
   });
 
   it('defines an 11-step ramp for every hue', () => {
@@ -203,16 +709,23 @@ describe('design token source', () => {
     }
   });
 
-  it('defines the non-colour token groups with real values', () => {
-    expect(Object.keys(tokens.typography.fontFamily)).toHaveLength(2);
-    expect(Object.keys(tokens.typography.fontSize)).toHaveLength(6);
-    expect(Object.keys(tokens.typography.fontWeight)).toHaveLength(4);
-    expect(Object.keys(tokens.spacing).length).toBeGreaterThan(4);
-    expect(Object.keys(tokens.radii).length).toBeGreaterThan(2);
-    expect(Object.keys(tokens.shadows).length).toBeGreaterThan(2);
+  it('defines the motion token group with real values', () => {
     expect(Object.keys(tokens.motion.duration).length).toBeGreaterThan(1);
     expect(Object.keys(tokens.motion.easing).length).toBeGreaterThan(1);
-    expect(Object.keys(tokens.zIndex).length).toBeGreaterThan(2);
+  });
+
+  it('has no tailwind preset to keep in step with the stylesheet', () => {
+    // `tailwindPreset` was the whole reason the five tables were reachable: a preset
+    // is a *second* Tailwind theme, and a second Tailwind theme in a repository whose
+    // landed decision is "CSS stays the single token authority, no build step" is the
+    // defect `no-second-authority` exists to prevent. Asserted over the files rather
+    // than over an import, because an export nobody imports still imports fine — the
+    // previous `tokens` object was exactly that, and it took four waves to notice.
+    const offenders = tokenSourceFiles().filter((file) => /tailwindPreset/.test(file.body));
+    expect(
+      offenders.map((file) => file.name),
+      'a second Tailwind theme is back in the tokens directory beside the stylesheet that owns it',
+    ).toEqual([]);
   });
 
   it('declares every semantic colour name in the shipped theme', () => {
@@ -250,11 +763,27 @@ describe('design token source', () => {
 
   it('keeps only Tailwind built-ins outside the theme', () => {
     const declared = declaredColorNames(themeCss);
+    /**
+     * `--color-glass` is the one `--color-*` that is not a semantic colour token, and it
+     * is excluded here rather than added to `semanticColorTokens` for a concrete reason:
+     * every name in that table must be a literal `#rrggbb` **declared in both theme
+     * blocks**, which is what `defines a value for every semantic token in both themes`
+     * above checks. The glass fill is neither — it is `color-mix(... transparent)` against
+     * `--automate-surface`, declared once in `:root` because the mix resolves against
+     * whichever surface the theme has in force. Putting it in the table would have meant
+     * either restating it per theme or weakening a test that is right about the other
+     * thirty names.
+     *
+     * So the exception is one named entry with the reason attached, rather than a
+     * pattern that would quietly admit any future derived colour.
+     */
+    const DERIVED_FILLS = ['glass'];
     for (const name of declared) {
       expect(
         Object.keys(semanticColorTokens).includes(name) ||
+          DERIVED_FILLS.includes(name) ||
           (builtInColorNames as readonly string[]).includes(name),
-        `--color-${name} is neither a semantic token nor a Tailwind built-in`,
+        `--color-${name} is neither a semantic token, a declared derived fill, nor a Tailwind built-in`,
       ).toBe(true);
     }
   });
@@ -738,68 +1267,6 @@ describe('design token source', () => {
    */
   describe('the escape hatches degrade rather than override', () => {
     /**
-     * The body of a `@media` block, found by brace-matching from the at-rule.
-     *
-     * Brace-matching rather than a regex up to the first `}`, because these blocks
-     * contain nested selector lists with their own braces — a regex that stopped at
-     * the first `}` would assert against half the rule and pass.
-     */
-    function mediaBody(atRule: string): string {
-      const start = themeCss.indexOf(atRule);
-      if (start === -1) throw new Error(`theme.css emits no ${atRule} rule`);
-      const open = themeCss.indexOf('{', start);
-      let depth = 0;
-      for (let index = open; index < themeCss.length; index += 1) {
-        if (themeCss[index] === '{') depth += 1;
-        else if (themeCss[index] === '}') {
-          depth -= 1;
-          if (depth === 0) return themeCss.slice(open + 1, index);
-        }
-      }
-      throw new Error(`the ${atRule} rule in theme.css is never closed`);
-    }
-
-    const normalise = (text: string): string =>
-      text.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
-
-    /**
-     * The `--automate-*` a selector declares inside an at-rule.
-     *
-     * Found by selector rather than by source text, for the reason `themeBlock`
-     * above gives: the stylesheet goes through Prettier, which collapses a
-     * selector list onto two lines with single quotes, and matching the exact
-     * source would fail on a formatting pass rather than on a token.
-     */
-    function declaredIn(atRule: string, selector: string): Map<string, string> {
-      const body = mediaBody(atRule);
-      const wanted = normalise(selector).split(',').map(normalise);
-      for (const match of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-        const [, selectors, declarations] = match;
-        if (selectors === undefined || declarations === undefined) continue;
-        const each = selectors.split(',').map(normalise).filter(Boolean);
-        if (!each.every((part) => wanted.includes(part))) continue;
-        const declared = new Map<string, string>();
-        for (const entry of declarations.matchAll(/(--automate-[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
-          const name = entry[1];
-          const value = entry[2];
-          if (name !== undefined && value !== undefined) declared.set(name, value.trim());
-        }
-        return declared;
-      }
-      throw new Error(`${atRule} has no block for ${selector}`);
-    }
-
-    const TRANSPARENCY = '@media (prefers-reduced-transparency: reduce)';
-    const MORE_CONTRAST = '@media (prefers-contrast: more)';
-    const FORCED = '@media (forced-colors: active)';
-    const PLANE = [
-      '--automate-surface-sunken',
-      '--automate-surface',
-      '--automate-surface-raised',
-      '--automate-surface-muted',
-    ];
-
-    /**
      * The four plane steps as they will actually be painted under an at-rule.
      *
      * The block's own declarations win over the base theme's, because a block
@@ -943,5 +1410,350 @@ describe('design token source', () => {
     it('does not duplicate prefers-reduced-motion, which motion.css owns', () => {
       expect(themeCss).not.toContain('prefers-reduced-motion');
     });
+  });
+});
+
+/**
+ * The alpha dimension.
+ *
+ * **Why this block exists and what it replaced.** Glass used to be a review rule and a
+ * lint ban, and the review rule's sentence — *"the pixels behind a panel in this product
+ * are usually the evidence itself"* — was correct. What was wrong was the conclusion
+ * drawn from it. So the concern is now answered by measurement rather than by a
+ * prohibition: a panel's fill is a *composite*, and the composite has to clear 4.5:1
+ * against every plane step it can be painted over, in both themes.
+ *
+ * The three tokens with no theme dependence — blur, saturation and the radius ceiling —
+ * are declared once in `:root`, and the first case below fails if a theme block starts
+ * restating them. One value, one place.
+ */
+describe('the alpha dimension glass adds to the plane', () => {
+  const EFFECT = [
+    '--automate-glass-fill',
+    '--automate-glass-blur',
+    '--automate-glass-saturate',
+    '--automate-glass-radius',
+  ];
+
+  /** The declared fill, as a percentage. Throws rather than defaulting to something. */
+  function fillPercent(): number {
+    const value = variableValue(DARK_SELECTOR, '--automate-glass-fill');
+    const match =
+      /^color-mix\(in oklab,\s*var\(--automate-surface\)\s*([\d.]+)%\s*,\s*transparent\)$/.exec(
+        value,
+      );
+    if (match?.[1] === undefined) {
+      throw new Error(
+        `--automate-glass-fill is "${value}", which is not the plane at a declared alpha. ` +
+          'The contrast case below needs to know the alpha to compute a composite, so an ' +
+          'unparseable fill is a failure rather than a default.',
+      );
+    }
+    return Number(match[1]);
+  }
+
+  it('keeps the fill at or above the floor, and short of opaque', () => {
+    const percent = fillPercent();
+    expect(
+      percent,
+      `--automate-glass-fill is ${String(percent)}%, below the floor of ` +
+        `${String(GLASS_MIN_FILL_PERCENT)}%. Below the floor the contrast against the ` +
+        'worst-case backdrop stops being measurable, so §3.3 has nothing to compute.',
+    ).toBeGreaterThanOrEqual(GLASS_MIN_FILL_PERCENT);
+    expect(
+      percent,
+      '--automate-glass-fill is fully opaque, which is not an effect at all',
+    ).toBeLessThan(100);
+  });
+
+  it('declares the effect once, in :root, and not per theme', () => {
+    const light = themeBlock(LIGHT_SELECTOR);
+    for (const variable of EFFECT) {
+      expect(
+        new RegExp(`${variable}\\s*:`).test(light),
+        `${variable} is restated in the light theme. None of the four depends on the theme — ` +
+          'the fill is a `color-mix` against `--automate-surface`, which the light block ' +
+          'redefines — and two copies is one value with two homes.',
+      ).toBe(false);
+      expect(
+        variableValue(DARK_SELECTOR, variable),
+        `theme.css does not define ${variable} in :root`,
+      ).not.toBe('');
+    }
+  });
+
+  it('sits at or below the ceiling of both scheduled ranges', () => {
+    const blur = variableValue(DARK_SELECTOR, '--automate-glass-blur');
+    const pixels = Number(/^([\d.]+)px$/.exec(blur)?.[1]);
+    expect(Number.isFinite(pixels), `--automate-glass-blur is "${blur}", not a px length`).toBe(
+      true,
+    );
+    expect(pixels).toBeGreaterThanOrEqual(GLASS_BLUR_PX.floor);
+    expect(
+      pixels,
+      'the upper half of the 8–16px range waits on a rendering measurement',
+    ).toBeLessThanOrEqual(GLASS_BLUR_PX.ceiling);
+
+    const saturate = Number(variableValue(DARK_SELECTOR, '--automate-glass-saturate'));
+    expect(Number.isFinite(saturate), 'the saturation is not a number').toBe(true);
+    expect(saturate).toBeGreaterThanOrEqual(GLASS_SATURATE.floor);
+    expect(
+      saturate,
+      'the upper half of the 1.05–1.15 range waits on a measurement',
+    ).toBeLessThanOrEqual(GLASS_SATURATE.ceiling);
+    expect(saturate, 'a saturation at or below 1 is not an effect at all').toBeGreaterThan(1);
+
+    const radius = variableValue(DARK_SELECTOR, '--automate-glass-radius');
+    const radiusPx = Number(/^([\d.]+)px$/.exec(radius)?.[1]);
+    expect(
+      Number.isFinite(radiusPx),
+      `--automate-glass-radius is "${radius}", not a px length`,
+    ).toBe(true);
+    expect(
+      radiusPx,
+      "the radius is a ceiling: past a panel's own content it starts rounding the data " +
+        'inside it',
+    ).toBeLessThanOrEqual(GLASS_MAX_RADIUS_PX);
+  });
+
+  /**
+   * The case the design language could not state before there was an alpha.
+   *
+   * A panel over a static plane samples a fixed set of pixels and its contrast is a
+   * property of the theme. A translucent panel does not: it samples whatever is behind
+   * it, so the background it actually paints text on is a *composite* of the fill and
+   * the plane. A panel that passes against `--automate-surface` and fails against
+   * `--automate-surface-sunken` is legible on one screen and not on another, and no
+   * assertion that reads a single token can see it.
+   *
+   * All four plane steps are checked rather than the two extremes, because the set is
+   * four values long and checking all of them is both simpler and strictly stronger.
+   */
+  it.each(BOTH_SELECTORS)(
+    'holds text at 4.5:1 against every plane step behind it in %s',
+    (selector) => {
+      const alpha = fillPercent() / 100;
+      const surface = variableValue(selector, '--automate-surface');
+      for (const backdrop of PLANE) {
+        const painted = blend(surface, variableValue(selector, backdrop), alpha);
+        for (const text of ['--automate-fg', '--automate-fg-muted']) {
+          expectAtLeast(
+            contrastRatio(variableValue(selector, text), painted),
+            4.5,
+            `${text} on a glass panel over ${backdrop} in ${selector}`,
+          );
+        }
+      }
+    },
+  );
+
+  /**
+   * The hues, which are the harder half.
+   *
+   * `StatCard` draws its trend in `--automate-success` or `--automate-danger` on a glass
+   * fill, and those are the two values a reader is least able to give up: a trend is a
+   * claim, and it is read at a glance. Checking only `--automate-fg` and
+   * `--automate-fg-muted` would have let a hue that was measured against four *opaque*
+   * plane steps meet a translucent one without ever being recomputed — which is the same
+   * mistake as the one the whole block exists to fix, one layer down.
+   *
+   * `--automate-accent` is here for the same reason as `Card`'s border: a focus ring and
+   * an accent link are both text-adjacent colours on a panel.
+   */
+  it.each(BOTH_SELECTORS)(
+    'holds the status and accent hues at 4.5:1 on a glass panel in %s',
+    (selector) => {
+      const alpha = fillPercent() / 100;
+      const surface = variableValue(selector, '--automate-surface');
+      for (const hue of [
+        '--automate-success',
+        '--automate-warning',
+        '--automate-danger',
+        '--automate-info',
+        '--automate-accent',
+      ]) {
+        for (const backdrop of PLANE) {
+          const painted = blend(surface, variableValue(selector, backdrop), alpha);
+          expectAtLeast(
+            contrastRatio(variableValue(selector, hue), painted),
+            4.5,
+            `${hue} on a glass panel over ${backdrop} in ${selector}`,
+          );
+        }
+      }
+    },
+  );
+
+  it('has no border token, because a fixed alpha cannot describe the edge', () => {
+    // The two-border rule says WCAG 1.4.11 applies to some borders and not to others.
+    // A glass border's job is to describe the panel's edge against whatever is behind
+    // it, so it is a function of the backdrop rather than a colour — a 1px hairline at
+    // a fixed alpha is invisible on a light backdrop and a hard line on a dark one. The
+    // edge is described by elevation instead, and that is what `shadow-glass` is.
+    expect(themeCss).not.toMatch(/--automate-glass-border/);
+    expect(themeCss).toMatch(/--shadow-glass:/);
+  });
+
+  it('exposes each glass token to Tailwind as exactly one utility', () => {
+    const theme = themeCss.match(/@theme inline\s*\{([^{}]*)\}/)?.[1] ?? '';
+    // Matched as *declarations*, not as words. The block above explains why there is no
+    // `--radius-glass`, and a test that matched the prose would fail on its own
+    // explanation — which is the trap the file's earlier assertions about
+    // `forced-color-adjust` already record.
+    for (const name of ['--color-glass', '--backdrop-blur-glass', '--backdrop-saturate-glass']) {
+      expect(theme, `theme.css does not declare ${name} in @theme inline`).toMatch(
+        new RegExp(`${name}\\s*:`),
+      );
+    }
+    // `--shadow-glass` is a literal rather than a reference, so it belongs to the
+    // `@theme` block beside the other three elevation steps.
+    expect(themeCss).toMatch(/@theme\s*\{[^}]*--shadow-glass\s*:/s);
+
+    // And the ceiling is *not* a utility. `--automate-glass-radius` is a limit a panel
+    // must stay under, not a value to apply: `rounded-md`/`rounded-lg`/`rounded-xl` are
+    // 6/8/12px and every surface that adopts glass is already inside it, so a
+    // `rounded-glass` utility would only be a way to flatten the radius scale.
+    expect(
+      theme,
+      'a radius ceiling exposed as a utility is a default wearing a limit as a name',
+    ).not.toMatch(/--radius-glass\s*:/);
+  });
+
+  it('hands a reader who asked for no transparency an opaque panel and no effect', () => {
+    for (const selector of BOTH_SELECTORS) {
+      const declared = declaredIn(TRANSPARENCY, selector);
+      const fill = declared.get('--automate-glass-fill');
+      if (fill === undefined) {
+        throw new Error(`${TRANSPARENCY} does not name --automate-glass-fill for ${selector}`);
+      }
+      expect(
+        fill,
+        `${TRANSPARENCY} left the fill at "${fill}" in ${selector}. The fallback has to be ` +
+          'opaque: a fill that is still translucent over a backdrop the reader cannot ' +
+          'predict is the thing they asked not to have.',
+      ).toBe('var(--automate-surface)');
+
+      for (const [variable, inert] of [
+        ['--automate-glass-blur', '0px'],
+        ['--automate-glass-saturate', '1'],
+      ] as const) {
+        expect(
+          declared.get(variable),
+          `${TRANSPARENCY} does not neutralise ${variable} for ${selector}`,
+        ).toBe(inert);
+      }
+    }
+  });
+});
+
+describe('the page wash stays out of the evidence regions', () => {
+  /**
+   * The exclusion, stated as a number.
+   *
+   * The wash is `--automate-accent` at 14% in a radial and 5% in a linear, over
+   * `--automate-surface-sunken`. The strongest any pixel can be tinted is therefore the
+   * plane composited with 14% of the accent — so that composite is the worst backdrop a
+   * figure can sit on anywhere the wash reaches, and this block checks every status hue
+   * *as text* against it, because that is how the product uses them: `text-danger`,
+   * `border-danger`, `text-success` on a card, never a hue as a fill.
+   *
+   * **This is the assertion the plan asked for and the one that makes the wash safe.** A
+   * test that only said "the wash is on the page plane" would pass the moment somebody put
+   * it on a `Table`, because a reviewer's eye is exactly the thing this has to be more
+   * precise than. The contrast maths already in this file — `contrastRatio`, `blend`,
+   * `expectAtLeast` — is reused rather than reimplemented, so the number here is the same
+   * number the plane assertions above are made of.
+   */
+  it('leaves every status hue legible as text on the plane the wash is painted on', () => {
+    const accent = variableValue(DARK_SELECTOR, '--automate-accent');
+    const hues = ['success', 'warning', 'danger', 'info', 'accent', 'fg-muted'];
+    // The two wash tints, as a fraction. Read out of the token rather than typed, so a
+    // retuned wash fails here instead of being checked against a stale number.
+    const tints = [
+      ...(themeValueBlock('--automate-page-wash') ?? '').matchAll(
+        /var\(--automate-accent\)\s+(\d+)%/g,
+      ),
+    ].map((match) => Number(match[1]) / 100);
+    expect(
+      tints.length,
+      'the wash names no accent percentage, so its strongest point is unknown',
+    ).toBeGreaterThan(0);
+    const strongest = Math.max(...tints);
+
+    // Only `--automate-surface` is composited. The three planes above it are opaque — which
+    // is the other half of the boundary, asserted in the next case — so a card, a table and
+    // a muted row all sit on their own declared colour rather than on the wash. This is
+    // what "the wash is on the page plane and nowhere else" has to mean for it to be true.
+    const washed = blend(accent, variableValue(DARK_SELECTOR, '--automate-surface'), strongest);
+    for (const hue of hues) {
+      expectAtLeast(
+        contrastRatio(variableValue(DARK_SELECTOR, `--automate-${hue}`), washed),
+        4.5,
+        `${hue} as text on the page plane under the wash at ${String(Math.round(strongest * 100))}%`,
+      );
+    }
+  });
+
+  it('leaves the three planes above the page opaque, so nothing above it inherits the wash', () => {
+    // The occlusion half of the exclusion. A plane at `alpha: 0.4` over a washed page is a
+    // tinted surface, and every figure on it is then read against a backdrop that differs
+    // from the one the plane declares — which is the defect, arriving through the other
+    // door. The plane steps are opaque, so the wash cannot reach anything but the page.
+    for (const step of PLANE.filter((name) => name !== '--automate-surface')) {
+      const declared = variableValue(DARK_SELECTOR, step);
+      expect(
+        declared,
+        `${step} is "${declared}", which is not an opaque colour, so it composites over the ` +
+          'washed page plane and every figure on it is read against a tint rather than against ' +
+          'the colour the stylesheet declares for it.',
+      ).toMatch(/^#[0-9a-f]{6}$/i);
+    }
+  });
+
+  it('is declared once, on the page plane, and by a utility rather than by hand', () => {
+    const token = themeValueBlock('--automate-page-wash');
+    expect(token, 'theme.css does not declare --automate-page-wash').toBeDefined();
+    expect(
+      themeCss,
+      'theme.css declares the wash without publishing `bg-page-wash`, so a component would ' +
+        'have to hand-write the gradient and nothing would check it',
+    ).toMatch(/@utility\s+bg-page-wash\s*\{[^}]*var\(--automate-page-wash\)/);
+  });
+
+  it('interpolates in oklab, because sRGB interpolation passes through a colour nobody chose', () => {
+    // The argument for OKLCH is entirely about interpolation, so it is asserted entirely
+    // about interpolation. The eleven-step ramps stay hex — see the header above — and a
+    // block that claimed to be an OKLCH conversion of the palette would be asserting
+    // something this product deliberately does not do.
+    const token = themeValueBlock('--automate-page-wash') ?? '';
+    expect(token).toContain('in oklab');
+    expect(
+      token,
+      'the wash interpolates in sRGB, so its midpoint is darker and duller than either end',
+    ).not.toMatch(/\bin\ssrgb\b/i);
+  });
+
+  it('reaches no data surface: no table, no figure, no log', () => {
+    // The source-level half of the assertion above, and the half that catches the mistake
+    // rather than the consequence. `bg-page-wash` appears on a shell or nowhere.
+    //
+    // Two shells are the page plane and both are allowed: `packages/ui`'s `AppShell`, which
+    // is the layout any application composes, and `apps/web`'s, which is this product's.
+    // They are named rather than pattern-matched so that a third shell, or a renamed one,
+    // has to be added to this list deliberately.
+    const PAGE_PLANE = new Set([
+      'packages/ui/src/components/AppShell/AppShell.tsx',
+      'apps/web/src/components/AppShell.tsx',
+    ]);
+    const offenders = webSourceFiles()
+      .filter((file) => /bg-page-wash/.test(file.body))
+      .map((file) => file.name)
+      .filter((name) => !PAGE_PLANE.has(name));
+    expect(
+      offenders,
+      '`bg-page-wash` is the page plane. On a table, a figure or a log it is a backdrop that ' +
+        'changes across the width of a column, and two values in that column then differ by ' +
+        'the wash rather than by the thing they measure.',
+    ).toEqual([]);
   });
 });

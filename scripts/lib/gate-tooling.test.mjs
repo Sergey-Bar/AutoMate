@@ -598,12 +598,18 @@ test("the rendering gate's tier follows its baseline, in both directions", () =>
 });
 
 test('the status:10 tier is what its own reports require, not a hand-set constant', () => {
-  // The same rule as the test above, for the same reason. `status:10` was armed
-  // `pr-blocking` on 2026-10-01 when the fails were zero and the count went back to
-  // one on 2026-10-02 when RF-5 returned to `open`/`Blocker` — a fail whose removal
-  // condition needs an installation. Left as a hand-set tier it is either a required
-  // check that can never pass, or a real gate nobody is required to satisfy, and
-  // nothing else in the repository would notice either way.
+  // The same rule as the test above, for the same reason, and this one has now
+  // cycled twice: `status:10` was armed `pr-blocking` on 2026-10-01 when the fails were
+  // zero, went back to `pr-reporting` on 2026-10-02 when RF-5 returned to `open`/`Blocker`
+  // — a fail whose removal condition needed an installation — and was armed again on
+  // 2026-10-04 when the rehearsal finally ran and closed it.
+  //
+  // **The middle state is the one worth reading.** For two days this repository had a
+  // genuine open Blocker whose removal condition was a fact about an installation rather
+  // than about the tree, and the only honest response was for the tier that reports it to
+  // be non-required. A hand-set tier would have let that be written down once and never
+  // revisited. Derived from the reports, the transition is *checked* in both directions:
+  // arming and disarming both fail this test if the file disagrees with the table.
   const manifest = readManifest();
   const declared = (manifest.tiers ?? {})['status:10'];
   assert.equal(typeof declared, 'string', 'status:10 needs a tier in gate-tooling.json');

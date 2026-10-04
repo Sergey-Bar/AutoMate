@@ -5,11 +5,18 @@
 Generated from `docs/migration/capability-register.md`, which is the source of
 truth for this page. A capability is not promoted because a page says it is.
 
-- **real** — 16
-- **mock** — 14
-- **missing** — 2
-- **deferred** — 8
-- **obsolete** — 2
+**What the statuses mean**, in the register's own words:
+
+| Status       | Count | Meaning                                                                   |
+| ------------ | ----- | ------------------------------------------------------------------------- |
+| **real**     | 16    | implemented and exercised, with the stated qualification.                 |
+| **mock**     | 14    | a route, response, or UI exists but does not provide the target behavior. |
+| **missing**  | 2     | no usable implementation exists in the target.                            |
+| **deferred** | 8     | intentionally outside the launch scope pending a separate decision.       |
+| **obsolete** | 2     | retained only as historical residue and not part of the target product.   |
+
+The numbers above are derived. To change one, edit the file this page names as
+its source, then run `pnpm site:generate`.
 
 | Capability                                                            | Status     |
 | --------------------------------------------------------------------- | ---------- |

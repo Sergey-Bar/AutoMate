@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono';
-import { z } from 'zod/v4';
+import { z, ZodError } from 'zod/v4';
 import {
   CopilotQuestionSchema,
   RunStartBodySchema,
@@ -284,18 +284,27 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   /**
    * The provenance diff, between two readings of the same project.
    *
-   * ## `since` is an **instant**, not a run id
+   * ## `since` is an **instant**, and it is a real filter
    *
    * There is no stored score to diff against, and that is deliberate — `score()` is a
    * pure derivation and a `health_scores` table would be a fourth blocking number
    * that has to agree with the coverage floor, the performance threshold and the gate
    * tier. So the caller passes the instant to recompute the earlier reading from, and
-   * the **current** reading is always recomputed. Two readings of the same instant
-   * would produce an empty diff, which is a true answer rather than an error.
+   * the **current** reading is always recomputed.
    *
-   * `diffScores` refuses a cross-project or backwards diff, and that refusal is
-   * surfaced as a 4xx rather than swallowed: a subtraction between two unrelated
-   * numbers attributes one team's score drop to another team's release.
+   * `readScoreInputs` cuts both reads at that instant (`startedAt <= at`), so the two
+   * ends are two windows rather than one window counted twice. It used to do not: the
+   * read had no time parameter at all, `at` was a label, and this endpoint subtracted
+   * a number from itself on every request. The comment that made that survive review
+   * — "two readings of the same instant would produce an empty diff, which is a true
+   * answer rather than an error" — was **the claim, and it was wrong twice**: the two
+   * readings were never of the same instant, and an empty diff over a row set compared
+   * with itself is not an answer about the code.
+   *
+   * `diffScores` now refuses that case, and the refusal is surfaced as a 400 rather
+   * than swallowed. A client that asks for a window the repository has no rows in gets
+   * told to pick a different `since`; it does not get a well-formed `ScoreDelta` whose
+   * every contribution cites evidence for a change that never happened.
    */
   app.get('/api/v1/projects/:id/qa/score/diff', async (context) => {
     const projectId = context.req.param('id');
@@ -307,9 +316,27 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
         'since must be an ISO instant, e.g. ?since=2026-10-01T00:00:00.000Z',
       );
     }
+    const now = new Date().toISOString();
     const before = await qaScore(options, projectId, since);
-    const after = await qaScore(options, projectId, new Date().toISOString());
-    return context.json(diffScores(before, after));
+    const after = await qaScore(options, projectId, now);
+    try {
+      return context.json(diffScores(before, after));
+    } catch (failure) {
+      // **A schema failure is not a refusal.** `diffScores` parses its own output
+      // through `ScoreDeltaSchema`, so a `ZodError` here means the product computed
+      // something the contract does not allow — a server fault, and reporting it as
+      // `400 INVALID_REQUEST` would tell the caller their request was wrong when the
+      // server is. It goes to the boundary untouched.
+      if (failure instanceof ZodError) throw failure;
+      // Everything else `diffScores` throws is one of its three refusals: a
+      // cross-project diff, a backwards one, or a `since` that selects the same rows.
+      // All three are the caller's mistake, so all three are 4xx carrying the
+      // function's own sentence rather than a paraphrase of it.
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST,
+        failure instanceof Error ? failure.message : String(failure),
+      );
+    }
   });
 
   /**

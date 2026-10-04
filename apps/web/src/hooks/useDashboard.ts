@@ -143,7 +143,16 @@ export function useRunDetail(id: string, api = defaultApiClient) {
           setError(caught instanceof Error ? caught : new Error('Failed to fetch run'));
         }
       } finally {
-        if (showLoading && mountedRef.current) setIsLoading(false);
+        // **`!signal.aborted`, not `mountedRef.current`** — and the difference is the
+        // blank page the route-level axe gate found. `mountedRef` is one boolean shared
+        // by every refresh this component has started, so an aborted-and-superseded
+        // refresh asks it "are you still mounted?" *after* its replacement has already
+        // answered yes, and clears the loading flag while the replacement is still in
+        // flight. `run` is then `null` with `isLoading` false, `RunDetailPage` returns
+        // `null`, and `<main>` is an empty `<div>`. The signal answers the question that
+        // is actually being asked — is *this* refresh the current one — and it is what
+        // `useAnalytics` above has always done.
+        if (showLoading && !signal.aborted) setIsLoading(false);
       }
     },
     [api, id, beginLoad],
