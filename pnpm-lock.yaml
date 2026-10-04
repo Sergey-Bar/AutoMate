@@ -202,7 +202,7 @@ importers:
         version: link:../../packages/shared-contracts
       '@hono/node-server':
         specifier: ^1.19.14
-        version: 1.19.14(hono@4.12.29)
+        version: 1.19.14(hono@4.13.13)
       '@sentry/node':
         specifier: 'catalog:'
         version: 11.0.0(rollup@4.60.3)
@@ -213,8 +213,8 @@ importers:
         specifier: ^3.21.2
         version: 3.21.2
       hono:
-        specifier: ^4.12.29
-        version: 4.12.29
+        specifier: ^4.13.13
+        version: 4.13.13
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -3925,8 +3925,8 @@ packages:
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
-  hono@4.12.29:
-    resolution: {integrity: sha512-1hNiRjawYrLq/4m3DQQjPGFg0VZkk4RjQJDff/excI6Dm9BiL75qxGrd7/c6YOxPdq6AscP3LiXhQ6fKFC1Waw==}
+  hono@4.13.13:
+    resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
 
   hookable@5.5.3:
@@ -6318,9 +6318,9 @@ snapshots:
       '@eslint/core': 1.2.1
       levn: 0.4.1
 
-  '@hono/node-server@1.19.14(hono@4.12.29)':
+  '@hono/node-server@1.19.14(hono@4.13.13)':
     dependencies:
-      hono: 4.12.29
+      hono: 4.13.13
 
   '@humanfs/core@0.19.2':
     dependencies:
@@ -8443,7 +8443,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.5
 
-  hono@4.12.29: {}
+  hono@4.13.13: {}
 
   hookable@5.5.3: {}
 
