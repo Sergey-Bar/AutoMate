@@ -43,6 +43,7 @@
     "security:scan": "pnpm audit --audit-level=high",
     "skill-scan": "node ./scripts/skill-scan.mjs",
     "tenancy:check": "node ./scripts/tenancy-check.mjs",
+    "deps:policy": "node ./scripts/deps-policy.mjs",
     "security:secrets": "node ./scripts/secret-scan.mjs",
     "security:secrets:history": "node ./scripts/secret-scan.mjs --history",
     "license:check": "node ./scripts/license-check.mjs",
