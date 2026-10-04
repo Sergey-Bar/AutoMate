@@ -11,22 +11,26 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `debt`           | 7    |
 | `false-positive` | 5    |
 | `fixed`          | 135  |
-| `open`           | 6    |
+| `open`           | 9    |
 
-## Open (6)
+## Open (9)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
-| Major   | 5    |
+| Major   | 6    |
+| Minor   | 2    |
 
-| ID       | Band    | Finding                                                                                       |
-| -------- | ------- | --------------------------------------------------------------------------------------------- |
-| `RF-5`   | Blocker | The migration rehearsal never ran, and the tenancy wave landed anyway                         |
-| `C-4`    | Major   | The execution store is 2 166 lines and holds two of the top complexity offenders              |
-| `RF-9`   | Major   | The performance gate compares real traffic to thresholds nobody ever measured                 |
-| `RF-11`  | Major   | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does        |
-| `PERF-1` | Major   | The rendering budget exists and has never been measured, so the gate is red by design         |
-| `RF-6d`  | Major   | W2's worker-to-runner execution gate is recorded as a decision rather than as the wave's gate |
+| ID          | Band    | Finding                                                                                                        |
+| ----------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `RF-5`      | Blocker | The migration rehearsal never ran, and the tenancy wave landed anyway                                          |
+| `C-4`       | Major   | The execution store is 2 166 lines and holds two of the top complexity offenders                               |
+| `RF-9`      | Major   | The performance gate compares real traffic to thresholds nobody ever measured                                  |
+| `RF-11`     | Major   | No OpenAPI document exists, and a deferred back-item's entry criterion is that it does                         |
+| `PERF-1`    | Major   | The rendering budget exists and has never been measured, so the gate is red by design                          |
+| `RF-6d`     | Major   | W2's worker-to-runner execution gate is recorded as a decision rather than as the wave's gate                  |
+| `DEP-1`     | Major   | apps/api declares `effect` and imports it nowhere, while five documents describe a service layer built from it |
+| `DEP-2`     | Minor   | The root declares `@axe-core/playwright` and no committed file references it                                   |
+| `RUNTIME-1` | Minor   | Node 26 is available and deliberately gated on an LTS date that has not arrived                                |
 
 <!-- /generated -->
