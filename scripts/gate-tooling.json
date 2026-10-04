@@ -107,7 +107,8 @@
     "test:coverage": "pr-blocking",
     "coverage:provenance": "pr-blocking",
     "docs:capability-register:baseline": "never-in-ci",
-    "migrate:rehearse": "never-in-ci"
+    "migrate:rehearse": "never-in-ci",
+    "deps:policy": "pr-reporting"
   },
   "scripts": {
     "security:verify": {
@@ -253,6 +254,11 @@
       "requires": [],
       "tier": 2,
       "why": "**The ten checks of §17's twelfth point, run as a script rather than kept as a list.** Tier `pr-reporting`, and it stays that way while three of the ten report `GAP`: they need the built site, and the only way to get that honestly is to run the check immediately after the build with `SITE_DOCTOR_BUILT=1`, which is what the docs workflow does. Reading whatever `site/dist` happened to be lying on a developer's disk would make the report a statement about yesterday's markup, so the DOM checks report `GAP` and name the build instead. **`pr-reporting` is also the honest tier while the site is not deployed**: a required check on a site nobody can reach proves the site is well-formed, not that it is live, and the last clause of point 12 — that it is live at the URL — is a `not_configured` row on every host including CI. It needs no binary, and it reads only committed files plus, when the workflow says so, a build that just happened."
+    },
+    "deps:policy": {
+      "requires": [],
+      "tier": 2,
+      "why": "**Three questions about dependencies that no existing gate asked, and the gate is `pr-reporting` because it is red against the tree as it stands.**\n\nThe first run reports two unused declarations and seven expired `overrides`. The unused pair is the finding this gate was written for: `apps/api` declared `effect` and no file in the workspace imported it, while `AGENTS.md:390` and four agent personas instructed contributors to \"use Effect for dependency injection and error handling in services\". Every one of those statements was checkable against the tree and none of the gates looked — the same shape as a tenancy status asserted in seven documents and checked in none. `@axe-core/playwright` is declared by the root and referenced by no committed spec.\n\n**`pr-reporting` is the honest reading of a gate with real findings, not a way around them.** A `pr-blocking` tier here would be red on every pull request until `effect` is genuinely used, which is the `test:render` disposition: a required check that can never pass teaches reviewers to read red as noise. It graduates in the commit that makes the findings go away, which is the Effect boundary adoption, and the mechanism is the same evidence-then-raise order the plan of record's standing rule 2 states.\n\n**It compares against a reviewed baseline and never against the registry.** Asking the registry what the latest version is needs the network, and a gate that needs the network fails on an air-gapped host and gets switched off — which is how `verify:local` came to make a security gate exit 0 without scanning. So `docs/quality/dependency-baseline.json` records the version a human accepted, in three directions: resolved-but-unrecorded, recorded-but-unresolved, and recorded-one-version-resolved-at-another.\n\n**No writer, deliberately.** `coverage:baseline` and `complexity:baseline` write their files because they record a measurement. This records a decision, and a `--write` flag would let the run that judges the file regenerate it. `--print-baseline` prints rows and writes nothing.\n\nIt needs no binary and reads three committed files plus the repository's own source."
     }
   },
   "environment": {
