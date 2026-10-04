@@ -3752,6 +3752,36 @@
       "owner": "the repository owner — the decision is a CI permission, not a design one",
       "removalCondition": "A workflow that publishes `site/.vitepress/dist` to GitHub Pages exists and runs `SITE_DOCTOR_BUILT=1 pnpm site:doctor` against the built output, which needs `pages: write` and `id-token: write` granted on purpose rather than added to get this row to close. Until then the site is not live, the address `https://sergey-bar.github.io/AutoMate/` serves nothing, and \"it is live at the URL\" — the last clause of §17's twelfth point — is a claim with no evidence behind it. The condition names what could happen: the workflow file being written.",
       "summary": "Two defects in one place, and the second is only visible because the first was read.\n\n**`scripts/lib/status-ten.mjs:998` declares `deferral: 'SITE-1'` for point 12, and no `SITE-1` row existed in this ledger.** `applyDeferral` converts a `fail` into a `not_configured` only when the named row is present, is `debt`, and carries both an owner and a `removalCondition`. With no row at all, the lookup missed and nothing was deferred — which is the same shape as `RF-5`'s wave gate: a check wired to a row that is not there cannot fail, and the deferral it implies never happens. `pnpm findings:check` did not catch it, because that gate checks the rows against the policy and there was nothing to check; nothing checked the reference. `SITE-1` is now this row, so the deferral is real rather than nominal.\n\n**The site is not deployed.** `site-doctor` check 8 reports `GAP` without a build, three of its ten checks report `GAP` rather than clean without one, and the whole suite is `pr-reporting` at a tier justified by being \"honest while the site is not live\". Nothing in this repository publishes it.\n\n**Why this is debt and not a failure.** Shipping the site means granting `pages: write` and `id-token: write` to a workflow. That is a security decision with a named owner, and it is not a consequence of redesigning the documentation — the site has been unbuilt since before this programme's first plan. So the work is recorded, owned, and given a condition that could actually happen, rather than performed as a side effect of a design change.\n\n**What this row does not close.** The design work in Phase 2 of the cinematic plan, which improves the site without deploying it. A better-looking site that is still not live is not a published site."
+    },
+    {
+      "id": "DEP-1",
+      "title": "apps/api declares `effect` and imports it nowhere, while five documents describe a service layer built from it",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "W5.1",
+      "confirmed": true,
+      "summary": "**The dependency and the documentation are both real, and neither matches the other.** `apps/api/package.json` declares `effect` at `^3.21.2`. A grep of `apps`, `packages`, `tools`, `tests` and `scripts` for an import from `effect` or `effect/*` returns nothing: no file in the repository imports it. Meanwhile `AGENTS.md:37`, `AGENTS.md:324` and `AGENTS.md:390` instruct contributors to \"use Effect for dependency injection and error handling in services\", `.github/agents/backend-engineer.agent.md`, `.github/agents/database-engineer.agent.md` and `.github/agents/principal-architect.agent.md` repeat it, and `docs/architecture/unified-platform.md:35` lists Effect in the stack table. **A contributor following those instructions writes code against an API nothing in the tree demonstrates**, and `pnpm deps:policy` reports the declaration as unused on every run.\n\n**The repository's own migration document already settled the policy.** `docs/migration/unified-repository-migration.md:517` says: \"Use Effect only in `apps/api/src/bootstrap` for validated configuration, service lifecycle, and composition; keep framework-neutral domain packages in plain TypeScript. Remove direct `effect` declarations from packages that do not import it.\" The second clause is what this row records; the first is the work that discharges it.\n\n**Adoption, not deletion.** The declared version is `^3.21.2` and Effect 4.0.0 was stable on 2026-09-30, so the boundary this row asks for is an Effect 4 boundary rather than an Effect 3 one. The disposition is to build `apps/api/src/bootstrap/` and make the documents true, which is the only option that leaves both the dependency and the instructions correct."
+    },
+    {
+      "id": "DEP-2",
+      "title": "The root declares `@axe-core/playwright` and no committed file references it",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "open",
+      "confirmed": true,
+      "summary": "The root `package.json` declares `@axe-core/playwright` at `^4.13.0` in devDependencies. At `de4fc44` nothing in the repository imports it: the only importer is an accessibility Playwright spec that is not committed. `pnpm deps:policy` reports it as declared and never referenced.\n\n**This is recorded rather than fixed because the fix is already in flight elsewhere.** The uncommitted work in the main working tree adds `e2e/accessibility/`, whose `routes.spec.ts` does `import AxeBuilder from '@axe-core/playwright'`. The moment that lands, the declaration is used and the finding is closed by the landing rather than by a patch. **Removing the dependency instead would break that spec the day it merges**, which is why this row is `open` and not `fixed`."
+    },
+    {
+      "id": "RUNTIME-1",
+      "title": "Node 26 is available and deliberately gated on an LTS date that has not arrived",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "open",
+      "owner": "The runtime upgrade, once the date below has passed and the evidence exists.",
+      "removalCondition": "Node 26 appears under LTS on nodejs.org, and `pnpm verify` plus `pnpm smoke:local` both pass against a real compose stack running it.",
+      "confirmed": true,
+      "summary": "**Node 26 exists and is not yet a target, and the reason is a date rather than a judgement.** `nodejs/Release` records `v26` with `start: 2026-05-05` and `lts: 2026-10-28`. As of 2026-10-04 that line is **Current**, not LTS: it receives bug fixes and no longer receives them after promotion, so pinning a production runtime to a Current line means pinning to a moving target for another 24 days.\n\n**The runtime is stated in six places**, all of which must move together: `engines.node` (`>=24.0.0 <25`), `.node-version`, `.nvmrc`, six Dockerfiles pinned to `node:24.21.0`, and `NODE_VERSION: 24.x` in four workflows. `pnpm deps:policy` does not check any of them, which is the same gap `gate-tooling.json` closes for tool versions.\n\n**What the bump inherits.** pnpm 11 requires Node 22 or newer and is already in place, so nothing blocks it. Node 26 brings Undici 8 and Temporal enabled by default, plus the removals listed in its release notes — the check that matters is that `scripts/` and the API do not call a removed `node:` builtin, which a grep answers before the bump does."
     }
   ]
 }
