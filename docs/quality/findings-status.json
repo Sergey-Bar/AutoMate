@@ -162,6 +162,8 @@
     "SITE-1": "debt",
     "DEP-1": "open",
     "DEP-2": "open",
-    "RUNTIME-1": "open"
+    "RUNTIME-1": "open",
+    "DEP-3": "open",
+    "DEP-4": "open"
   }
 }
