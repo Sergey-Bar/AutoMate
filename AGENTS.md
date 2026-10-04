@@ -40,7 +40,11 @@ This is a **pnpm workspace monorepo** containing the unified Automate platform.
 | `apps/worker` | Lease and recovery loop | Node, worker resilience                         |
 | `site`        | Documentation site      | VitePress                                       |
 
-The platform uses **pnpm 10+**, **Node.js 24+**, **TypeScript 5.9**, and **Vitest 4** for unit tests.
+The platform uses **pnpm 11**, **Node.js 24+**, **TypeScript 6.0**, and **Vitest 4** for unit tests. ESLint is at **10**, and its major changed which config file it loads: it resolves from each linted file's own directory and uses that directory as the base path for `files` patterns, so a nested `eslint.config.js` — even one that only re-exports the root — silently disables every path-scoped rule beneath it. There are none, and `scripts/lib/eslint-plugin-compatibility.test.mjs` refuses one.
+
+pnpm 11 refuses a package published in the last 24 hours, against the whole lockfile rather than only new resolutions. A same-day release cannot be adopted; the wait is a day, and `pnpm audit --fix` exempts a security patch from it.
+
+Shared dependency versions live in the `catalog:` block of `pnpm-workspace.yaml` and packages declare `"catalog:"`, never a range. A package in the catalog that declares its own range resolves fine and splits the tree into two versions of one dependency; `pnpm deps:policy` reports it.
 
 ---
 

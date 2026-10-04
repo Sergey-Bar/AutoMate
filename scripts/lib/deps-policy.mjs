@@ -402,17 +402,110 @@ function record(byName, name, importer) {
 }
 
 /**
- * The dependency names one importer declares, as one flat list.
+ * The `catalog:` block of `pnpm-workspace.yaml`, as a name to range map.
  *
- * Pulled out so the scan above reads as a three-clause filter rather than a
- * three-deep nest. That is the whole difference the complexity ratchet measures: the
- * behaviour is identical, and the function is now something a reviewer can hold.
+ * @param {string} text
+ * @returns {Record<string, string>}
+ */
+export function parseCatalog(text) {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => line === 'catalog:');
+  /** @type {Record<string, string>} */
+  const catalog = {};
+  if (start === -1) return catalog;
+
+  for (const line of lines.slice(start + 1)) {
+    // The block ends at the next top-level key.
+    if (line.trim() !== '' && !/^\s/.test(line)) break;
+    const entry = /^ {2}('[^']+'|[^\s:][^:]*):\s*(.+)$/.exec(line);
+    if (!entry) continue;
+    catalog[unquote(entry[1])] = unquote(entry[2]);
+  }
+
+  return catalog;
+}
+
+/**
+ * Every dependency one importer declares, with the range it declared it at.
+ *
+ * One helper for both scans that need this, because the two questions differ only in
+ * what they ask of the answer. It is also what keeps `catalogDivergences` a single loop
+ * with two branches rather than three nested ones.
+ *
+ * @param {ImporterDependencies} groups
+ * @returns {{ name: string, specifier: string }[]}
+ */
+function declaredSpecifiers(groups) {
+  return DEPENDENCY_GROUPS.flatMap((group) =>
+    Object.entries(groups[group]).map(([name, entry]) => ({ name, specifier: entry.specifier })),
+  );
+}
+
+/**
+ * The dependencies one importer declares, as names.
  *
  * @param {ImporterDependencies} groups
  * @returns {string[]}
  */
 function declaredNames(groups) {
-  return DEPENDENCY_GROUPS.flatMap((group) => Object.keys(groups[group]));
+  return declaredSpecifiers(groups).map((declared) => declared.name);
+}
+
+/**
+ * Catalogued dependencies that a package declares with its own range instead of
+ * `catalog:`, and the other way round.
+ *
+ * ## Why this is a check and not a style preference
+ *
+ * The pnpm catalog exists so one edit moves every package that shares a dependency.
+ * That is its entire value, and a single explicit range undoes it silently: the
+ * catalog says one thing, the manifest says another, and both resolve. Nothing breaks,
+ * so nothing is reported, and two versions of the same package enter the tree.
+ *
+ * **This has already happened on this branch, and the first run of this check found
+ * eleven of them in one package.** Two were not cosmetic. The root declared `pg` at
+ * `^8.16.3` while the catalog said `^8.20.0`, so the tree held two versions of a
+ * database driver, and `@types/pg` at `^8.15.5` against a catalog `^8.15.6`. The rest
+ * agreed in value and were still one bump away from disagreeing - `@eslint/js`, `eslint`,
+ * `typescript`, `typescript-eslint`, `@types/node`, `vite`, `vitest`, `prettier`,
+ * `@playwright/test` and `@vitest/coverage-v8`, each of which had already half-applied a
+ * version bump on this branch before the check existed to say so.
+ *
+ * A dependency outside the catalog is not a divergence: `hono` is declared directly by
+ * the one importer that needs it, and a check demanding `catalog:` everywhere would send
+ * the repository to add a one-entry catalog per package.
+ *
+ * @param {ParsedLockfile} parsed
+ * @param {Record<string, string>} catalog From `parseCatalog`.
+ * @returns {{ name: string, importer: string, specifier: string, catalog: string }[]}
+ */
+export function catalogDivergences(parsed, catalog) {
+  /** @type {{ name: string, importer: string, specifier: string, catalog: string }[]} */
+  const divergences = [];
+
+  for (const [importer, groups] of Object.entries(parsed.importers)) {
+    for (const declared of declaredSpecifiers(groups)) {
+      const catalogued = catalog[declared.name];
+      // A `catalog:` specifier for a name with no catalog entry fails resolution
+      // outright. Naming it here turns a resolver error into a report that says which
+      // name and which importer, which is the difference between a minute and an
+      // afternoon.
+      const expectsCatalog = catalogued !== undefined;
+      if (declared.specifier === 'catalog:' && !expectsCatalog) {
+        divergences.push({ ...declared, importer, catalog: '' });
+        continue;
+      }
+      if (declared.specifier !== 'catalog:' && expectsCatalog) {
+        divergences.push({ ...declared, importer, catalog: catalogued });
+      }
+    }
+  }
+
+  return divergences.sort((left, right) =>
+    left.name === right.name
+      ? left.importer.localeCompare(right.importer)
+      : left.name.localeCompare(right.name),
+  );
 }
 
 /**
