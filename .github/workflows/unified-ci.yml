@@ -21,7 +21,6 @@ concurrency:
 
 env:
   NODE_VERSION: 24.x
-  PNPM_VERSION: 10.30.2
 
 jobs:
   quality:
@@ -34,7 +33,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -111,7 +109,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -167,7 +164,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -209,7 +205,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -255,7 +250,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -326,7 +320,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -418,7 +411,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -460,7 +452,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -488,7 +479,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -541,7 +531,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -574,7 +563,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -630,7 +618,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
@@ -663,7 +650,6 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
         with:
-          version: ${{ env.PNPM_VERSION }}
           run_install: false
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020

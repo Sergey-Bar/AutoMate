@@ -25,7 +25,6 @@ concurrency:
 
 env:
   NODE_VERSION: 24.x
-  PNPM_VERSION: 10.30.2
   # The Pages base, derived rather than hardcoded.
   #
   # A GitHub *project* page is served from `/<repo>/`, so every asset URL in the
@@ -50,9 +49,11 @@ jobs:
           fetch-depth: 0
 
       - name: Set up pnpm
+        # No `version:`. `pnpm/action-setup` reads `packageManager` from the root
+        # package.json, and pnpm's own `pmOnFail: error` refuses a mismatch. This
+        # workflow used to carry `PNPM_VERSION` beside it, which was a second place
+        # stating the same version that nothing compared against the first.
         uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020

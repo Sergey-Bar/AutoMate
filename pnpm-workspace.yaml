@@ -12,16 +12,52 @@ packages:
 autoInstallPeers: false
 strictPeerDependencies: true
 resolvePeersFromWorkspaceRoot: true
-packageManagerStrictVersion: true
 engineStrict: true
 
-onlyBuiltDependencies:
-  - better-sqlite3
-  - esbuild
+# `packageManagerStrictVersion: true` was removed in pnpm 11 and `pmOnFail` subsumes it,
+# together with `packageManagerStrict` and `managePackageManagerVersions`. Same intent as
+# before — the declared pnpm must be the pnpm running — so a contributor on a different
+# version is told rather than silently installing with it.
+#
+# **This is why the workflows no longer pass `version:` to `pnpm/action-setup`.** They
+# each carried `PNPM_VERSION: 10.30.2` beside a `packageManager` field saying the same
+# thing, and nothing checked the two agreed. That is the defect the capability register
+# calls a `mock` row: a claim the tree makes twice and verifies never. The workflows now
+# let `pnpm/action-setup` read `packageManager`, so there is one authority and it is the
+# one pnpm itself enforces.
+pmOnFail: error
+
+# pnpm 11 replaced `onlyBuiltDependencies` and its relatives with one map. The three
+# entries are the same three, and the reasons are unchanged.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
   # Fetches the platform binary the Sentry Vite plugin shells out to for
   # source map upload. Without it the build still succeeds and the upload
   # silently never happens, so an unminified stack trace in production.
-  - '@sentry/cli'
+  '@sentry/cli': true
+
+# **Four pnpm 11 defaults are now in force, and one of them costs something.**
+#
+# `blockExoticSubdeps` and `strictDepBuilds` both default to true, so a dependency from
+# an unexpected registry is refused and a package with an unapproved build script fails
+# rather than being skipped. Both are supply-chain controls, and this repository's gate
+# chain is already built around the assumption that they hold.
+#
+# `verifyDepsBeforeRun` defaults to `install`, so every script checks its dependencies
+# first instead of failing later inside a test.
+#
+# `minimumReleaseAge` defaults to **1440 minutes**, and this is the one with a cost: a
+# release published less than a day ago will not resolve. That is the npm ecosystem
+# hardening against a wave of malicious same-day publishes, and it is kept deliberately.
+# The cost is real and worth stating rather than discovering: **a same-day release cannot
+# be adopted.** A bump to a version published in the last 24 hours fails to resolve until
+# it ages, and the fix is a day of waiting rather than `--ignore-minimum-release-age`.
+# `pnpm audit --fix` adds the patched version to `minimumReleaseAgeExclude` for exactly
+# this case, so a security fix is never blocked by it.
+#
+# None of these four is written out as configuration. They are defaults, and a copied
+# default is a second authority that stops tracking the first.
 
 # One unmet peer, ignored on purpose.
 #
@@ -51,14 +87,14 @@ peerDependencyRules:
   # class neither can. So the range is widened here rather than by turning
   # `strictPeerDependencies` off for the whole workspace.
   #
-  # **A widened range is a claim, so it is checked.** `scripts/lib/eslint-peer-range.mjs`
-  # asserts that every `jsx-a11y/*` rule the config enables is still registered and
-  # still reachable, and the probe in
-  # `scripts/lib/eslint-plugin-compatibility.test.mjs` feeds a file with a known
-  # violation through the real flat config and asserts the rule reports it. A plugin
-  # that silently stopped firing under a major bump would make every accessibility
-  # finding disappear, and a gate that cannot tell the difference between "clean" and
-  # "not running" is the trap this repository keeps recording.
+  # **A widened range is a claim, so it is checked.**
+  # `scripts/lib/eslint-plugin-compatibility.test.mjs` asserts that the recommended
+  # `jsx-a11y/*` rules still fire: it feeds a file with a known violation through the
+  # real flat config and asserts the rule reports it, next to a compliant component the
+  # rule must not report, and it refuses any nested `eslint.config.js`. A plugin that
+  # silently stopped firing under a major bump would make every accessibility finding
+  # disappear, and a gate that cannot tell the difference between "clean" and "not
+  # running" is the trap this repository keeps recording.
   allowedVersions:
     'eslint-plugin-jsx-a11y>eslint': '^10.0.0'
 
