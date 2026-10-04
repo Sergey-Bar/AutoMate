@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Automate — AI-Orchestrated QA Platform",
-  "packageManager": "pnpm@10.30.2",
+  "packageManager": "pnpm@11.28.4",
   "scripts": {
     "prepare": "husky",
     "dev": "turbo run dev --filter=@automate/api --filter=@automate/unified-web",
@@ -79,7 +79,7 @@
     "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^22.15.3",
+    "@types/node": "^24.19.1",
     "@types/pg": "^8.15.5",
     "@vitest/coverage-v8": "^4.1.5",
     "eslint": "^10.12.0",
@@ -99,6 +99,6 @@
   },
   "engines": {
     "node": ">=24.0.0 <25",
-    "pnpm": "10.30.2"
+    "pnpm": "11.28.4"
   }
 }
