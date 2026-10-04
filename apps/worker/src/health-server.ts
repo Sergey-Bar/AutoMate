@@ -61,7 +61,11 @@ export class WorkerHealthServer {
   }
 
   private async readiness(response: ServerResponse): Promise<void> {
-    let ready = false;
+    // No initialiser: the `try` assigns it and the `catch` assigns it, so a starting
+    // value could never be read. ESLint 10's `no-useless-assignment` is what found
+    // this, and it was right — `let ready = false` looked like a default and was
+    // neither reached nor needed.
+    let ready: boolean;
     try {
       ready = await this.options.isReady();
     } catch {

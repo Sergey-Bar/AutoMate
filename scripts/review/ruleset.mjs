@@ -78,7 +78,11 @@ export function readRuleset(rulesetPath = path.join(repoRoot, RULESET_PATH)) {
   } catch (failure) {
     // The parse error's own message names a position, which is the useful half.
     const message = failure instanceof Error ? failure.message : String(failure);
-    throw new Error(`${RULESET_PATH} is not valid JSON: ${message}`);
+    // The parse error is re-thrown with `cause` attached, not flattened into a
+    // string. The message keeps the position — the useful half for a human — and the
+    // cause keeps the stack and the `SyntaxError` type for anything reading it
+    // programmatically. ESLint 10's `preserve-caught-error` is what found this.
+    throw new Error(`${RULESET_PATH} is not valid JSON: ${message}`, { cause: failure });
   }
 }
 
