@@ -483,6 +483,46 @@ incapable of seeing. Item 3 said the generator prose was in a different file tha
 assumed — two of them, in fact, since `quality/ten.md` is built by
 `scripts/lib/site-ten-page.mjs`.
 
+### The third pass: the evidence, and a port that lied
+
+The two gaps were closed in the second pass. The third pass ran the E2E lanes that had never
+been executed on this machine, and they found the most expensive defect in the programme.
+
+`pnpm test:e2e --project=accessibility` — **66 of 68 passed** against real PostgreSQL 16.
+The two failures were the `glass legibility` evidence tests, and the page said:
+
+> **The project registry is unavailable**
+> HTTP 500
+
+That is a product-shaped sentence about the product being broken, on the screen whose job is to
+report what is wrong. It was not the product. `GET /api/v1/projects` returned 200 by hand on
+the same key and the same database; replaying the fixture's whole sequence by hand held the
+registry at 200 throughout; and **the API logged nothing at all**, which is what identified it —
+`apps/api/src/errors/boundary.ts` logs every unhandled error with a `requestId`, so a 500 it
+produced could not have been silent. A silent 500 is a request that arrived somewhere else.
+
+The port existed in four places. Playwright passed `PORT` only to the API's `webServer` entry;
+Vite inherited the process environment where `PORT` is unset; `apiProxyTarget` derives the proxy
+target from `PORT` and fell back to `DEFAULT_PORT`; so every browser request in the lane went to
+whatever was listening on 3000. On this host that was an unrelated process, which answered 500.
+
+`GLASS-4` records it. The useful part is the correction: **the first fix made the lane worse on
+every machine.** Making `playwright.config.ts`'s port configurable and leaving
+`e2e/support/config.ts` hardcoded meant the suite started its API on 3111 and posted every login
+to 3000. The original was a hazard on a busy machine; the fix was a hazard everywhere, introduced
+by the fix. Only after the first two were unified did the third surface — and it surfaced as an
+error message about the product.
+
+After it: **68/68 accessibility, 1/1 rendering budget**, `glassStackDepth` inside its recorded
+ceiling on all four routes, and the two glass legibility screenshots are of a cockpit with an
+unmeasured cell in it rather than an error.
+
+Also in this pass: six figure cells across `gaps.tsx` and `score.tsx` were missing `numeric`,
+because the sweep's figure rule read hand-written `<p>` elements and its own figures are in
+`<TableCell>`s — a gate gap found by asking what the gate could not see. And `isFigureText` is
+now the third copy of the same reader in this repository, each with a comment saying so, because
+that is cheaper than three test files sharing a fate.
+
 ### What did not, and why
 
 1. **W0's skill list was cut from twenty-six to twelve.** The plan's own permission: *"if W0

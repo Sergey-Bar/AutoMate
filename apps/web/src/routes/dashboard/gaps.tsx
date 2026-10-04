@@ -92,7 +92,7 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
             <TableHeader>
               <TableRow>
                 <TableHead>Cell</TableHead>
-                <TableHead>Now</TableHead>
+                <TableHead className="text-right">Now</TableHead>
                 <TableHead>What would close it</TableHead>
               </TableRow>
             </TableHeader>
@@ -100,7 +100,7 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
               {response.gaps.map((gap) => (
                 <TableRow key={gap.cell}>
                   <TableCell>{gap.cell}</TableCell>
-                  <TableCell>{gap.current.toFixed(2)}</TableCell>
+                  <TableCell numeric>{gap.current.toFixed(2)}</TableCell>
                   <TableCell>{gap.cheapestClosure}</TableCell>
                 </TableRow>
               ))}
@@ -141,7 +141,7 @@ export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement 
             <TableRow>
               <TableHead>Cell</TableHead>
               <TableHead>Test fingerprints</TableHead>
-              <TableHead>Signal</TableHead>
+              <TableHead className="text-right">Signal</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -149,7 +149,7 @@ export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement 
               <TableRow key={cell.cell}>
                 <TableCell>{cell.cell}</TableCell>
                 <TableCell>{cell.hollowFingerprints.join(', ')}</TableCell>
-                <TableCell>{cell.signal.toFixed(2)}</TableCell>
+                <TableCell numeric>{cell.signal.toFixed(2)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -177,8 +177,8 @@ export function FlakyPage({ api, projectId }: ScreenProps): React.ReactElement {
             <TableRow>
               <TableHead>Cell</TableHead>
               <TableHead>Fingerprints</TableHead>
-              <TableHead>Flake rate</TableHead>
-              <TableHead>Stability</TableHead>
+              <TableHead className="text-right">Flake rate</TableHead>
+              <TableHead className="text-right">Stability</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -186,8 +186,8 @@ export function FlakyPage({ api, projectId }: ScreenProps): React.ReactElement {
               <TableRow key={cell.cell}>
                 <TableCell>{cell.cell}</TableCell>
                 <TableCell>{cell.flakyFingerprints.join(', ')}</TableCell>
-                <TableCell>{cell.flakeRate.toFixed(2)}</TableCell>
-                <TableCell>{cell.stability.toFixed(2)}</TableCell>
+                <TableCell numeric>{cell.flakeRate.toFixed(2)}</TableCell>
+                <TableCell numeric>{cell.stability.toFixed(2)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -230,7 +230,7 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
               <TableRow>
                 <TableHead>Finding</TableHead>
                 <TableHead>Statement</TableHead>
-                <TableHead>Impact</TableHead>
+                <TableHead className="text-right">Impact</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -238,7 +238,7 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
                 <TableRow key={`${finding.kind}:${finding.cells.join(',')}`}>
                   <TableCell>{finding.kind}</TableCell>
                   <TableCell>{finding.statement}</TableCell>
-                  <TableCell>{finding.impact.toFixed(2)}</TableCell>
+                  <TableCell numeric>{finding.impact.toFixed(2)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

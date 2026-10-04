@@ -27,6 +27,9 @@ import { describe, expect, it } from 'vitest';
  * vacuously at least once during the work that produced it, and a control arm is cheaper than
  * discovering that a fourth time.
  */
+/** The code-span delimiter, as a named character, for the failure messages below. */
+const BACKTICK = String.fromCharCode(96);
+
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)));
 
 /** Every `.tsx` under `routes/dashboard`, plus the two shared screens. */
@@ -79,6 +82,47 @@ function codeOf(source: string): string {
       return !trimmed.startsWith('*') && !trimmed.startsWith('//') && !trimmed.startsWith('/*');
     })
     .join('\n');
+}
+
+/**
+ * Is this string a figure?
+ *
+ * **The second copy of this reader in the repository**, the first being in
+ * `Accessibility.test.tsx`, and the reason is the repo's own: a test file importing another
+ * test file's helper turns two suites into one module with one fate. `theme.test.ts` sets the
+ * precedent — it defines `color-mix` inline and says in the comment why — so this is that
+ * arrangement again, and the two are the same reader.
+ *
+ * Written as a reader rather than a pattern for the third time in this work: a quantifier
+ * nested behind an optional group is the shape `security/detect-unsafe-regex` refuses, and it
+ * refused both patterns this replaced.
+ */
+function isFigureText(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return false;
+  let body = trimmed;
+  for (const suffix of ['%', '\u00d7', 'pts', 'pt']) {
+    if (body.endsWith(suffix)) {
+      body = body.slice(0, -suffix.length).trimEnd();
+      break;
+    }
+  }
+  if (body.length === 0) return false;
+  const signless =
+    body.startsWith('+') || body.startsWith('-') || body.startsWith('\u2212')
+      ? body.slice(1)
+      : body;
+  if (signless.length === 0) return false;
+  let digits = 0;
+  for (const character of signless) {
+    if (character >= '0' && character <= '9') {
+      digits += 1;
+      continue;
+    }
+    if (character === '.' || character === ',') continue;
+    return false;
+  }
+  return digits > 0;
 }
 
 /** Every heading the file opens, in source order, as `{ level, text }`. */
@@ -227,6 +271,62 @@ describe('the screens obey the typography rules the library asserts for itself',
       offenders,
       'a sentence in a screen is prose, and prose is capped at --max-w-measure. These are ' +
         'hand-written paragraphs outside a Card, so CardDescription does not reach them.',
+    ).toEqual([]);
+  });
+
+  /**
+   * A table cell holding a figure says so, through the `numeric` prop.
+   *
+   * **This rule is here because its absence was a gate gap, not because it was planned.**
+   * The figure rule below reads hand-written `<p>` elements, and it passed
+   * `gaps.tsx` — a screen whose every row is a list of figures — because its
+   * figures are in `<TableCell>`s. Nine of them, none carrying `numeric`, on a screen
+   * the earlier waves never touched. So the checks were green and the screen still shifted
+   * sideways every time a score updated.
+   *
+   * `numeric` and not a class, because `TableCell` cannot know which of its cells are
+   * numbers and a heuristic that guessed from the text would right-align a run id.
+   */
+  it('marks every figure cell in a screen numeric, so a column does not shift', () => {
+    const offenders: string[] = [];
+    for (const file of SCREENS) {
+      const code = codeOf(file.body);
+      for (const match of code.matchAll(/<TableCell([^>]*)>([\s\S]*?)<\/TableCell>/g)) {
+        const attributes = match[1] ?? '';
+        const body = match[2] ?? '';
+        if (/\bnumeric\b/.test(attributes)) continue;
+        // A figure is a `toFixed`, a percentage, or a bare number rendered on its own.
+        //
+        // **Written as readers, not patterns.** The first version used
+        // `/\{[%s]*\d+(\.\d+)?[%\s]*\}/` and `/^\s*\d+(\.\d+)?\s*$/`, both of which nest a
+        // quantifier behind an optional group — the shape `security/detect-unsafe-regex`
+        // refuses, and it refused them. This is the third time in this repository that the
+        // answer has been the same one: read it and ask `Number`, as `theme.test.ts`'s
+        // `isSizeArgument` and `isFigureText` above both do.
+        if (body.includes('toFixed(')) {
+          offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
+          continue;
+        }
+        const literal = body.replace(/\{[^}]*\}/g, ' ').trim();
+        if (literal.length === 0) continue;
+        if (isFigureText(literal)) {
+          offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      'a cell holding a figure is not marked ' +
+        BACKTICK +
+        'numeric' +
+        BACKTICK +
+        ', so its digits are ' +
+        'proportional and the column shifts sideways as the score updates. The Cockpit matrix has ' +
+        'had ' +
+        BACKTICK +
+        'numeric' +
+        BACKTICK +
+        ' since the primitive shipped; a screen added later has to ask for it too.',
     ).toEqual([]);
   });
 

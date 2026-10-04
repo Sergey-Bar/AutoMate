@@ -1,14 +1,53 @@
 /**
- * Fixed values the E2E suite runs against.
+ * Where the servers are, and the one rule that makes the two halves agree.
  *
- * These are not configurable. They are the values `playwright.config.ts` puts in
- * the API's `webServer.env`, and a suite that read them from somewhere else
- * would be asserting against a different configuration than the one it starts.
- * If one of these changes in the config, every spec that depends on it must
- * change with it — which is the point.
+ * ## The ports are overridable, and both halves read the same variable
+ *
+ * `API_BASE` and `WEB_BASE` were the literals `http://127.0.0.1:3000` and
+ * `http://localhost:5173`, and `playwright.config.ts` held `apiPort = 3000` beside them. That
+ * works on a runner and on a clean machine. On a developer host with something else on 3000 it
+ * fails in the worst available way: `reuseExistingServer` finds the listener, decides the
+ * server is up, and **every authenticated call goes to an unrelated process** — which is
+ * exactly what happened when this was written, producing a wall of 401s that read as a
+ * product defect.
+ *
+ * So: `E2E_API_PORT` and `E2E_WEB_PORT` override the defaults, **the server and the client
+ * both read them, and the defaults are unchanged** so CI gets what it always got.
+ *
+ * **The failure this replaces is the one where they disagree.** A first attempt made
+ * `playwright.config.ts`'s server port configurable and left this file hardcoded — so the
+ * suite started its API on 3111 and posted its logins to whatever was on 3000, which answered
+ * `500`. That is a worse outcome than the original in one specific way: the original was a
+ * hazard on a busy machine, and this was a hazard on *every* machine, introduced by the fix.
+ * The assertion below is what stops it recurring: the base URLs and the config's ports are
+ * checked against each other, so a port that moves on one side only is a failing test rather
+ * than a suite that quietly talks to nothing.
  */
-export const API_BASE = 'http://127.0.0.1:3000';
-export const WEB_BASE = 'http://localhost:5173';
+
+/**
+ * @param {string | undefined} raw the environment value, if any
+ * @param {number} fallback the port used when the variable is absent
+ * @param {string} name the variable name, for the message
+ * @returns {number}
+ */
+function port(raw: string | undefined, fallback: number, name: string): number {
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) {
+    throw new Error(
+      `${name}="${raw}" is not a TCP port. A port that cannot be bound produces a URL that ` +
+        'resolves to nothing, and every assertion in this suite would then report a product ' +
+        'failure rather than a configuration one.',
+    );
+  }
+  return value;
+}
+
+export const API_PORT = port(process.env['E2E_API_PORT'], 3000, 'E2E_API_PORT');
+export const WEB_PORT = port(process.env['E2E_WEB_PORT'], 5173, 'E2E_WEB_PORT');
+
+export const API_BASE = `http://127.0.0.1:${String(API_PORT)}`;
+export const WEB_BASE = `http://localhost:${String(WEB_PORT)}`;
 
 /**
  * The QA contract version a run event envelope must carry.

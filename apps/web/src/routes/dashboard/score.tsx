@@ -87,7 +87,7 @@ export function ScorePage({
           <TableBody>
             <TableRow>
               <TableCell>{capping.row}</TableCell>
-              <TableCell>{capping.value.toFixed(2)}</TableCell>
+              <TableCell numeric>{capping.value.toFixed(2)}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
