@@ -149,7 +149,10 @@ export class ExecutionWorker {
           renewing = false;
         });
     }, this.options.leaseRenewIntervalMs);
-    let status: JobResultStatus = 'infra_failed';
+    // No initialiser: the `try` assigns `status` from the handler's result and the
+    // `catch` assigns it from the failure mode, so a starting value could never be
+    // read. ESLint 10's `no-useless-assignment` is what found this, and it was right.
+    let status: JobResultStatus;
     let error: { code: string; message: string } | undefined;
     try {
       const handled = await this.options.handler!.execute(claim, active.controller.signal);

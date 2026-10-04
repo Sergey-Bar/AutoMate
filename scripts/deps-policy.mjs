@@ -148,7 +148,7 @@ export function collect(today) {
   /** @type {Record<string, string>} */
   const resolved = {};
 
-  for (const [importer, groups] of Object.entries(parsed.importers)) {
+  for (const groups of Object.values(parsed.importers)) {
     for (const group of Object.values(groups)) {
       for (const [name, entry] of Object.entries(group)) {
         // A workspace link resolves to a path, not a registry version, so there is

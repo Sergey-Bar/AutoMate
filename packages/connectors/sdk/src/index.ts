@@ -201,7 +201,14 @@ export async function executeWithRetry<T>(
       // Checked before the backoff, not after. A cancelled caller has already given up,
       // and making it wait out a 400ms sleep before the cancellation is honoured is time
       // the caller has already decided not to spend.
-      if (options.signal?.aborted) throw new Error('Connector operation cancelled');
+      // The cancellation is a *different* failure from the one being retried, and it
+      // arrives with the original attached as `cause`. Dropping it destroyed the
+      // diagnostic root cause: a caller that saw only "operation cancelled" could not
+      // tell an abort from a transient 503 that happened to be retried. ESLint 10's
+      // `preserve-caught-error` is what found this.
+      if (options.signal?.aborted) {
+        throw new Error('Connector operation cancelled', { cause: error });
+      }
       await sleep(100 * 2 ** (attempts - 1));
     }
   }
