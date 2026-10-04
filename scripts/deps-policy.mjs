@@ -47,9 +47,11 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  catalogDivergences,
   compareResolvedToBaseline,
   expiredOverrideReviews,
   isConfigurationFile,
+  parseCatalog,
   parseLockfile,
   unusedDependencies,
 } from './lib/deps-policy.mjs';
@@ -79,6 +81,8 @@ const SOURCE_EXTENSIONS = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 /**
  * @typedef {object} DepsPolicyReport
  * @property {{ name: string, declaredIn: string[] }[]} unused
+ * @property {{ name: string, importer: string, specifier: string, catalog: string }[]}
+ *   catalogDivergences Catalogued dependencies declared with their own range.
  * @property {{ name: string, version: string }[]} unreviewed
  * @property {{ name: string, version: string }[]} stale
  * @property {{ name: string, reviewed: string, resolved: string }[]} changed
@@ -165,10 +169,12 @@ export function collect(today) {
   // would report every one of those as unused. The importer is still recorded on each
   // finding, because that is where the declaration has to be fixed.
   const scan = scanText(repoRoot);
+  const workspace = read(WORKSPACE);
   return {
     unused: unusedDependencies(parsed, scan.source, exemptions, documented, scan.configuration),
+    catalogDivergences: catalogDivergences(parsed, parseCatalog(workspace)),
     ...compareResolvedToBaseline(resolved, baseline),
-    expiredOverrides: expiredOverrideReviews(read(WORKSPACE), today),
+    expiredOverrides: expiredOverrideReviews(workspace, today),
   };
 }
 
@@ -284,6 +290,14 @@ function format(report) {
     report.unused.map((row) => `${row.name} — declared by ${row.declaredIn.join(', ')}`),
   );
   section(
+    'Catalogued dependencies declared with their own range',
+    report.catalogDivergences.map((row) =>
+      row.catalog === ''
+        ? `${row.name} — declared \`catalog:\` by ${row.importer}, but absent from the catalog`
+        : `${row.name} — ${row.importer} says ${row.specifier}, the catalog says ${row.catalog}`,
+    ),
+  );
+  section(
     'Resolved but never reviewed',
     report.unreviewed.map((row) => `${row.name}@${row.version}`),
   );
@@ -326,6 +340,7 @@ export function main(argv) {
   console.log(format(report));
   const findings =
     report.unused.length +
+    report.catalogDivergences.length +
     report.unreviewed.length +
     report.stale.length +
     report.changed.length +

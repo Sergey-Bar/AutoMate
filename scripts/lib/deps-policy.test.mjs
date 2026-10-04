@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  catalogDivergences,
   compareResolvedToBaseline,
   expiredOverrideReviews,
   isConfigurationFile,
+  parseCatalog,
   parseLockfile,
   unusedDependencies,
 } from './deps-policy.mjs';
@@ -445,4 +447,74 @@ test('the parser and the drift check refuse to read a file they do not understan
   assert.throws(() => parseLockfile('not a lockfile'), /importers/);
   assert.throws(() => compareResolvedToBaseline({}, null), /baseline/);
   assert.throws(() => compareResolvedToBaseline({}, { entries: [{ name: 'hono' }] }), /version/);
+});
+
+const CATALOG_YAML = `packages:
+  - 'apps/*'
+
+catalog:
+  '@eslint/js': ^10.0.1
+  eslint: ^10.12.0
+  typescript: ^6.0.3
+  vite: ^6.4.3
+`;
+
+test('the catalog block is read as a name to range map', () => {
+  // Both spellings, because pnpm's catalog uses the quoted form for scoped names and
+  // the bare form for the rest, and a parser that only handles one of them silently
+  // drops half the catalog.
+  assert.deepEqual(parseCatalog(CATALOG_YAML), {
+    '@eslint/js': '^10.0.1',
+    eslint: '^10.12.0',
+    typescript: '^6.0.3',
+    vite: '^6.4.3',
+  });
+});
+
+test('a file with no catalog block is a workspace that uses none', () => {
+  // Not an error. A repository may legitimately have no catalog, and reading that as
+  // "the catalog is unreadable" would fail every check for the wrong reason.
+  assert.deepEqual(parseCatalog('packages:\n  - apps/*\n'), {});
+});
+
+test('a catalogued dependency declared with its own range is a divergence', () => {
+  // The case this exists for, reproduced from the real tree: a dependency is in the
+  // catalog and two importers declare it at their own ranges. Both resolve, nothing
+  // breaks, and two versions of the same package enter the tree when only one of the
+  // two is bumped.
+  //
+  // `typescript` is in the catalog here too, and is correctly declared as `catalog:`,
+  // so it is absent from the result — the check reports the exception, not the rule.
+  const parsed = parseLockfile(LOCKFILE);
+  const divergences = catalogDivergences(parsed, { typescript: '^6.0.3', turbo: '^2.11.5' });
+
+  assert.deepEqual(divergences, [
+    { name: 'turbo', importer: '.', specifier: '^2.10.4', catalog: '^2.11.5' },
+    { name: 'turbo', importer: 'apps/web', specifier: '^2.10.4', catalog: '^2.11.5' },
+  ]);
+});
+
+test('a dependency outside the catalog is not a divergence', () => {
+  // `hono` is not catalogued and `apps/api` declares it directly. That is correct, and
+  // a check that simply demanded `catalog:` everywhere would send the repository to add
+  // a one-entry catalog for a package exactly one importer needs.
+  const parsed = parseLockfile(LOCKFILE);
+  const divergences = catalogDivergences(parsed, { typescript: '^6.0.3' });
+
+  assert.deepEqual(
+    divergences.map((entry) => entry.name),
+    [],
+  );
+});
+
+test('`catalog:` for a name with no catalog entry is reported rather than ignored', () => {
+  // It fails resolution, so nothing can be reconciled by hand-editing a version — but
+  // naming it here turns a resolver error into a report that says which name and which
+  // importer, which is the difference between a minute and an afternoon.
+  const parsed = parseLockfile(LOCKFILE);
+  const divergences = catalogDivergences(parsed, {});
+  assert.deepEqual(
+    divergences.filter((entry) => entry.specifier === 'catalog:'),
+    [{ name: 'typescript', importer: '.', specifier: 'catalog:', catalog: '' }],
+  );
 });
