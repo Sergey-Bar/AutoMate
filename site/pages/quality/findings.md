@@ -11,15 +11,15 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `debt`           | 7    |
 | `false-positive` | 5    |
 | `fixed`          | 135  |
-| `open`           | 9    |
+| `open`           | 11   |
 
-## Open (9)
+## Open (11)
 
 | Band    | Open |
 | ------- | ---- |
 | Blocker | 1    |
 | Major   | 6    |
-| Minor   | 2    |
+| Minor   | 4    |
 
 | ID          | Band    | Finding                                                                                                        |
 | ----------- | ------- | -------------------------------------------------------------------------------------------------------------- |
@@ -32,5 +32,7 @@ loses its evidence — so a row here is a claim with a path behind it.
 | `DEP-1`     | Major   | apps/api declares `effect` and imports it nowhere, while five documents describe a service layer built from it |
 | `DEP-2`     | Minor   | The root declares `@axe-core/playwright` and no committed file references it                                   |
 | `RUNTIME-1` | Minor   | Node 26 is available and deliberately gated on an LTS date that has not arrived                                |
+| `DEP-3`     | Minor   | Effect 4.0.0 is stable, but its own test helper needs Vitest 5 and this tree is on Vitest 4                    |
+| `DEP-4`     | Minor   | TypeScript 7.0.2 is stable and has no Compiler API, so the checker and the linter cannot share a version       |
 
 <!-- /generated -->
