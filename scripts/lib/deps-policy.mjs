@@ -153,8 +153,13 @@ function bareVersion(version) {
  * @param {string} text The lockfile contents.
  * @returns {ParsedLockfile}
  */
-export function parseLockfile(text) {
-  const lines = text.split(/\r?\n/);
+/**
+ * The `importers:` section's lines, and nothing below it.
+ *
+ * @param {string[]} lines
+ * @returns {string[]}
+ */
+function importerSection(lines) {
   const start = lines.findIndex((line) => line === 'importers:');
   if (start === -1) {
     throw new Error(
@@ -162,39 +167,42 @@ export function parseLockfile(text) {
         'and reading it as one would report a tree with no dependencies in it.',
     );
   }
+  const section = [];
+  for (const line of lines.slice(start + 1)) {
+    // A top-level key ends the section. Everything below it is `packages:` or
+    // `snapshots:`, which are keyed by name@version and are not importers.
+    if (line.trim() !== '' && !/^\s/.test(line)) break;
+    if (line.trim() !== '') section.push(line);
+  }
+  return section;
+}
 
-  /** @type {Record<string, ImporterDependencies>} */
-  const importers = {};
-  /** @type {string | null} */
-  let importer = null;
+/**
+ * One importer's four groups, from the lines beneath its key.
+ *
+ * Split out of `parseLockfile` because a four-level state machine in one function is a
+ * function nobody can review, and the complexity ratchet is right about that.
+ *
+ * @param {string[]} lines
+ * @returns {ImporterDependencies}
+ */
+function readImporter(lines) {
+  /** @type {ImporterDependencies} */
+  const importer = {
+    dependencies: {},
+    devDependencies: {},
+    optionalDependencies: {},
+    peerDependencies: {},
+  };
   // The literal union, not `string`. `ImporterDependencies` is a typed record rather
-  // than an index signature, so a `string` here cannot index it — which is the point:
-  // the group is one of four known names, and the type says so.
+  // than an index signature, so a `string` cannot index it — which is the point: the
+  // group is one of four known names, and the type says so.
   /** @type {(typeof DEPENDENCY_GROUPS)[number] | null} */
   let group = null;
   /** @type {string | null} */
   let dependency = null;
 
-  for (const line of lines.slice(start + 1)) {
-    if (line.trim() === '') continue;
-    // A top-level key ends the section. Everything below it is `packages:` or
-    // `snapshots:`, which are keyed by name@version and are not importers.
-    if (!/^\s/.test(line)) break;
-
-    if (/^ {2}\S/.test(line) && line.trimEnd().endsWith(':')) {
-      importer = unquote(line.trim().slice(0, -1));
-      group = null;
-      dependency = null;
-      importers[importer] = {
-        dependencies: {},
-        devDependencies: {},
-        optionalDependencies: {},
-        peerDependencies: {},
-      };
-      continue;
-    }
-    if (importer === null) continue;
-
+  for (const line of lines) {
     if (/^ {4}\S/.test(line)) {
       const candidate = line.trim().replace(':', '');
       group = /** @type {(typeof DEPENDENCY_GROUPS)[number] | null} */ (
@@ -207,12 +215,12 @@ export function parseLockfile(text) {
 
     if (/^ {6}\S/.test(line) && line.trimEnd().endsWith(':')) {
       dependency = unquote(line.trim().slice(0, -1));
-      importers[importer][group][dependency] = { specifier: '', version: '' };
+      importer[group][dependency] = { specifier: '', version: '' };
       continue;
     }
     if (dependency === null) continue;
 
-    const entry = /** @type {ResolvedDependency} */ (importers[importer][group][dependency]);
+    const entry = /** @type {ResolvedDependency} */ (importer[group][dependency]);
     const specifier = /^ {8}specifier:\s*(.+)$/.exec(line);
     if (specifier) {
       entry.specifier = unquote(specifier[1]);
@@ -220,6 +228,37 @@ export function parseLockfile(text) {
     }
     const version = /^ {8}version:\s*(.+)$/.exec(line);
     if (version) entry.version = bareVersion(unquote(version[1]));
+  }
+
+  return importer;
+}
+
+/**
+ * Parse the `importers` section of a `pnpm-lock.yaml`.
+ *
+ * The scan stops at the next top-level key. That matters: `packages:` also maps a
+ * name to a record, and a parser that kept reading would register `hono@4.12.29:`
+ * as an importer called `hono@4.12.29` — a phantom every later check would inherit.
+ *
+ * @param {string} text The lockfile contents.
+ * @returns {ParsedLockfile}
+ */
+export function parseLockfile(text) {
+  const lines = text.split(/\r?\n/);
+  const section = importerSection(lines);
+  /** @type {Record<string, ImporterDependencies>} */
+  const importers = {};
+
+  for (const [index, line] of section.entries()) {
+    if (!/^ {2}\S/.test(line) || !line.trimEnd().endsWith(':')) continue;
+    const name = unquote(line.trim().slice(0, -1));
+    // The importer's own body runs to the next indent-2 key.
+    const body = [];
+    for (const next of section.slice(index + 1)) {
+      if (/^ {2}\S/.test(next) && next.trimEnd().endsWith(':')) break;
+      body.push(next);
+    }
+    importers[name] = readImporter(body);
   }
 
   return { importers };
@@ -327,26 +366,53 @@ export function unusedDependencies(
   configuration = '',
 ) {
   const everywhere = new Set(exemptions['*'] ?? []);
+  const documentedNames = new Set(documented);
   /** @type {Map<string, Set<string>>} */
   const byName = new Map();
+
   for (const [importer, groups] of Object.entries(parsed.importers)) {
     const exempt = new Set([...everywhere, ...(exemptions[importer] ?? [])]);
-    for (const group of DEPENDENCY_GROUPS) {
-      for (const name of Object.keys(groups[group])) {
-        if (exempt.has(name)) continue;
-        if (isReferenced(name, source, configuration)) continue;
-        const importers = byName.get(name);
-        if (importers) importers.add(importer);
-        else byName.set(name, new Set([importer]));
-      }
+    for (const name of declaredNames(groups)) {
+      if (exempt.has(name) || documentedNames.has(name)) continue;
+      if (isReferenced(name, source, configuration)) continue;
+      record(byName, name, importer);
     }
   }
 
-  const documentedNames = new Set(documented);
   return [...byName.entries()]
-    .filter(([name]) => !documentedNames.has(name))
     .map(([name, importers]) => ({ name, declaredIn: [...importers].sort() }))
     .sort((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * Note that one package declares a name, adding the importer to that name's list.
+ *
+ * Its own function so the scan above reads as two clauses and a recording, rather than
+ * three loops with a Map branch in the middle. The behaviour is identical; this is
+ * about the function being reviewable, which is what the complexity ratchet measures.
+ *
+ * @param {Map<string, Set<string>>} byName
+ * @param {string} name
+ * @param {string} importer
+ */
+function record(byName, name, importer) {
+  const existing = byName.get(name);
+  if (existing) existing.add(importer);
+  else byName.set(name, new Set([importer]));
+}
+
+/**
+ * The dependency names one importer declares, as one flat list.
+ *
+ * Pulled out so the scan above reads as a three-clause filter rather than a
+ * three-deep nest. That is the whole difference the complexity ratchet measures: the
+ * behaviour is identical, and the function is now something a reviewer can hold.
+ *
+ * @param {ImporterDependencies} groups
+ * @returns {string[]}
+ */
+function declaredNames(groups) {
+  return DEPENDENCY_GROUPS.flatMap((group) => Object.keys(groups[group]));
 }
 
 /**
