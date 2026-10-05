@@ -219,6 +219,24 @@ export default defineConfig({
         // this lane runs as `development`.
         RUNNER_REGISTRATION_SECRET,
         PUBLIC_APP_URL: webUrl,
+        // **A project, so the cockpit has a subject to render.** The cockpit is
+        // project-scoped: `Cockpit.tsx` reads `subject.id`, loads five endpoints for it,
+        // and returns the onboarding screen outright when no project is registered. The
+        // specs seed *runs*, which are workspace-scoped, so without this they were signing
+        // in to an install with runs and finding no dashboard — `run-item-…` and the
+        // readiness card were absent because the page never reached the list, not because
+        // the list was broken.
+        //
+        // This is the mechanism the product itself documents. The onboarding screen says
+        // "Set AUTOMATE_PROJECT_ROOT to the checkout you want analysed and restart the
+        // API", and `discoverProjectAtBoot` registers it at boot with no default — in
+        // compose the working directory is `/app`, so a default would register the
+        // container as the user's project. Setting it here is that instruction, followed,
+        // rather than a test-only back door.
+        //
+        // `configDir` is the repository root, which has the `package.json` and the
+        // workspace file the detectors read.
+        AUTOMATE_PROJECT_ROOT: configDir,
       },
       reuseExistingServer: !process.env['CI'],
       timeout: 60_000,

@@ -6,7 +6,7 @@
  * 1. POST reporter event to /api/v1/reporter/events (ingest)
  * 2. GET /api/v1/runs (API evidence — asserts the run appears)
  * 3. GET /api/v1/runs with invalid event (negative case)
- * 4. Browser: navigate to /dashboard, assert [data-testid="run-item-e2e-prod-ready-run-001"] is visible
+ * 4. Browser: navigate to /dashboard/runs, assert [data-testid="run-item-e2e-prod-ready-run-001"] is visible
  *    — NEVER allows empty/loading/error states to pass
  * 5. SSE live update: seed run as running → POST run:end → assert status changes to "passed" without reload
  *
@@ -112,9 +112,18 @@ async function waitForRunInApi(
  * function used to drive a login form, and the first run after the login route was
  * removed failed waiting for an `API Key` textbox that no longer exists — which is the
  * shape of a test that documents a product rather than a behaviour.
+ *
+ * **`/dashboard/runs`, not `/dashboard`.** The cockpit at `/dashboard` answers "what is
+ * blocking this install", and it is project-scoped: `Cockpit.tsx` returns the onboarding
+ * screen outright when no project is registered, and `loadFive` reads `subject.id`
+ * otherwise. The run list moved to `/dashboard/runs` with the launch form — which is what
+ * `dashboard.tsx`'s own header records and what `dashboard.test.tsx` asserts when it looks
+ * for the list, the form and the readiness card together on that route. The run item this
+ * spec is about renders there, so asking the cockpit for it was asking the wrong page for
+ * a view that page does not have.
  */
 async function openDashboard(page: Page): Promise<void> {
-  await page.goto(`${WEB_BASE}/dashboard`);
+  await page.goto(`${WEB_BASE}/dashboard/runs`);
   await expect(page.getByTestId('auth-loading')).toBeHidden();
 }
 
@@ -252,7 +261,7 @@ test('vertical slice — browser shows exact seeded run-item (T29)', async ({ pa
 
   // Navigate to the dashboard
   await openDashboard(page);
-  await page.goto(`${WEB_BASE}/dashboard`);
+  await page.goto(`${WEB_BASE}/dashboard/runs`);
 
   // Wait for the exact run item — this MUST appear.
   // If runs-empty, runs-loading, or runs-error appear instead, this test FAILS (as intended).
@@ -295,7 +304,7 @@ test('vertical slice — SSE live update: run:end changes status to passed witho
 
   // Step 2: Navigate to dashboard and wait for the run item to appear
   await openDashboard(page);
-  await page.goto(`${WEB_BASE}/dashboard`);
+  await page.goto(`${WEB_BASE}/dashboard/runs`);
   await page.waitForSelector(`[data-testid="run-item-${RUN_ID}"]`, { timeout: 15000 });
 
   // Verify initial status is "running"
