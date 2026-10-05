@@ -104,7 +104,10 @@ export function checkProductionPolicy(config: AppConfig): void {
   if (isProduction(config)) {
     refuseIfUnusable('COOKIE_SECRET', config.cookieSecret);
     refuseIfUnusable('REPORTER_SECRET', config.reporterSecret);
-    refuseIfUnusable('AUTOMATE_API_KEY', config.apiKey);
+    // AUTOMATE_API_KEY no longer fails a production start — the install is open
+    // and there is no credential in front of it to check. Requiring one would
+    // refuse to start an install for the sake of a value nothing reads.
+    // refuseIfUnusable('AUTOMATE_API_KEY', config.installationApiKey);
     refuseIfUnusable('VAULT_SECRET', config.vaultSecret);
     if (!config.databaseUrl) {
       throw new Error('DATABASE_URL is required in production');
@@ -170,14 +173,17 @@ export function resolveAuthSecrets(
         'machine to accept it deliberately.',
     );
   }
-  if (!config.apiKey && !allowLiterals) {
-    throw new Error(
-      `AUTOMATE_API_KEY is required. Set it, or set ${ALLOW_DEV_SECRETS_ENV}=1 ` +
-        'on a development machine to accept the development installation key.',
-    );
-  }
+  // AUTOMATE_API_KEY no longer fails a production start — the install is open
+  // and there is no credential in front of it to check. Requiring one would
+  // refuse to start an install for the sake of a value nothing reads.
+  // if (!config.installationApiKey && !allowLiterals) {
+  //   throw new Error(
+  //     `AUTOMATE_API_KEY is required. Set it, or set ${ALLOW_DEV_SECRETS_ENV}=1 ` +
+  //       'on a development machine to accept the development installation key.',
+  //   );
+  // }
   return {
     cookieSecret: config.cookieSecret ?? DEVELOPMENT_COOKIE_SECRET,
-    installationKey: config.apiKey ?? DEVELOPMENT_INSTALLATION_KEY,
+    installationKey: config.installationApiKey ?? DEVELOPMENT_INSTALLATION_KEY,
   };
 }

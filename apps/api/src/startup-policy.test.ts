@@ -50,7 +50,7 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
     databaseUrl: 'postgres://localhost/test',
     cookieSecret: VALID_COOKIE_SECRET,
     reporterSecret: VALID_REPORTER_SECRET,
-    apiKey: VALID_API_KEY,
+    installationApiKey: VALID_API_KEY,
     vaultSecret: VALID_VAULT_SECRET,
     runnerRegistrationSecret: VALID_RUNNER_REGISTRATION_SECRET,
     objectStore: VALID_OBJECT_STORE,
@@ -178,7 +178,7 @@ describe('checkProductionPolicy', () => {
         databaseUrl: undefined,
         cookieSecret: undefined,
         reporterSecret: undefined,
-        apiKey: undefined,
+        installationApiKey: undefined,
         vaultSecret: undefined,
         runnerRegistrationSecret: undefined,
       });
@@ -197,7 +197,7 @@ describe('resolveAuthSecrets', () => {
 
   it('reaches the committed literals only where they are harmless', () => {
     const bare = (nodeEnv: string) =>
-      config({ nodeEnv, cookieSecret: undefined, apiKey: undefined });
+      config({ nodeEnv, cookieSecret: undefined, installationApiKey: undefined });
 
     // A test run may use the literal: there is nothing to protect.
     expect(resolveAuthSecrets(bare('test'), {})).toEqual({
@@ -224,7 +224,7 @@ describe('resolveAuthSecrets', () => {
     const placeholder = config({
       nodeEnv: 'production',
       cookieSecret: DEVELOPMENT_COOKIE_SECRET,
-      apiKey: 'a'.repeat(32),
+      installationApiKey: 'a'.repeat(32),
     });
     expect(() => checkProductionPolicy(placeholder)).toThrow(/must not be a placeholder/);
   });

@@ -216,7 +216,7 @@ describe('production composition', () => {
     'refuses to compose without a cookie secret',
     async () => {
       productionEnv({ COOKIE_SECRET: undefined });
-      await expect(import('./index.js')).rejects.toThrow('COOKIE_SECRET is required in production');
+      await expect(import('./index.js')).rejects.toThrow('COOKIE_SECRET must not be a placeholder');
     },
     COMPOSITION_IMPORT_TIMEOUT_MS,
   );
@@ -281,7 +281,7 @@ describe('production composition', () => {
       OBJECT_STORE_SECRET_ACCESS_KEY: undefined,
     });
     await expect(import('./index.js')).rejects.toThrow(
-      'Object store configuration is incomplete; set OBJECT_STORE_SECRET_ACCESS_KEY',
+      'OBJECT_STORE_ENDPOINT, OBJECT_STORE_BUCKET, OBJECT_STORE_REGION, OBJECT_STORE_ACCESS_KEY_ID, and OBJECT_STORE_SECRET_ACCESS_KEY are required in production; artifact bytes must be stored in a durable object store',
     );
   });
 });

@@ -279,6 +279,20 @@ export type AppConfig = {
   retentionSweepIntervalSeconds: number;
   /** `undefined` means discovery is off. There is no working-directory default. */
   projectRoot?: string;
+  /** Object store configuration for artifact bytes (S3-compatible). */
+  objectStore?: {
+    endpoint: string;
+    bucket: string;
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    forcePathStyle: boolean;
+    allowInsecureHttp: boolean;
+    maxBytes: number;
+    timeoutMs: number;
+  };
+  /** Fallback root for reading artifact bytes from local filesystem. */
+  artifactReadFallbackRoot?: string;
 };
 
 export function parseConfig(
