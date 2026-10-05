@@ -61,7 +61,6 @@ import {
 // nothing anybody is required to hold.
 import { createRequestDeadline } from './middleware/request-deadline.js';
 import { createSecurityHeaders } from './middleware/security-headers.js';
-import { getConfig } from './config.js';
 import { createSentryErrorReporter } from './observability/sentry.js';
 import { createLogger } from './observability/logger.js';
 import {
@@ -76,6 +75,8 @@ import {
 } from './infrastructure/artifact-store.js';
 import { S3ArtifactBytesStore } from './infrastructure/s3-artifact-bytes.js';
 import type { ArtifactBytesStore } from './execution/drizzle-execution-store.js';
+
+import { getConfig } from './bootstrap/index.js';
 
 const runtimeConfig = getConfig();
 /**

@@ -66,7 +66,7 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     // decided, so it is claimed here rather than excluded. It hands the value to
     // every family below, which is what makes them consistent with each other.
     family: 'composition root',
-    files: ['index.ts'],
+    files: ['index.ts', 'bootstrap/index.ts'],
   },
   { family: 'execution routes', files: ['routes/execution.ts'] },
   { family: 'reporter results', files: ['routes/reporter-results.ts'] },
