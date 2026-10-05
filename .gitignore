@@ -60,6 +60,13 @@ nul
 # OpenCode agent state
 .omo/
 
+# Kilo config root: worktrees and session state stay out of git, plans stay in.
+# `.kilo/plans/` is the one planning system this repository has, and a plan written
+# in one session is invisible in the next if the directory is ignored.
+.kilo/*
+!.kilo/plans/
+!.kilo/plans/*.md
+
 # Coverage and test output
 coverage/
 test-results/
