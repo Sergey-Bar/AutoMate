@@ -101,8 +101,6 @@
  *   the override carries no date at all — which is reported rather than trusted.
  */
 
-import path from 'node:path';
-
 /** The dependency groups a `pnpm-lock.yaml` importer carries. */
 const DEPENDENCY_GROUPS = /** @type {const} */ ([
   'dependencies',
@@ -279,19 +277,29 @@ export function parseLockfile(text) {
  * waits for anyone whose checkout sits under `~/.cache/automate` or `C:\src\.work`.
  * A gate whose verdict depends on where it was run is not a gate.
  *
+ * **Both arguments are normalised to forward slashes before anything else,** which is
+ * the second half of that sentence and was found by CI. `path.relative` treats a
+ * backslash as an ordinary character on POSIX, so a Windows-shaped path handed to it
+ * on Linux produces a relative path full of `..` and no segments at all — and the
+ * dot-segment test then reads `false` where it should read `true`. This function
+ * passed on the Windows machine it was written on and failed on the Linux runner,
+ * which is the definition of a gate that measures the host instead of the tree.
+ *
  * @param {string} file Absolute path to the file.
  * @param {string} root Absolute path to the repository root.
  * @returns {boolean}
  */
 export function isConfigurationFile(file, root) {
-  const relative = file.startsWith(root) ? path.relative(root, file) : file;
-  const normalised = relative.replaceAll('\\', '/');
-  const segments = normalised.split('/');
+  const slash = (/** @type {string} */ value) => value.replaceAll('\\', '/');
+  const from = slash(root);
+  const target = slash(file);
+  const relative = target.startsWith(from) ? target.slice(from.length).replace(/^\/+/, '') : target;
+  const segments = relative.split('/');
   // A dot-directory — `.storybook/`, `.github/` — holds configuration by convention.
   if (segments.slice(0, -1).some((segment) => segment.startsWith('.') && segment.length > 1)) {
     return true;
   }
-  return /\.config\.[cm]?[jt]s$/.test(normalised) || /(^|\/)config\//.test(normalised);
+  return /\.config\.[cm]?[jt]s$/.test(relative) || /(^|\/)config\//.test(relative);
 }
 
 /**
