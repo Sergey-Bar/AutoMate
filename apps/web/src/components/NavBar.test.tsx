@@ -84,7 +84,26 @@ describe('NavBar', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
     });
-    expect(screen.getByText('Release Command Center')).toBeInTheDocument();
+    expect(screen.getByText('Cockpit')).toBeInTheDocument();
+  });
+
+  /**
+   * The wordmark is the product's name, and it is the only place it appears in the
+   * chrome. The left link is a navigation target and is named after the screen it
+   * opens, so the bar carries one brand and one destination rather than two copies
+   * of a product name twenty pixels apart.
+   */
+  it('renders the product wordmark once, in the corner', async () => {
+    render(<RouterProvider router={makeRouter()} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('nav-wordmark')).toHaveTextContent('Automate');
+    // Exactly once. A second copy is the rename having half happened — which is
+    // what the retired-name gate in `scripts/lib/product-name.test.mjs` exists for,
+    // and the same failure with a different string.
+    expect(screen.getAllByText('Automate')).toHaveLength(1);
+    expect(screen.queryByText('Release Command Center')).not.toBeInTheDocument();
   });
 
   it('renders nav-bar element', async () => {

@@ -1,4 +1,5 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import path from 'node:path';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { canonicalRunResults, projects, runs, workspaces } from '@automate/db';
@@ -280,25 +281,70 @@ export async function ensureWorkspace(options: ProjectRegistryServiceOptions): P
 }
 
 /**
- * Canonical results for a project, newest window first.
+ * Canonical results and run history for a project, **up to and including `at`**.
  *
- * Reads the `result` JSONB and projects the handful of fields the score needs. The
- * projection is explicit rather than a cast so a producer that starts sending a
- * field the score has no opinion about does not silently change the score, and so
- * a field the score *does* need cannot go missing without a parse failure.
+ * ## `at` is a filter, not a label
+ *
+ * This function used to take no time parameter at all, so `score(inputs, at)`'s
+ * second argument was stamped onto the payload and nothing more — which made
+ * `GET /qa/score/diff` subtract a number from itself on every request. `score()`
+ * documents the other half: "inputs is the whole window, already read", so *this*
+ * function is where a window has to be cut, and a caller that cannot ask for one
+ * cannot have a diff.
+ *
+ * Omitting `at` reads everything, which is what every non-diff endpoint wants.
+ *
+ * ## Results are cut by their run's `started_at`, not their own clock
+ *
+ * A result is evidence about a **run**, so the window it belongs to is the window
+ * that run started in. Cutting on `canonical_run_results.created_at` instead is
+ * cheaper and wrong in a way fixtures find immediately: `created_at` is the
+ * *ingestion* time, so a backdated run whose results landed today is excluded from a
+ * reading taken before it started, and the score reports `presence: 0` about a run
+ * that plainly happened.
+ *
+ * The join casts `runs.id` (a `uuid`) to `text` rather than the other way round,
+ * because `canonical_run_results.run_id` is a `text` column and `text::uuid` throws
+ * on a value that is not a uuid — a cast that turns a bad row into a 500 on the
+ * dashboard. `uuid::text` cannot fail.
  */
 export async function readScoreInputs(
   options: ProjectRegistryServiceOptions,
   projectId: string,
+  at?: string,
 ): Promise<{ runs: unknown[]; results: unknown[] }> {
+  // An unparseable instant reads everything rather than nothing: a caller who sent
+  // nonsense should get an answer they can see is unfiltered, not an empty window
+  // that reads as "nothing has run".
+  const instant = at === undefined ? undefined : new Date(at);
+  const cutoff = instant === undefined || Number.isNaN(instant.getTime()) ? undefined : instant;
+
+  const projectScope = and(
+    eq(canonicalRunResults.workspaceId, options.workspaceId),
+    sql`${canonicalRunResults.result}->'identity'->>'projectId' = ${projectId}`,
+  );
+  const historyScope = and(
+    eq(runs.workspaceId, options.workspaceId),
+    eq(runs.projectId, projectId),
+  );
+  const inWindow = cutoff === undefined ? undefined : lte(runs.startedAt, cutoff);
+
   const canonical = await options.db
     .select({ result: canonicalRunResults.result })
     .from(canonicalRunResults)
     .where(
-      and(
-        eq(canonicalRunResults.workspaceId, options.workspaceId),
-        sql`${canonicalRunResults.result}->'identity'->>'projectId' = ${projectId}`,
-      ),
+      cutoff === undefined
+        ? projectScope
+        : and(
+            projectScope,
+            inArray(
+              canonicalRunResults.runId,
+              options.db
+                .select({ id: sql`${runs.id}::text` })
+                .from(runs)
+                .where(and(historyScope, inWindow as NonNullable<typeof inWindow>)),
+            ),
+          ),
     );
   const history = await options.db
     .select({
@@ -308,8 +354,178 @@ export async function readScoreInputs(
       phase: runs.phase,
     })
     .from(runs)
-    .where(and(eq(runs.workspaceId, options.workspaceId), eq(runs.projectId, projectId)))
+    .where(inWindow === undefined ? historyScope : and(historyScope, inWindow))
     .orderBy(runs.startedAt);
 
   return { runs: history, results: canonical.map((row) => row.result) };
+}
+
+/**
+ * The log surface discovery needs, and no more.
+ *
+ * Two levels, declared here rather than importing `Logger`, so this service has no
+ * logging dependency: a boot-time hook that cannot emit a line is a hook an operator
+ * cannot debug, and a boot-time hook that carries a logger through four signatures is
+ * a dependency the tests have to fabricate.
+ */
+export interface ProjectDiscoveryLog {
+  info(msg: string, context?: Record<string, unknown>): void;
+  warn(msg: string, context?: Record<string, unknown>): void;
+}
+
+/** What boot-time discovery did, in the four shapes it can answer. */
+export type ProjectDiscoveryOutcome =
+  | { outcome: 'registered'; project: RegisteredProject; commands: number }
+  | { outcome: 'refreshed'; project: RegisteredProject; commands: number }
+  | { outcome: 'unrecognised'; repoPath: string }
+  | { outcome: 'skipped'; repoPath: string; reason: string };
+
+/**
+ * A folder name turned into something `RegisterProjectBodySchema` accepts.
+ *
+ * ## It has to match that schema, and it must not inherit it
+ *
+ * The schema is `/^[a-z0-9][a-z0-9._-]*$/u` with a 64-character ceiling, and it is
+ * right: a slug becomes a directory name in some installs and a URL segment in
+ * others. But deriving a slug by *reading* the schema is how `My Project` 422s at
+ * boot — the shape of a defect that only appears on the machine of somebody whose
+ * folder has a space in its name.
+ *
+ * So the rules are stated here and asserted against the same regex in
+ * `project-registry-service.test.ts`. One spelling, tested against the authority.
+ *
+ * ## What it does to a name
+ *
+ * Lowercase; every run of characters the schema refuses becomes a single `-`; leading
+ * characters the schema refuses are dropped rather than replaced, because a slug
+ * cannot start with `-`; then the 64-character ceiling. A name that slugifies to
+ * nothing — `***`, an emoji — becomes `project`, because a boot hook that registers
+ * an empty slug has to register *something* and there is no second chance to ask.
+ */
+export function slugifyProjectName(name: string): string {
+  const collapsed = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^[^a-z0-9]+/u, '');
+  const truncated = collapsed.slice(0, PROJECT_SLUG_MAX_LENGTH);
+  return truncated === '' ? 'project' : truncated;
+}
+
+/** `RegisterProjectBodySchema`'s `slug` ceiling, restated because it is a number. */
+const PROJECT_SLUG_MAX_LENGTH = 64;
+
+/**
+ * Registers the folder this install was pointed at, or re-reads the one it already knows.
+ *
+ * ## What it replaces
+ *
+ * Registering a repository was a thing a human did, by POSTing a name, a slug and a
+ * `repoPath` and then pressing "detect". The *report* half of discovery already ran
+ * by itself — the detector emits `artifactGlobs` and the runner globs the workspace
+ * for them — so the only manual step left was the project half, and a dashboard that
+ * cannot analyse the folder you are sitting in until you curl it is a dashboard with
+ * an extra step in it.
+ *
+ * ## Re-detect, never duplicate
+ *
+ * A `package.json` that gained a test runner yesterday has to show up today with
+ * nobody pressing a button, so an already-registered folder is **refreshed** rather
+ * than registered again — `refreshProject` re-reads the manifests, and registering
+ * again would collide with the row it is meant to update.
+ *
+ * ## Three failures, three different answers
+ *
+ * A folder nothing can be detected in is registered as **nothing**: a row with an
+ * empty proposal would make the cockpit report fifteen zeroes about a folder that
+ * has no suite in it, which is a confident answer to the wrong question. `POST
+ * /projects` still registers such a folder, because that is an operator saying so.
+ *
+ * A slug collision is **skipped with a line**, never thrown: two folders slugifying
+ * to one string is a real possibility and not a reason to refuse to start.
+ *
+ * Everything else is **rethrown**. `discoverProjectAtBoot` is where "never fatal"
+ * lives; a function that swallowed a permission error would report a broken install
+ * as an empty one, and the two look identical from the cockpit.
+ */
+export async function discoverProject(
+  options: ProjectRegistryServiceOptions,
+  input: { repoPath: string; log: ProjectDiscoveryLog },
+): Promise<ProjectDiscoveryOutcome> {
+  const repoPath = path.resolve(input.repoPath);
+
+  const known = (await listProjects(options)).find(
+    (candidate) => candidate.repoPath !== null && path.resolve(candidate.repoPath) === repoPath,
+  );
+  if (known !== undefined) {
+    const refreshed = await refreshProject(options, known.id);
+    const commands = refreshed.profile.commands.length;
+    input.log.info('project discovery re-detected a registered folder', {
+      repoPath,
+      slug: known.slug,
+      commands,
+    });
+    return { outcome: 'refreshed', project: known, commands };
+  }
+
+  const detected = await detectProject(options.viewFor(repoPath));
+  if (!detected.recognised) {
+    input.log.info('project discovery found no runnable suite', { repoPath });
+    return { outcome: 'unrecognised', repoPath };
+  }
+
+  const name = path.basename(repoPath) || repoPath;
+  const slug = slugifyProjectName(name);
+  try {
+    await ensureWorkspace(options);
+    const project = await registerProject(options, { name, slug, repoPath });
+    const commands = project.profile.commands.length;
+    input.log.info('project discovery registered a folder', { repoPath, slug, commands });
+    return { outcome: 'registered', project, commands };
+  } catch (failure) {
+    if (!(failure instanceof DomainError) || failure.code !== ErrorCode.CONFLICT) throw failure;
+    const reason = failure.message;
+    input.log.warn('project discovery skipped a folder whose slug is taken', {
+      repoPath,
+      slug,
+      reason,
+    });
+    return { outcome: 'skipped', repoPath, reason };
+  }
+}
+
+/**
+ * The one call boot makes, and the whole of its failure policy.
+ *
+ * ## No default root
+ *
+ * `AUTOMATE_PROJECT_ROOT` is opt-in with **no fallback to the working directory**.
+ * In compose the cwd is `/app`, which has a `package.json` — so a default would
+ * register the container as the user's project, and the cockpit would confidently
+ * analyse the wrong tree. Silence beats confident nonsense, and one environment
+ * variable is the price of never having to guess which one it picked.
+ *
+ * ## Never fatal
+ *
+ * A discovery failure logs and returns. A dashboard that will not boot because a
+ * folder lacked a `package.json` is worse than a dashboard with nothing in it, and
+ * "nothing in it" is a state the client renders as onboarding.
+ */
+export async function discoverProjectAtBoot(
+  options: ProjectRegistryServiceOptions,
+  projectRoot: string | undefined,
+  log: ProjectDiscoveryLog,
+): Promise<void> {
+  if (projectRoot === undefined || projectRoot.trim() === '') {
+    log.info('project discovery is off; set AUTOMATE_PROJECT_ROOT to a folder to analyse');
+    return;
+  }
+  try {
+    await discoverProject(options, { repoPath: projectRoot, log });
+  } catch (failure) {
+    log.warn('project discovery failed; the API serves the onboarding state', {
+      repoPath: projectRoot,
+      reason: failure instanceof Error ? failure.message : String(failure),
+    });
+  }
 }

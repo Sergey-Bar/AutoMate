@@ -116,6 +116,28 @@ function secretSchema(variable: SecretVariable) {
  * @returns an `http://host:port` origin
  */
 export function apiProxyTarget(env: Record<string, string | undefined> = {}): string {
+  /*
+   * `E2E_API_PORT` is read **first**, and this is the third place that has learned it.
+   *
+   * The proxy derives its target from `PORT`, which is right: the target follows the API
+   * rather than restating where the API is. But the E2E suite passes `PORT` only to the
+   * API's own `webServer` entry — Vite inherits the Playwright process environment, where
+   * `PORT` is unset and `E2E_API_PORT` is set. The proxy therefore fell back to
+   * `DEFAULT_PORT` and every browser request in the lane went to whatever was listening
+   * there.
+   *
+   * **The symptom was a lie that pointed at the product.** The cockpit reported "The project
+   * registry is unavailable — HTTP 500" while `GET /api/v1/projects` returned 200 by hand
+   * with the same key and the same database, and the API logged nothing — because
+   * `apps/api/src/errors/boundary.ts` logs every unhandled error, so a 500 it produced
+   * would carry a `requestId`. Nothing was logged because nothing reached it.
+   *
+   * So the ordering is: an explicit E2E override, then `PORT`, then the default. `PORT`
+   * wins over the default because it is the API's own variable, and `E2E_API_PORT` wins
+   * over `PORT` because it names this lane specifically.
+   */
+  const override = PORT_SCHEMA.safeParse(env['E2E_API_PORT']);
+  if (override.success) return `http://${proxyHost(env['HOST'])}:${String(override.data)}`;
   const parsed = PORT_SCHEMA.safeParse(env['PORT']);
   const port = parsed.success ? parsed.data : DEFAULT_PORT;
   return `http://${proxyHost(env['HOST'])}:${String(port)}`;
@@ -204,6 +226,17 @@ const EnvironmentSchema = z.object({
   SSE_REPLAY_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   RETENTION_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  /**
+   * The folder the API registers and re-detects at boot, and **opt-in with no
+   * default**.
+   *
+   * There is deliberately no fallback to the working directory. In compose the cwd
+   * is `/app`, which has a `package.json`, so a default would register the container
+   * as the operator's project and the cockpit would analyse the wrong tree with total
+   * confidence. An empty value is absence rather than an empty path, because
+   * `parseConfig` filters empty strings out before the schema sees them.
+   */
+  AUTOMATE_PROJECT_ROOT: z.string().min(1).optional(),
 });
 
 export type AppConfig = {
@@ -244,6 +277,8 @@ export type AppConfig = {
   sseReplayRetentionHours: number;
   auditRetentionDays: number;
   retentionSweepIntervalSeconds: number;
+  /** `undefined` means discovery is off. There is no working-directory default. */
+  projectRoot?: string;
 };
 
 export function parseConfig(
@@ -294,5 +329,6 @@ export function parseConfig(
     sseReplayRetentionHours: parsed.SSE_REPLAY_RETENTION_HOURS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
     retentionSweepIntervalSeconds: parsed.RETENTION_SWEEP_INTERVAL_SECONDS,
+    projectRoot: parsed.AUTOMATE_PROJECT_ROOT,
   };
 }

@@ -24,6 +24,45 @@ describe('apiProxyTarget', () => {
     );
   });
 
+  /**
+   * The E2E lane port, and the fourth place that had to learn about it.
+   *
+   * **The symptom was a product-shaped lie.** With `E2E_API_PORT` set and `PORT` unset — which is
+   * exactly the E2E lane, because Playwright passes `PORT` only to the API server entry and
+   * Vite inherits the process environment — the proxy fell back to `DEFAULT_PORT` and every
+   * browser request in the lane went to whatever was listening on 3000. The cockpit then
+   * reported the project registry unavailable with HTTP 500 while the route answered 200 by
+   * hand, on the same key and the same database.
+   *
+   * **And the API logged nothing,** which is what identified it:
+   * `apps/api/src/errors/boundary.ts` logs every unhandled error, so a 500 it produced would
+   * carry a `requestId`. There was no line, because nothing reached it.
+   */
+  it('follows E2E_API_PORT when the lane sets it and PORT is absent', () => {
+    expect(apiProxyTarget({ E2E_API_PORT: '3111' })).toBe('http://127.0.0.1:3111');
+  });
+
+  /**
+   * The ordering is a decision, so it is asserted rather than implied: a lane that sets
+   * its own port names the API it started, and `PORT` stays the API variable for everything else.
+   */
+  it('lets the lane override win over PORT, and PORT over the default', () => {
+    expect(apiProxyTarget({ E2E_API_PORT: '3111', PORT: '3456' })).toBe('http://127.0.0.1:3111');
+    expect(apiProxyTarget({ E2E_API_PORT: 'not-a-port', PORT: '3456' })).toBe(
+      'http://127.0.0.1:3456',
+    );
+  });
+
+  /**
+   * An illegal lane port falls back rather than producing a target that resolves to nothing —
+   * the same rule the boundary ports get below, applied to the variable the lane sets.
+   */
+  it('ignores an unusable E2E_API_PORT instead of building a broken target', () => {
+    for (const value of ['0', '65536', '3000.5', 'abc', ' ']) {
+      expect(apiProxyTarget({ E2E_API_PORT: value })).toBe('http://127.0.0.1:3000');
+    }
+  });
+
   it('agrees with the API default without restating it', () => {
     // The assertion that closes the defect. `parseConfig({})` takes the schema
     // default; `apiProxyTarget({})` must reach the same number from the same

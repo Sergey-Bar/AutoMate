@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { Search } from 'lucide-react';
+import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 export interface CommandAction {
@@ -141,14 +142,15 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
       filteredActions.length > 0 ? `${listboxId}-option-${selectedIndex}` : undefined;
 
     return (
-      <div className="fixed inset-0 z-50 bg-black/50 flex items-start justify-center pt-[20vh] p-4 animate-fade-in duration-200">
+      <div className="fixed inset-0 z-modal bg-black/50 flex items-start justify-center pt-[20vh] p-4 animate-fade-in duration-200">
         <div
           ref={ref}
           role="dialog"
           aria-modal="true"
           aria-label="Command palette"
           className={cn(
-            'w-full max-w-xl overflow-hidden rounded-xl border border-border-default bg-bg-elevated shadow-elevation-3 animate-zoom-in-95 duration-200',
+            'w-full max-w-xl overflow-hidden rounded-xl border border-border-default animate-zoom-in-95 duration-200',
+            GLASS_SURFACE_CLASSES,
             className,
           )}
           {...props}
@@ -171,7 +173,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
               aria-controls={listboxId}
               aria-autocomplete="list"
               aria-activedescendant={activeId}
-              className="flex h-12 w-full bg-transparent py-3 pl-3 pr-2 text-sm outline-none placeholder:text-text-muted text-text-primary"
+              className="flex h-12 w-full bg-transparent py-3 pl-3 pr-2 text-sm placeholder:text-text-muted text-text-primary focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-border-focus"
               placeholder="Type a command or search..."
               value={query}
               onChange={(e) => {

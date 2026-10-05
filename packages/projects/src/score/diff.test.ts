@@ -156,12 +156,62 @@ describe('a diff is a list of causes, not a number that moved', () => {
     }
   });
 
-  it('is empty when nothing moved, rather than reporting a zero for every cell', () => {
-    // A diff that lists fifteen cells at `0 → 0` is a diff nobody reads, and it
-    // buries the one contribution that would have mattered.
+  it('refuses to diff a row set against itself, because that is not "nothing changed"', () => {
+    // **This is the defect the whole slice exists to close.** The API recomputed both
+    // ends from an unfiltered read, so `since` was a *label* rather than a filter and
+    // every diff compared a row set with itself. It produced a well-formed
+    // `ScoreDelta` — and `ScoreDeltaSchema` requires every contribution to cite
+    // evidence, so what reached the client was a confident, sourced, wrong answer.
+    // An empty `contributions` array is the same lie in a quieter dress: it says "I
+    // looked and nothing changed", when the truth is "I compared nothing to nothing".
+    //
+    // The two readings here are byte-identical apart from `at`, which is precisely
+    // what the route produced for every request.
     const one = score(inputs({ runs: [run('r1')], results: [result('unit-1')] }), AT_ONE);
     const same = score(inputs({ runs: [run('r1')], results: [result('unit-1')] }), AT_TWO);
-    expect(diffScores(one, same).contributions).toEqual([]);
+    expect(() => diffScores(one, same)).toThrow(/same rows|row set/iu);
+  });
+
+  it('distinguishes "nothing changed" from "I compared nothing to nothing"', () => {
+    // Two readings with no runs and no results at either end is a different answer
+    // from two readings of the same rows: the first is an install that has never
+    // run anything, the second is a window that did not advance. Only the second
+    // means the caller's `since` selected nothing.
+    const nothing = score(inputs(), AT_ONE);
+    const stillNothing = score(inputs(), AT_TWO);
+    expect(() => diffScores(nothing, stillNothing)).toThrow(/nothing to nothing/iu);
+  });
+
+  it('still diffs two readings whose row sets differ, even at equal counts', () => {
+    // The guard is **equal counts and nothing moved**, not equal counts alone. Two
+    // readings with the same number of runs and results but different outcomes are
+    // a real change — the executed count is identical, the depth target moved — and
+    // refusing that would trade one false answer for another.
+    const before = score(
+      inputs({
+        runs: [run('r0')],
+        results: Array.from({ length: 40 }, (_, index) =>
+          result(`s${index}`, { runId: 'r0', category: 'security' as const }),
+        ),
+      }),
+      AT_ONE,
+    );
+    const after = score(
+      inputs({
+        runs: [run('r1')],
+        results: Array.from({ length: 40 }, (_, index) =>
+          result(`s${index}`, { runId: 'r1', category: 'security' as const }),
+        ),
+        profile: {
+          ...inputs().profile,
+          targets: { testsPerCell: { 'security:backend': 100 }, coverageTarget: {} },
+        },
+      }),
+      AT_TWO,
+    );
+    expect(before.provenance.runsRead).toBe(after.provenance.runsRead);
+    expect(before.provenance.resultsRead).toBe(after.provenance.resultsRead);
+    expect(diffScores(before, after).contributions.length).toBeGreaterThan(0);
   });
 
   it('refuses to diff two readings of different projects', () => {

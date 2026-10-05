@@ -2,17 +2,20 @@ import { forwardRef, type HTMLAttributes, type KeyboardEvent as ReactKeyboardEve
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../lib/utils.js';
 
-const splitterVariants = cva('bg-border shrink-0', {
-  variants: {
-    orientation: {
-      horizontal: 'h-px w-full',
-      vertical: 'h-full w-px',
+const splitterVariants = cva(
+  'bg-border shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+  {
+    variants: {
+      orientation: {
+        horizontal: 'h-px w-full',
+        vertical: 'h-full w-px',
+      },
+    },
+    defaultVariants: {
+      orientation: 'horizontal',
     },
   },
-  defaultVariants: {
-    orientation: 'horizontal',
-  },
-});
+);
 
 /** How far one Arrow key press moves the divider, in percentage points. */
 export const SPLITTER_STEP = 5;

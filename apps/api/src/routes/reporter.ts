@@ -47,11 +47,17 @@ import {
   RUN_UPDATED_EVENT_TYPE,
   TEST_COMPLETED_EVENT_TYPE,
   TEST_STARTED_EVENT_TYPE,
+  reportFormatForSpelling,
+  REPORT_FORMATS,
+  type ReportFormat,
+  type ReportFormatId,
 } from '@automate/shared-contracts';
 import {
   junitXmlAdapter,
+  K6_JSON_ADAPTER,
   legacyUploadAdapter,
   playwrightJsonAdapter,
+  ZAP_XML_ADAPTER,
   type ProducerAdapter,
   type ProducerContext,
 } from '@automate/reporter';
@@ -192,35 +198,65 @@ const ADAPTER_VERSION = '2';
  * the wild, and a rejected spelling means a real report gets "this document contains no
  * test cases", a message about the wrong file.
  *
+ * **The declared vocabulary is `@automate/shared-contracts`' table, not a list here.** This
+ * function used to name three formats and the package exported five, so a k6 summary
+ * declaring `format=k6` matched nothing and fell through to the filename rule, which sent
+ * it to the Playwright adapter; a ZAP report declaring `format=zap` fell through to the XML
+ * rule and reached the **JUnit** adapter, which then reported "contains no test cases"
+ * about a security scan. Adding a spelling to this route instead of to the table would
+ * have been the same second authority the table was added to remove.
+ *
  * A body that looks like XML and declares nothing goes to the JUnit adapter: the sniffing
  * exists because a reporter posting `application/xml` without a format field is common, and
- * `JSON.parse` on it produces a syntax error rather than an answer.
+ * `JSON.parse` on it produces a syntax error rather than an answer. **That fallback cannot
+ * be made right** — XML is XML and a ZAP report is XML — so a ZAP caller is expected to
+ * declare its format, and the refusal it gets says so.
  */
 function pickAdapter(document: UploadDocument): ProducerAdapter {
   const declared = declaredFormat(document);
-  if (declared === 'junit') return junitXmlAdapter;
-  if (declared === 'playwright') return playwrightJsonAdapter;
-  if (document.fields['fileName']?.toLowerCase().endsWith('.xml') === true) return junitXmlAdapter;
-  if (document.fields['fileName']?.toLowerCase().endsWith('.json') === true) {
-    return looksLikeXml(document) ? junitXmlAdapter : playwrightJsonAdapter;
+  if (declared !== undefined) return adapterForFormat(declared.id);
+  if (document.fields['fileName']?.toLowerCase().endsWith('.xml') === true) {
+    return adapterForFormat('junit-xml');
   }
-  return looksLikeXml(document) ? junitXmlAdapter : legacyUploadAdapter;
+  if (document.fields['fileName']?.toLowerCase().endsWith('.json') === true) {
+    return looksLikeXml(document)
+      ? adapterForFormat('junit-xml')
+      : adapterForFormat('playwright-json');
+  }
+  return looksLikeXml(document) ? adapterForFormat('junit-xml') : adapterForFormat('legacy-upload');
 }
 
 /**
- * The format the caller declared, normalised.
+ * The canonical format the caller declared, or `undefined` when it declared none this
+ * build reads.
  *
- * Two spellings per format because both are in use and neither is wrong: `format` and
- * `artifactType` are two field names for one piece of information, and the adapter would
- * rather have one answer than two rules about which name wins.
+ * Two field names for one piece of information — `format` and `artifactType` — both of
+ * which are in use and neither of which is wrong, so the adapter would rather have one
+ * answer than two rules about which name wins.
  */
-function declaredFormat(document: UploadDocument): 'junit' | 'playwright' | '' {
-  const raw = (document.fields['format'] ?? document.fields['artifactType'] ?? '')
-    .trim()
-    .toLowerCase();
-  if (raw === 'junit' || raw === 'xml') return 'junit';
-  if (raw === 'playwright' || raw === 'playwright-json') return 'playwright';
-  return '';
+function declaredFormat(document: UploadDocument): ReportFormat | undefined {
+  return reportFormatForSpelling(
+    document.fields['format'] ?? document.fields['artifactType'] ?? '',
+  );
+}
+
+/**
+ * The adapter for a canonical format id.
+ *
+ * A table rather than an `if` chain so the id the contract names and the adapter that
+ * parses it are checked together at compile time: adding a format to
+ * `REPORT_FORMATS` without giving it an adapter is a `TypeError` here rather than a
+ * report routed to whichever branch happened to come last.
+ */
+function adapterForFormat(id: ReportFormatId): ProducerAdapter {
+  const adapters: Record<ReportFormatId, ProducerAdapter> = {
+    'junit-xml': junitXmlAdapter,
+    'playwright-json': playwrightJsonAdapter,
+    'k6-json': K6_JSON_ADAPTER,
+    'zap-xml': ZAP_XML_ADAPTER,
+    'legacy-upload': legacyUploadAdapter,
+  };
+  return adapters[id];
 }
 
 /** Whether the body's first bytes are an XML document. The first 64 is enough. */
@@ -230,26 +266,49 @@ function looksLikeXml(document: UploadDocument): boolean {
 }
 
 /**
- * Reject a declared format whose bytes are the other format.
+ * Reject a declared format whose bytes are the other encoding.
  *
- * Refusing rather than guessing: the two parsers fail in opposite ways, and a caller who
- * mislabelled a Playwright report as JUnit would otherwise get "this document contains no
- * test cases" — a message about the wrong file.
+ * Refusing rather than guessing: the parsers fail in opposite ways, and a caller who
+ * mislabelled a k6 summary as ZAP would otherwise get "this document contains no test
+ * cases" — a message about the wrong file, produced by the wrong parser, about a document
+ * that does contain something the right parser reads.
+ *
+ * **The message names the canonical id, not only the wrong one**, so the caller is told
+ * the spelling to send rather than merely that the one they sent is wrong. And it is a
+ * `DomainError` with `callerSafe` rather than a bare `Error`, because a mislabelled
+ * upload is a caller mistake with a one-line fix: as a bare `Error` it reached the
+ * boundary as a 500, which tells a reporter owner their CI is broken when their `format=`
+ * field is wrong.
  */
 function assertFormatMatches(adapter: ProducerAdapter, document: UploadDocument): void {
   const declared = declaredFormat(document);
   const xml = looksLikeXml(document);
-  if (declared === 'playwright' && xml) {
-    throw new Error('The uploaded body is XML; declare format=junit so the right adapter reads it');
+  if (declared === undefined) {
+    // The one rule that needs no declaration: nothing but the JUnit adapter may read XML.
+    if (xml && adapter !== junitXmlAdapter) {
+      throw new DomainError(
+        'INVALID_REPORTER_UPLOAD',
+        'The uploaded body is XML; declare format=junit so the right adapter reads it',
+        { callerSafe: true, details: { detectedEncoding: 'xml' } },
+      );
+    }
+    return;
   }
-  if (declared === 'junit' && !xml) {
-    throw new Error('A JUnit upload must be XML; the uploaded body is not');
-  }
-  // The legacy upload payload is JSON by definition, and so is a Playwright report. Neither
-  // is XML, and a mismatch is a caller error rather than a routing ambiguity.
-  if (xml && adapter !== junitXmlAdapter) {
-    throw new Error('The uploaded body is XML; declare format=junit so the right adapter reads it');
-  }
+  const mismatched = declared.encoding === 'xml' ? !xml : xml;
+  if (!mismatched) return;
+  const actual = xml ? 'xml' : 'json';
+  // Every declarable format whose encoding matches the bytes, read out of the same table
+  // that produced the declared id. Naming one of them would be a guess; naming the set is
+  // the fix, and it is derived rather than written beside the message.
+  const suits = REPORT_FORMATS.filter(
+    (format) => format.spellings.length > 0 && format.encoding === actual,
+  ).map((format) => format.id);
+  throw new DomainError(
+    'INVALID_REPORTER_UPLOAD',
+    `A ${declared.id} upload must be ${declared.encoding.toUpperCase()}; the uploaded body is ` +
+      `${actual.toUpperCase()}. Declare one of: ${suits.join(', ')}`,
+    { callerSafe: true, details: { declaredFormat: declared.id, detectedEncoding: actual, suits } },
+  );
 }
 
 function optionalField(fields: Record<string, string>, key: string): string | undefined {

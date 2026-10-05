@@ -62,7 +62,10 @@ test.describe('release readiness', () => {
     request,
   }) => {
     await authenticate(context, request);
-    await signInAndVisit(page, '/dashboard');
+    // `/dashboard/runs`, where the readiness card renders. The cockpit at `/dashboard`
+    // is the install's blocking view and is project-scoped; the launch form, the run
+    // list and the readiness card moved together to this route.
+    await signInAndVisit(page, '/dashboard/runs');
 
     const card = page.getByTestId('release-readiness');
     await expect(card, 'the Command Center must show a release-readiness view').toBeVisible();

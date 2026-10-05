@@ -66,13 +66,17 @@ test.describe('reporter run lifecycle', () => {
     expect(completed.summary.passed, 'every reported test must be counted').toBe(TOTAL_TESTS);
     expect(completed.summary.failed).toBe(0);
 
-    // 4. The Command Center shows that exact run, in a state that is neither
+    // 4. The runs list shows that exact run, in a state that is neither
     //    "still loading" nor "nothing to show".
+    //
+    //    `/dashboard/runs`, not `/dashboard`. The run list moved there with the launch
+    //    form; the cockpit at `/dashboard` is the install's project-scoped blocking view
+    //    and carries no run item at all.
     await authenticate(context, request);
-    await signInAndVisit(page, '/dashboard');
+    await signInAndVisit(page, '/dashboard/runs');
 
     const runItem = page.getByTestId(`run-item-${runId}`);
-    await expect(runItem, 'the seeded run must appear in the Command Center').toBeVisible({
+    await expect(runItem, 'the seeded run must appear in the runs list').toBeVisible({
       timeout: 15_000,
     });
     await expect(page.getByTestId('run-status-' + runId)).toHaveText(/passed/i);
@@ -158,7 +162,8 @@ test.describe('reporter run lifecycle', () => {
     expect(failed.summary.passed).toBe(1);
 
     await authenticate(context, request);
-    await signInAndVisit(page, '/dashboard');
+    // The run list, for the same reason as the pass case above.
+    await signInAndVisit(page, '/dashboard/runs');
     await expect(page.getByTestId(`run-status-${runId}`)).toHaveText(/failed/i, {
       timeout: 15_000,
     });

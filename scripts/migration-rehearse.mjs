@@ -4,6 +4,8 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { assertLocalRehearsal } from './lib/local-rehearsal-guard.mjs';
+import { runClient } from './lib/rehearsal-client.mjs';
+import { SEALED_ROWS_SQL as REHEARSAL_ROWS_SQL, parseSealedRows } from './lib/rehearsal-rows.mjs';
 import { rehearseMigration, toReport } from './lib/rehearsal-run.mjs';
 
 /**
@@ -88,23 +90,49 @@ const dumpPath = path.join(outputRoot, `${runId}.dump`);
 mkdirSync(outputRoot, { recursive: true });
 
 /**
- * Run a PostgreSQL client, and fail loudly.
+ * `spawnSync`, adapted to what `runClient` asks of it.
  *
- * `stdio: 'inherit'` on the dump rather than `'pipe'`: a `pg_dump` that fails halfway
- * has written a partial file, and a rehearsal that restored from it would be reporting
- * on a database nobody had.
+ * The adapter is three lines and exists for a typing reason with a real consequence behind it:
+ * `spawnSync`'s return type is generic over the encoding, so with `encoding: 'utf8'` its
+ * `stdout` is a `string` and without it a `Buffer`. Handing the raw function to a parameter
+ * typed as "returns text" is a type error, and the fix people reach for is a cast — which would
+ * leave a `Buffer` concatenated into a report as `<Buffer 3c 45 52…>`. Converting here means
+ * the report always holds the text the operator saw.
+ *
+ * @type {import('./lib/rehearsal-client.mjs').SpawnLike}
+ */
+const spawnText = (command, args, options) => {
+  const result = spawnSync(command, [...args], { ...options, encoding: 'utf8' });
+  return {
+    ...(result.error === undefined ? {} : { error: result.error }),
+    status: result.status,
+    stdout: result.stdout === null ? '' : String(result.stdout),
+    stderr: result.stderr === null ? '' : String(result.stderr),
+  };
+};
+
+/**
+ * Run a PostgreSQL client.
+ *
+ * `runClient` re-emits the child's output to the terminal **and** puts it in the thrown error,
+ * which is what the phase detail is built from. `stdio: 'inherit'` would have shown the
+ * operator everything and recorded nothing: the run against a restore carrying two unattributed
+ * credentials printed `0020_connector_credentials_tenant.sql`'s own refusal to the console and
+ * wrote `node exited 1` into `report.json`, which is the artefact the whole command exists to
+ * leave behind.
  *
  * @param {string} command
- * @param {string[]} args
- * @param {NodeJS.ProcessEnv} [extraEnv]
+ * @param {readonly string[]} args
+ * @param {Record<string, string>} [extraEnv]
  */
 function run(command, args, extraEnv) {
-  const result = spawnSync(command, args, {
-    stdio: 'inherit',
-    ...(extraEnv === undefined ? {} : { env: { ...env, ...extraEnv } }),
+  runClient({
+    spawn: spawnText,
+    command,
+    args,
+    env,
+    ...(extraEnv === undefined ? {} : { spawnOptions: { env: { ...env, ...extraEnv } } }),
   });
-  if (result.error) throw new Error(`${command}: ${result.error.message}`);
-  if (result.status !== 0) throw new Error(`${command} exited ${String(result.status)}`);
 }
 
 /**
@@ -156,14 +184,20 @@ const { openSecret, VaultRowUnboundError } = await import(VAULT_MODULE).catch((c
 /**
  * Every sealed row, read through `psql` so this script needs no database driver.
  *
+ * The query and the parser both live in `scripts/lib/rehearsal-rows.mjs`, which is a tested
+ * pure function over `psql`'s stdout. That is not tidiness: the reader used to be inline here,
+ * and the first real run of this command found that `--field-separator=` had set the
+ * separator to *empty*, so the `split('|')` beside it never matched and every field of every
+ * row came back `undefined`. The run reported three rows found and zero opened on an intact
+ * vault and advised checking the vault key — a gate crying wolf, which is worse than a gate
+ * that says nothing.
+ *
  * `iterations` is carried but not used by the opener: `keyFor` derives at the cost the
  * product derives at, and a rehearsal that honoured a per-row iteration count would be
  * testing a decryption path nothing else uses. It is selected anyway so a migration that
  * narrows or drops the column is visible here rather than at the first production read.
  */
-const SEALED_ROWS_SQL = `SELECT id, workspace_id, connector_name, ciphertext, iv, auth_tag, salt, iterations
-FROM vault_entries
-ORDER BY id;`;
+const SEALED_ROWS_SQL = REHEARSAL_ROWS_SQL;
 
 /**
  * One sealed row as `psql` returns it, beside the shapes the product's own vault module
@@ -196,53 +230,21 @@ const result = await rehearseMigration(
     fetchSealedRows: async () => {
       const out = spawnSync(
         'psql',
-        [
-          '--dbname',
-          restoreUrl,
-          '--tuples-only',
-          '--no-align',
-          '--field-separator=',
-          '--command',
-          SEALED_ROWS_SQL,
-        ],
+        ['--dbname', restoreUrl, '--tuples-only', '--no-align', '--command', SEALED_ROWS_SQL],
         { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
       );
       if (out.error) throw new Error(`psql: ${out.error.message}`);
       if (out.status !== 0) throw new Error(`psql exited ${String(out.status)}`);
-      return out.stdout
-        .split(/\r?\n/)
-        .filter((line) => line.trim() !== '')
-        .map((line) => {
-          const [id, workspaceId, name, ciphertext, iv, authTag, salt, iterations] =
-            line.split('|');
-          return {
-            rowId: id,
-            input: {
-              envelope: {
-                // The vault has no `version` column: everything in `vault_entries` is a
-                // bound envelope, because `0020_connector_credentials_tenant.sql` moved
-                // the table to `(workspace_id, connector_name)` and the repair tool
-                // re-sealed what it found. Stating 2 rather than reading a column is
-                // correct, and `openLegacySecret` remains the path for a v1 row — which
-                // this reports as `binding_mismatch`, because a rehearsal must not call
-                // unbound data safe.
-                version: 2,
-                algorithm: 'aes-256-gcm',
-                keyVersion: 1,
-                ciphertext,
-                iv,
-                tag: authTag,
-                salt,
-                iterations: Number(iterations),
-              },
-              binding: { entryId: id, workspaceId, name },
-            },
-          };
-        });
+      // Parsed by `parseSealedRows`, which is a tested pure function. It was inline here
+      // until the first real run of this command (2026-10-04) reported three rows found and
+      // zero opened on an intact vault, because `--field-separator=` set the separator to
+      // *empty* and the `split('|')` that followed it never matched. See
+      // `scripts/lib/rehearsal-rows.mjs`.
+      return parseSealedRows(out.stdout);
     },
     open: async (row) => {
       // The port's `input` is `unknown` because the verifier is generic over it; here it
-      // is always what `fetchSealedRows` above built, so it is narrowed once rather than
+      // is always what `parseSealedRows` built, so it is narrowed once rather than
       // re-checked on every row.
       const { envelope, binding } = /** @type {SealedInput} */ (row.input);
       try {

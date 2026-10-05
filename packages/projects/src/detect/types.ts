@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { DETECTABLE_REPORT_FORMAT_IDS, type ReportFormatId } from '@automate/shared-contracts';
 import { SCORE_CATEGORIES, SCORE_SURFACES } from '../vocabulary.js';
 
 /** The eight ecosystems the v1 detector reads. Narrowing this is a plan change, not a flag. */
@@ -42,9 +43,19 @@ export type CoverageFormat = z.infer<typeof CoverageFormatSchema>;
  * `junit-xml` is deliberately one entry rather than six. Six ecosystems write
  * divergent XML that all parse under one adapter and one `unsupported` path —
  * dialect fixtures against the existing parser, not six new adapters (R4).
+ *
+ * **Derived from `@automate/shared-contracts`' `REPORT_FORMATS`, not written here.** This
+ * list, `declaredFormat()` in the upload door, `artifactKind()` in the runner and the
+ * provenance producer enum were four spellings of the same set of formats, each written by
+ * whoever needed it and each blind to the one added since. They were equal until k6 and ZAP
+ * landed, and then a k6 summary declaring its own format was routed to an adapter that
+ * could not read it. The membership has not changed — three detectable formats — but the
+ * spelling is now read rather than restated, so adding one is one edit in one place.
  */
-export const RESULT_FORMATS = ['junit-xml', 'k6-json', 'zap-xml'] as const;
-export const ResultFormatSchema = z.enum(RESULT_FORMATS);
+export const RESULT_FORMATS = DETECTABLE_REPORT_FORMAT_IDS;
+export const ResultFormatSchema = z.enum(
+  RESULT_FORMATS as unknown as [ReportFormatId, ...ReportFormatId[]],
+);
 export type ResultFormat = z.infer<typeof ResultFormatSchema>;
 
 /** A file the run may produce, as a glob the workspace walk evaluates. */

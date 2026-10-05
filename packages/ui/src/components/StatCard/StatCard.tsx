@@ -1,5 +1,6 @@
 import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 export interface StatCardProps extends HTMLAttributes<HTMLDivElement> {
@@ -9,20 +10,37 @@ export interface StatCardProps extends HTMLAttributes<HTMLDivElement> {
   description?: ReactNode;
 }
 
+/**
+ * A glass panel, and the sharpest version of the question the design language settled.
+ *
+ * A stat card is a number over whatever the page behind it is showing, and it is often
+ * *other numbers*. That is the case `.github/review-rules/rules.json` used to refuse
+ * categorically — "the pixels behind a panel in this product are usually the evidence
+ * itself" — and it is admissible now because it is measured rather than argued:
+ * `theme.test.ts` requires `--automate-text-secondary` to clear 4.5:1 on the composite
+ * this fill makes over each of the four plane steps, in both themes.
+ *
+ * The `text-success` / `text-danger` trend colours are the composer's real risk, because
+ * a trend is a claim and it is read at a glance — so they are measured too, not just the
+ * body text. `theme.test.ts` holds all five status hues and `--automate-accent` at 4.5:1
+ * on the same composite. That is why these two classes are left alone: a hue that has to be
+ * raised for glass is raised at the token, where the whole palette's contrast cases live.
+ */
 export const StatCard = forwardRef<HTMLDivElement, StatCardProps>(
   ({ className, title, value, trend, description, ...props }, ref) => {
     return (
       <div
         ref={ref}
         className={cn(
-          'flex flex-col gap-1 rounded-xl border border-border-default bg-bg-elevated p-6 shadow-sm',
+          'flex flex-col gap-1 rounded-xl border border-border-default p-6',
+          GLASS_SURFACE_CLASSES,
           className,
         )}
         {...props}
       >
         <div className="text-sm font-medium text-text-secondary">{title}</div>
         <div className="flex items-baseline gap-2">
-          <div className="text-2xl font-semibold text-text-primary">{value}</div>
+          <div className="tabular-nums text-2xl font-semibold text-text-primary">{value}</div>
           {trend && (
             <div
               className={cn(

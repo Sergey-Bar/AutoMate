@@ -43,15 +43,17 @@ token, a contrast case and a name for what the new step is.
 
 Elevation is a shadow that _follows_ the plane, not one that leads it:
 
-| Step | Shadow                                    | For                             |
-| ---- | ----------------------------------------- | ------------------------------- |
-| `1`  | `0 1px 2px rgb(0 0 0 / 0.32)`             | A card                          |
-| `2`  | `0 4px 12px -2px`, plus a 1px `0 1px 3px` | A raised panel, a hover surface |
-| `3`  | `0 18px 48px -12px`, plus `0 4px 12px`    | A dialog, a command palette     |
+| Step    | Shadow                                    | For                                       |
+| ------- | ----------------------------------------- | ----------------------------------------- |
+| `1`     | `0 1px 2px rgb(0 0 0 / 0.32)`             | A card                                    |
+| `2`     | `0 4px 12px -2px`, plus a 1px `0 1px 3px` | A raised panel, a hover surface           |
+| `3`     | `0 18px 48px -12px`, plus `0 4px 12px`    | A dialog, a command palette               |
+| `glass` | `0 24px 64px -16px`, plus `0 6px 16px`    | A translucent panel — see [Glass](#glass) |
 
 A single `shadow-sm` cannot describe a plane with four levels — it is either invisible
 on the base or heavy on the top one — so the scale exists to say _which_ plane token a
-surface is painted on.
+surface is painted on. The fourth entry is not a fifth level of the plane: it is the same
+plane, seen through something.
 
 ## The accent
 
@@ -124,6 +126,15 @@ The test asserts the strong border against all four plane steps, not only the ba
 because a control painted on `--automate-surface-sunken` has to survive there too — and
 in the dark theme the _muted_ step is the binding constraint, not the base.
 
+**Two borders, and then a third case that is neither.** A glass border is neither the
+delineating edge nor the decorative one: its job is to describe a panel's edge against
+_whatever is behind it_, so it is a function of the backdrop, and a token cannot hold a
+function. There is no `--automate-glass-border` and a test asserts its absence, because a
+fixed-alpha hairline would be invisible on a light backdrop and a hard line on a dark one.
+The glass edge is `--shadow-glass` instead: the third state of this section is _elevation
+describing the edge_, and it is the reason the elevation scale has four steps rather than
+three.
+
 ## Type
 
 Two families, and the rule is which of them a string is.
@@ -194,15 +205,54 @@ drawer still slides. `0.01ms` rather than `0s`: a zero duration can suppress the
 
 ## Glass
 
-`backdrop-filter` is an **error** in every `.ts` and `.tsx` file, enforced by
-`eslint.config.js`. It makes an overlay a _lens_: it samples the pixels behind it, so
-the readability of the thing being read depends on whatever is underneath. For an
-evidence console the pixels behind a panel are usually the evidence.
+Glass ships. `backdrop-filter` remains an **error** in every `.ts` and `.tsx` file outside
+one exported allowlist, enforced by `eslint.config.js`. The reasoning has not changed: a
+backdrop-filter makes an overlay a _lens_, so the readability of the thing being read
+depends on whatever is underneath, and in an evidence console the pixels behind a panel are
+usually the evidence.
 
-Phase 1 ships no glass at all. When Phase 2 opens the allowlist it is chrome only —
-`NavBar`, the app shell, the Command Center, the `Toaster` — and the review rule
-`no-glass-over-data` asks the question a linter cannot: not _whether_ there is glass,
-but whether what is behind it is data.
+What changed is the **instrument**. Phase 1 answered that observation with a total ban,
+and a total ban cannot ask its own question — it knows the property and nothing about what
+is behind the element. So glass is now admissible where the backdrop is _stable_, and the
+review rule that replaced `no-glass-over-data` asks the narrower question that can actually
+be answered: `glass-over-unstable-backdrop`.
+
+### Stable and unstable
+
+| Backdrop                                                                                 | Verdict                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| The plane, or chrome over the page — `NavBar`, `Sidebar`, the shell, `Drawer`, `Popover` | **Admissible.** The backdrop is a token, or one of four fixed plane steps                                        |
+| A panel over another panel, at any depth                                                 | **Admissible, and capped at one layer** — `performance/rendering-budget.json`                                    |
+| Over a log, a stack trace, a diff, a scrolling table                                     | **Not admissible.** A reader comparing two lines needs both at once, and no contrast measurement makes that safe |
+
+### The tokens, and why each one is what it is
+
+| Token                       | Value                                                        | Why                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--automate-glass-fill`     | `color-mix(in oklab, `--automate-surface` 72%, transparent)` | A **floor**, not a preference. Below it the contrast against the worst-case backdrop stops being measurable. There is no border token and no border utility: a glass border describes an edge against _whatever is behind it_, which is a function a token cannot hold. A 1px hairline at fixed alpha is invisible on a light backdrop and a hard line on a dark one, so the edge is described by elevation instead. |
+| `--automate-glass-blur`     | `8px`                                                        | The bottom of the scheduled 8–16px range. The cost argument against glass scales with the kernel radius; 8px delivers the material read — you can see there is something behind the panel — at about a third of the cost of 16px.                                                                                                                                                                                    |
+| `--automate-glass-saturate` | `1.05`                                                       | The bottom of the scheduled 1.05–1.15 range, for the same reason.                                                                                                                                                                                                                                                                                                                                                    |
+| `--automate-glass-radius`   | `12px`                                                       | A **ceiling**, deliberately not exposed as a utility. Every surface that adopts glass is already at 6, 8 or 12px. A ceiling published as a utility is a default wearing a limit as a name.                                                                                                                                                                                                                           |
+| `--shadow-glass`            | a fourth elevation step                                      | Stronger than `--shadow-elevation-3`, because a translucent panel has to be separated from what shows through it rather than from an opaque neighbour.                                                                                                                                                                                                                                                               |
+
+The fill is declared once in `:root`, not per theme: it is a `color-mix` against
+`--automate-surface`, which the light theme redefines, and a test fails if a theme block
+starts restating it.
+
+### The contrast case, and what it replaced
+
+A panel over a static plane samples a fixed set of pixels and its contrast is a property of
+the theme. A translucent panel does not. `packages/ui/src/tokens/theme.test.ts` composites
+`--automate-glass-fill` over **every** plane step, in **both** themes, and requires 4.5:1
+on the result for `--automate-fg`, `--automate-fg-muted` and all five status hues plus
+`--automate-accent`. A panel that passes against `--automate-surface` and fails against
+`--automate-surface-sunken` is legible on one screen and not on another, and no assertion
+that reads a single token can see it.
+
+### Reading it back
+
+`pnpm site:doctor` check 8 imports this page's `theme.css` rather than copying it, so the
+tokens above are the ones the product ships.
 
 ## The escape hatches
 
@@ -211,7 +261,7 @@ different requests:
 
 | Query                                  | What it does                                                                                                               |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `prefers-reduced-transparency: reduce` | The plane becomes fully opaque and both borders are pushed to 3:1                                                          |
+| `prefers-reduced-transparency: reduce` | The plane becomes fully opaque, both borders are pushed to 3:1, and a glass panel gets an opaque fill with **no** effect   |
 | `prefers-contrast: more`               | Muted text moves toward the full foreground; both borders go to the control border. The status hues are **untouched**      |
 | `forced-colors: active`                | The borders and the plane are handed to `Canvas`/`CanvasText`, because in forced-colors the two themes are the same screen |
 
@@ -222,6 +272,14 @@ which fixes one contrast request by breaking a different one.
 `forced-color-adjust` is not set to `none` anywhere, and there is an assertion for that.
 Overriding it is how a component ends up with a colour the user did not choose, which is
 the one outcome that query exists to prevent.
+
+**The transparency query carries the glass fallback, and it neutralises the effect as well
+as the fill.** `--automate-glass-blur` goes to `0px` and `--automate-glass-saturate` to `1`
+alongside the opaque fill. Blurring an opaque fill is invisible, so setting only the fill
+would have looked right while leaving the compositor repainting a backdrop for a result
+nobody can see — which is the cost half of the argument against glass. Doing it through
+the tokens rather than through a second rule is why a new glass surface inherits the
+fallback by existing.
 
 ## What this site is made of
 

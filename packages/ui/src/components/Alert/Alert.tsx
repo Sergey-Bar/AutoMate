@@ -34,7 +34,7 @@ export const AlertTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHead
   ({ className, children, ...props }, ref) => (
     <h5
       ref={ref}
-      className={cn('mb-1 font-medium leading-none tracking-tight', className)}
+      className={cn('mb-1 font-medium leading-snug tracking-tight text-balance', className)}
       {...props}
     >
       {children}
@@ -49,7 +49,10 @@ export const AlertDescription = forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={cn('text-sm [&_p]:leading-relaxed text-fg-muted', className)}
+    className={cn(
+      'max-w-measure text-pretty text-sm [&_p]:leading-relaxed text-fg-muted',
+      className,
+    )}
     {...props}
   />
 ));

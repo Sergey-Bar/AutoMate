@@ -8,6 +8,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { cva } from 'class-variance-authority';
+import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 /** See `Dialog.tsx` for why the selector is spelled out in full. */
@@ -26,8 +27,30 @@ export interface DrawerProps extends DialogHTMLAttributes<HTMLDialogElement> {
   position?: 'left' | 'right' | 'top' | 'bottom';
 }
 
+/**
+ * A drawer is glass because it is *the* case for it.
+ *
+ * A drawer slides in over a dimmed page and the content behind it is still moving, so its
+ * backdrop is not a token anyone can pick — it is whatever the page had at that moment.
+ * That is precisely what a translucent surface is for, and precisely the condition the
+ * design language refuses to leave unmeasured: `theme.test.ts` requires 4.5:1 for the
+ * composite this fill makes over each of the four plane steps, in both themes.
+ *
+ * `bg-surface/50` on the `backdrop:` pseudo is left alone: a scrim's job is to darken
+ * what is behind it, and a scrim you can see through is not a scrim.
+ */
+/**
+ * **The drawer slides**, which is the `transition` role and the only movement in the
+ * product: `open:animate-automate-slide-in` is opacity plus an 8% `translateY` over 300 ms
+ * on the `in-out` easing.
+ *
+ * The 300 ms and the 8% are both stated in `motion.css` with the reasoning. `transition-
+ * transform` is kept as the base because a closed drawer is positioned off-canvas, and the
+ * slide *into* that position is what `close:` states do — the duration on the base class is
+ * therefore the one the reader sees on the way out, and the way out is faster on purpose.
+ */
 const drawerVariants = cva(
-  'fixed z-50 bg-surface text-fg shadow-elevation-3 transition-transform duration-300 ease-in-out open:animate-fade-in open:duration-150 backdrop:bg-surface/50 p-0 m-0',
+  `fixed z-modal text-fg transition-transform duration-300 ease-in-out open:animate-automate-slide-in backdrop:bg-surface/50 p-0 m-0 ${GLASS_SURFACE_CLASSES}`,
   {
     variants: {
       position: {
@@ -173,7 +196,7 @@ export const DrawerTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHea
   ({ className, children, ...props }, ref) => (
     <h2
       ref={ref}
-      className={cn('text-lg font-semibold leading-none tracking-tight', className)}
+      className={cn('text-lg font-semibold leading-snug tracking-tight text-balance', className)}
       {...props}
     >
       {children}

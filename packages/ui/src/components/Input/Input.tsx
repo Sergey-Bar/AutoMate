@@ -8,7 +8,19 @@ const inputVariants = cva(
     variants: {
       variant: {
         default: 'border-border-default text-text-primary',
-        error: 'border-error text-error focus-visible:outline-error',
+        /*
+         * The error variant changes the *border* and stops there.
+         *
+         * It used to add `focus-visible:outline-error` on top of the base's
+         * `focus-visible:outline-border-focus`, which is not a second colour — it is two
+         * classes setting the same property on one element, and which one wins is decided
+         * by CSS order rather than by the order they appear in the class string. So a
+         * field in error drew a ring whose colour was a property of the build rather than
+         * a decision. The border already carries the error, it is a `border-error` at
+         * 4.5:1 against every plane step, and WCAG 1.4.11 is about the edge that
+         * delineates the control.
+         */
+        error: 'border-error text-error',
       },
       size: {
         sm: 'h-8 px-2.5 text-xs',

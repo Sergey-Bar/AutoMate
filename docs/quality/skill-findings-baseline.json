@@ -38,19 +38,43 @@
       "location": "vercel-react-best-practices/AGENTS.md:2477 and rules/rendering-svg-precision.md:27",
       "matched": "npx svgo",
       "reason": "False positive, reported twice because one pattern matched in two files. `svgo` is Vercel's recommended CLI for SVG optimisation, mentioned as advice in upstream documentation this repository does not execute. No MCP server is referenced."
+    },
+    {
+      "matchFingerprint": "8dc77d3dce9ba1f2672e813265a1b1a0c8594866ef38a4e978bf4f4451795465",
+      "id": "EA2",
+      "severity": "MEDIUM",
+      "location": "better-colors/SKILL.md:69",
+      "matched": "without asking",
+      "reason": "False positive. The line is about CSS gradient interpolation: \"The sRGB default darkens and mutes the midpoint. It is what most interfaces already have, because it is what you get without asking.\" The phrase describes the browser's default behaviour, not an instruction to an agent to act without consent — and it is in a section recommending `in oklab` instead, which is the *more* careful choice. EA2 targets an agent taking an action the user did not authorise; there is no action and no tool call here. Vendored 2026-10-04 with the design-craft skill set, upstream pinned by hash in skills-lock.json."
     }
   ],
   "coverage": {
-    "note": "**This scan was not complete, and a gate that reported otherwise would be the RF-9 shape.** `analysis_completeness.status` is `partial` and `is_complete` is `false`: 126 of 129 components fully inspected (97.7%), with three files `partially_inspected` because `static_patterns_tool_misuse` hit its `static_parse_limit` — `gate-tiering/SKILL.md`, `vercel-react-best-practices/AGENTS.md`, and `vercel-react-best-practices/rules/advanced-use-latest.md`. That analyzer reports `degraded`, and it is the analyzer whose silence is most consequential here: a gate that printed a clean summary while an analyzer was degraded would be asserting a coverage it does not have.",
-    "components": 129,
-    "scanned": 126,
-    "coveragePercent": 97.7,
+    "note": "**This scan was not complete, and a gate that reported otherwise would be the RF-9 shape.** `analysis_completeness.status` is `partial` and `is_complete` is `false`. **The 2026-10-04 run over the design-craft skill set made it worse, not better: 136 of 142 components fully inspected (95.8%), down from 126 of 129 (97.7%).** Six files are `partially_inspected` across four different limits — `static_parse_limit` on `better-accessibility/SKILL.md`, `build-primitive/SKILL.md` and `gate-tiering/SKILL.md`; a `runtime_limit` on `better-typography`; and `obfuscated_instruction_text` on `build-/SKILL.md`, where twelve of the fourteen static analyzers could not finish. `obfuscated_instruction_text` on a document this large is the one worth naming: the deterministic layer declined to evaluate 47 kB of prose containing fenced examples of hostile strings, which is exactly what that file is for. It is recorded as incomplete rather than waved through, because a gate that printed a clean summary over a degraded analyzer would be asserting a coverage it does not have — and the count went **down** when the corpus grew, which is the observation `DESIGN-5` carries.",
+    "components": 142,
+    "scanned": 136,
+    "coveragePercent": 95.8,
     "partialPaths": [
-      "gate-tiering/SKILL.md",
-      "vercel-react-best-practices/AGENTS.md",
-      "vercel-react-best-practices/rules/advanced-use-latest.md"
+      "better-accessibility/SKILL.md",
+      "better-typography",
+      "build-primitive/SKILL.md",
+      "gate-tiering/SKILL.md"
     ],
-    "degradedAnalyzers": ["static_patterns_tool_misuse"]
+    "degradedAnalyzers": [
+      "static_patterns_agent_snooping",
+      "static_patterns_anti_refusal",
+      "static_patterns_deserialization",
+      "static_patterns_excessive_agency",
+      "static_patterns_harmful_content",
+      "static_patterns_memory_poisoning",
+      "static_patterns_privilege_escalation",
+      "static_patterns_prompt_injection",
+      "static_patterns_rogue_agent",
+      "static_patterns_ssrf",
+      "static_patterns_supply_chain",
+      "static_patterns_supply_chain_bytecode_runtime_limit",
+      "static_patterns_system_prompt_leakage",
+      "static_patterns_tool_misuse"
+    ]
   },
-  "whyNotClean": "A clean baseline with zero entries would be the honest reading of the evidence only if the scanner had run completely and found nothing. It ran completely enough to be informative, and what it found is six pattern matches against markdown prose — so the correct disposition is a stated reason per finding, which is what this file is. Deleting it and writing 'clean' is the outcome this repository records as RF-9: a number nobody produced."
+  "whyNotClean": "A clean baseline with zero entries would be the honest reading of the evidence only if the scanner had run completely and found nothing. It ran completely enough to be informative, and what it found is seven pattern matches against markdown prose — so the correct disposition is a stated reason per finding, which is what this file is. Deleting it and writing 'clean' is the outcome this repository records as RF-9: a number nobody produced."
 }

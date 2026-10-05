@@ -209,24 +209,17 @@
       "fix": "Default to refusing. Where an escape hatch is genuinely needed, make it an explicit named constant with a comment saying which environment uses it, so the switch is a line a reviewer can find — not a default buried in a call."
     },
     {
-      "id": "no-glass-over-data",
+      "id": "glass-over-unstable-backdrop",
       "category": "Boundary design",
       "severity": "Major",
       "source": "custom",
       "pathGlobs": [
-        "packages/ui/src/components/Table/**",
-        "packages/ui/src/components/StatCard/**",
-        "apps/web/src/routes/dashboard/run-detail.tsx",
-        "apps/web/src/routes/dashboard/quarantine.tsx",
-        "apps/web/src/routes/dashboard/gaps.tsx",
-        "apps/web/src/components/RunList.tsx",
-        "apps/web/src/components/RunExplorer.tsx",
-        "packages/ui/src/components/CommandPalette/**",
-        "apps/web/src/**",
-        "packages/ui/src/**"
+        "packages/ui/src/components/**",
+        "packages/ui/src/tokens/**",
+        "apps/web/src/**"
       ],
-      "rationale": "A backdrop-filter, or a translucent fill, on an element whose job is to hold evidence. The pixels behind a panel in this product are usually the evidence itself — a run log, a stack trace, a table of digests — so a lens over them makes legibility a function of what happens to be underneath, and two readers can see the same line differently. Phase 1 bans backdrop-filter outright in `eslint.config.js`, and that ban reaches only the property: it cannot know what is behind the element, which is the question this rule asks. Major rather than Critical because the surface still renders and still reads at a glance; the cost is degraded legibility rather than a wrong answer. The `pathGlobs` name the forbidden components first so that reading the rule says which ones, and `apps/web/src/**` last so a glass surface in a file that did not exist when this rule was written is still asked about.",
-      "fix": "Paint the panel opaque from the plane tokens and separate it with an elevation shadow. A full-viewport scrim is the one allowed case — it is chrome over chrome and nothing is read through it — and it still gets no backdrop-filter."
+      "rationale": "**The decision that replaced `no-glass-over-data`, recorded first because a reader six months from now should be able to see both halves.** Glass ships. `backdrop-filter` is still an error outside one exported allowlist in `eslint.config.js`, and what it replaced was a *total* ban — correct in substance, wrong in instrument, because a linter can ask whether an element has a `backdrop-filter` and cannot ask what is behind it. A prohibition that cannot name its own exceptions trains reviewers to route around it, and a rule nobody follows is worse than no rule. So the question is narrowed to one that can be answered: is the backdrop **stable**. The named evidence components stay in scope; what changed is the question, from \"is this translucent\" to \"is what is behind this translucent moving\" — which keeps the rule firing on real cases instead of turning it into noise.\n\n**The reasoning, carried forward verbatim from `no-glass-over-data`.** A backdrop-filter, or a translucent fill, on an element whose job is to hold evidence. The pixels behind a panel in this product are usually the evidence itself — a run log, a stack trace, a table of digests — so a lens over them makes legibility a function of what happens to be underneath, and two readers can see the same line differently. Major rather than Critical because the surface still renders and still reads at a glance; the cost is degraded legibility rather than a wrong answer.\n\n**What the new question is answered with, and what it does not settle.** A surface over the plane or over chrome is admissible: `packages/ui/src/tokens/theme.test.ts` composites the glass fill over all four plane steps in both themes and requires 4.5:1 for the foreground pair, all five status hues and the accent, and `e2e/accessibility/routes.spec.ts` runs axe over every route in both themes. A surface over a log, a stack trace, a diff or a scrolling table is **not**, and no measurement makes it safe — a reader comparing two lines needs both at once, and the ratio would be a reading of one of them. Stack depth is capped at one layer in `performance/rendering-budget.json`; a nested translucent surface costs roughly four times one and is measured rather than assumed. `pathGlobs` covers both trees in full because the property is not confined to the components that existed when this rule was written.",
+      "fix": "Name the backdrop. If the surface sits over the plane or over chrome, use `GLASS_SURFACE_CLASSES` and the contrast case already holds. If it sits over evidence, paint it from the plane tokens and separate it with `shadow-elevation-*`. A full-viewport scrim is the one allowed case — it is chrome over chrome and nothing is read through it — and it still gets no backdrop-filter."
     },
     {
       "id": "double-assertion",

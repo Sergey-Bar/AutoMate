@@ -11,6 +11,7 @@ import {
   type RefAttributes,
   isValidElement,
 } from 'react';
+import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 export interface PopoverProps {
@@ -136,7 +137,19 @@ export const PopoverTrigger = forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
 >(({ className, ...props }, ref) => (
-  <button ref={ref} type="button" className={className} {...props} />
+  <button
+    ref={ref}
+    type="button"
+    // The trigger is a tab stop, and it shipped with no focus indicator at all while
+    // `PopoverContent` shipped `outline-none` with nothing in its place. Both halves are
+    // the same defect: a keyboard user could open the panel and could not see where they
+    // had arrived from, nor come back to it.
+    className={cn(
+      'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+      className,
+    )}
+    {...props}
+  />
 ));
 PopoverTrigger.displayName = 'PopoverTrigger';
 
@@ -145,7 +158,20 @@ export const PopoverContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivE
     <div
       ref={ref}
       className={cn(
-        'absolute z-50 mt-2 w-72 rounded-md border border-border bg-surface p-4 text-fg shadow-md outline-none animate-zoom-in-95 duration-150',
+        // `outline-none` stays, and it is correct here: this panel is focused
+        // programmatically when it opens so a keyboard user's next Tab lands inside it,
+        // and a 2px outline around a box the moment it appears is noise rather than
+        // information. The ring the *trigger* carries is what says where focus came from
+        // and where it went back to, and the accessibility sweep asserts that pairing.
+        /*
+         * **The popover scales from its anchor** — the `enter, anchored` role. From 95%,
+         * not from 0: the panel belongs to the control the reader just pressed, and a scale
+         * from zero reads as a new object appearing rather than as that control's panel
+         * opening. `origin-top` is set here rather than in the keyframe because the origin
+         * belongs to the anchor and only the component knows which edge it is on.
+         */
+        'absolute z-popover mt-2 w-72 origin-top rounded-md border border-border p-4 text-fg outline-none animate-zoom-in-95 duration-150',
+        GLASS_SURFACE_CLASSES,
         className,
       )}
       {...props}

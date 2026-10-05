@@ -50,6 +50,17 @@ export function twelvePage(root) {
     '',
     'The definition of done this repository can state honestly is **zero `fail` rows**.',
     '',
+    /*
+     * The regeneration line, same shape as the other three generated pages.
+     *
+     * Four pages, four tables, and this one alone did not say how to change a number — so a
+     * reader who wanted to correct a verdict had to find the generator before they could find
+     * the command that produces it, which is the wrong order. One sentence, four pages, the
+     * same words: edit the named source, run the command.
+     */
+    'The numbers above are derived. To change one, edit the file this page names as',
+    'its source, then run `pnpm site:generate`.',
+    '',
     ...table(
       ['Point', 'Verdict', 'Why', 'Decided by'],
       reports.map((report) => [

@@ -13,7 +13,7 @@ export function GlobalCommandPalette() {
     () => [
       {
         id: 'nav-dashboard',
-        label: 'Go to Command Center',
+        label: 'Go to Cockpit',
         onSelect: () => void navigate({ to: '/dashboard' }),
       },
       {

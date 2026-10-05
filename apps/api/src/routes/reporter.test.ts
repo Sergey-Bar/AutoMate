@@ -763,6 +763,113 @@ describe('Reporter routes — upload ingestion', () => {
     expect(tests.some((t) => t.status === 'failed')).toBe(true);
   });
 
+  // -------------------------------------------------------------------------
+  // The door reads what the tree already has adapters for.
+  //
+  // `packages/reporter` exported `k6-json` and `zap-xml` before this door could
+  // reach them, and the consequence was not a refusal. A k6 summary declaring no
+  // format reached the **legacy** adapter, and a ZAP report reached the **JUnit**
+  // adapter — which then answered "JUnit report contains no test cases" about a
+  // security scan. Four cases, written before the fix and watched fail: each of
+  // the two formats correctly declared, and each of the two mislabelled in the
+  // opposite direction.
+  // -------------------------------------------------------------------------
+
+  /** A k6 summary with one failing check and one breached threshold. */
+  const k6Summary = {
+    metrics: { checks: { passes: 418, fails: 2, value: 0.99 } },
+    options: { thresholds: { http_req_duration: ['p(95)<200'] } },
+  };
+
+  /** A ZAP report carrying one medium-risk alert. */
+  const zapReport = [
+    '<?xml version="1.0"?>',
+    '<OWASPZAPReport version="2.16.1" generated="Fri, 2 Oct 2026 10:00:00 GMT">',
+    '<site name="example" host="https://example.com" port="443" ssl="true">',
+    '<alerts><alertitem>',
+    '<pluginid>10038</pluginid><alert>Content Security Policy</alert>',
+    '<riskcode>2</riskcode><desc>a description</desc><count>1</count>',
+    '<solution>a solution</solution><riskdesc>Medium (Medium)</riskdesc>',
+    '<cweid>693</cweid><wascid>15</wascid>',
+    '</alertitem></alerts>',
+    '</site></OWASPZAPReport>',
+  ].join('');
+
+  function uploadForm(declaredFormat: string, fileName: string, body: string, type: string) {
+    const form = new FormData();
+    form.set('runId', 'upload-runner-tool-001');
+    form.set('format', declaredFormat);
+    form.set('file', new File([body], fileName, { type }));
+    return form;
+  }
+
+  it('reads a declared k6 summary with the k6 adapter, not the legacy one', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+
+    const res = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      body: uploadForm('k6', 'k6-summary.json', JSON.stringify(k6Summary), 'application/json'),
+    });
+
+    // With no recognised spelling and a `.json` filename, the door reached the
+    // **Playwright** adapter, which refused the document as unreadable. The
+    // assertion is on the evidence rather than the code: a k6 result carries its
+    // threshold as a test row, and nothing else on this door produces one.
+    expect(res.status).toBe(202);
+    const tests = await repo.listTests('upload-runner-tool-001');
+    expect(tests.some((test) => test.title.startsWith('k6 threshold'))).toBe(true);
+  });
+
+  it('reads a declared ZAP report with the ZAP adapter, not the JUnit one', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+
+    const res = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      body: uploadForm('zap', 'zap-report.xml', zapReport, 'application/xml'),
+    });
+
+    // The JUnit adapter refuses this document with "contains no test cases", which
+    // is a message about the wrong file, and the status it would have produced for
+    // a document it could read is not the verdict a scanner reported.
+    expect(res.status).toBe(202);
+    const body = (await res.json()) as { ok: boolean };
+    expect(body.ok).toBe(true);
+    const tests = await repo.listTests('upload-runner-tool-001');
+    expect(tests.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a k6 summary declared as ZAP, and names the spelling to use', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+
+    const res = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      body: uploadForm('zap-xml', 'k6-summary.json', JSON.stringify(k6Summary), 'application/json'),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('k6');
+    expect(body.error.message).toContain('zap-xml');
+  });
+
+  it('refuses a ZAP report declared as k6, and names the spelling to use', async () => {
+    const repo = new InMemoryRunRepository();
+    const app = buildAppWithRepo(repo);
+
+    const res = await app.request('/api/v1/reporter/upload', {
+      method: 'POST',
+      body: uploadForm('k6-json', 'zap-report.xml', zapReport, 'application/xml'),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as ErrorBody;
+    expect(body.error.message).toContain('zap');
+    expect(body.error.message).toContain('k6-json');
+  });
+
   it('handles additional Playwright result statuses and nested suites', async () => {
     const repo = new InMemoryRunRepository();
     const app = buildAppWithRepo(repo);

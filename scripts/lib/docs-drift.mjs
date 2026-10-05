@@ -24,6 +24,14 @@
  * which is the same shape of fix applied to the one number the agents' own instructions
  * most often reason from.
  *
+ * **And a ninth, for the same reason one layer down.** How many steps `pnpm verify`
+ * chains has moved 12 → 13 → 14 → 15 → 16 across this history, and three documents state
+ * it — `site/operations.md` in words, `scripts/gate-tooling.json` in digits, and the v3.0
+ * release plan at 15. All three were written by people reading the script. None of them
+ * was derived from it, and the v3.0 plan was written against a tree where 16 was the
+ * answer. The value is one `&&`-split away, so a copy of it in prose is a copy of
+ * something that moves.
+ *
  * **Each assertion is a detector, not a keyword.** The first attempt at point 10
  * grepped the doc-gate's source for words like `port` and `transport` and reported
  * them as implemented, because the words were there and the checks were not — a
@@ -61,6 +69,7 @@
  * @property {Set<string>} knownEnvVars
  * @property {Set<string>} adrNumbers
  * @property {Map<string, string>} coverageFloors
+ * @property {number | null} verifySteps
  * @property {(relative: string) => boolean} fileExists
  */
 
@@ -226,6 +235,12 @@ export const ASSERTIONS = [
     id: 'coverage-floors',
     rule: 'a coverage floor quoted in prose is the one `coverage-baseline.json` records',
     check: checkCoverageFloors,
+    gap: '',
+  },
+  {
+    id: 'verify-steps',
+    rule: 'a step count quoted for `pnpm verify` is the one `package.json` chains',
+    check: checkVerifySteps,
     gap: '',
   },
 ];
@@ -596,6 +611,81 @@ function checkCoverageFloors(env) {
   });
 }
 
+// ── 9. Verify step count ────────────────────────────────────────────────────
+
+/**
+ * The step counts a document can spell, as words.
+ *
+ * Position in the array *is* the value, which is why the array starts at `zero` and why
+ * the detector cannot silently accept `twentyone`. Prose spells this particular number
+ * as a word — `site/operations.md` says "Sixteen steps" — so a detector matching only
+ * digits would read a clean repository over the one document that states it.
+ */
+const STEP_WORDS = [
+  'zero',
+  'one',
+  'two',
+  'three',
+  'four',
+  'five',
+  'six',
+  'seven',
+  'eight',
+  'nine',
+  'ten',
+  'eleven',
+  'twelve',
+  'thirteen',
+  'fourteen',
+  'fifteen',
+  'sixteen',
+  'seventeen',
+  'eighteen',
+  'nineteen',
+  'twenty',
+];
+
+/**
+ * A claim about how many steps a script chains.
+ *
+ * Paired with the `verify` mention the line has to carry, so a document's "3 runs of the
+ * suite" and a migration's "contract step" are not both claims about `pnpm verify`.
+ */
+const STEP_CLAIM =
+  /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s+steps?\b/i;
+
+/**
+ * The words a **limit** uses rather than a **count**.
+ *
+ * "`verify` may grow from 16 to at most 20 steps" is a policy statement about
+ * `scripts/gate-tooling.json`'s budget, not a claim about `package.json`, and reporting
+ * it would be reporting the honest sentence as the defect. `budget`, `grow`, `at most`,
+ * `past`, `limit` and `ceiling` are the shapes such a sentence takes in this repository.
+ */
+const STEP_BUDGET = /\b(?:budget|grow\w*|at most|past|limit|ceiling)\b/i;
+
+/** @param {DriftEnvironment} env @returns {string[]} */
+function checkVerifySteps(env) {
+  const real = env.verifySteps;
+  // Nothing to compare against. Reporting every step count in the repository as a
+  // finding because one derived value is missing is the crying-wolf outcome the header
+  // of this file warns about, so the absence is silence rather than a failure.
+  if (real === null) return [];
+  return eachLine(env, (document, line) => {
+    if (!/\bverify\b/.test(line) || STEP_BUDGET.test(line)) return [];
+    const claim = STEP_CLAIM.exec(line);
+    if (claim === null) return [];
+    const quoted = (claim[1] ?? '').toLowerCase();
+    const stated = /^\d+$/.test(quoted) ? Number(quoted) : STEP_WORDS.indexOf(quoted);
+    if (stated === real) return [];
+    return [
+      `${document.path}: says \`pnpm verify\` chains ${claim[1] ?? ''} steps, and ` +
+        `\`package.json\` chains ${String(real)}. A count printed in prose is a copy, and the ` +
+        '`verify` script moves every time a step is added or removed.',
+    ];
+  });
+}
+
 // ── Deriving the truth ──────────────────────────────────────────────────────
 
 /**
@@ -618,6 +708,7 @@ export function collectDriftEnvironment(root, read, files, rootScripts, register
     knownEnvVars: deriveEnvVars(read, files),
     adrNumbers: deriveAdrNumbers(files),
     coverageFloors: deriveCoverageFloors(read),
+    verifySteps: deriveVerifySteps(read),
     // A prefix test, so `[packages/config](packages/config)` — how a document
     // points at a package — resolves. A file list knows only files, and a document
     // pointing at a directory is not a broken link.
@@ -676,6 +767,30 @@ function deriveCoverageFloors(read) {
       floors.set(pkg, /** @type {string[]} */ (tuple).join('/'));
   }
   return floors;
+}
+
+/**
+ * How many `&&`-joined steps the root `verify` script chains.
+ *
+ * Split rather than counted, so the count is the script's own structure: a step added
+ * as `pnpm x && pnpm y` is one more step and a script someone edits by hand is the same
+ * shape. `null` when `package.json` cannot be read or declares no `verify`, which is what
+ * makes the detector inert rather than wrong on a repository that has neither.
+ *
+ * @param {(relative: string) => string} read
+ * @returns {number | null}
+ */
+function deriveVerifySteps(read) {
+  const manifest = read('package.json');
+  if (manifest === '') return null;
+  const chain = /** @type {{ scripts?: Record<string, unknown> }} */ (JSON.parse(manifest)).scripts
+    ?.verify;
+  if (typeof chain !== 'string') return null;
+  const steps = chain
+    .split('&&')
+    .map((step) => step.trim())
+    .filter((step) => step !== '');
+  return steps.length;
 }
 
 /**

@@ -87,15 +87,23 @@ test('the collector reaches the documents, or every detector below passes on not
     environment.knownEnvVars.size >= 20,
     `derived env vars: ${environment.knownEnvVars.size}`,
   );
+  assert.ok(
+    environment.verifySteps !== null && environment.verifySteps >= 10,
+    `derived verify steps: ${String(environment.verifySteps)}. A null here would make every ` +
+      '`pnpm verify` step-count claim in prose vacuously correct.',
+  );
 });
 
 test('every declared assertion has a detector', () => {
   assert.equal(
     ASSERTIONS.length,
-    8,
-    'roadmap E4 names seven, and the eighth is `coverage-floors`, added on 2026-10-02 and ' +
+    9,
+    'roadmap E4 names seven, the eighth is `coverage-floors`, added on 2026-10-02 and ' +
       "recorded in this file's header because `AGENTS.md` quoted a floor table that was wrong " +
-      'in every row. A ninth is another decision to record, not a number to bump.',
+      'in every row, and the ninth is `verify-steps`, added on 2026-10-03 because `verify` has ' +
+      'grown 12 → 13 → 14 → 15 → 16 steps across this history and three documents state the ' +
+      'count independently, none of them derived. The v3.0 plan, written against the tree, put it ' +
+      'at 15. A tenth is another decision to record, not a number to bump.',
   );
   assert.deepEqual(
     unimplemented(),
@@ -289,6 +297,53 @@ test('each detector fires on the shape of claim it exists to catch', () => {
     findingsFor('coverage-floors', 'docs/x.md', 'The gate runs 3 times, 4 times and 12 times.'),
     [],
     'a table that is not a floor table is not a floor table',
+  );
+
+  // The ninth assertion. `site/operations.md` states the step count in words and
+  // `scripts/gate-tooling.json` states it in digits, and the two had both gone stale
+  // against `package.json` before anything checked. Both spellings are here because a
+  // detector that matched only the digits would have read the one document that states
+  // it as a clean pass.
+  const steps = environment.verifySteps;
+  assert.ok(steps !== null, 'the step count could not be derived, so the arms below prove nothing');
+  assert.deepEqual(
+    findingsFor(
+      'verify-steps',
+      'docs/x.md',
+      `| \`pnpm verify\` | The whole chain. ${String(steps)} steps. |`,
+    ),
+    [],
+    'the count `package.json` records is not a finding, or the detector fails the sentence it protects',
+  );
+  assert.deepEqual(
+    findingsFor(
+      'verify-steps',
+      'docs/x.md',
+      `| \`pnpm verify\` | The whole chain. ${String((steps ?? 0) + 1)} steps. |`,
+    ),
+    [
+      `docs/x.md: says \`pnpm verify\` chains ${String((steps ?? 0) + 1)} steps, and ` +
+        `\`package.json\` chains ${String(steps)}. A count printed in prose is a copy, and the ` +
+        '`verify` script moves every time a step is added or removed.',
+    ],
+  );
+  assert.deepEqual(
+    findingsFor('verify-steps', 'docs/x.md', '`pnpm verify` is the whole chain. Twelve steps.'),
+    [
+      'docs/x.md: says `pnpm verify` chains Twelve steps, and `package.json` chains ' +
+        `${String(steps)}. A count printed in prose is a copy, and the \`verify\` script moves ` +
+        'every time a step is added or removed.',
+    ],
+    'prose spells this number as a word, and the only document that states it does',
+  );
+  assert.deepEqual(
+    findingsFor(
+      'verify-steps',
+      'AGENTS.md',
+      'Fails on `verify` growing past the plan budget of 20 steps.',
+    ),
+    [],
+    'a budget is a limit recorded in scripts/gate-tooling.json, not a count read out of package.json',
   );
 });
 

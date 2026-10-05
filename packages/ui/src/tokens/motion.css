@@ -1,26 +1,89 @@
 /*
- * Motion tokens, the enter/exit keyframes the product's overlays animate with,
- * and the single rule that honours `prefers-reduced-motion`.
+ * Motion tokens, and the vocabulary they buy.
  *
- * Imported by `apps/web/src/index.css` next to `theme.css`, so the shipped
- * stylesheet is the only place motion is defined. `tokens/motion.ts` owns the
- * duration values and `tokens/motion.test.ts` fails if the two drift.
+ * ## Why this file exists
  *
- * Durations are published as `calc(<value> * var(--automate-motion-scale))`
- * rather than as literal times, so the media query below has exactly one
- * declaration to change and reaches every duration, including any added later.
+ * Every UI library ships a spring. Motion here is a set of **named durations, four named
+ * easings, six keyframes and one press scale**, and the reason to say that is the criterion:
+ * motion here is only decoration. Nothing in this repository moves to be looked at. There is
+ * no animation that is not reporting a state change — a panel opening, a row changing, a
+ * button being pressed, a number updating — and a duration is spent drawing attention to
+ * information that just arrived.
+ *
+ * ## The five roles, and what each one is allowed to animate
+ *
+ * Motion in a console has five jobs. Each is a *different* property, a *different* duration
+ * and a *different* easing, and conflating them is what makes an interface feel slow while
+ * doing nothing.
+ *
+ * 1. **Press** — 75 ms. The scale moves, nothing else. A press is a question asked and
+ *    answered in the same breath; anything longer reads as latency on the input device.
+ *    `--automate-press-scale` is a token because a scale typed into a class string
+ *    (`active:scale-[0.98]`) is a value no media query can reach, so the reduced-motion
+ *    escape hatch below could not stop it.
+ * 2. **Hover and colour** — 100 ms. Background and border. No transform: a row that grows
+ *    when the pointer passes over it moves the thing below it.
+ * 3. **Enter** — 150 ms. `automate-enter` for a panel arriving, `automate-zoom-in` for one
+ *    anchored to a control. Opacity and transform only; both are compositor properties, so
+ *    the cost does not scale with how much is on the page.
+ * 4. **Exit** — 100 ms, and the asymmetry with entering is the decision. `automate-exit`
+ *    drops opacity with no translation, because something leaving does not need to be
+ *    directed; a leaving element that travels draws the eye away from whatever replaced it.
+ * 5. **Transition** — 300 ms. `automate-slide-in` is a drawer and a dialog crossing the
+ *    viewport, and it is the one case where a transform is the whole effect.
+ *
+ * ## The escape hatch, once
+ *
+ * Two selectors, one value, and no component has to know either of them exists.
+ * `prefers-reduced-motion: reduce` is the one that matters.
+ *
+ * ## Why there is no spring here
+ *
+ * A spring is the right answer to "how does this feel on a 120 Hz display with a variable
+ * frame budget". This is a QA console that runs on the hardware an installation gave it, is
+ * read in sessions rather than used in bursts, and whose rendering budget is *recorded*
+ * rather than assumed — `performance/rendering-budget.json`, where `PERF-1` in the ledger is
+ * still open because nobody has run it on the reference hardware. A spring is the one
+ * animation whose cost depends on the frame budget, and adding it while that number is
+ * unrecorded would be adding the part that cannot be measured yet.
  */
+
 :root {
+  /*
+   * One multiplier for everything. `0.01` rather than `0` under reduced motion, because a
+   * zero-duration animation is treated by some engines as one that never starts and the
+   * `animationend` a component waits on never fires; `motion.ts` says so at greater length
+   * and `motion.test.ts` asserts the link in both directions.
+   */
   --automate-motion-scale: 1;
+
+  /*
+   * The press scale, published as `scale-press` so `active:scale-press` is the press
+   * feedback. Slightly less aggressive than Tailwind's `active:scale-95`, because a console
+   * button is small and frequently pressed: 0.98 reads as a press, 0.95 reads as a bounce.
+   */
+  --automate-press-scale: 0.98;
+
+  /*
+   * The durations, in milliseconds, each as `calc(value * scale)` rather than as a literal.
+   * The multiplier is the whole mechanism, and it is what lets the media query at the foot
+   * of this file reach a duration added later with no second edit anywhere.
+   */
   --automate-duration-75: calc(75ms * var(--automate-motion-scale));
   --automate-duration-100: calc(100ms * var(--automate-motion-scale));
   --automate-duration-150: calc(150ms * var(--automate-motion-scale));
   --automate-duration-200: calc(200ms * var(--automate-motion-scale));
   --automate-duration-300: calc(300ms * var(--automate-motion-scale));
+
   /*
-   * The easings, published so the `--animate-*` shorthand below can name one
-   * rather than restating the curve. `tokens/motion.ts` owns the values and
-   * `motion.test.ts` asserts these declarations in both directions.
+   * Four easings, and the choice is about where the value ends up.
+   *
+   * `out` for anything entering: the element arrives and settles, so it decelerates.
+   * `in` for anything leaving: it accelerates away.
+   * `in-out` for anything crossing the screen: it starts and ends slowly, because the start
+   * is triggered by a person who is still moving and the end has to be readable once it stops.
+   * `linear` is published because a `--animate-*` entry has to name a timing function, and an
+   * easing nobody uses should say so by being the trivial one rather than by being absent.
    */
   --automate-ease-linear: linear;
   --automate-ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -28,89 +91,197 @@
   --automate-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+@theme inline {
+  /*
+   * The published animations.
+   *
+   * The first four are the class names components already write, kept so that no component
+   * has to know which role a name maps to. `fade-*` is `automate-enter` / `automate-exit` —
+   * an arrival with a 4% rise rather than a plain opacity fade, because an element that
+   * arrives from the same pixel position reads as a new object rather than as this
+   * control's panel opening.
+   *
+   * The last two are the roles that had no name before, named after what they are.
+   */
+  --animate-fade-in: automate-enter
+    calc(var(--automate-duration-150) * var(--automate-motion-scale)) var(--automate-ease-out);
+  --animate-fade-out: automate-exit
+    calc(var(--automate-duration-100) * var(--automate-motion-scale)) var(--automate-ease-in);
+  --animate-zoom-in-95: automate-zoom-in
+    calc(var(--automate-duration-150) * var(--automate-motion-scale)) var(--automate-ease-out);
+  --animate-zoom-out-95: automate-zoom-out
+    calc(var(--automate-duration-100) * var(--automate-motion-scale)) var(--automate-ease-in);
+  --animate-automate-slide-in: automate-slide-in
+    calc(var(--automate-duration-300) * var(--automate-motion-scale)) var(--automate-ease-in-out);
+  --animate-automate-pulse: automate-pulse
+    calc(var(--automate-duration-150) * var(--automate-motion-scale)) var(--automate-ease-in-out);
+
+  /* The press scale, so `active:scale-press` is the press feedback. */
+  --scale-press: var(--automate-press-scale);
+}
+
 /*
- * Enter and exit, as four `@keyframes` and a `@theme` block that publishes them.
+ * `automate-enter` — **role: enter.** A panel or a card arriving.
  *
- * **Why these are tokens rather than a plugin.** Sixteen class names across six
- * components — `animate-in`, `fade-in`, `fade-in-0`, `fade-in-90`, `zoom-in-95`
- * and their `open:`-prefixed forms — were written against `tailwindcss-animate`,
- * which is not a dependency of this repository. There are no `@keyframes` for
- * them anywhere in the tree, so every one of them compiled to nothing and each
- * of those sixteen utilities was a no-op: the dialog, the drawer, the palette,
- * the popover, the tooltip and the empty state all appeared instantly, with
- * their class strings intact, which is why every test asserting on the class
- * name passed.
- *
- * So the utilities are declared here rather than the plugin added. A plugin
- * would be one more dependency whose behaviour is versioned separately from
- * this tree, against D9's "no layer that can drift" and for four keyframes.
- *
- * The four are the whole set the components use: opacity in, opacity out, a 95%
- * scale up, and the 90%-opacity fade those two are layered on top of. Each
- * `--animate-*` entry names both directions so `animate-out` exists, because
- * Tailwind's variant syntax (`data-[state=closed]:animate-fade-out`) needs the
- * exit half to be a real utility rather than an absent one.
- *
- * `--animate-zoom-in-95` takes its scale from the token rather than a literal,
- * so the scale is one number in this file and not one per call site.
- *
- * **Durations come from `duration-*`, not from here.** These entries are the
- * `animation` shorthand's name, duration and timing function all together, so
- * baking a time in would make `duration-200` on the same element a no-op — and
- * six components already write `duration-200` next to these classes.
+ * Opacity from 0, translated up by 4%. Four percent rather than a slide from the edge,
+ * because this is *arrival* and not *travel*: the element is coming into existence in place
+ * and the reader's eye is somewhere else on the page. A translation large enough to read as
+ * travel pulls the eye before the content does.
  */
 @keyframes automate-enter {
   from {
     opacity: 0;
+    transform: translateY(4%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
+/*
+ * `automate-exit` — **role: exit.** The counterpart, and it is *not* symmetric.
+ *
+ * Opacity to 0 and no translation, at the shorter duration and the accelerating easing.
+ * Entering is a signal that something became available; leaving is a signal that something
+ * stopped being; and a leaving element that travels draws the eye away from the thing that
+ * replaced it.
+ */
 @keyframes automate-exit {
+  from {
+    opacity: 1;
+  }
   to {
     opacity: 0;
   }
 }
 
+/*
+ * `automate-zoom-in` — **role: enter, anchored.** A popover, a tooltip, a palette, an
+ * empty state.
+ *
+ * From 95%, not from 0: the element is anchored to a control the reader has just pressed,
+ * and a scale from zero reads as a new object appearing rather than as that control's panel
+ * opening. 95% is the smallest difference that reads as growth at a glance.
+ *
+ * `transform-origin` is set by the *component*, not here, because the origin belongs to the
+ * anchor and only the component knows which edge it is on. A global origin would be wrong
+ * for every panel that is not at the top.
+ */
 @keyframes automate-zoom-in {
   from {
     opacity: 0;
-    transform: scale(var(--automate-zoom-scale, 0.95));
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 
+/*
+ * `automate-zoom-out` — **role: exit, anchored.** The reverse of the above, at the exit
+ * duration and the exit easing.
+ */
 @keyframes automate-zoom-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
   to {
     opacity: 0;
-    transform: scale(var(--automate-zoom-scale, 0.95));
+    transform: scale(0.95);
   }
 }
 
-@theme {
-  --automate-zoom-scale: 0.95;
-  --animate-fade-in: automate-enter var(--automate-duration-150) var(--automate-ease-out);
-  --animate-fade-out: automate-exit var(--automate-duration-100) var(--automate-ease-in);
-  --animate-zoom-in-95: automate-zoom-in var(--automate-duration-150) var(--automate-ease-out);
-  --animate-zoom-out-95: automate-zoom-out var(--automate-duration-100) var(--automate-ease-in);
+/*
+ * `automate-slide-in` — **role: transition.** The one movement in the product: a drawer
+ * and a dialog crossing the viewport.
+ *
+ * `translateY(8%)` over 300 ms, and both numbers are load-bearing. 8% is far enough to read
+ * as travel and near enough that the panel is legible while it moves; a full-height slide
+ * reads as a page load and an element that fades in place reads as appearing, which is the
+ * `enter` role's job.
+ *
+ * `transform`, never `height` or `top`: a transform on a composited layer is free per frame
+ * and a box metric is a layout pass per frame, with the whole subtree behind it.
+ */
+@keyframes automate-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(8%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
+/*
+ * `automate-pulse` — **role: attention, and the only one allowed to repeat.** A skeleton
+ * that has not resolved yet.
+ *
+ * An opacity ramp rather than a moving gradient, because a moving gradient repaints on every
+ * frame and an opacity ramp does not. The skeleton is the one place in the product where
+ * something is genuinely pending.
+ */
+@keyframes automate-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/*
+ * The escape hatch.
+ *
+ * Two selectors, one value, and no component has to know either of them exists.
+ * `prefers-reduced-motion: reduce` is the one that matters: it is supported in every browser
+ * this product supports, it needs no flag and no setting, and a product that reads for a
+ * living should honour it without being asked.
+ *
+ * The multiplier scales *durations*, which is what makes this cheap rather than incomplete:
+ * an animation that completes in 0.01ms still runs, so the `to` state is still applied and
+ * nothing is left half-open. That is why this is a scale and not `animation: none` — `none`
+ * leaves an element at its `from` state forever, which is how a panel ends up invisible.
+ *
+ * `.motion-off` exists for a person who wants this product still, one screen at a time,
+ * without a global OS setting. It is a class rather than a data attribute so it can be put
+ * on any ancestor, including `document.documentElement`, and reach everything below it.
+ */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --automate-motion-scale: 0.01;
   }
 
   /*
-   * The components set their durations with Tailwind's own `duration-*` and
-   * `animate-*` utilities, which compile to literal times and cannot be reached
-   * by the scale above. This is what actually stops the drawer sliding, the
-   * palette fading and the spinner spinning. `0.01ms` rather than `0s`: a zero
-   * duration can suppress the `animationend` event a component is waiting on.
+   * The literal `duration-*` utilities a component writes, collapsed to 0.01ms rather than to
+   * `none`, for the reason in `motion.ts`: a zero-duration animation never starts on some
+   * engines, so the `animationend` a component is waiting on never fires. `scroll-behavior` is
+   * clamped for the same family of reasons — it is a duration the reader cannot see and cannot
+   * stop.
    */
   *,
   *::before,
   *::after {
+    transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+.motion-off {
+  --automate-motion-scale: 0.01;
+}
+
+.motion-off *,
+.motion-off *::before,
+.motion-off *::after {
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
 }

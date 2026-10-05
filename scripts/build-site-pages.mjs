@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Generates the status pages of the documentation site from the repository's own
  * machine-checked sources.
  *
@@ -50,6 +50,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PAGES = path.join(root, 'site', 'pages');
 
 /** The marker that identifies generated content, and the hand-written wrapper. */
+/** The em-dash glyph, named, so a table cell and the prose cannot disagree on it. */
+const DASH = '\u2014';
+
+/**
+ * The code-span delimiter, as a named character.
+ *
+ * `statusVocabulary()` builds a pattern around it, and a literal backtick inside a regex
+ * literal needs escaping in a way that is hard to read in a line that is already long. Named,
+ * it is obvious what the pattern is matching.
+ */
+const BACKTICK = String.fromCharCode(96);
+
 const OPEN = '<!-- generated: do not edit this block by hand -->';
 const CLOSE = '<!-- /generated -->';
 
@@ -176,6 +188,61 @@ function titleOf(slug) {
  * would make the *generator* the reason a correction to the register could not be
  * made. A row it cannot read is skipped and counted, and the count is reported.
  */
+/**
+ * The register’s status vocabulary, as `status -> definition`.
+ *
+ * **Parsed out of the register rather than written here, and that is the whole design.** The
+ * page exists to answer "does this product do the thing I need", and five unexplained words
+ * cannot answer it — but a *second* copy of the definitions would be a second authority
+ * for the same sentences, which is the defect this repository records as
+ * `no-second-authority`. Read from the register, the page and the register cannot drift.
+ *
+ * A status the register does not define comes back absent rather than with a guess.
+ *
+ * @returns {Map<string, string>}
+ */
+function statusVocabulary() {
+  /** @type {Map<string, string>} */
+  const definitions = new Map();
+  const source = readFileSync(
+    path.join(root, 'docs', 'migration', 'capability-register.md'),
+    'utf8',
+  );
+  const section = /##\s+Status vocabulary\s*\n([\s\S]*?)\n##\s/.exec(source)?.[1];
+  if (section === undefined) return definitions;
+  // Each definition is a dashed list item whose key is wrapped in a code span, so the key
+  // is what the generator can key on and the sentence is whatever follows the dash.
+  //
+  // Assembled from `BACKTICK` rather than written as a literal, because a regex literal here
+  // would need the delimiter escaped and the glyph is easier to reason about as a named
+  // character than as `\\x60` in the middle of a pattern.
+  const pattern = new RegExp(
+    '^-\\s+' + BACKTICK + '([a-z]+)' + BACKTICK + '\\s+[\\u2014-]\\s+(.+?)\\s*$',
+  );
+  for (const line of section.split(/\r?\n/)) {
+    const match = pattern.exec(line.trim());
+    if (match?.[1] !== undefined && match[2] !== undefined) definitions.set(match[1], match[2]);
+  }
+  return definitions;
+}
+
+/**
+ * The closing line every generated page carries.
+ *
+ * One sentence, on every page, in the same words. It answers the question a reader has when a
+ * number looks wrong — *what do I edit, and what do I run* — and the answer always has the same
+ * shape: edit the named source, run this command.
+ *
+ * @returns {string[]}
+ */
+function regenerationFooter() {
+  return [
+    '',
+    'The numbers above are derived. To change one, edit the file this page names as',
+    'its source, then run ' + BACKTICK + 'pnpm site:generate' + BACKTICK + '.',
+  ];
+}
+
 function readRegister() {
   const text = readFileSync(path.join(root, 'docs', 'migration', 'capability-register.md'), 'utf8');
   const rows = [];
@@ -197,6 +264,7 @@ const STATUS_ORDER = ['real', 'mock', 'missing', 'deferred', 'obsolete'];
 
 function capabilityPage() {
   const rows = readRegister();
+  const vocabulary = statusVocabulary();
   const counts = new Map(STATUS_ORDER.map((status) => [status, 0]));
   for (const row of rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
 
@@ -205,9 +273,18 @@ function capabilityPage() {
     `Generated from \`docs/migration/capability-register.md\`, which is the source of`,
     'truth for this page. A capability is not promoted because a page says it is.',
     '',
-    ...STATUS_ORDER.filter((status) => (counts.get(status) ?? 0) > 0).map(
-      (status) => `- **${status}** — ${String(counts.get(status) ?? 0)}`,
+    "**What the statuses mean**, in the register's own words:",
+    '',
+    ...table(
+      ['Status', 'Count', 'Meaning'],
+      STATUS_ORDER.filter((status) => (counts.get(status) ?? 0) > 0).map((status) => [
+        `**${status}**`,
+        String(counts.get(status) ?? 0),
+        vocabulary.get(status) ?? DASH,
+      ]),
     ),
+    '',
+    ...regenerationFooter(),
     '',
     ...table(
       ['Capability', 'Status'],
@@ -237,6 +314,7 @@ function findingsPage() {
     'Generated from `docs/quality/findings-ledger.json`. The ledger is a record of',
     'what is *known* to be wrong, and `pnpm findings:check` fails when a `fixed` row',
     'loses its evidence — so a row here is a claim with a path behind it.',
+    ...regenerationFooter(),
     '',
     ...table(
       ['Status', 'Rows'],
@@ -290,6 +368,7 @@ function coveragePage() {
     'Generated from `coverage-baseline.json` — the **floors** the ratchet compares',
     'against, not a measured run. A floor only moves up, so this page cannot report',
     'a number that has not been earned.',
+    ...regenerationFooter(),
     '',
     'There is no per-package Vitest threshold, and that is deliberate: a threshold that',
     'blocks every run gets raised until it means nothing. `pnpm coverage:ratchet` fails',

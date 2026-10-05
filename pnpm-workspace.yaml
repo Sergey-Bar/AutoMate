@@ -12,16 +12,91 @@ packages:
 autoInstallPeers: false
 strictPeerDependencies: true
 resolvePeersFromWorkspaceRoot: true
-packageManagerStrictVersion: true
 engineStrict: true
 
-onlyBuiltDependencies:
-  - better-sqlite3
-  - esbuild
+# `packageManagerStrictVersion: true` was removed in pnpm 11 and `pmOnFail` subsumes it,
+# together with `packageManagerStrict` and `managePackageManagerVersions`. Same intent as
+# before — the declared pnpm must be the pnpm running — so a contributor on a different
+# version is told rather than silently installing with it.
+#
+# **This is why the workflows no longer pass `version:` to `pnpm/action-setup`.** They
+# each carried `PNPM_VERSION: 10.30.2` beside a `packageManager` field saying the same
+# thing, and nothing checked the two agreed. That is the defect the capability register
+# calls a `mock` row: a claim the tree makes twice and verifies never. The workflows now
+# let `pnpm/action-setup` read `packageManager`, so there is one authority and it is the
+# one pnpm itself enforces.
+pmOnFail: error
+
+# pnpm 11 replaced `onlyBuiltDependencies` and its relatives with one map. The three
+# entries are the same three, and the reasons are unchanged.
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
   # Fetches the platform binary the Sentry Vite plugin shells out to for
   # source map upload. Without it the build still succeeds and the upload
   # silently never happens, so an unminified stack trace in production.
-  - '@sentry/cli'
+  '@sentry/cli': true
+
+# **Four pnpm 11 defaults are now in force, and one of them costs something.**
+#
+# `blockExoticSubdeps` and `strictDepBuilds` both default to true, so a dependency from
+# an unexpected registry is refused and a package with an unapproved build script fails
+# rather than being skipped. Both are supply-chain controls, and this repository's gate
+# chain is already built around the assumption that they hold.
+#
+# `verifyDepsBeforeRun` defaults to `install`, so every script checks its dependencies
+# first instead of failing later inside a test.
+#
+# `minimumReleaseAge` defaults to **1440 minutes**, and this is the one with a cost: a
+# release published less than a day ago will not resolve. That is the npm ecosystem
+# hardening against a wave of malicious same-day publishes, and it is kept deliberately.
+# The cost is real and worth stating rather than discovering: **a same-day release cannot
+# be adopted.** A bump to a version published in the last 24 hours fails to resolve until
+# it ages, and the fix is a day of waiting rather than `--ignore-minimum-release-age`.
+# `pnpm audit --fix` adds the patched version to `minimumReleaseAgeExclude` for exactly
+# this case, so a security fix is never blocked by it.
+#
+# None of these four is written out as configuration. They are defaults, and a copied
+# default is a second authority that stops tracking the first.
+
+# One unmet peer, ignored on purpose.
+#
+# `vitepress@1.6.4` bundles `@docsearch/js`, which depends on `@docsearch/react`,
+# which declares a peer on `search-insights >= 1 < 3`. This repository configures no
+# Docsearch: there is no `docsearch` key anywhere under `site/`, no
+# `@docsearch/*` dependency, and `pnpm deps:policy` reports nothing importing one.
+# So the peer is genuinely unused here rather than merely unresolved.
+#
+# **It stayed invisible because CI installs with `--frozen-lockfile`,** which skips
+# resolution, and a frozen install does not re-check peers. The gap only surfaced on
+# the first plain `pnpm install` — which is what a version bump does. That is the
+# shape of the defect this repository keeps recording: a check that only runs in one
+# of the two ways the tree is installed.
+#
+# The alternatives were both worse. `strictPeerDependencies: false` would stop the
+# check for every package to silence one. Declaring `search-insights` would add a
+# dependency that nothing imports, which `pnpm deps:policy` would then report as
+# unused — a gate fixing a gate's finding by creating one.
+peerDependencyRules:
+  ignoreMissing:
+    - search-insights
+  # `eslint-plugin-jsx-a11y@6.10.2` is the latest release and its peer range is
+  # `eslint@^3 || ^4 || ^5 || ^6 || ^7 || ^8 || ^9` — there is no version of it that
+  # declares ESLint 10. The plugin is not a stylistic preference: `axe-core` and
+  # `vitest-axe` cover what a browser executes, and a static a11y rule catches the
+  # class neither can. So the range is widened here rather than by turning
+  # `strictPeerDependencies` off for the whole workspace.
+  #
+  # **A widened range is a claim, so it is checked.**
+  # `scripts/lib/eslint-plugin-compatibility.test.mjs` asserts that the recommended
+  # `jsx-a11y/*` rules still fire: it feeds a file with a known violation through the
+  # real flat config and asserts the rule reports it, next to a compliant component the
+  # rule must not report, and it refuses any nested `eslint.config.js`. A plugin that
+  # silently stopped firing under a major bump would make every accessibility finding
+  # disappear, and a gate that cannot tell the difference between "clean" and "not
+  # running" is the trap this repository keeps recording.
+  allowedVersions:
+    'eslint-plugin-jsx-a11y>eslint': '^10.0.0'
 
 # Transitive pins.
 #
@@ -90,7 +165,7 @@ overrides:
   'vitepress>vite': ^6.4.3
 
 catalog:
-  '@eslint/js': ^9.21.0
+  '@eslint/js': ^10.0.1
   '@playwright/test': ^1.63.0
   '@sentry/node': ^11.0.0
   '@sentry/react': ^11.0.0
@@ -98,14 +173,14 @@ catalog:
   '@tailwindcss/vite': ^4.3.3
   '@testing-library/dom': ^10.1.0
   '@testing-library/react': ^16.3.2
-  '@types/node': ^22.15.3
+  '@types/node': ^24.19.1
   '@types/pg': ^8.15.6
   '@types/react': ^19.2.14
   '@types/react-dom': ^19.2.3
   '@vitest/coverage-v8': ^4.1.5
   drizzle-kit: ^0.31.9
   drizzle-orm: ^0.45.2
-  eslint: ^9.21.0
+  eslint: ^10.12.0
   jsdom: ^24.1.3
   lucide-react: ^0.577.0
   pg: ^8.20.0
@@ -113,8 +188,8 @@ catalog:
   react: ^19.0.0
   react-dom: ^19.0.0
   tailwindcss: ^4.3.3
-  typescript: ^5.9.3
-  typescript-eslint: ^8.25.0
+  typescript: ^6.0.3
+  typescript-eslint: ^8.71.0
   vite: ^6.4.3
   vitest: ^4.1.5
   zod: ^4.4.3

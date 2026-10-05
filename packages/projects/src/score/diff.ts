@@ -23,9 +23,10 @@ import { ScoreDeltaSchema, type QaScore, type ScoreDelta } from '@automate/share
  * ## Deterministic, and it refuses nonsense
  *
  * Same two readings, same diff — asserted, because a diff that changes when re-run
- * is a diff nobody can review. And it refuses a diff across projects or backwards
- * in time, because both produce a subtraction between two unrelated numbers and
- * attribute one team's score drop to another team's release.
+ * is a diff nobody can review. And it refuses a diff across projects, backwards in
+ * time, or between two readings of the same rows, because the first two produce a
+ * subtraction between two unrelated numbers and the third produces a subtraction of a
+ * number against itself. See `assertDistinctWindows`.
  */
 
 /** A component of a cell, in the order a reader would check them. */
@@ -186,6 +187,8 @@ export function diffScores(before: QaScore, after: QaScore): ScoreDelta {
     });
   }
 
+  assertDistinctWindows(before, after, contributions);
+
   return ScoreDeltaSchema.parse({
     projectId: after.projectId,
     from: before.at,
@@ -196,6 +199,60 @@ export function diffScores(before: QaScore, after: QaScore): ScoreDelta {
     currentCappedBy: after.cappedBy,
     contributions,
   });
+}
+
+/**
+ * Refuses a diff whose two ends read the same rows.
+ *
+ * ## Why this guard exists at all
+ *
+ * `readScoreInputs` had no time parameter, so `qaScore(options, id, since)` and
+ * `qaScore(options, id, now)` read **every row** and `at` was stamped on as a label.
+ * The route then subtracted one from the other and served the result — and because
+ * `ScoreDeltaSchema` requires every contribution to cite `evidence`, what reached the
+ * client was a confident, sourced, wrong answer. This guard is the third one; the
+ * other two (cross-project, backwards) were already there, and the case that was
+ * actually happening had none.
+ *
+ * ## What counts as proof, and why nothing weaker would do
+ *
+ * `QaScore` carries **counts**, not row identities — `provenance.runsRead` and
+ * `provenance.resultsRead` — so equal counts plus an empty contribution list is the
+ * strongest statement the payload permits: two readings, the same number of rows, and
+ * nothing that moved. Anything weaker lets the original defect straight through.
+ *
+ * Equal counts **alone** would not be proof, and is deliberately not used: two
+ * readings with the same number of runs and results but different outcomes are a
+ * real change, and `diff.test.ts` asserts that case still diffs.
+ *
+ * ## "Nothing changed" and "I compared nothing to nothing" are different answers
+ *
+ * A project with no runs at either end has nothing to say about its health. A
+ * project with runs whose window did not advance has been told its `since` selected
+ * nothing — which over HTTP is what *every* request looked like before `at` filtered
+ * anything. The second is a broken comparison and must not render as the first.
+ */
+function assertDistinctWindows(
+  before: QaScore,
+  after: QaScore,
+  contributions: readonly ScoreDelta['contributions'][number][],
+): void {
+  const sameCounts =
+    before.provenance.runsRead === after.provenance.runsRead &&
+    before.provenance.resultsRead === after.provenance.resultsRead;
+  if (!sameCounts || contributions.length > 0) return;
+
+  const empty = before.provenance.runsRead === 0 && before.provenance.resultsRead === 0;
+  throw new Error(
+    empty
+      ? `Refusing to diff ${before.projectId} against itself: both readings have no runs and ` +
+          'no results, so this is nothing to nothing rather than a change. There is no ' +
+          'earlier reading to compare with until the project has run something.'
+      : `Refusing to diff ${before.projectId} against itself: both readings read ` +
+          `${String(after.provenance.resultsRead)} result(s) from ${String(after.provenance.runsRead)} run(s) and nothing moved, ` +
+          'so the same rows are on both sides of the subtraction. Pick a `since` that ' +
+          'selects a different window.',
+  );
 }
 
 /** A row whose mean moved, with the rows' own names as evidence. */

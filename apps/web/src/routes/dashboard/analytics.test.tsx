@@ -71,7 +71,13 @@ describe('AnalyticsPage', () => {
       expect(screen.getByTestId('analytics-page')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('stat-avg-duration')).toHaveTextContent('N/A');
+    // **The word, not `N/A`.** A missing measurement is a state rather than a value, and
+    // `PERF-1` is an open row because some of these numbers have never been recorded. The
+    // second assertion is what keeps this from being a test of absence: a screen that
+    // rendered nothing at all would satisfy the first.
+    const duration = screen.getByTestId('stat-avg-duration');
+    expect(duration).toHaveTextContent('not measured');
+    expect(duration.textContent).not.toContain('N/A');
   });
 
   // --- Additional test for full branch coverage ---

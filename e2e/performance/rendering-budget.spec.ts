@@ -170,34 +170,46 @@ async function readMetrics(page: Page): Promise<RenderMetrics> {
 const SETTLE_MS = 750;
 
 /**
- * Put the four readings where a reviewer will actually see them.
+ * Put the readings where a reviewer will actually see them.
  *
  * A measurement that only exists in a test log is the same thing as no measurement, and
  * in the measurement phase the *number* is the deliverable — there is no verdict to
  * read off a red or green tick. Written to the job summary so it lands on the pull
  * request, and to the console so a local run shows it too.
  *
- * The caption states which phase produced it, because a table of LCP numbers under a
- * green tick is exactly the artifact a reader mistakes for a passing budget.
+ * The caption states which phase produced each column, because a table of LCP numbers
+ * under a green tick is exactly the artifact a reader mistakes for a passing budget — and
+ * the glass column is the one that *is* compared today, so saying so per column is the
+ * difference between a measurement and a verdict.
  */
-function reportMeasurements(routes: Record<string, RenderMetrics>, compared: boolean): void {
-  const caption = compared
+function reportMeasurements(
+  routes: Record<string, RenderMetrics>,
+  compared: boolean,
+  glass: Record<string, { surfaces: number; depth: number }>,
+): void {
+  const timingCaption = compared
     ? 'Compared against the recorded ceilings.'
-    : '**No ceiling is recorded, so nothing was compared. These are measurements, not a verdict.**';
+    : '**No timing ceiling is recorded, so nothing was compared for these four columns. They are measurements, not a verdict.**';
   const rows = Object.entries(routes)
     .map(
       ([route, m]) =>
-        `| \`${route}\` | ${String(Math.round(m.lcpMs))} ms | ${String(Math.round(m.inpMs))} ms | ${m.cls.toFixed(3)} | ${String(m.longTasks)} |`,
+        `| \`${route}\` | ${String(Math.round(m.lcpMs))} ms | ${String(Math.round(m.inpMs))} ms | ${m.cls.toFixed(3)} | ${String(m.longTasks)} | ${String(glass[route]?.surfaces ?? 0)} | ${String(glass[route]?.depth ?? 0)} |`,
     )
     .join('\n');
   const body = [
     '### Rendering budget',
     '',
-    caption,
+    timingCaption,
     '',
-    '| Route | LCP | INP | CLS | Long tasks |',
-    '| --- | --- | --- | --- | --- |',
+    '| Route | LCP | INP | CLS | Long tasks | Glass surfaces | Glass stack depth |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
     rows,
+    '',
+    '**Glass stack depth is** compared against `performance/rendering-budget.json` in this ' +
+      'phase — it is a property of the component tree rather than a timing, so it does not ' +
+      'wait for reference hardware. Glass surfaces is reported but not capped, because it ' +
+      'scales with how much data is on screen and a ceiling on it would be a statement ' +
+      'about the data rather than the design.',
   ].join('\n');
 
   console.info(`\n${body}\n`);
@@ -206,6 +218,64 @@ function reportMeasurements(routes: Record<string, RenderMetrics>, compared: boo
   if (typeof summary === 'string' && summary !== '') {
     appendFileSync(summary, `${body}\n\n`, 'utf8');
   }
+}
+
+/**
+ * How deeply this route stacks translucent surfaces, and how many there are.
+ *
+ * **Depth, not total, is the ceiling — and the reason is that a total is a function of the
+ * data.** The first run of this counted 10 compositing elements on `/dashboard/runs` and 2
+ * on `/dashboard/quarantine` with one run seeded, because the route has one card per row.
+ * A ceiling of 10 would then have been a statement about how many runs existed when the
+ * budget was written, and the dashboard would have failed its own budget the moment a
+ * second run landed. Stack *depth* is a property of the component tree instead: it cannot
+ * grow with a row count, so it is a constraint the design can hold rather than a number the
+ * data dictates.
+ *
+ * Depth is also the closer proxy for cost. A translucent panel has to sample everything
+ * painted behind it, so two stacked panels composite roughly twice the area of one and four
+ * of two — which is why the ceiling is about how deep they nest and not how many there are.
+ *
+ * Counted from computed style rather than from a class name, so the number describes what
+ * the browser is doing rather than what the source hopes it is doing: a token that stops
+ * applying — `--automate-glass-blur: 0px` under `prefers-reduced-transparency`, or a
+ * utility that compiles to nothing — stops being counted.
+ */
+async function measureGlass(page: Page): Promise<{ surfaces: number; depth: number }> {
+  return page.evaluate(() => {
+    const isGlass = (element: Element): boolean =>
+      getComputedStyle(element).backdropFilter !== 'none';
+    let surfaces = 0;
+    let depth = 0;
+    for (const element of document.querySelectorAll('*')) {
+      if (!isGlass(element)) continue;
+      surfaces += 1;
+      let stacked = 0;
+      for (let above = element.parentElement; above !== null; above = above.parentElement) {
+        if (isGlass(above)) stacked += 1;
+      }
+      // A panel is itself a layer, so the shallowest screen is 1 rather than 0.
+      depth = Math.max(depth, stacked + 1);
+    }
+    return { surfaces, depth };
+  });
+}
+
+/**
+ * The committed glass stack ceiling for a route, or `null` when none is recorded.
+ *
+ * `null` is a distinct state from `0`, and the difference is the whole point: `0` is a
+ * route the design language decided composites nothing, and `null` is a route nobody has
+ * counted yet. Reporting the measurement and failing on `null` is how a count gets
+ * recorded without anyone typing a number they did not observe.
+ */
+function glassCeiling(baseline: Record<string, unknown>, route: string): number | null {
+  const routes = baseline['routes'];
+  if (typeof routes !== 'object' || routes === null) return null;
+  const entry = (routes as Record<string, unknown>)[route];
+  if (typeof entry !== 'object' || entry === null) return null;
+  const ceiling = (entry as Record<string, unknown>)['glassStackDepth'];
+  return typeof ceiling === 'number' ? ceiling : null;
 }
 
 test.describe('rendering budget', () => {
@@ -248,6 +318,8 @@ test.describe('rendering budget', () => {
 
     /** @type {Record<string, RenderMetrics>} */
     const routes: Record<string, RenderMetrics> = {};
+    /** @type {Record<string, number>} */
+    const glass: Record<string, { surfaces: number; depth: number }> = {};
 
     for (const route of PRIMARY_ROUTES) {
       const context = await browser.newContext();
@@ -278,6 +350,7 @@ test.describe('rendering budget', () => {
         await target.waitForLoadState('networkidle');
         await target.waitForTimeout(SETTLE_MS);
         routes[route.key] = await readMetrics(target);
+        glass[route.key] = await measureGlass(target);
       } finally {
         await context.close();
       }
@@ -319,7 +392,41 @@ test.describe('rendering budget', () => {
     }
 
     const measurement = { routes };
-    reportMeasurements(routes, isMeasured);
+    reportMeasurements(routes, isMeasured, glass);
+
+    /**
+     * The glass half, compared in **both** phases.
+     *
+     * A stack depth is not a timing. It does not depend on the hardware, it does not need a
+     * baseline run to be worth anything, and it is the only part of this budget that
+     * describes the effect the design language just shipped. Leaving it uncompared while the
+     * timings wait for reference hardware would mean adding compositing work to four routes
+     * under a gate that watches none of it.
+     *
+     * `null` is reported rather than skipped: a ceiling nobody has counted is a gap in the
+     * budget, and the measurement that fills it is the only honest way to close it.
+     */
+    const glassFindings = Object.entries(glass).flatMap(([route, measured]) => {
+      const ceiling = glassCeiling(baseline, route);
+      if (ceiling === null) {
+        return [
+          `${route}: no glass stack ceiling is recorded, and this run measured a depth of ` +
+            `${String(measured.depth)} over ${String(measured.surfaces)} surface(s). Put the ` +
+            'depth in performance/rendering-budget.json.',
+        ];
+      }
+      return measured.depth > ceiling
+        ? [
+            `${route}: translucent surfaces nest ${String(measured.depth)} deep, over the ` +
+              `ceiling of ${String(ceiling)}. Each layer samples everything painted behind it, ` +
+              'so a panel inside a panel composites roughly four times the area of one.',
+          ]
+        : [];
+    });
+    expect(
+      glassFindings,
+      'the glass budget is the part of this gate that is compared today',
+    ).toEqual([]);
 
     if (!isMeasured) {
       // **Measurement phase.** There is no ceiling yet, so there is nothing to compare

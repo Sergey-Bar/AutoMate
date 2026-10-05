@@ -60,6 +60,47 @@ nul
 # OpenCode agent state
 .omo/
 
+# Kilo project config. `.git/info/exclude` already lists `.kilo/`, but that file is
+# per-clone and untracked, so a decision recorded in a plan lived only on the machine
+# that wrote it. The negations exist because git cannot re-include a file whose
+# parent directory is excluded: `.kilo/plans/` re-includes the directory, and
+# `.kilo/plans/*.md` re-includes the documents inside it. The same two-step applies to
+# every directory re-included here.
+#
+# **`skills/` and `agent/` are in the repository because gates read them.** Both were
+# ignored, and both are read by something under version control:
+# `skills-lock.json` at the root describes twenty-one skill directories by upstream and
+# content hash, and `scripts/skill-scan.test.mjs` reads `.kilo/skills` to check that the
+# lock and the tree agree. With the directory ignored, that test failed on CI with
+# "animation-vocabulary is in skills-lock.json but there is no SKILL.md for it" — a gate
+# pointed at a directory that is not in the repository, measuring nothing and failing.
+# `pnpm skill-scan` scans the prompt surface, so a surface absent from the repository is
+# a surface no reviewer ever sees.
+#
+# `agent/` is here for a sharper version of the same reason: `AGENTS.md` states the
+# eleven personas' bodies are the authority for both copies, while `.github/agents/` was
+# the only copy under version control. An authority that exists on one machine is not an
+# authority.
+#
+# Worktrees stay out: they are another checkout of this repository, not part of it.
+#
+# Verified on git 2.55.0, and the negations DO un-ignore the directories themselves, but
+# a file *inside* an excluded directory is still reported ignored by `git check-ignore`,
+# attributed to `.git/info/exclude`. The documented precedence puts `.gitignore` above
+# `$GIT_DIR/info/exclude`; for a path under an excluded directory the exclude file wins
+# instead. So on a clone whose `info/exclude` carries the Kilo block — every clone Kilo
+# itself has set up — new files here are invisible to `git status` and to `git add -A`,
+# and have to be added with `git add -f`. Once tracked they stay tracked; ignore rules
+# only govern untracked files. A fresh clone, and CI, have the stock `info/exclude` and
+# need no `-f`.
+.kilo/*
+!.kilo/plans/
+!.kilo/plans/*.md
+!.kilo/skills/
+!.kilo/skills/**
+!.kilo/agent/
+!.kilo/agent/**
+
 # Coverage and test output
 coverage/
 test-results/

@@ -108,7 +108,7 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
         }}
         onKeyDown={handleKeyDown}
         className={cn(
-          'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 disabled:pointer-events-none disabled:opacity-50',
+          'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:pointer-events-none disabled:opacity-50',
           isSelected && 'bg-bg-base text-text-primary shadow-sm',
           className,
         )}
@@ -138,7 +138,7 @@ export const TabsContent = forwardRef<HTMLDivElement, TabsContentProps>(
         aria-labelledby={`tab-${value}`}
         tabIndex={0}
         className={cn(
-          'mt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+          'mt-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
           className,
         )}
         {...props}

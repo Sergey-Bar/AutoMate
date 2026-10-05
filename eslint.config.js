@@ -10,6 +10,35 @@ import {
 } from './scripts/disabled-tests.mjs';
 
 /**
+ * The `backdrop-*` utilities a component may write.
+ *
+ * **A list, and Phase 2 rather than a pattern.** Phase 1 answered the concern behind the
+ * ban with a total prohibition, and the concern was right — `.github/review-rules/rules.json`
+ * states it in one line: *the pixels behind a panel in this product are usually the
+ * evidence itself*. What a total prohibition cannot do is say **which** panels are safe, so
+ * it was replaced by a measured rule and a narrow door rather than by an answer:
+ *
+ * - the legibility concern is now measurement. `packages/ui/src/tokens/theme.test.ts`
+ *   computes the composite a glass panel paints its text on — the translucent fill over
+ *   **every** plane step, in both themes — and requires 4.5:1 on each. A panel that is
+ *   illegible over a static plane is a failing test rather than a reviewer's judgement.
+ * - the cost concern is bounded by the tokens. Blur 8px and saturation 1.05, the floor of
+ *   the scheduled 8–16px and 1.05–1.15 ranges, declared once in `theme.css`.
+ * - the "cannot be invented per component" concern is this list. A pattern would let
+ *   `backdrop-blur-md` appear in one panel and `backdrop-blur-glass` in the other five,
+ *   which is the failure that makes a design language a preference.
+ *
+ * **This literal is checked against `theme.css`**, by
+ * `apps/web/src/theme-resolution.test.ts`, which reads both and fails on drift. It cannot
+ * be imported from `packages/ui/src/tokens/glass.ts` — a flat config is loaded by Node,
+ * and a TypeScript import there would put a compiler between the linter and its own
+ * policy. `apps/web/src/**` cannot import it either: the config imports ESLint, and the
+ * web tests would inherit that. So: one literal, one direction of truth, one test that
+ * says whether the two agree.
+ */
+export const GLASS_ALLOWLIST = ['backdrop-blur-glass', 'backdrop-saturate-glass'];
+
+/**
  * The one `no-restricted-syntax` selector for the glass ban.
  *
  * **Exported rather than written inline, because flat config merges by last-wins and
@@ -26,22 +55,34 @@ import {
  * So the selector is one exported constant and every block that sets
  * `no-restricted-syntax` spreads it in. One copy of the rule, and a future fifth
  * block cannot drop it.
+ *
+ * **The `(?!…)` is built from `GLASS_ALLOWLIST`** rather than written out, so opening the
+ * ban and widening the list are the same edit. A hand-written exception beside a
+ * hand-written list is two things to keep in step, and this repository has already paid
+ * for that class of mistake twice in this file alone.
  */
 export const GLASS_SELECTOR = {
-  selector:
-    'Literal[value=/(^|[\\s"\'`])backdrop-(blur|filter|saturate|brightness|contrast|grayscale|invert|sepia|hue-rotate|opacity)\\b/]',
+  selector: `Literal[value=/(^|[\\s"'\`])backdrop-(?!${GLASS_ALLOWLIST.map(
+    (utility) => utility.replace(/^backdrop-/, '') + '\\b',
+  ).join(
+    '|',
+  )})(blur|filter|saturate|brightness|contrast|grayscale|invert|sepia|hue-rotate|opacity)\\b/]`,
   message:
-    'No backdrop-filter. It makes readability depend on what is behind the element. ' +
-    'Phase 1 ships no glass at all (D6-9); if you are reaching for a translucent ' +
-    'overlay, use an opaque surface token and an elevation shadow.',
+    'A `backdrop-filter` outside GLASS_ALLOWLIST. Legibility over a sampled backdrop is ' +
+    'measured in packages/ui/src/tokens/theme.test.ts and the radius is a token in ' +
+    'theme.css — so use `backdrop-blur-glass` / `backdrop-saturate-glass`, and note that a ' +
+    'backdrop sampled over data is the case the design language treats as settled, not ' +
+    'as free. An opaque surface token and an elevation shadow remain the answer for ' +
+    'anything sitting on evidence.',
 };
 
 /** The same ban for a value written in code rather than in a class string. */
 export const GLASS_PROPERTY_SELECTOR = {
   selector: "Property[key.name='backdropFilter'], Property[key.name='webkitBackdropFilter']",
   message:
-    'No backdrop-filter. It makes readability depend on what is behind the element. ' +
-    'Phase 1 ships no glass at all (D6-9).',
+    'No inline backdrop-filter. A filter written in code cannot be a token, so it cannot ' +
+    'be measured against the worst-case backdrop or neutralised under ' +
+    '`prefers-reduced-transparency`. Put it in theme.css and use the utility.',
 };
 
 export default tseslint.config(

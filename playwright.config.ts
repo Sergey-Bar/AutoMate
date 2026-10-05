@@ -1,7 +1,13 @@
 import { readdirSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
-import { INSTALLATION_KEY, RUNNER_REGISTRATION_SECRET, WEB_BASE } from './e2e/support/config.js';
+import {
+  API_BASE,
+  API_PORT,
+  INSTALLATION_KEY,
+  RUNNER_REGISTRATION_SECRET,
+  WEB_BASE,
+} from './e2e/support/config.js';
 
 /**
  * The ports and URLs the suite's servers bind.
@@ -10,8 +16,22 @@ import { INSTALLATION_KEY, RUNNER_REGISTRATION_SECRET, WEB_BASE } from './e2e/su
  * is: the web dev server and the browser flow have to agree, and two literals in two
  * files is how they stopped agreeing — silently, and only at run time.
  */
-const apiPort = 3000;
-const apiUrl = `http://127.0.0.1:${apiPort}`;
+/**
+ * The ports and URLs the suite binds, imported rather than restated.
+ *
+ * `API_BASE`, `WEB_BASE`, `API_PORT` and `WEB_PORT` all come from
+ * `e2e/support/config.ts`, which reads `E2E_API_PORT` and `E2E_WEB_PORT`.
+ *
+ * **This file used to hold `apiPort = 3000` beside those literals,** and that is a second
+ * copy of one value: the server and the client could be moved apart, and when they were,
+ * the suite started its API on one port and posted every login to whatever was on the
+ * other. The header in that module says why the ports are overridable; the reason they are
+ * safe to override is that this file reads the same numbers.
+ *
+ * @see e2e/support/config.ts
+ */
+const apiPort = API_PORT;
+const apiUrl = API_BASE;
 // The web port now lives in `e2e/support/config.ts` as part of `WEB_BASE`, so there is
 // one place that says where the browser goes. `webPort` was left behind as an unused
 // local, which is the same class of drift as the two copies of the key: a value that
@@ -109,6 +129,14 @@ const DEDICATED_SPECS = [
   // budget is named here. It gets its own project below so `pnpm test:e2e` still runs
   // it, rather than the derivation quietly dropping it.
   'durable-path.spec.ts',
+  // The route-level axe gate, and the wave the glass work is sequenced behind
+  // (`.kilo/plans/1791096500000-full-glassmorphism-plan.md` §3.4). It is 66 generated
+  // tests — every manifest route in two themes plus four forced data states — and it is
+  // a gate rather than a product spec for the same reason the rendering budget is: it
+  // measures something, it is read by `pnpm status:10`, and folding it into `product`
+  // would add 66 page loads to every pull request to buy a number the product suite
+  // does not read. It gets its own project below so `pnpm test:e2e` still runs it.
+  'accessibility/routes.spec.ts',
 ];
 
 /** Normalized so the comparison is a suffix match on any platform's separator. */
@@ -191,6 +219,24 @@ export default defineConfig({
         // this lane runs as `development`.
         RUNNER_REGISTRATION_SECRET,
         PUBLIC_APP_URL: webUrl,
+        // **A project, so the cockpit has a subject to render.** The cockpit is
+        // project-scoped: `Cockpit.tsx` reads `subject.id`, loads five endpoints for it,
+        // and returns the onboarding screen outright when no project is registered. The
+        // specs seed *runs*, which are workspace-scoped, so without this they were signing
+        // in to an install with runs and finding no dashboard — `run-item-…` and the
+        // readiness card were absent because the page never reached the list, not because
+        // the list was broken.
+        //
+        // This is the mechanism the product itself documents. The onboarding screen says
+        // "Set AUTOMATE_PROJECT_ROOT to the checkout you want analysed and restart the
+        // API", and `discoverProjectAtBoot` registers it at boot with no default — in
+        // compose the working directory is `/app`, so a default would register the
+        // container as the user's project. Setting it here is that instruction, followed,
+        // rather than a test-only back door.
+        //
+        // `configDir` is the repository root, which has the `package.json` and the
+        // workspace file the detectors read.
+        AUTOMATE_PROJECT_ROOT: configDir,
       },
       reuseExistingServer: !process.env['CI'],
       timeout: 60_000,
@@ -247,6 +293,21 @@ export default defineConfig({
       timeout: 120_000,
       use: { ...devices['Desktop Chrome'] },
     },
+    {
+      // axe over every route. Its own project, for the reason the rendering budget has
+      // one, and the non-empty assertion below covers it: a gate whose project matches
+      // nothing is a green job that ran no accessibility check at all, which is the one
+      // outcome this whole wave exists to prevent.
+      name: 'accessibility',
+      testMatch: '**/accessibility/routes.spec.ts',
+      // Motion off at the source, because axe reads computed colour with no reference to
+      // opacity: sampled mid-fade it reports a `color-contrast` violation against a
+      // background nobody will ever see, which is how the first run of this spec failed
+      // three tests that all passed on the retry. `motion.css` already honours the
+      // preference, so this measures the state a person actually reads, and it removes
+      // the race rather than papering over it.
+      use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
+    },
   ],
 });
 
@@ -273,6 +334,10 @@ if (productSpecFiles.length === 0) {
 for (const [name, matched] of [
   ['durable-path', durablePathSpecFiles.length],
   ['vertical-slice', specFiles.filter((file) => file.includes('vertical-slice.spec.ts')).length],
+  [
+    'accessibility',
+    specFiles.filter((file) => baseNameOf(file).endsWith('accessibility/routes.spec.ts')).length,
+  ],
 ] as const) {
   if (matched === 0) {
     throw new Error(

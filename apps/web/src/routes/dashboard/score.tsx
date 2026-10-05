@@ -18,7 +18,7 @@ import {
 import { Route as dashboardRoute } from '../dashboard.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
 import type { QaScore } from '../../lib/qa.js';
-import { useResource } from './use-resource.js';
+import { useResource } from '../../hooks/useResource.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -87,7 +87,7 @@ export function ScorePage({
           <TableBody>
             <TableRow>
               <TableCell>{capping.row}</TableCell>
-              <TableCell>{capping.value.toFixed(2)}</TableCell>
+              <TableCell numeric>{capping.value.toFixed(2)}</TableCell>
             </TableRow>
           </TableBody>
         </Table>

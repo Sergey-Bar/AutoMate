@@ -14,8 +14,9 @@ import {
   TableRow,
 } from '@automate/ui';
 import { Route as dashboardRoute } from '../dashboard.js';
+import { LaunchRunForm, RecentRuns, ReleaseReadinessCard } from '../dashboard.js';
 import { isRunActive, useRuns } from '../../hooks/useRuns.js';
-import type { ApiClient, Run } from '../../lib/api.js';
+import { defaultApiClient, type ApiClient, type Run } from '../../lib/api.js';
 import { formatDate } from '../../lib/format.js';
 import { runDetailPath } from '../../route-manifest.js';
 
@@ -41,8 +42,9 @@ function outcomeVariant(
   }
 }
 
-export function RunsListPage({ api }: { api?: ApiClient }) {
-  const { runs, isLoading, error, isLive } = useRuns(api);
+export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
+  const { runs, isLoading, error, isLive, refresh } = useRuns(api);
+  const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
 
   if (isLoading) {
     return (
@@ -73,8 +75,9 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Runs</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            Canonical execution records and current evidence state.
+          <p className="mt-1 text-sm text-fg-muted max-w-measure text-pretty">
+            Launch a registered browser run, then read canonical execution records and current
+            evidence state.
           </p>
         </div>
         <span data-testid="runs-live-state" className="text-xs text-fg-muted">
@@ -89,17 +92,40 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
         <StatCard data-testid="stat-running" title="Active" value={active} />
       </div>
 
+      {/*
+        The launch form lives here rather than on `/dashboard`.
+
+        The cockpit's job is to say what is blocking you, and a form is not that — and
+        putting an eight-field form above the verdict made the home page a page you had
+        to fill in before it told you anything. Everything here is evidence *about* runs,
+        so it belongs with the runs.
+      */}
+      <LaunchRunForm api={api} onCreated={() => void refresh()} />
+
+      <section aria-labelledby="recent-runs-heading">
+        <h2 id="recent-runs-heading" className="sr-only">
+          Recent runs
+        </h2>
+        {isLoading ? (
+          <Card className="p-6 text-sm text-fg-muted">Loading canonical run state...</Card>
+        ) : (
+          <RecentRuns runs={runs} isLive={isLive} />
+        )}
+      </section>
+
+      <ReleaseReadinessCard releaseId={latestReleaseId} api={api} />
+
       {runs.length === 0 ? (
         <EmptyState
           data-testid="runs-list-empty"
           title="No execution evidence"
-          description="Launch a registered browser project from the Command Center to create the first run."
+          description="Launch a run with the form above to create the first one, or let the cockpit show what is blocking you."
           action={
             <a
               href="/dashboard"
-              className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline"
+              className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
             >
-              Open Command Center
+              Open the cockpit
             </a>
           }
         />
@@ -123,7 +149,7 @@ export function RunsListPage({ api }: { api?: ApiClient }) {
                   <TableCell>
                     <a
                       href={runDetailPath(run.id)}
-                      className="font-mono text-xs text-accent no-underline hover:underline"
+                      className="rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                     >
                       {run.id.slice(0, 8)}
                     </a>

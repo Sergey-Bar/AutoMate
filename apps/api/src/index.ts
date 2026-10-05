@@ -38,6 +38,10 @@ import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
 import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
 import { fileSystemView } from '@automate/projects';
 import { createProjectsRoutes } from './routes/projects.js';
+import {
+  discoverProjectAtBoot,
+  type ProjectRegistryServiceOptions,
+} from './services/project-registry-service.js';
 import { DEFAULT_WORKSPACE_ID, type RunRepository } from './repositories/run-repository.js';
 // Realtime transport: durable outbox-backed bus in production, in-memory for
 // development/test. Post-MVP: Add WebSocket transport (issue #TBD).
@@ -550,12 +554,15 @@ app.route('/', createChatRoutes({ gateway: aiGateway }));
  * own would be a second way to start a run.
  */
 if (databaseResources !== undefined) {
+  const registry: ProjectRegistryServiceOptions = {
+    db: databaseResources.db as never,
+    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    viewFor: (repoPath) => fileSystemView(repoPath),
+  };
   app.route(
     '/',
     createProjectsRoutes({
-      db: databaseResources.db as never,
-      workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-      viewFor: (repoPath) => fileSystemView(repoPath),
+      ...registry,
       // The command's argv is **not** resolved here. `run.start` already checked
       // the id against the stored profile, and resolving it again at this depth
       // would be a second place where an executable could enter the system —
@@ -578,6 +585,19 @@ if (databaseResources !== undefined) {
       },
     }),
   );
+  /**
+   * The registry points at the folder this install was pointed at, once, at boot.
+   *
+   * **Not a watcher and not a poll.** "The moment you open the folder" is satisfied
+   * by the server starting when you start it, and a file watcher here would be a
+   * second thing that decides what the cockpit shows.
+   *
+   * `discoverProjectAtBoot` owns the whole failure policy: an absent
+   * `AUTOMATE_PROJECT_ROOT` logs and returns, and a discovery failure logs and
+   * returns, because a dashboard that will not boot over a folder with no
+   * `package.json` is worse than a dashboard with nothing in it.
+   */
+  await discoverProjectAtBoot(registry, runtimeConfig.projectRoot, logger);
 }
 app.route(
   '/',

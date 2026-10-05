@@ -4,10 +4,11 @@ import { existsSync } from 'node:fs';
 import { watch } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod/v4';
 import { ExecutionEventLineSchema } from '@automate/shared-contracts';
+import { artifactKind } from './artifact-kind.js';
 
 const require = createRequire(import.meta.url);
 /**
@@ -140,21 +141,6 @@ function contentType(path: string): string {
   if (extension === '.zip') return 'application/zip';
   if (extension === '.txt') return 'text/plain';
   return 'application/octet-stream';
-}
-
-function artifactKind(path: string): string {
-  const name = basename(path).toLowerCase();
-  const extension = extname(name);
-  if (name.includes('playwright-report') && extension === '.json') return 'playwright-json';
-  if (name.includes('junit') && extension === '.xml') return 'junit';
-  if (extension === '.png') return 'screenshot';
-  if (extension === '.webm') return 'video';
-  if (extension === '.zip') return 'trace';
-  if (name === 'stdout.log') return 'stdout';
-  if (name === 'stderr.log') return 'stderr';
-  if (extension === '.ndjson') return 'event-log';
-  if (extension === '.html') return 'html-report';
-  return 'evidence';
 }
 
 function sanitizeError(value: unknown, redactions: readonly string[]): string {
