@@ -170,9 +170,15 @@ function parseObject(line) {
   try {
     return JSON.parse(line);
   } catch (cause) {
+    // The message carries the line and a readable rendering of the failure, because
+    // that is what an operator reads at 3am. The `cause` is attached as well, so the
+    // `SyntaxError` type and its stack survive for anything reading the error
+    // programmatically - a rehearsal that reports "not JSON" without saying *why*
+    // it was not JSON is the diagnosis this module exists to prevent.
     throw new Error(
       `psql returned a line that is not the JSON object the query asked for, so the row ` +
         `cannot be read: ${line} (${String(cause)})`,
+      { cause },
     );
   }
 }

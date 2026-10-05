@@ -39,7 +39,11 @@ export async function pollSchedules(
     let next = requireNext(cron, new Date(dueAt));
     if (schedule.misfirePolicy === 'skip') {
       while (next.getTime() <= now.getTime()) {
-        dueAt = next.toISOString();
+        // `dueAt` is deliberately NOT advanced here. `skip` discards every missed
+        // occurrence, so the schedule pointer jumps straight to the first future one
+        // and the update below deliberately compares against the schedule's own
+        // `nextRunAt`. Writing `dueAt` on the way past produced a value nothing read —
+        // which is what ESLint 10's `no-useless-assignment` reported on this line.
         next = requireNext(cron, next);
       }
       await store.advanceSchedule(schedule.id, schedule.nextRunAt, next.toISOString());
