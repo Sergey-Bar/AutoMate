@@ -108,7 +108,8 @@
     "coverage:provenance": "pr-blocking",
     "docs:capability-register:baseline": "never-in-ci",
     "migrate:rehearse": "never-in-ci",
-    "deps:policy": "pr-reporting"
+    "deps:policy": "pr-reporting",
+    "capability:evidence": "nightly"
   },
   "scripts": {
     "security:verify": {

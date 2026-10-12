@@ -203,6 +203,50 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  capability-evidence:
+    name: Capability evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # `pnpm capability:evidence` runs the command each `real` register row names
+    # and exits non-zero on a failure. It is tier `nightly` rather than
+    # `pr-blocking` because it re-runs targeted tests that `test` already runs,
+    # and a second copy of a green suite on every pull request buys a red job
+    # nobody reads. Nightly is where the *drift* shows: a row still asserting
+    # `real` whose capability stopped working.
+    #
+    # **The build is not decoration.** Several of the sixteen commands run
+    # package-level vitest suites whose parity tests carry a freshness guard on
+    # the workspace's built output, so a checkout without `pnpm build` fails for
+    # a reason that has nothing to do with the capability. The job that runs the
+    # gate has to pay the build or the gate is red by construction — which is the
+    # failure `scripts/gate-tooling.json` exists to name.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the workspace
+        run: pnpm build
+      - name: Run every register row's evidence command
+        run: pnpm capability:evidence
+      - name: Upload the evidence verdicts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: capability-evidence
+          path: var/capability-evidence.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
   performance:
     name: Performance thresholds
     runs-on: ubuntu-24.04

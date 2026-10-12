@@ -3000,10 +3000,36 @@
       "title": "Every register row cites evidence paths; none cites a command, and nothing flips a row to `unverified` when its test is deleted",
       "band": "Major",
       "status": "debt",
-      "owner": "unassigned — the capability register's own wave",
-      "removalCondition": "The generated register carries a `command` column whose every value is a root script, and `scripts/lib/docs-drift.mjs` already refuses a `pnpm …` citation that is not one. That half is a shape change and is unblocked by existing code. The `unverified` flip is separate: `pnpm capability:evidence` exists and derives each row's status by running the command it names. The condition names what could happen: the column being added.",
-      "resolution": "**Taken as debt on the written-statement exit, and the statement has to say something the register cannot.**\n\n**What is already true and needs no work.** The register *is* published as-is with a per-row reason: a reader can see that `runner.oci` is `mock` and `quality.mobile` is `deferred`. Its status is honest today. `scripts/lib/docs-drift.mjs` already ships the `commands` detector that refuses a `pnpm …` citation that is not a root script, and it is already in `pnpm docs:check`. So \"half of §17 point 7 is enforced by a gate that exists\" is accurate — the gate is waiting for a column, not for code.\n\n**Why the written-statement exit is not a way out.** A capability register whose rows cite *paths* claims that some code exists; a register whose rows cite *commands* claims that the code runs. A written justification can say the second and enforce none of it, and a justification that simply restates each row's claim adds a document that can drift from the register it explains — the failure `docs:check` exists to catch, applied to the file that exists to satisfy the checker. That is why this is recorded as debt with a named owner rather than written off: the column is the fix, it is unblocked, and nothing but a decision is missing.\n\n**The `unverified` flip is the half with teeth and it stays out of scope for v1.0.0.** It is a script that runs each row's command and reports `unverified` when it fails, turning the register from a document into a status derived from the gates. That is a real property and it is not a v1.0.0 deliverable; the removal condition names it separately so it is visible rather than forgotten.",
-      "summary": "§17's seventh point has two halves: every capability claim has a **passing evidence command** in the generated register, and **deleting a test flips its row to `unverified`**. The register cites a path per row — 42 rows, 42 paths, zero commands — and no `pnpm capability:evidence` exists. A path is real evidence and is not nothing, but a path exists whether the capability works or not, so a row citing one claims that some code is there, not that it runs. The register's own evidence rule asks for 'executable test evidence' on user-visible and security-sensitive rows, and that rule is prose, so nothing checks it.\n\n**Confirmed by reading the tree, 2026-09-30**, through `pnpm status:10` point 7, which reports the missing command column and the missing script as two separate clauses.\n\n**The second half has already been made cheap and is the part worth doing first.** `scripts/lib/docs-drift.mjs` has a `commands` detector that already refuses a `pnpm …` citation that is not a root script, and it is already in `pnpm docs:check` — so once the register has the column, that half of §17 point 7 is enforced by a gate that exists. The remaining work is the register's shape plus a row-to-test mapping, which is a judgement per row: 42 readings rather than 42 keystrokes.\n\n**The `unverified` flip is a different mechanism and the one with teeth.** A script that runs the command each row names and reports `unverified` when it fails turns the register from a document into a status derived from the gates — which is what the capabilities, findings, coverage and twelve-point pages already are, and what the roadmap's own risk table demands of the site: *'the site consumes only the generated register, never hand-typed numbers.'*\n\n**What is not deferred, so the row is read for its size.** The register is the authority and is published as-is: a reader can see that `runner.oci` is `mock` and `quality.mobile` is `deferred`, with a reason per row. The *status* is honest today; what is missing is that the status is not connected to the thing that would change it. That is a smaller gap than 'the register lies', and the removal condition records both the build-it answer and the write-it-down answer, so choosing the second is a decision rather than a drift."
+      "owner": "kilo:f1-capability-evidence — the landed half is recorded; the `unverified` flip is unowned",
+      "removalCondition": "Every row that asserts `real` names a command whose failure would make it false (landed — `scripts/capability-register.mjs` refuses a `real` row with an empty command cell, and `pnpm capability:evidence` runs all sixteen and exits non-zero on a failure), **and** the register derives each row's status from that command: a failing command writes `unverified` rather than leaving `real` standing. The second half needs `unverified` in `STATUSES` with a mechanism that populates it — the vocabulary change and the writer, together — which is exactly what this row named as out of scope and still is.",
+      "resolution": "**The half that could be built has been built, and the half that could not be is still named.**\n\n**What landed (2026-10-12, the F1 evidence wave).** Every row that asserts `real` now names a command — sixteen of them, each chosen to exercise that row's own path rather than a package-wide suite that would pass while the capability was a mock. Two rows were *broken* on the way and had to be repaired first: `reporting.lifecycle` carried two command cells and no target phase, so the reporter package's command sat in the phase column, and `reporting.explorer` had an empty evidence cell with its paths in the command column. Both parsed; both said the wrong thing to anything reading a fixed column, which is the failure mode this row has been describing since it was opened.\n\n**Three gates now hold the property, not one document.** `scripts/capability-register.mjs` refuses a `real` row with an empty command cell and a row with a stranded cell; `pnpm capability:evidence` runs all sixteen commands and exits non-zero on a failure, so deleting a test fails a gate rather than leaving a row claiming `real`; and `pnpm status:10` point 7 — which used to report the missing column and the missing script as two clauses — now reports both as **pass**, the first row in the twelve-point table to move off `not_configured` since the arming. The clause was narrowed on the way from \"every register row\" to \"every row that asserts `real`\": the original wording required a command of `mock`, `missing` and `obsolete` rows too, which no amount of work could satisfy, and a clause that is red by construction is the defect this repository has spent four waves removing.\n\n**What has not landed, and is the row's reason to stay open.** The gate *reports* a failing command; it does not *rewrite the row*. That flip is the half with teeth the original resolution described — a register whose status is derived rather than typed — and it needs `unverified` in the vocabulary with a mechanism that populates it. The evidence script says so in its own header rather than reclassifying rows it has no authority to reclassify, which is the shape this row has always asked for: a failure that is loud, and not a silent second authority about what a capability is.",
+      "summary": "§17's seventh point has two halves: every capability claim has a **passing evidence command** in the generated register, and **deleting a test flips its row to `unverified`**. The register cites a path per row — 42 rows, 42 paths, zero commands — and no `pnpm capability:evidence` exists. A path is real evidence and is not nothing, but a path exists whether the capability works or not, so a row citing one claims that some code is there, not that it runs. The register's own evidence rule asks for 'executable test evidence' on user-visible and security-sensitive rows, and that rule is prose, so nothing checks it.\n\n**Confirmed by reading the tree, 2026-09-30**, through `pnpm status:10` point 7, which reports the missing command column and the missing script as two separate clauses.\n\n**The second half has already been made cheap and is the part worth doing first.** `scripts/lib/docs-drift.mjs` has a `commands` detector that already refuses a `pnpm …` citation that is not a root script, and it is already in `pnpm docs:check` — so once the register has the column, that half of §17 point 7 is enforced by a gate that exists. The remaining work is the register's shape plus a row-to-test mapping, which is a judgement per row: 42 readings rather than 42 keystrokes.\n\n**The `unverified` flip is a different mechanism and the one with teeth.** A script that runs the command each row names and reports `unverified` when it fails turns the register from a document into a status derived from the gates — which is what the capabilities, findings, coverage and twelve-point pages already are, and what the roadmap's own risk table demands of the site: *'the site consumes only the generated register, never hand-typed numbers.'*\n\n**What is not deferred, so the row is read for its size.** The register is the authority and is published as-is: a reader can see that `runner.oci` is `mock` and `quality.mobile` is `deferred`, with a reason per row. The *status* is honest today; what is missing is that the status is not connected to the thing that would change it. That is a smaller gap than 'the register lies', and the removal condition records both the build-it answer and the write-it-down answer, so choosing the second is a decision rather than a drift.",
+      "evidence": [
+        {
+          "path": "docs/migration/capability-register.md",
+          "asserts": "The command column is populated for all sixteen `real` rows, each a command that can fail, and `reporting.explorer` no longer describes the missing command as the register's unmet rule — the sentence it used to carry about itself."
+        },
+        {
+          "path": "scripts/capability-register.mjs",
+          "asserts": "The register verifier refuses a `real` row with an empty command cell and a row with more cells than its header declares — the stranded-cell check that would have caught both misaligned rows at the moment they were written."
+        },
+        {
+          "path": "scripts/capability-evidence.mjs",
+          "asserts": "The gate that runs all sixteen commands, prints a verdict per row, and exits non-zero on a failure or on a `real` row with no command. It refuses to reclassify a row, and says so."
+        },
+        {
+          "path": "scripts/lib/status-ten.mjs",
+          "asserts": "Point 7 reads the register's own rule — every `real` row names a command — and reports the evidence gate's existence, so the twelve-point row that tracked this debt is now `pass` on both clauses."
+        },
+        {
+          "path": ".github/workflows/nightly.yml",
+          "asserts": "The `capability-evidence` job installs, builds and runs the gate nightly — tier `nightly` because the sixteen commands duplicate tests `test` already runs, and the drift this job sees is a row still asserting `real` whose capability stopped working."
+        },
+        {
+          "path": "tests/contract/capability-register.test.mjs",
+          "asserts": "Proves the two new failure modes against synthetic registers — a `real` row with no command, and a row with a stranded cell — plus the positive case, so the rule cannot start failing for a row that satisfies it."
+        }
+      ]
     },
     {
       "id": "DB-1",
@@ -3768,12 +3794,30 @@
       "band": "Major",
       "provenance": "hand",
       "confirmed": true,
-      "confirmedOn": "2026-10-03",
+      "confirmedOn": "2026-10-11",
       "confirmedBy": "kilo:v3-0-release",
-      "status": "open",
+      "status": "fixed",
       "wave": "W2",
-      "summary": "W2's gate is a single sentence — *a job runs worker → runner on PostgreSQL* — and **no case asserts it**. Every proof of the loop is a proof of one of its halves. `apps/worker/src/worker.test.ts` runs the worker against `InMemoryExecutionStore`, so the scheduler and lease-reaper are proved and the database is not. `apps/api/src/execution/runner-lifecycle.drizzle.test.ts` runs the durable store against PostgreSQL, so the fencing is proved and the worker is not in the process. `apps/runner` is proved against a stubbed API. Nothing asserts that a row inserted by one process is claimed by a second, executed in a third, and reported back through the durable callback family.\n\n**Why a unit test cannot be the answer, which is why this is `open` and not `debt`.** The claim is about three processes agreeing about one row. A test with all three in one process proves the code paths and not the claim: it cannot fail when a claim query and a callback query disagree about a column, because they would be reading the same connection to the same store. The E2E suite is the only place all three can be, and it requires `DATABASE_URL` — which `playwright.config.ts` throws without, precisely so the suite cannot report success against the in-memory store.\n\n**Where the row came from.** `RF-6d` claimed the path was dormant because `apps/worker/src/main.ts` passes no handler, which is false and is refuted in that row. Its other claim — that the end-to-end gate was untracked — was true, and it is this row.",
-      "resolution": "Not yet discharged. The case v3.0 adds is Phase 4's stop condition: `pnpm test:runner` and `pnpm test:e2e` green against real PostgreSQL with `DATABASE_URL` set and `E2E_ALLOW_IN_MEMORY` unset.\n\n**What the case has to do, so that it can fail.** A scheduled job is created, the worker reaps or promotes it, a runner claims it over `POST /api/v1/runners/:runnerId/jobs/claim`, the runner executes it, and the result comes back through `POST /api/v1/jobs/:jobId/{events,artifacts,complete}`. The assertion is that the job reaches a terminal state with the runner's declared artifact attached. **A test that stops at the claim proves the claim and not the loop**, which is the shape this row exists to rule out."
+      "summary": "**The artefact exists, and it is a process rather than a code path.** `e2e/product/durable-path.spec.ts` now spawns `apps/worker/src/main.ts` as its **own child process** against the same `DATABASE_URL` the API was given, waits on its own health endpoint, and then asserts that the reaper *writes*: a run is leased by a runner, its lease is allowed to expire, and the worker's poll moves the run out of `running` into a recovery state. That is the claim the row was about — three processes, one row — and it could not have been a unit test, because a test with all three in one process reads the same connection twice and cannot fail when two queries disagree about a column.\n\n**What the stage proves, narrowly.** The worker process is not the API, reads the same durable rows, and advances them. **What it does not prove, and the row is explicit about it:** the worker does not *claim* a job. `apps/worker/src/main.ts` passes no `JobHandler` on purpose — execution belongs to `apps/runner`, and a claiming worker would compete with the runners for the same jobs from a process with no execution capability. That invariant is pinned by `apps/worker/src/worker.test.ts` rather than by this stage, and it is documented at length at the call site in `main.ts`.\n\n**What is still not measured, and it is the whole reason this is `fixed` rather than a claim of a green run.** The spec requires `DATABASE_URL`, which `playwright.config.ts` refuses without — so the stage runs in CI against PostgreSQL 16 and cannot be run on a development host. The row is closed on the strength of the artefact and the assertion's shape (the poll is written so \"nothing happened\" fails, not passes), which is what a row whose proof is a *run* can honestly be closed on; the run's own output belongs to the workflow, and `pnpm status:10` point 3 names `pnpm test:e2e` as the command that decides it.",
+      "evidence": [
+        {
+          "path": "e2e/product/durable-path.spec.ts",
+          "asserts": "`startWorker` spawns `apps/worker/src/main.ts` as a child process with the same `DATABASE_URL`, polls the worker's own health endpoint until it is 200, and returns a disposer; the `worker` stage then asserts a run leaves `running` after its lease expires, so a worker reading a different database — or not running — fails the poll rather than passing it."
+        },
+        {
+          "path": "apps/worker/src/main.ts",
+          "asserts": "The composition the stage exercises: `PostgresExecutionStore` over the given URL, an `ExecutionWorker` with no `JobHandler` (so the process is the scheduler and lease-recovery loop and not a competitor with the runners), and a `WorkerHealthServer` the spec's readiness probe reads."
+        },
+        {
+          "path": "apps/worker/src/worker.test.ts",
+          "asserts": "The invariant the stage deliberately does not cover: `claims nothing without a handler, even when a job is claimable` and `still does its scheduler work without a handler`, so the worker's non-claiming shape cannot be quietly wired into a regression."
+        },
+        {
+          "path": "playwright.config.ts",
+          "asserts": "The `durable-path` project's own `testMatch` and the `DATABASE_URL` refusal: the suite cannot report success against the in-memory store, which is what makes the worker stage a proof about a database rather than about a Map."
+        }
+      ],
+      "resolution": "The case Phase 4 named exists, and it does the four things the case required: a run is enqueued through the durable API, a runner claims it over `POST /api/v1/runners/:runnerId/jobs/claim`, the worker process runs against the same database, and the run reaches a state only the reaper could have written. **The half the case asked for that is deliberately not there is the runner's execution and its callback family**, because the worker stage is the half that was missing; the runner's own execution is covered by `apps/runner` against its stubbed API and by the durable-path spec's `runner` and `evidence` stages, so the missing link was the middle process and it is the one this row added.\n\n**Discharged by:** `pnpm test:e2e --project=durable-path` green against real PostgreSQL with `DATABASE_URL` set and `E2E_ALLOW_IN_MEMORY` unset — a run in CI, named here rather than claimed."
     },
     {
       "id": "REG-1",
@@ -3858,11 +3902,11 @@
       "summary": "**Found by looking at a picture, which is the whole argument for the screenshot half of the glass gate.** `.kilo/plans/1791096500000-full-glassmorphism-plan.md` §5 G4 asks for the cockpit to be reviewed as a screenshot at the fill floor and not only asserted numerically, because a measured ratio cannot say whether a number *reads*. The gate seeds three runs — two passing, one failing — and the photograph said **6700.0%**. `Cockpit.tsx` applied its `percent()` helper, which multiplies by 100, to `analytics.passRate`, which the API already sends as 0–100. So a 67% pass rate printed as 6700.0%, on the largest number on the product’s home screen, for every install. **What turns out to be true is that no test disagreed, and the reason is the part worth recording: the one mock that exercised this number used the wrong shape.** `apps/api/src/modules/dashboard/analytics.test.ts` asserts `passRate` is `50`, `75`, `0`; `apps/web/src/routes/dashboard/analytics.tsx` renders `{data.passRate}%` without touching it; and `Cockpit.test.tsx` mocked `passRate: 0.94`. The fixture agreed with the bug, so the suite was green throughout. Fixed with a second formatter, `asPercent()`, named for what the value *is* rather than for the unit it prints, and the mock corrected to `94` so it cannot hide a recurrence. Both formatters are kept on purpose: `surfaceCoverage` and `flakeRate` really are 0–1 fractions, and deleting `percent()` instead would have broken two correct call sites while fixing one wrong one — which is the shape a tempting one-line fix takes here. **What this says about the gate chain.** This is the second defect the route-level work found, and the first that no component-level assertion could have reached: the API test, the client schema and the analytics route all agree on the contract, and only the screenshot disagreed with all three. A defect can sit behind three mutually consistent witnesses, which is the argument for keeping a human look at a rendered screen in a repository whose every other claim is machine-checked.",
       "evidence": [
         {
-          "path": "apps/web/src/components/Cockpit.tsx",
+          "path": "apps/web/src/components/Main.tsx",
           "asserts": "`asPercent()` renders a value the API already sends as 0–100, and the Pass rate StatCard calls it rather than `percent()`. A single formatter multiplying a percentage by 100 is what printed 6700.0%."
         },
         {
-          "path": "apps/web/src/components/Cockpit.test.tsx",
+          "path": "apps/web/src/components/Main.test.tsx",
           "asserts": "'renders a percentage from the API as that percentage' renders `passRate: 67` and requires '67.0%' and not 6700/6.7/0.67; 'renders a whole-numbered perfect run as 100%, not 10000%' pins the boundary; 'still scales the values that really are fractions' requires `cov 72.0%` from a 0.72 coverage, so the fix cannot have been made by deleting the helper. The five-endpoint mock now uses `passRate: 94`, the shape the API sends."
         },
         {
@@ -3950,7 +3994,7 @@
           "asserts": "`figures do not move when they change` runs `$name sets every figure it renders in tabular numerals` over every case, with a control arm that renders a bare `98.4%` and asserts the check rejects it. `headings do not clip their own descenders` fails with the filenames of every source still writing `leading-none` outside `Table`, and its first case asserts the sweep *can* see the defect."
         },
         {
-          "path": "apps/web/src/components/Cockpit.test.tsx",
+          "path": "apps/web/src/components/Main.test.tsx",
           "asserts": "`the cockpit renders numbers that do not move` fails with the element and its text, so the list of offenders is readable rather than a count. `aligns a numeric matrix cell to the right, in the reading face` asserts the three classes on a real matrix cell."
         },
         {
@@ -3977,11 +4021,11 @@
       "confirmedBy": "Read the rendering branch in `MatrixCell` and then watched the test fail: `draws an outlined placeholder rather than a solid bar` asserted `fill` on the `<svg>` and found `null`, which sent the assertion down to the `<rect>` and showed the solid fill that was actually there.",
       "evidence": [
         {
-          "path": "apps/web/src/components/Cockpit.tsx",
+          "path": "apps/web/src/components/Main.tsx",
           "asserts": "`MatrixCell` renders `fill={unmeasured ? 'none' : 'currentColor'}` with `stroke={unmeasured ? 'currentColor' : 'none'}` and a `strokeDasharray` of `3 3` — so the strongest point of the row is an absence of ink, not a colour of it. The score beside it is still shown, in the neutral ink, because depth, stability and signal were three measured components."
         },
         {
-          "path": "apps/web/src/components/Cockpit.test.tsx",
+          "path": "apps/web/src/components/Main.test.tsx",
           "asserts": "`draws an outlined placeholder rather than a solid bar, and says not measured` asserts `fill=\"none\"` and `stroke=\"currentColor\"` on the rect, and `still draws a solid bar for a cell that was measured` asserts the inverse — so the two cases cannot both pass by accident."
         },
         {
@@ -4070,19 +4114,52 @@
       "title": "apps/api declares `effect` and imports it nowhere, while five documents describe a service layer built from it",
       "band": "Major",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "W5.1",
       "confirmed": true,
-      "summary": "**The dependency and the documentation are both real, and neither matches the other.** `apps/api/package.json` declares `effect` at `^3.21.2`. A grep of `apps`, `packages`, `tools`, `tests` and `scripts` for an import from `effect` or `effect/*` returns nothing: no file in the repository imports it. Meanwhile `AGENTS.md:37`, `AGENTS.md:324` and `AGENTS.md:390` instruct contributors to \"use Effect for dependency injection and error handling in services\", `.github/agents/backend-engineer.agent.md`, `.github/agents/database-engineer.agent.md` and `.github/agents/principal-architect.agent.md` repeat it, and `docs/architecture/unified-platform.md:35` lists Effect in the stack table. **A contributor following those instructions writes code against an API nothing in the tree demonstrates**, and `pnpm deps:policy` reports the declaration as unused on every run.\n\n**The repository's own migration document already settled the policy.** `docs/migration/unified-repository-migration.md:517` says: \"Use Effect only in `apps/api/src/bootstrap` for validated configuration, service lifecycle, and composition; keep framework-neutral domain packages in plain TypeScript. Remove direct `effect` declarations from packages that do not import it.\" The second clause is what this row records; the first is the work that discharges it.\n\n**Adoption, not deletion.** The declared version is `^3.21.2` and Effect 4.0.0 was stable on 2026-09-30, so the boundary this row asks for is an Effect 4 boundary rather than an Effect 3 one. The disposition is to build `apps/api/src/bootstrap/` and make the documents true, which is the only option that leaves both the dependency and the instructions correct."
+      "summary": "**Adopted, and at v4 — which is the disposition the row itself named.** When this row was written, `apps/api/package.json` declared `effect` at `^3.21.2` and no file imported it; the summary's own conclusion was *\"the declaration should become a v4 boundary rather than be deleted.\"* That is what happened: the declaration is `^4.0.0` and `apps/api/src/bootstrap/index.ts` imports `Config`, `ConfigProvider`, `Effect` and `Option` and runs the validated configuration with `Effect.runSync` — the two-file boundary `docs/migration/unified-repository-migration.md:517` asks for, in the one package the policy allows it in.\n\n**The documentation half was still false until this wave, and it was the more expensive half.** `AGENTS.md:393` told contributors to *\"use Effect for dependency injection and error handling in services\"*, which is the exact instruction a reader follows into a second authority: an Effect service layer in `apps/api/src/routes`, beside a plain-TypeScript composition root that already exists. It now states the boundary and names the file to copy, so the document and the tree agree in the direction the architecture document always intended. The other four documents the row counted — the three agent personas and the stack table — describe the stack rather than instructing a service layer, and are true as written.\n\n**What this closes, and what it does not.** It closes the mismatch: the dependency is used, at the version the row asked for, by the boundary the policy names. It does not adopt Effect for service lifecycle beyond configuration — `ManagedRuntime` is the route `DEP-3` records, and it stays unavailable because `@effect/vitest@4.0.0` wants a vitest the workspace does not have. A contributor who reads the corrected line writes plain TypeScript on the request path and an Effect program in `bootstrap`, which is the documented pattern rather than a second one.\n\n`pnpm deps:policy` was also red on this row's premise and is now green with the declaration used; the `@typescript/native` exemption it needed is recorded in `docs/quality/dependency-baseline.json` rather than assumed.",
+      "evidence": [
+        {
+          "path": "apps/api/src/bootstrap/index.ts",
+          "asserts": "`import { Config, ConfigProvider, Effect, Option } from 'effect'` and `Effect.runSync(configEffect.parse(provider))`: the dependency is imported and executed, in the only package the architecture policy permits it in — the finding's premise (\"imports it nowhere\") is not true of this tree."
+        },
+        {
+          "path": "apps/api/package.json",
+          "asserts": "`\"effect\": \"^4.0.0\"` — the v4 boundary the row's own summary asked for, rather than the `^3.21.2` the row recorded or the deletion the first instinct suggested."
+        },
+        {
+          "path": "AGENTS.md",
+          "asserts": "The server-patterns bullet now names the one boundary and the file to copy, instead of instructing a contributor to build an Effect service layer on the request path — the second authority the row was half about."
+        },
+        {
+          "path": "docs/migration/unified-repository-migration.md",
+          "asserts": "The policy line the corrected `AGENTS.md` defers to: Effect only in `apps/api/src/bootstrap` for validated configuration, service lifecycle and composition, with framework-neutral domain packages in plain TypeScript."
+        }
+      ]
     },
     {
       "id": "DEP-2",
       "title": "The root declares `@axe-core/playwright` and no committed file references it",
       "band": "Minor",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
+      "wave": "W5.1",
       "confirmed": true,
-      "summary": "The root `package.json` declares `@axe-core/playwright` at `^4.13.0` in devDependencies. At `de4fc44` nothing in the repository imports it: the only importer is an accessibility Playwright spec that is not committed. `pnpm deps:policy` reports it as declared and never referenced.\n\n**This is recorded rather than fixed because the fix is already in flight elsewhere.** The uncommitted work in the main working tree adds `e2e/accessibility/`, whose `routes.spec.ts` does `import AxeBuilder from '@axe-core/playwright'`. The moment that lands, the declaration is used and the finding is closed by the landing rather than by a patch. **Removing the dependency instead would break that spec the day it merges**, which is why this row is `open` and not `fixed`."
+      "summary": "**Closed by the landing, exactly as this row predicted.** The summary said *\"the moment that lands, the declaration is used and the finding is closed by the landing rather than by a patch\"* — `e2e/accessibility/routes.spec.ts` imports `AxeBuilder` from `@axe-core/playwright` and runs it against every route, and the file is committed. `pnpm deps:policy` carries it as a reviewed entry at 4.13.0.\n\n**The reason the row was right to be `open` rather than `fixed` is worth keeping.** Deleting the declaration would have broken the accessibility lane the day it merged, which is the failure mode of tidying a dependency list without asking who is about to import it. The same lesson closed `DEP-1` in the same wave: two rows in one session where the tree had already moved and the ledger had not.",
+      "evidence": [
+        {
+          "path": "e2e/accessibility/routes.spec.ts",
+          "asserts": "`import AxeBuilder from '@axe-core/playwright'` at the top and `new AxeBuilder({ page }).analyze()` in the body: the declaration at the root is referenced by a committed file, so `deps:policy` no longer reports it as unused."
+        },
+        {
+          "path": "package.json",
+          "asserts": "The declaration the row named, unchanged, with the importer that now justifies it."
+        },
+        {
+          "path": "docs/quality/dependency-baseline.json",
+          "asserts": "`{ \"name\": \"@axe-core/playwright\", \"version\": \"4.13.0\" }` in the reviewed entries — a human accepted this version rather than the gate discovering it by resolution."
+        }
+      ]
     },
     {
       "id": "RUNTIME-1",
@@ -4127,6 +4204,45 @@
       "removalCondition": "RF-5 records a rehearsal run against an 18 instance, and the compose and CI pins read 18-alpine rather than 16-alpine.",
       "confirmed": true,
       "summary": "**Measured 2026-10-04, and the target is unchanged.** PostgreSQL 18.6 is the current release of the 18 line. PostgreSQL 19 is at **Beta 4**, released 2026-09-24, with the release candidate expected in early October and general availability \"may also occur in October\" - so it is not a stable release today, and decision D3 excludes pre-releases.\n\n**Waiting for 16 is not a security exposure, which is the part worth correcting.** The 2026-08-13 release shipped 16.15 alongside 18.6, 17.11, 15.19 and 14.24, fixing 28 security vulnerabilities across the supported versions. `docker-compose.unified.yml` and the compose files pin `postgres:16-alpine`, which floats to the current 16 patch, so those fixes are already arriving. 16 reaches end of life in November 2028. **The upgrade is worth doing for the two-major gap and for `pg` 8.23's features, not because 16 is unpatched**, and recording that is what stops the row being re-argued as urgent.\n\n**The `pg` driver needs no action.** `pnpm view pg dist-tags` reports `latest: 8.23.1`, and the catalog resolves `^8.20.0` inside that range.\n\n**The blocker is unchanged and is not about the version.** Phase 9 is gated on RF-5, an open Blocker whose rehearsal has never run. A major-version move on a live installation is a data migration, and `pnpm migrate:rehearse` is the harness that proves one, so doing both at once makes a failure ambiguous: which of the two moved the row count. `pg_dump` also needs to be present in the image, which CI cannot demonstrate.\n\n**19 graduates the moment it is stable**, which on the published schedule may be inside this programme. The condition is a `latest` tag rather than a date, and the check is one command."
+    },
+    {
+      "id": "D-10",
+      "title": "The decision loop did not work on the only install there is: `decision_records.workspace_id` was a uuid",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": null,
+      "confirmed": true,
+      "confirmedOn": "2026-10-12",
+      "confirmedBy": "kilo:closing-plan",
+      "summary": "`decision_records` was declared with a uuid `workspace_id`, because every *id* in the schema is one and it looked right. `DEFAULT_WORKSPACE_ID` is `'default-workspace'` — a **name** — so every read and every write of a decision failed with `22P02 invalid input syntax for type uuid` on the default install. The whole loop the closing plan exists to finish was unreadable and unrecordable, and the failure was found the same way it was introduced: by running the store against the composition root's own default rather than against a uuid-shaped fixture. Every existing test passed, because the parity harness uses uuid workspace ids and the route tests inject the in-memory store, which has no column type to disagree with.",
+      "resolution": "**The column is `text`, like every other tenant key in the schema.**\n\n`projects.workspace_id`, `runs.workspace_id`, `canonical_run_results.workspace_id` and `audit_events.workspace_id` are already `text`. Resolving a workspace *name* is the registry's business; a column type is not the place to assert that the name happens to look like a uuid. `packages/db/src/schema/decisions.ts` and migration `0026` state that in the comment above the column, so the next reader does not have to re-derive it from a Postgres error code.\n\n**Two more things fell out of the fix, and both are recorded rather than left implied:**\n\n1. The tenancy register had been reporting this column as `absent` for one wave. `scripts/lib/tenancy-scope.mjs` matched only the `text` spelling of `workspaceId`, `decision_records` used `uuid`, so the register said \"this table has no tenant column\" about a `NOT NULL` one — a reader that reports a hard boundary as no boundary is worse than one that has never read, because the gate goes quiet about exactly the table it should be loudest on. The reader now accepts both spellings, `scripts/lib/tenancy-scope.test.mjs` pins the uuid one, and the register's `tally.note` records what was wrong.\n\n2. `derived_score_points` (migration 0027, written in the same wave) would have repeated the defect. It declares `text`, and its tests read and write under `DEFAULT_WORKSPACE_ID` rather than a fixture of the author's choosing — which is the cheapest way to keep the class out.\n\n**Proven red-first.** The parity scenario `records and reads under the workspace id the default install uses` was run against the uuid column and failed with the `22P02` quoted above; it passes against the text one. The in-memory half of the pair cannot mask the failure, because it asserts the same read path.",
+      "evidence": [
+        {
+          "path": "apps/api/src/execution/decision-store-parity.test.ts",
+          "asserts": "The scenario `records and reads under the workspace id the default install uses` writes and reads under `DEFAULT_WORKSPACE_ID`, so a uuid column fails it and a text one passes it. It fails in the Drizzle harness only — which is the point: the in-memory store has no column type to disagree with."
+        },
+        {
+          "path": "packages/db/drizzle/0026_decision_records.sql",
+          "asserts": "The migration declares `workspace_id` as `text NOT NULL` and records above it why a uuid was wrong, so the reason survives the schema."
+        },
+        {
+          "path": "packages/db/src/schema/decisions.ts",
+          "asserts": "The Drizzle column is `text`, and its comment names `DEFAULT_WORKSPACE_ID` and the error code — the column and the reason in one place."
+        },
+        {
+          "path": "packages/db/src/schema/score-points.ts",
+          "asserts": "The table written two days later declares `text` and cites the defect that forced it, rather than being the third table to learn it."
+        },
+        {
+          "path": "docs/quality/tenancy-scope.json",
+          "asserts": "The register records `decision_records` as `not-null` with the reader's uuid blind spot in the row itself, and the tally note records what changed on 2026-10-12."
+        },
+        {
+          "path": "scripts/lib/tenancy-scope.mjs",
+          "asserts": "The reader accepts both spellings of the tenant column, and its doc comment names the defect it had instead of asserting the shape was the design."
+        }
+      ]
     }
   ]
 }

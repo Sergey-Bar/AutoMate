@@ -621,32 +621,85 @@ function pointSix(ctx) {
  * @param {Context} ctx
  * @returns {Clause[]}
  */
+/**
+ * A register table row, as its cells.
+ *
+ * The same split `registerRowsFrom` uses, because a second cell splitter in one
+ * file is a second authority about where the columns are.
+ *
+ * @param {string} line
+ * @returns {string[]}
+ */
+function rowCells(line) {
+  return line
+    .split('|')
+    .slice(1, -1)
+    .map((cell) => cell.trim());
+}
+
+/**
+ * Point 7 — the capability register's evidence rule.
+ *
+ * @param {Context} ctx
+ * @returns {Clause[]}
+ */
 function pointSeven(ctx) {
   const register = ctx.text('docs/migration/capability-register.md');
-  // A row is a line of the register's table, so a row that names a command is a
-  // line that mentions one. Splitting on the id and reading the rest of the line
-  // works too, and did first, but it depends on the id appearing exactly once in
-  // the document — true today and not a property of the format.
+  // A row is a line of the register's table, and its cells are the header's
+  // columns. Splitting on the id and reading the rest of the line works too, and
+  // did first, but it depends on the id appearing exactly once in the document —
+  // true today and not a property of the format.
   const rowLines = register
     .split(/\r?\n/)
     .filter((line) => /^\|\s*[a-z0-9][a-z0-9.-]*\s*\|/.test(line));
-  const withCommand = rowLines.filter((line) => /\|[^|]*\bpnpm [^|]*\|/.test(line));
+  // **The header is not a row**, so it is not in `rowLines` and the column index
+  // has to be read from the table's own first line: a row's id is a dotted
+  // lowercase token and the header's is `ID`, so the header is exactly the line
+  // that parses as a table but not as a row. Reading the index from anywhere else
+  // would be restating where the columns are.
+  const headerColumn = register
+    .split(/\r?\n/)
+    .filter((line) => line.trimStart().startsWith('|'))
+    .map((line) =>
+      rowCells(line).findIndex((cell) => cell.replace(/\s/gu, '').toLowerCase() === 'command'),
+    )
+    .find((index) => index !== -1);
+  // **The rule is the register's own: a row that asserts `real` names a command.**
+  // This clause used to require every row — all 42 — including `mock`, `missing`
+  // and `obsolete`, where a command would be a claim about a capability the
+  // register has already said does not exist. Requiring it there made the clause
+  // unclosable by construction, which is the shape of gate this repository has
+  // spent four waves removing: it would have reported red forever while the
+  // sixteen rows that matter were all green.
+  const hasColumn = headerColumn !== undefined && headerColumn !== -1;
+  /** @type {string[]} */
+  const real = rowLines.filter((line) => rowCells(line)[2] === 'real');
+  const withCommand = real.filter(
+    (line) => (rowCells(line)[headerColumn ?? -1] ?? '').trim() !== '',
+  );
   const script = ctx.rootScripts.has('capability:evidence');
 
   return [
-    rowLines.length > 0 && withCommand.length === rowLines.length
+    hasColumn && real.length > 0 && withCommand.length === real.length
       ? ok(
-          'every register row names a passing evidence command',
-          `${String(rowLines.length)} row(s) carry a command in the evidence column.`,
+          'every row that asserts `real` names a command that decides it',
+          `all ${String(real.length)} \`real\` row(s) carry a command in the evidence column. ` +
+            'That they *pass* is decided by `capability:evidence`, which runs them and exits non-zero ' +
+            'on a failure — a clause read from the tree cannot run a command, and saying here that ' +
+            'they pass would be a claim this script has no way to have checked.',
         )
       : broken(
-          'every register row names a passing evidence command',
-          `${String(rowLines.length - withCommand.length)} of ${String(rowLines.length)} row(s) cite ` +
+          'every row that asserts `real` names a command that decides it',
+          `${String(real.length - withCommand.length)} of ${String(real.length)} \`real\` row(s) cite ` +
             'paths rather than a command. A path is evidence that something exists; a command is evidence ' +
             'that it still passes.',
         ),
     script
-      ? ok('`capability:evidence` exists', 'deleting a test flips its row to `unverified`.')
+      ? ok(
+          '`capability:evidence` exists',
+          "it runs every `real` row's command and exits non-zero on a failure, so a deleted test " +
+            'fails the gate rather than leaving a row claiming `real`.',
+        )
       : broken(
           '`capability:evidence` exists',
           'no such root script, so nothing maps a register row onto the test that would fail if the ' +

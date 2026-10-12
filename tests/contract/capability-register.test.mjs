@@ -31,6 +31,22 @@ const HEADER = [
   '| --- | --- | --- | --- | --- | --- |',
 ].join('\n');
 
+/**
+ * The same header with the Command column the real register carries.
+ *
+ * The evidence rule is read from the header, not from a hardcoded index: a
+ * fixture whose table declares no Command column is read as having none, which
+ * is why the six-column cases below keep working unchanged.
+ */
+const HEADER_WITH_COMMAND = [
+  '# Capability Register',
+  '',
+  '**Baseline:** `not-a-commit`',
+  '',
+  '| ID | Capability | Status | Qualification | Evidence | Command | Target phase |',
+  '| --- | --- | --- | --- | --- | --- | --- |',
+].join('\n');
+
 /** @type {Array<{name: string, register: string, expectFailure: RegExp}>} */
 const CASES = [
   {
@@ -45,6 +61,30 @@ const CASES = [
       '| a.b | A thing | green | qualified | `scripts/capability-register.mjs` | 1 |',
     ].join('\n'),
     expectFailure: /not one of/,
+  },
+  {
+    name: 'rejects a `real` row with no evidence command',
+    // The capability-evidence rule, made mechanical. A path answers "did the file
+    // change"; a command answers "does the capability still hold", and a row that
+    // says `real` with nothing that can fail is a claim wearing a measurement's
+    // clothes.
+    register: [
+      HEADER_WITH_COMMAND,
+      '| a.b | A thing | real | qualified | `scripts/capability-register.mjs` |  | 1 |',
+    ].join('\n'),
+    expectFailure: /asserts `real` with no evidence command/,
+  },
+  {
+    name: 'refuses a row with a stranded cell, which is a column out of alignment',
+    // The shape `reporting.lifecycle` carried for a wave: two command cells and no
+    // target phase, so the row had one more cell than the header's columns. It
+    // parsed, and it moved the reporter package's command into the phase column —
+    // right about its data, wrong about its shape.
+    register: [
+      HEADER_WITH_COMMAND,
+      '| a.b | A thing | real | qualified | `scripts/capability-register.mjs` | `pnpm test` | `pnpm test:contract` | 1 |',
+    ].join('\n'),
+    expectFailure: /stranded cell/,
   },
   {
     name: 'rejects a table that parses to no rows at all',
@@ -165,6 +205,24 @@ describe('the capability-register check', () => {
             '| ID | Capability | Status | Qualification | Evidence | Target phase |',
             '| --- | --- | --- | --- | --- | --- |',
             '| a.b | A thing | real | qualified | `scripts/capability-register.mjs` | 1 |',
+          ].join('\n'),
+          'utf8',
+        );
+        expect(check(file).stdout).toContain('Capability register verified');
+
+        // The same register **with** a Command column and a `real` row that names a
+        // command verifies too — the positive half of the evidence rule, proved so
+        // the rule cannot start failing for the row that satisfies it.
+        writeFileSync(
+          file,
+          [
+            '# Capability Register',
+            '',
+            `**Baseline:** \`${head}\``,
+            '',
+            '| ID | Capability | Status | Qualification | Evidence | Command | Target phase |',
+            '| --- | --- | --- | --- | --- | --- | --- |',
+            '| a.b | A thing | real | qualified | `scripts/capability-register.mjs` | `node --test scripts/lib/capability-register.test.mjs` | 1 |',
           ].join('\n'),
           'utf8',
         );

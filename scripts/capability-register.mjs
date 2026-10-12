@@ -133,6 +133,35 @@ function isCapabilityId(value) {
 /** Backticked path-looking tokens, which is how the register cites evidence. */
 const pathPattern = /`([^`]+)`/g;
 
+/**
+ * Which cell holds the command, read from the register's own header row.
+ *
+ * **The header is the authority for the column layout, not an index written out
+ * again.** `reporting.lifecycle` spent a wave carrying *two* command cells and no
+ * target phase — one more cell than the header's columns — so the reporter
+ * package's command sat in the phase column, and `reporting.explorer` spent one
+ * with an empty evidence cell and its paths in the command column. Both rows
+ * parsed; both said the wrong thing to anything reading a fixed column. A fixture
+ * whose header declares no Command column is read as having none, which is why
+ * the contract suite's six-column fixtures keep working.
+ *
+ * @param {string[]} lines
+ * @returns {{ index: number, columns: number }}
+ */
+function commandColumn(lines) {
+  for (const line of lines) {
+    if (!line.trimStart().startsWith('|')) continue;
+    const cells = parseRow(line);
+    if (cells === undefined) continue;
+    const index = cells.findIndex((cell) => cell.replace(/\s/gu, '').toLowerCase() === 'command');
+    if (index !== -1) return { index, columns: cells.length };
+  }
+  return { index: -1, columns: -1 };
+}
+
+const headerColumn = commandColumn(source.split(/\r?\n/));
+const hasCommandColumn = headerColumn.index !== -1;
+
 const failures = [];
 const rows = [];
 
@@ -147,6 +176,34 @@ for (const line of source.split(/\r?\n/)) {
 
   if (!STATUSES.has(status)) {
     failures.push(`${id}: status "${status}" is not one of ${[...STATUSES].join(', ')}`);
+  }
+
+  // **A `real` row must name a command whose failure would make it false.** A
+  // path answers "did the file change"; a command answers "does the capability
+  // still hold", and the register exists to answer the second. This is the
+  // `capability-evidence` skill's rule, made mechanical: the row that says `real`
+  // with nothing that can fail is a claim wearing a measurement's clothes, and
+  // this is the one line that refuses it.
+  if (status === 'real' && hasCommandColumn) {
+    const command = (cells[headerColumn.index] ?? '').trim();
+    if (command === '') {
+      failures.push(
+        `${id} asserts \`real\` with no evidence command. The capability-evidence rule is a ` +
+          'command whose failure would make the row false; a path is not one.',
+      );
+    }
+  }
+
+  // A row with more cells than the header has columns is a column out of
+  // alignment, and the class is silent: everything still parses. The two rows
+  // that were broken this way did not lose data — they moved it one column right,
+  // where a reader of the fixed index reads the wrong field.
+  if (hasCommandColumn && cells.length > headerColumn.columns) {
+    failures.push(
+      `${id} has ${String(cells.length)} cells where the header declares ` +
+        `${String(headerColumn.columns)}; a stranded cell is a column out of alignment ` +
+        '(the row is right about its data and wrong about its shape)',
+    );
   }
 
   const cited = [...row.evidence.matchAll(pathPattern)].map((entry) => entry[1] ?? '');
