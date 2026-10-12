@@ -5,7 +5,9 @@
  * A real Drizzle+Postgres implementation would satisfy the same interface.
  */
 import {
+  aggregateKpis,
   aggregateRuns,
+  type KpiSummary,
   type RunAnalyticsSummary,
   type RunPatch,
   type RunRecord,
@@ -75,6 +77,17 @@ export class InMemoryRunRepository implements RunRepository {
    */
   getAnalyticsSummary(): Promise<RunAnalyticsSummary> {
     return Promise.resolve(aggregateRuns(this._runs.values()));
+  }
+
+  /**
+   * The KPIs, from the same shared rules the SQL repository uses.
+   *
+   * `aggregateKpis` is exported from `run-repository.ts` precisely so these two
+   * implementations cannot drift: a KPI endpoint whose numbers change depending on
+   * which repository is mounted is the unit trap GLASS-3 fixed, in a second place.
+   */
+  getKpiSummary(): Promise<KpiSummary> {
+    return Promise.resolve(aggregateKpis(this._runs.values()));
   }
 
   async upsertTest(test: TestRecord): Promise<void> {

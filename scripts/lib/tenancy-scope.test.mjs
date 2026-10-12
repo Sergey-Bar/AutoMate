@@ -139,6 +139,32 @@ export const gamma = pgTable('gamma', { id: uuid('id') });
   ]);
 });
 
+test('a uuid tenancy column is read as present, not as absent', () => {
+  // **The shape migration 0026 introduced and 0027 followed.** `decision_records`
+  // and `derived_score_points` declare their tenancy column as a uuid — every id
+  // in this schema is one — and for one wave the reader matched only `text`, so
+  // the register reported both as `absent`: "this table has no tenant column" on
+  // a `NOT NULL` one. A parse that reads a hard boundary as no boundary is worse
+  // than one that cannot read, because the gate goes quiet about exactly the
+  // table it should be loudest on.
+  const source = `
+export const decisions = pgTable('decision_records', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id').notNull(),
+  verdict: text('verdict').notNull(),
+});
+export const points = pgTable('derived_score_points', {
+  id: uuid('id').primaryKey(),
+  workspaceId: uuid('workspace_id'),
+  at: timestamp('at', { withTimezone: true }).notNull(),
+});
+`;
+  assert.deepEqual(parseTableStates(source), [
+    { table: 'decision_records', hasWorkspaceColumn: true, notNull: true },
+    { table: 'derived_score_points', hasWorkspaceColumn: true, notNull: false },
+  ]);
+});
+
 test('a source with no tables yields nothing rather than throwing', () => {
   for (const source of [
     '',

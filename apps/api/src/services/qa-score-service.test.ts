@@ -6,6 +6,7 @@ import {
   mergeCoverage,
   projectRunRecord,
   projectTestResult,
+  singleLayerE2e,
 } from './qa-score-service.js';
 import type { CoverageReport } from '@automate/reporter';
 import { parseCoverage } from '@automate/reporter';
@@ -69,6 +70,42 @@ describe("a run outcome is either the code's or the infrastructure's", () => {
       projectRunRecord({ id: 'r1', startedAt: new Date(), outcome: null, phase: 'queued' })
         .countsTowardsQuality,
     ).toBe(false);
+  });
+});
+
+describe('a fingerprint that runs at both layers is a structural finding, not a score change', () => {
+  it('names the e2e fingerprint that also appears in a unit cell', () => {
+    // The structural finding is the highest-value signal in the product and the
+    // one nobody ships: an e2e test that exists as a unit test is a duplication
+    // the shape of the results already reveals. A score change would be a fifth
+    // rule nobody could see — this feeds a finding, not a number.
+    const results = [
+      {
+        identity: { runId: 'r1' },
+        metadata: { fingerprint: 'login-flow', category: 'e2e', surface: 'frontend' },
+        attempts: [{ testId: 'login-flow', status: 'passed' }],
+      },
+      {
+        identity: { runId: 'r1' },
+        metadata: { fingerprint: 'login-flow', category: 'unit', surface: 'frontend' },
+        attempts: [{ testId: 'login-flow', status: 'passed' }],
+      },
+      {
+        identity: { runId: 'r1' },
+        metadata: { fingerprint: 'only-e2e', category: 'e2e', surface: 'frontend' },
+        attempts: [{ testId: 'only-e2e', status: 'skipped' }],
+      },
+      {
+        identity: { runId: 'r1' },
+        metadata: { fingerprint: 'only-unit', category: 'unit', surface: 'backend' },
+        attempts: [{ testId: 'only-unit', status: 'passed' }],
+      },
+    ].map(projectTestResult);
+
+    // `only-e2e` is **skipped**, and a test that did not run is not evidence that
+    // the project runs the same behaviour twice. The executed rule is the score's
+    // own, imported rather than restated.
+    expect(singleLayerE2e(results)).toEqual(['login-flow']);
   });
 });
 
@@ -449,6 +486,336 @@ describe('a real score over a real database, with a coverage document attached',
       expect(unit?.presence).toBe(1);
       expect(score.provenance.runsRead).toBe(1);
       expect(score.provenance.resultsRead).toBe(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('answers the trend from a window it read again, not from a synthesised series', async () => {
+    // **The series used to be a pattern constant in the browser.** A sparkline
+    // drew `PYRAMID_PATTERN` — a shape that looked like history and was a number:
+    // the same seven values on every render, for every project, forever. The
+    // trend is a second read and a second score now, and this test is what makes
+    // that claim falsifiable: the older point is compared against an independent
+    // score of the older window, and the last point is the current total.
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { drizzle } = await import('drizzle-orm/pglite');
+    const schema = await import('@automate/db');
+    const { literalView } = await import('@automate/projects');
+    const { createProjectsRoutes } = await import('../routes/projects.js');
+
+    const drizzleDirectory = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../packages/db/drizzle',
+    );
+    const journal = JSON.parse(
+      readFileSync(join(drizzleDirectory, 'meta', '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const sql = journal.entries
+      .slice()
+      .sort((left, right) => left.idx - right.idx)
+      .map((entry) =>
+        readFileSync(join(drizzleDirectory, `${entry.tag}.sql`), 'utf8')
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter(Boolean)
+          .join(';\n'),
+      )
+      .join(';\n');
+
+    const EARLIER = '2026-09-20T00:00:00.000Z';
+    const client = new PGlite();
+    try {
+      await client.exec(sql);
+      const db = drizzle(client, { schema });
+      const registry = {
+        db: db as never,
+        workspaceId: 'ws-1',
+        viewFor: () => literalView({ 'package.json': '{"name":"svc"}' }),
+      };
+      const created = await createProjectsRoutes({
+        ...registry,
+        startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
+      }).request('/api/v1/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Svc', slug: 'svc', repoPath: '/repos/svc' }),
+      });
+      const { project } = (await created.json()) as { project: { id: string } };
+
+      // Two runs, twelve days apart, each with its own result. The older window
+      // ends at the earlier run, which is the instant the trend's first label
+      // names — a series that did not read that window could not know it.
+      for (const index of [0, 1]) {
+        const id = `00000000-0000-4000-8000-0000000000f${index}`;
+        await db.insert(schema.runs).values({
+          id,
+          workspaceId: 'ws-1',
+          projectId: project.id,
+          startedAt: new Date(index === 0 ? EARLIER : NOW),
+          phase: 'complete',
+          outcome: 'failed',
+        });
+        await db.insert(schema.canonicalRunResults).values({
+          runId: id,
+          workspaceId: 'ws-1',
+          fingerprint: `f${index}`,
+          result: {
+            identity: { runId: id, workspaceId: 'ws-1', projectId: project.id },
+            metadata: { fingerprint: `f${index}`, category: 'unit', surface: 'backend' },
+            attempts: [{ testId: `f${index}`, status: 'passed', durationMs: 10 }],
+            provenance: { producer: 'junit', commitSha: 'c1' },
+          },
+        });
+      }
+
+      const current = await qaScore(registry, project.id, NOW);
+      const trend = current.trend;
+      expect(trend.points).toHaveLength(2);
+      expect(trend.labels).toHaveLength(2);
+      // The last point is this score's own total, and its label is this window.
+      expect(trend.points[1]).toBe(current.total);
+      expect(trend.labels[1]).toBe(NOW);
+      // The first point is the score of the window read again: an independent
+      // reading at the earlier instant must agree with what the trend claims.
+      const older = await qaScore(registry, project.id, EARLIER);
+      expect(trend.points[0]).toBe(older.total);
+      // A direction, and not a fabrication: the newer window has the same evidence,
+      // so the direction is zero — and a series invented to look like history would
+      // have been unable to claim anything else.
+      expect(trend.points[1]).toBe(trend.points[0]);
+      expect(older.trend.points).toEqual([]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('ingests the coverage a run uploaded, when the profile declares the glob', async () => {
+    // **The wire that was missing, and the reason `depth` was `unknown` on every
+    // cell of every screen.** `assemble` has accepted a coverage-documents
+    // parameter since the score was written and every caller passed `[]`; the
+    // runner uploads artifacts, `parseCoverage` has parsed six formats since
+    // before the score, and nobody had joined them. This is the join, at the
+    // service's own seam: the composition root supplies the bytes, the service
+    // supplies the profile's globs, and the score's `depth` component becomes a
+    // measurement rather than an unknown.
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { drizzle } = await import('drizzle-orm/pglite');
+    const schema = await import('@automate/db');
+    const { literalView } = await import('@automate/projects');
+    const { createProjectsRoutes } = await import('../routes/projects.js');
+    const { QaScoreSchema } = await import('@automate/shared-contracts');
+    const { runs } = await import('@automate/db');
+
+    const drizzleDirectory = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../packages/db/drizzle',
+    );
+    const journal = JSON.parse(
+      readFileSync(join(drizzleDirectory, 'meta', '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const sql = journal.entries
+      .slice()
+      .sort((left, right) => left.idx - right.idx)
+      .map((entry) =>
+        readFileSync(join(drizzleDirectory, `${entry.tag}.sql`), 'utf8')
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter(Boolean)
+          .join(';\n'),
+      )
+      .join(';\n');
+
+    const client = new PGlite();
+    try {
+      await client.exec(sql);
+      const db = drizzle(client, { schema });
+      const shared = {
+        workspaceId: 'ws-1',
+        viewFor: () =>
+          literalView({ 'package.json': '{"name":"svc","scripts":{"test":"vitest run"}}' }),
+      };
+      const created = await createProjectsRoutes({
+        db: db as never,
+        ...shared,
+        startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
+      }).request('/api/v1/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Svc', slug: 'svc', repoPath: '/repos/svc' }),
+      });
+      const { project } = (await created.json()) as { project: { id: string } };
+
+      // The profile's own `coverageGlobs`, as a customer writes them: this
+      // repository's vitest writes `coverage/lcov.dat`.
+      const patched = await createProjectsRoutes({
+        db: db as never,
+        ...shared,
+        startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
+      }).request(`/api/v1/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          coverageGlobs: [{ glob: 'coverage/lcov.dat', format: 'lcov' }],
+        }),
+      });
+      expect(patched.status).toBe(200);
+
+      // A run in the window, so there is a newest run whose coverage describes
+      // this code. The run is written directly: the score's window predicate is
+      // `started_at <= now`, and a row is the smallest honest way to be in it.
+      await db.insert(runs).values({
+        id: '00000000-0000-4000-8000-000000000001',
+        workspaceId: 'ws-1',
+        projectId: project.id,
+        startedAt: new Date(NOW),
+        phase: 'complete',
+        outcome: 'passed',
+      });
+
+      // The reader the composition root wires — here a literal, which is the
+      // point: a service that read object storage directly could not be driven
+      // from a map, and the seam is what makes the join testable at all.
+      const registry = {
+        db: db as never,
+        ...shared,
+        readCoverageDocuments: async (): Promise<
+          ReadonlyArray<{ format: 'lcov'; bytes: Uint8Array }>
+        > => [
+          {
+            format: 'lcov',
+            bytes: new TextEncoder().encode('SF:src/api/login.ts\nDA:1,1\nDA:2,1\nDA:3,0\n'),
+          },
+        ],
+      };
+
+      const score = QaScoreSchema.parse(await qaScore(registry, project.id, NOW));
+      // The cell the document measures now reports the coverage it found rather
+      // than `null`. **That is the whole feature**: the document names three
+      // executable lines with two covered, so the cell's `surfaceCoverage` is two
+      // thirds — where before the join it was `null` on every cell of every
+      // screen, the "absence, not zero" case that meant no coverage artifact had
+      // been ingested at all.
+      const backend = score.cells.find(
+        (cell) => cell.category === 'unit' && cell.surface === 'backend',
+      );
+      expect(backend).toBeDefined();
+      expect(backend?.inputs.surfaceCoverage).toBeCloseTo(2 / 3, 2);
+      // And the run that carried the coverage is recorded as read, so a screen
+      // can say where the number came from.
+      expect(score.provenance.runsRead).toBeGreaterThan(0);
+      expect(score.provenance.detectorVersion).toBe(1);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('ignores a glob the profile declares with a format this build cannot parse', async () => {
+    // **The profile is a file a customer writes**, and its schema accepts any
+    // non-empty string as a `format`. A seventh format must not be handed to
+    // `parseCoverage` — a parse that produces nothing reported as `0.00` coverage
+    // would be a measurement that failed, reported as one that found nothing.
+    //
+    // The end-to-end shape is the only honest one here: the narrowing lives in
+    // the service's read, so the assertion is that the cell's coverage stays
+    // `null` — absence, not zero — while the reader the composition root wired is
+    // waiting with a document it was never asked for.
+    const { readFileSync } = await import('node:fs');
+    const { dirname, join, resolve } = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { drizzle } = await import('drizzle-orm/pglite');
+    const schema = await import('@automate/db');
+    const { literalView } = await import('@automate/projects');
+    const { createProjectsRoutes } = await import('../routes/projects.js');
+    const { QaScoreSchema } = await import('@automate/shared-contracts');
+    const { runs } = await import('@automate/db');
+
+    const drizzleDirectory = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '../../../../packages/db/drizzle',
+    );
+    const journal = JSON.parse(
+      readFileSync(join(drizzleDirectory, 'meta', '_journal.json'), 'utf8'),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const sql = journal.entries
+      .slice()
+      .sort((left, right) => left.idx - right.idx)
+      .map((entry) =>
+        readFileSync(join(drizzleDirectory, `${entry.tag}.sql`), 'utf8')
+          .split('--> statement-breakpoint')
+          .map((statement) => statement.trim())
+          .filter(Boolean)
+          .join(';\n'),
+      )
+      .join(';\n');
+
+    const client = new PGlite();
+    let asked: ReadonlyArray<{ format: 'lcov'; bytes: Uint8Array }> = [];
+    try {
+      await client.exec(sql);
+      const db = drizzle(client, { schema });
+      const shared = {
+        workspaceId: 'ws-1',
+        viewFor: () =>
+          literalView({ 'package.json': '{"name":"svc","scripts":{"test":"vitest run"}}' }),
+      };
+      const routes = createProjectsRoutes({
+        db: db as never,
+        ...shared,
+        startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
+      });
+      const created = await routes.request('/api/v1/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Svc', slug: 'svc', repoPath: '/repos/svc' }),
+      });
+      const { project } = (await created.json()) as { project: { id: string } };
+      // A **seventh** format, which this build cannot parse. The profile's own
+      // schema accepts it, because the schema is about the customer's file and
+      // not about this deployment's parsers.
+      await routes.request(`/api/v1/projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          coverageGlobs: [{ glob: 'coverage/coverage.json', format: 'opencover' }],
+        }),
+      });
+      await db.insert(runs).values({
+        id: '00000000-0000-4000-8000-000000000002',
+        workspaceId: 'ws-1',
+        projectId: project.id,
+        startedAt: new Date(NOW),
+        phase: 'complete',
+        outcome: 'passed',
+      });
+
+      const registry = {
+        db: db as never,
+        ...shared,
+        readCoverageDocuments: async (): Promise<
+          ReadonlyArray<{ format: 'lcov'; bytes: Uint8Array }>
+        > => {
+          asked = [
+            { format: 'lcov', bytes: new TextEncoder().encode('SF:src/api/login.ts\nDA:1,1\n') },
+          ];
+          return asked;
+        },
+      };
+      const score = QaScoreSchema.parse(await qaScore(registry, project.id, NOW));
+      const backend = score.cells.find(
+        (cell) => cell.category === 'unit' && cell.surface === 'backend',
+      );
+      // **Absence, not zero.** The reader was never asked, so nothing was
+      // ingested, and the cell says "no artifact" rather than "0% covered".
+      expect(backend?.inputs.surfaceCoverage).toBeNull();
+      expect(asked).toEqual([]);
     } finally {
       await client.close();
     }

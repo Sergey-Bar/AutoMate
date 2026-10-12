@@ -174,6 +174,37 @@ export const PyramidShapeSchema = z.object({
 });
 
 /**
+ * A score series over time, as the points and what they are.
+ *
+ * ## `{points, labels}`, and not `{history}`
+ *
+ * A history is a collection of *scores*, each with its own cells, gaps and
+ * provenance — an array payload a screen cannot chart and a client has to know
+ * how to walk. A trend is two arrays of the same length: the totals, oldest
+ * first, and the instants they describe. Same length is enforced here rather
+ * than promised, because a chart with six points and four labels draws six bars
+ * and labels four of them, which is a chart that lies about which point is which.
+ *
+ * ## A default, and why it is the empty series rather than a flat one
+ *
+ * An empty series says "no earlier window was read". A fabricated flat series
+ * says "the score did not move", which is a claim about history nobody read —
+ * exactly the kind of confident nothing this schema exists to prevent.
+ */
+export const ScoreTrendPointSchema = z
+  .object({
+    /** One total per window, oldest first, and ending with this score's own total. `0`–`100`. */
+    points: z.array(z.number().min(0).max(100)).readonly(),
+    /** What each point is: the instant its window ended at. */
+    labels: z.array(z.string().min(1)).readonly(),
+  })
+  .refine(
+    (trend) => trend.points.length === trend.labels.length,
+    'a trend with a different number of points and labels cannot be charted: every point needs the instant it describes',
+  );
+export type ScoreTrendPoint = z.infer<typeof ScoreTrendPointSchema>;
+
+/**
  * Everything the number was read from.
  *
  * `infraFailedRate` is a **separate field** and never folded into a fail rate.
@@ -216,6 +247,15 @@ export const QaScoreSchema = z
     pyramid: PyramidShapeSchema,
     gaps: z.array(GapSchema).readonly(),
     findings: z.array(StructuralFindingSchema).readonly(),
+    /**
+     * The totals of the windows before this one, oldest first, ending with this
+     * score's own.
+     *
+     * Two points at least — the current total and the one before it — or none.
+     * A one-point series is a number, not a direction, and a dashboard that
+     * charts one point as a trend teaches the reader to ignore the chart.
+     */
+    trend: ScoreTrendPointSchema.default({ points: [], labels: [] }),
     provenance: ScoreProvenanceSchema,
     /** The weights that produced it. A number whose weights are not shown is not reviewable. */
     weights: z.object({

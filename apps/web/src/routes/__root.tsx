@@ -30,11 +30,32 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <ThemeProvider>
-      <div className="flex min-h-screen flex-col bg-surface text-fg">
+      {/*
+        The ambient backdrop, and the reason the shell exists at all.
+
+        A glass panel is a **sampling filter**: it is only legible because of what
+        is behind it. This layer is what is behind it — two soft token-derived
+        glows over the base surface, wide and off-screen so no band crosses a
+        readable column of text. Both are tokens at an opacity, not literal hexes:
+        `theme-resolution.test.ts` fails a build on a colour that is not a token,
+        and a gradient nobody can retheme is a gradient nobody can ship.
+
+        `pointer-events-none` and `aria-hidden` together: the layer is decoration,
+        so it must not eat a click and must not appear in a screen reader's tree.
+      */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-surface"
+      >
+        <div className="absolute -top-56 left-1/2 h-[46rem] w-[96rem] max-w-none -translate-x-1/2 rounded-full bg-gradient-to-b from-accent/12 via-accent/5" />
+        <div className="absolute -bottom-64 right-[-14rem] h-[38rem] w-[64rem] rounded-full bg-gradient-to-t from-info/10 via-info/4" />
+        <div className="absolute bottom-[-18rem] left-[-12rem] h-[34rem] w-[58rem] rounded-full bg-gradient-to-tr from-accent/8" />
+      </div>
+      <div className="flex min-h-screen flex-col bg-transparent text-fg">
         <NavBar />
         <div className="flex min-h-0 flex-1">
           <Sidebar />
-          <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6">
+          <main className="min-h-0 min-w-0 flex-1 overflow-auto">
             <Outlet />
           </main>
         </div>

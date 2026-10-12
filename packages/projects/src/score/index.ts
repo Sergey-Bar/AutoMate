@@ -123,6 +123,20 @@ export function score(inputs: ScoreInputs, at: string): QaScore {
   ]);
   const general = geometricMean(rows, weights);
 
+  // The trend is the earlier windows' totals plus this one, published rather than
+  // recomputed — see `ScoreInputs.trend`. **No earlier window means no series at
+  // all**: a one-point series is a number wearing a chart's clothes, and the
+  // contract's own default (an empty series) is the honest version of the same
+  // claim, which is why the two agree.
+  const earlier = inputs.trend ?? [];
+  const trend =
+    earlier.length === 0
+      ? { points: [], labels: [] }
+      : {
+          points: [...earlier.map((window) => window.total), general.total],
+          labels: [...earlier.map((window) => window.at), at],
+        };
+
   // Validated against the wire contract **here**, at the source, rather than in the
   // route. The contract and this function were two declarations of one shape, and
   // they disagreed: the contract required `excluded` on every cell and `weight` on
@@ -148,6 +162,7 @@ export function score(inputs: ScoreInputs, at: string): QaScore {
     }),
     provenance: provenance(inputs),
     weights,
+    trend,
   });
 }
 

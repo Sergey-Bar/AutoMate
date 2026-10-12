@@ -156,14 +156,26 @@ services:
       AUTOMATE_API_URL: http://api:3000
       RUNNER_INSTANCE_ID: ${RUNNER_INSTANCE_ID:-00000000-0000-4000-8000-000000000002}
       RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
-      RUNNER_SLOTS: '1'
+      RUNNER_SLOTS: ${RUNNER_SLOTS:-1}
       RUNNER_ALLOWED_TARGET_URLS: 'http://web,http://api'
+      # Where registered repositories live **inside the runner container**. The
+      # generic spawn mode resolves every `workingDirectory` against this and
+      # refuses anything that escapes it, so a job whose cwd is outside it fails
+      # with `config_failed` rather than running somewhere nobody mounted. The
+      # default in `apps/runner/src/config.ts` is the bundled fixture directory,
+      # which is why a stack without this variable ran the smoke fixture for every
+      # run. Mounted from the host below, so the two cannot drift.
+      RUNNER_REPO_ROOT: /workspace
       ARTIFACT_ROOT: /var/lib/automate/artifacts
     depends_on:
       api:
         condition: service_healthy
     volumes:
       - artifact_data:/var/lib/automate/artifacts
+      # The repository the runner spawns in, from the host. Read-write, because
+      # the command being run is the project's own — a test runner that cannot
+      # write its cache is a runner that fails on the second run.
+      - ${AUTOMATE_PROJECT_ROOT:-.}:/workspace
     networks:
       - default
       - runner_egress

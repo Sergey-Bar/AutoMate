@@ -23,12 +23,12 @@ describe('theme/index barrel exports', () => {
   });
 
   it('re-exports ThemeProviderProps type (compile-time check)', () => {
-    const props: Partial<ThemeProviderProps> = { defaultTheme: 'light' };
-    expect(props.defaultTheme).toBe('light');
+    const props: Partial<ThemeProviderProps> = { storageKey: 'custom' };
+    expect(props.storageKey).toBe('custom');
   });
 
   it('re-exports ThemeProviderState type (compile-time check)', () => {
-    const state: ThemeProviderState = { theme: 'system', setTheme: () => {} };
-    expect(state.theme).toBe('system');
+    const state: ThemeProviderState = { theme: 'dark', setTheme: () => {} };
+    expect(state.theme).toBe('dark');
   });
 });

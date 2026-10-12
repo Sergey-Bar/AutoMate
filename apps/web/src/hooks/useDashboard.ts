@@ -5,6 +5,7 @@ import {
   type AnalyticsSummary,
   type ArtifactDescriptor,
   type GateEvaluation,
+  type KpiSummary,
   type QuarantineEntry,
   type ReleaseReadiness,
   type Run,
@@ -32,6 +33,52 @@ export function useAnalytics(api = defaultApiClient) {
         // reporting it would replace a rendered summary with an error.
         if (isAbortError(caught)) return;
         setError(caught instanceof Error ? caught : new Error('Analytics unavailable'));
+      })
+      .finally(() => {
+        if (!signal.aborted) setIsLoading(false);
+      });
+    return () => {
+      cancelAll();
+    };
+  }, [api, begin, cancelAll]);
+
+  return { data, isLoading, error };
+}
+
+/**
+ * The KPIs, each carrying the unit it was computed in.
+ *
+ * **A separate hook from `useAnalytics` on purpose.** The two endpoints answer
+ * different questions and fail independently: the analytics summary is the old
+ * shape, the KPI endpoint is the one whose numbers declare their units. A hook
+ * that returned both would make a dead KPI endpoint blank the summary too, which
+ * is the "one dead endpoint empties the screen" the engine already avoids.
+ *
+ * A failed KPI read is reported as a **partial** state rather than an error:
+ * the three numbers the summary carries are still true, and the screen can say
+ * so rather than falling back to the guessing it replaced.
+ */
+export function useKpis(api = defaultApiClient): {
+  data: KpiSummary | null;
+  isLoading: boolean;
+  error: Error | null;
+} {
+  const [data, setData] = useState<KpiSummary | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const { begin, cancelAll } = useRequestLifecycle();
+
+  useEffect(() => {
+    const signal = begin();
+    void api
+      .getKpiSummary({ signal })
+      .then((result) => {
+        setData(result);
+        setError(null);
+      })
+      .catch((caught: unknown) => {
+        if (isAbortError(caught)) return;
+        setError(caught instanceof Error ? caught : new Error('KPIs unavailable'));
       })
       .finally(() => {
         if (!signal.aborted) setIsLoading(false);

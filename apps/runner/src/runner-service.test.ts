@@ -64,6 +64,8 @@ class FakeProtocol implements RunnerProtocol {
   conflictStatus = 'conflict';
   alwaysFail: Error | null = null;
   onComplete?: () => void;
+  /** What the next heartbeat answers with, beyond the defaults. */
+  heartbeatResponse?: Partial<RunnerHeartbeat>;
   private queued: JobClaim[] = [];
 
   enqueue(value: JobClaim): void {
@@ -78,6 +80,7 @@ class FakeProtocol implements RunnerProtocol {
       activeJobIds: [],
       cancelledJobIds: [],
       cancelRequestedJobIds: [],
+      ...this.heartbeatResponse,
     };
   }
 
@@ -174,20 +177,29 @@ function service(
   executor: ExecutionProvider,
   spool: SpoolQueue = new MemorySpool(),
   onError: (error: unknown) => void = vi.fn(),
-  seams: Pick<RunnerServiceOptions, 'sleep' | 'random' | 'retryPolicy'> = {},
+  seams: Partial<
+    Pick<
+      RunnerServiceOptions,
+      'sleep' | 'random' | 'retryPolicy' | 'heartbeatIntervalMs' | 'pollIntervalMs'
+    >
+  > = {},
 ): RunnerService {
+  // Destructured rather than spread last, so a seam can override the default
+  // without TypeScript warning that the spread may overwrite a property it is
+  // named after.
+  const { heartbeatIntervalMs = 60_000, pollIntervalMs = 1, ...rest } = seams;
   return new RunnerService({
     runnerId: 'runner-1',
     capabilities: ['playwright', 'chromium'],
     labels: ['trusted'],
     slots: 1,
-    pollIntervalMs: 1,
-    heartbeatIntervalMs: 60_000,
+    pollIntervalMs,
+    heartbeatIntervalMs,
     protocol,
     executor,
     spool,
     onError,
-    ...seams,
+    ...rest,
   });
 }
 
@@ -334,6 +346,79 @@ describe('RunnerService', () => {
       phase: 'config_failed',
       outcome: 'config_failed',
     });
+  });
+
+  it('re-arms a running job’s deadline from the lease the heartbeat renews', async () => {
+    // **P6, and the failure it fixes is a suite killed at the end of a lease that
+    // had already been extended.** The budget was computed once, from the claim,
+    // and the server's renewal — which happens on every heartbeat — was never
+    // consulted again. A long suite claimed under a short lease was killed
+    // without either side doing anything wrong.
+    const protocol = new FakeProtocol();
+    protocol.enqueue({ ...claim('job-renew'), timeoutMs: 10 * 60_000 });
+    // The renewal the heartbeat reports: five minutes from now.
+    protocol.heartbeatResponse = {
+      leaseExpiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    };
+    const budgets: number[] = [];
+    const reArmed: number[] = [];
+    const captured: unknown[] = [];
+    let release: (() => void) | undefined;
+    const inFlight = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const executor = new FakeExecutor(async (context) => {
+      // The seam a generic spawn wires its timer to, in the shape the adapter
+      // would: a function that re-arms the timer with the new remaining time.
+      budgets.push(context.deadlineMs);
+      context.reArmDeadline?.((deadlineMs) => reArmed.push(deadlineMs));
+      await inFlight;
+      return {
+        status: 'passed',
+        resultPath: '',
+        workspacePath: '',
+        artifacts: [],
+        stdout: '',
+        stderr: '',
+      };
+    });
+    const runner = service(
+      protocol,
+      executor,
+      new MemorySpool(),
+      (error) => {
+        // A loop error would leave the job hanging with no re-arm and no
+        // completion, which is a hang rather than a failure — so it is recorded
+        // and asserted rather than swallowed.
+        captured.push(error);
+      },
+      { heartbeatIntervalMs: 1, sleep: immediateSleep },
+    );
+    const finished = runner.run();
+    try {
+      // The heartbeat arrives while the child is still running, which is the only
+      // state in which a renewal can matter.
+      await until('the heartbeat re-armed the deadline', () => reArmed.length > 0);
+      // The first budget came from the lease as it stood at claim time (60s, and
+      // not the 10s timeout — a lease is the tighter of the two bounds).
+      expect(budgets[0]).toBeLessThanOrEqual(60_000);
+      expect(budgets[0]).toBeGreaterThan(30_000);
+      // The re-arm carries the renewed lease's remaining time: minutes, not the
+      // seconds the claim was filed with.
+      expect(reArmed[0]).toBeGreaterThan(4 * 60_000);
+      expect(reArmed[0]).toBeLessThanOrEqual(5 * 60_000);
+    } finally {
+      release?.();
+      // Stop the loop before awaiting it: `runner.run()` ends on the lifecycle
+      // signal, and awaiting an unstopped service is a test that hangs for the
+      // timeout rather than failing for the reason.
+      runner.stop();
+      await finished;
+    }
+    expect(captured, JSON.stringify(captured.slice(0, 2))).toEqual([]);
+    // The run finished as itself, not as a timeout: the re-arm bought the rest of
+    // the budget the renewed lease describes.
+    expect(protocol.completions[0]).toMatchObject({ status: 'passed', outcome: 'passed' });
   });
 });
 

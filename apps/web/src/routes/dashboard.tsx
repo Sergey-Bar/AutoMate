@@ -5,7 +5,7 @@ import { Route as rootRoute } from './__root.js';
 import type { CreateRunRequest, DomainReadinessStatus } from '@automate/shared-contracts';
 import { useReleaseReadiness } from '../hooks/useDashboard.js';
 import { isRunActive } from '../hooks/useRuns.js';
-import { Cockpit } from '../components/Cockpit.js';
+import { Main } from '../components/Main.js';
 import { createQaClient } from '../lib/qa-client.js';
 import { defaultApiClient, type ApiClient, type Run } from '../lib/api.js';
 import { formatDate } from '../lib/format.js';
@@ -368,10 +368,10 @@ export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
  *
  * ## What it does, and what it deliberately does not
  *
- * `/dashboard` is the cockpit: open the install, see what is blocking you. A home
- * page that asks you to fill in a form before it tells you anything is a form, so
- * the launch form moved to `/dashboard/runs` and this layout either renders the
- * cockpit or renders the child route.
+ * `/dashboard` is the MAIN screen: open the install, see the whole QA
+ * picture. A home page that asks you to fill in a form before it tells you
+ * anything is a form, so the launch form moved to `/dashboard/runs` and this
+ * layout either renders the MAIN dashboard or renders the child route.
  *
  * **It calls no hook that opens a resource.** That is the whole of ledger W-5, which
  * stayed open here for a year: `useRuns` used to be called here *before* the
@@ -393,7 +393,7 @@ function DashboardLayout() {
 
   return (
     <div data-testid="dashboard-page" className="space-y-6">
-      {isExactDashboard ? <Cockpit qa={createQaClient()} api={defaultApiClient} /> : <Outlet />}
+      {isExactDashboard ? <Main qa={createQaClient()} api={defaultApiClient} /> : <Outlet />}
     </div>
   );
 }

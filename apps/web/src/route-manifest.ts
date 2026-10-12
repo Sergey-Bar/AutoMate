@@ -1,9 +1,16 @@
 export const routeManifest = [
-  { id: 'command-center', path: '/dashboard', label: 'Cockpit', visible: true },
+  { id: 'main', path: '/dashboard', label: 'MAIN', visible: true },
+  // The daily page: what changed, what broke, what is waiting, what was decided.
+  // Visible and first, because it is the screen the loop is supposed to be closed
+  // on — every other screen here is somewhere you go to answer one of its
+  // questions in more depth.
+  { id: 'today', path: '/dashboard/today', label: 'Today', visible: true },
   { id: 'runs', path: '/dashboard/runs', label: 'Runs', visible: true },
   { id: 'run-detail', path: '/dashboard/runs/:runId', label: 'Run Detail', visible: false },
   { id: 'analytics', path: '/dashboard/analytics', label: 'Analytics', visible: true },
   { id: 'quarantine', path: '/dashboard/quarantine', label: 'Quarantine', visible: true },
+  { id: 'tools', path: '/dashboard/tools', label: 'QA Tools', visible: true },
+  { id: 'insights', path: '/dashboard/insights', label: 'Insights', visible: true },
   { id: 'score', path: '/dashboard/score/:projectId', label: 'Health Score', visible: false },
   { id: 'gaps', path: '/dashboard/gaps/:projectId', label: 'Automation Gaps', visible: false },
   { id: 'hollow', path: '/dashboard/hollow/:projectId', label: 'Hollow Tests', visible: false },

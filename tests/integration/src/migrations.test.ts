@@ -166,6 +166,9 @@ describe('migration graph', () => {
       '0022_tests_error_message',
       '0023_project_registry',
       '0024_project_quality_gate',
+      '0025_execution_jobs_cancel_requested_at',
+      '0026_decision_records',
+      '0027_derived_score_points',
     ]);
   });
 

@@ -39,9 +39,12 @@ describe('route manifest', () => {
   it('exposes only registered navigation targets', () => {
     expect(visibleRoutes.map((route) => route.path)).toEqual([
       '/dashboard',
+      '/dashboard/today',
       '/dashboard/runs',
       '/dashboard/analytics',
       '/dashboard/quarantine',
+      '/dashboard/tools',
+      '/dashboard/insights',
     ]);
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
   });

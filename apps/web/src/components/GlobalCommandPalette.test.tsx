@@ -47,35 +47,17 @@ describe('GlobalCommandPalette', () => {
     expect(commandStore.getActions()).toHaveLength(0);
   });
 
-  it('toggles theme from system to dark', () => {
+  it('registers the navigation actions, and no theme action', () => {
     render(
       <ThemeProvider>
         <GlobalCommandPalette />
       </ThemeProvider>,
     );
-    act(() => {
-      commandStore
-        .getActions()
-        .find((action) => action.id === 'theme-toggle')
-        ?.onSelect();
-    });
-    expect(localStorage.getItem('automate-theme')).toBe('dark');
-  });
-
-  it('toggles theme from dark to light', () => {
-    localStorage.setItem('automate-theme', 'dark');
-    render(
-      <ThemeProvider>
-        <GlobalCommandPalette />
-      </ThemeProvider>,
-    );
-    act(() => {
-      commandStore
-        .getActions()
-        .find((action) => action.id === 'theme-toggle')
-        ?.onSelect();
-    });
-    expect(localStorage.getItem('automate-theme')).toBe('light');
+    const labels = commandStore.getActions().map((action) => action.label);
+    expect(labels).toContain('Go to MAIN');
+    expect(labels).toContain('Go to Runs');
+    // One theme, so nothing to toggle.
+    expect(labels).not.toContain('Toggle Theme');
   });
 });
 
@@ -117,9 +99,11 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     const labels = screen.getAllByRole('option').map((option) => option.textContent);
     expect(labels).toEqual(
       // No 'Sign Out': the install is open and there is no session to end.
-      expect.arrayContaining(['Go to Cockpit', 'Go to Runs', 'Toggle Theme']),
+      // No 'Toggle Theme': the product ships one theme.
+      expect.arrayContaining(['Go to MAIN', 'Go to Runs']),
     );
     expect(labels).not.toContain('Sign Out');
+    expect(labels).not.toContain('Toggle Theme');
   });
 
   it('runs the highlighted action with Enter', async () => {
@@ -134,7 +118,7 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     await screen.findByRole('combobox');
     await user.keyboard('{ArrowDown}{Enter}');
 
-    // Index 0 is "Go to Cockpit"; ArrowDown moves to index 1.
+    // Index 0 is "Go to MAIN"; ArrowDown moves to index 1.
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/runs' });
   });
 

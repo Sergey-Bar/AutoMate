@@ -10,7 +10,13 @@
 // Domain types (aligned with @automate/db schema)
 // ---------------------------------------------------------------------------
 
-import { PERSISTED_RUN_STATUS_VALUES, RUN_STATUS_VALUES } from '@automate/shared-contracts';
+import {
+  PERSISTED_RUN_STATUS_VALUES,
+  RUN_STATUS_VALUES,
+  type KpiSummary,
+} from '@automate/shared-contracts';
+
+export type { KpiSummary };
 import { deriveRunState } from '../execution/phase-outcome.js';
 import type { RunOutcome, RunPhase } from '../execution/types.js';
 
@@ -291,6 +297,79 @@ export function aggregateRuns(runs: Iterable<RunRecord>): RunAnalyticsSummary {
   };
 }
 
+/**
+ * The KPIs, as the same kind of aggregate and with the units attached.
+ *
+ * **The in-memory repository and the SQL one both produce these from the rules
+ * below**, rather than each repository deciding for itself what a number means.
+ * The alternative is a KPI endpoint whose numbers change depending on which
+ * repository is mounted, which is the same defect as the two formatters it
+ * replaces — a number whose meaning lives in the caller.
+ *
+ * ## What is deliberately absent
+ *
+ * The **infra failure rate**, the score's **limiter** and its **flake rate** are
+ * not here, and each for a stated reason rather than for lack of trying:
+ *
+ * - the infra failure is a phase of the *execution* store's runs, which this
+ *   repository does not read — a KPI over a column that never carries the value is
+ *   a permanent zero, which is worse than no KPI;
+ * - the limiter and the flake rate are **per project**, and an install with two
+ *   projects has no single one;
+ *
+ * both live where they belong (`/qa/score` for the second pair), and the score's
+ * own contract declares their units.
+ */
+export function aggregateKpis(runs: Iterable<RunRecord>): KpiSummary {
+  let totalRuns = 0;
+  let completed = 0;
+  let passed = 0;
+  let durationTotal = 0;
+  let durationCount = 0;
+  for (const entry of runs) {
+    totalRuns += 1;
+    if (entry.status === 'passed' || entry.status === 'failed') {
+      completed += 1;
+      if (entry.status === 'passed') passed += 1;
+    }
+    if (entry.durationMs !== null && entry.durationMs !== undefined) {
+      durationTotal += entry.durationMs;
+      durationCount += 1;
+    }
+  }
+  return {
+    kpis: [
+      {
+        id: 'pass-rate',
+        label: 'Pass rate',
+        value: completed === 0 ? null : Math.round((passed / completed) * 100),
+        unit: 'percent',
+        denominator: completed,
+        qualifier: completed === 0 ? 'No run has completed, so there is no rate to report.' : null,
+      },
+      {
+        id: 'total-runs',
+        label: 'Total runs',
+        value: totalRuns,
+        unit: 'count',
+        denominator: null,
+        qualifier: null,
+      },
+      {
+        id: 'avg-duration',
+        label: 'Average duration',
+        value: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
+        unit: 'duration_ms',
+        denominator: durationCount,
+        qualifier:
+          durationCount === 0
+            ? 'No run recorded a duration, so there is no average.'
+            : `Across ${durationCount} runs that recorded one.`,
+      },
+    ],
+  };
+}
+
 export interface RunRepository {
   /**
    * Insert or overwrite a run row.
@@ -318,6 +397,18 @@ export interface RunRepository {
    * got before.
    */
   listRuns(options?: { limit?: number }): Promise<RunRecord[]>;
+
+  /**
+   * The install's KPIs, each with the unit it was computed in.
+   *
+   * Aggregated in the repository, like the analytics summary, and for the same
+   * reason. The **unit rides along with the number** — the analytics summary
+   * leaves a client to remember which fields are percentages and which are
+   * ratios, and two formatters exist in the web app to guess at it per call site
+   * (ledger GLASS-3). A KPI answers "what is the value and what is it measured
+   * in" as one object, so the choice is made once, by whoever computed it.
+   */
+  getKpiSummary(): Promise<KpiSummary>;
 
   /**
    * The dashboard's three numbers, aggregated.

@@ -1,6 +1,12 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useAnalytics, useQuarantine, useReleaseReadiness, useRunDetail } from './useDashboard.js';
+import {
+  useAnalytics,
+  useKpis,
+  useQuarantine,
+  useReleaseReadiness,
+  useRunDetail,
+} from './useDashboard.js';
 import {
   abortError,
   deferred,
@@ -59,6 +65,51 @@ describe('dashboard hooks', () => {
     await waitFor(() =>
       expect(failure.result.current.error?.message).toBe('analytics unavailable'),
     );
+  });
+
+  it('loads the KPIs with the units the server declared', async () => {
+    // **The hook that ends GLASS-3, asserted at its seam.** A KPI summary whose
+    // units arrive at the screen unchanged is the whole claim: the formatter in
+    // `kpi-format.ts` is the only place a percent sign is decided, so a hook that
+    // dropped or rewrote `unit` would be that defect one layer up.
+    const success = renderHook(() =>
+      useKpis(
+        makeApi({
+          getKpiSummary: vi.fn().mockResolvedValue({
+            kpis: [
+              {
+                id: 'pass-rate',
+                label: 'Pass rate',
+                value: 95,
+                unit: 'percent',
+                denominator: 40,
+                qualifier: null,
+              },
+              {
+                id: 'infra-failure-rate',
+                label: 'Infra failure rate',
+                value: 0.042,
+                unit: 'ratio',
+                denominator: 100,
+                qualifier: null,
+              },
+            ],
+          }),
+        }),
+      ),
+    );
+    await waitFor(() => expect(success.result.current.isLoading).toBe(false));
+    expect(success.result.current.data?.kpis[0]?.unit).toBe('percent');
+    expect(success.result.current.data?.kpis[1]?.unit).toBe('ratio');
+    expect(success.result.current.data?.kpis[1]?.value).toBe(0.042);
+    success.unmount();
+
+    // A dead KPI endpoint is reported as its own failure rather than as a blank
+    // screen — the analytics summary beside it is still true.
+    const failure = renderHook(() =>
+      useKpis(makeApi({ getKpiSummary: vi.fn().mockRejectedValue(new Error('kpis down')) })),
+    );
+    await waitFor(() => expect(failure.result.current.error?.message).toBe('kpis down'));
   });
 
   it('refetches run detail when the id changes', async () => {

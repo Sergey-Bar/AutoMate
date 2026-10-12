@@ -181,10 +181,9 @@ function variableValue(selector: string, variable: string): string {
   return match[1].trim();
 }
 
-/** The two theme blocks, matched by role rather than by exact source text. */
+/** The theme block, matched by role rather than by exact source text. */
 const DARK_SELECTOR = ':root,[data-theme="dark"]';
-const LIGHT_SELECTOR = '[data-theme="light"]';
-const BOTH_SELECTORS = [DARK_SELECTOR, LIGHT_SELECTOR];
+const BOTH_SELECTORS = [DARK_SELECTOR];
 
 const normalise = (text: string): string => text.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
 
@@ -1061,15 +1060,16 @@ describe('design token source', () => {
         ).toBe(true);
       }
 
-      // And the inversion itself, stated once across the pair so a single theme
-      // passing its own direction cannot hide a plane copied into both.
+      // And the direction itself, stated once. The dark plane rises with
+      // lightness, so a copy of it in a second theme would be caught by the
+      // ordering assertion above rather than by a direction check against a
+      // theme that no longer exists.
       const direction = (selector: string): 'rising' | 'falling' =>
         relativeLuminance(...hexChannels(variableValue(selector, '--automate-surface-muted'))) >
         relativeLuminance(...hexChannels(variableValue(selector, '--automate-surface')))
           ? 'rising'
           : 'falling';
       expect(direction(DARK_SELECTOR)).toBe('rising');
-      expect(direction(LIGHT_SELECTOR)).toBe('falling');
     });
   });
 
@@ -1390,10 +1390,9 @@ describe('design token source', () => {
     });
 
     it('hands the borders and the plane to the OS under forced-colors', () => {
-      // One block for both themes: in forced-colors mode the two themes are the
-      // same screen, and keeping two values would be keeping a distinction the
-      // user cannot see.
-      const declared = declaredIn(FORCED, ":root, [data-theme='dark'], [data-theme='light']");
+      // One block: in forced-colors mode the OS paints the palette, so
+      // the tokens that matter are the ones the OS will not paint.
+      const declared = declaredIn(FORCED, ":root, [data-theme='dark']");
       expect(declared.get('--automate-border')).toBe('CanvasText');
       expect(declared.get('--automate-border-strong')).toBe('CanvasText');
       for (const surface of PLANE) {
@@ -1467,14 +1466,7 @@ describe('the alpha dimension glass adds to the plane', () => {
   });
 
   it('declares the effect once, in :root, and not per theme', () => {
-    const light = themeBlock(LIGHT_SELECTOR);
     for (const variable of EFFECT) {
-      expect(
-        new RegExp(`${variable}\\s*:`).test(light),
-        `${variable} is restated in the light theme. None of the four depends on the theme — ` +
-          'the fill is a `color-mix` against `--automate-surface`, which the light block ' +
-          'redefines — and two copies is one value with two homes.',
-      ).toBe(false);
       expect(
         variableValue(DARK_SELECTOR, variable),
         `theme.css does not define ${variable} in :root`,

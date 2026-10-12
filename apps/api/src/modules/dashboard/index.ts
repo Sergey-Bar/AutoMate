@@ -11,6 +11,7 @@ import type { QualityGateStore } from './quality-gates.js';
 import { createDashboardRunsRoutes } from './runs.js';
 import { createDashboardTestsRoutes } from './tests.js';
 import { createDashboardAnalyticsRoutes } from './analytics.js';
+import { createDashboardKpiRoutes } from './kpis.js';
 import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
 import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
 
@@ -44,6 +45,7 @@ export function createDashboardModule(options: DashboardModuleOptions): Hono {
   app.route('/', createDashboardRunsRoutes({ repository: options.repository }));
   app.route('/', createDashboardTestsRoutes({ repository: options.repository }));
   app.route('/', createDashboardAnalyticsRoutes({ repository: options.repository }));
+  app.route('/', createDashboardKpiRoutes({ repository: options.repository }));
   app.route('/', createDashboardQuarantineRoutes({ store: quarantineStore }));
   app.route('/', createDashboardQualityGatesRoutes({ store: qualityGateStore }));
 

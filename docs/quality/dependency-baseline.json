@@ -44,6 +44,7 @@
     { "name": "@storybook/react", "version": "8.6.18" },
     { "name": "@storybook/react-vite", "version": "8.6.18" },
     { "name": "@tailwindcss/vite", "version": "4.3.3" },
+    { "name": "@typescript/native", "version": "typescript@7.0.2" },
     { "name": "@tanstack/react-router", "version": "1.169.1" },
     { "name": "@testing-library/dom", "version": "10.4.1" },
     { "name": "@testing-library/jest-dom", "version": "6.9.1" },
@@ -107,6 +108,7 @@
     ".": [
       "@commitlint/cli",
       "@commitlint/config-conventional",
+      "@typescript/native",
       "husky",
       "jscpd",
       "license-checker-evergreen",

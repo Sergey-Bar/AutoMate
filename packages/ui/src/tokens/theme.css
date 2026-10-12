@@ -424,42 +424,6 @@
   --automate-glass-fill: color-mix(in oklab, var(--automate-surface) 72%, transparent);
 }
 
-[data-theme='light'] {
-  /* The plane, inverted: elevation moves towards white rather than away from
-     black, so a raised surface in light mode is the *nearest* to the page. */
-  --automate-surface-sunken: #f1f1f4;
-  --automate-surface: #ffffff;
-  --automate-surface-raised: #fbfbfd;
-  --automate-surface-muted: #f4f4f5;
-  --automate-fg: #09090b;
-  --automate-fg-muted: #6b6b74;
-  --automate-border: #e4e4e7;
-  /* 3:1 has to be measured against the *darkest* plane step, not the base. */
-  --automate-border-strong: #898990;
-  /*
-   * The 800 step of the accent ramp, not the 500. The dark theme can afford
-   * `#3D9BFF` on a near-black plane because the contrast is enormous; the same
-   * value on white is 2.86:1, and the accent backs link and button text there,
-   * so it owes 4.5:1 like any other text.
-   */
-  --automate-accent: #1466b5;
-  /*
-   * The status colours are used as body text — `Alert` and `Toast` render
-   * `text-success` over `bg-success/10`, and `StatCard` renders the trend in
-   * `--automate-success` — so they owe 4.5:1, not the 3:1 that would apply to a
-   * swatch, and a second 4.5:1 against their own 10% tint. The 10% tint raises
-   * the background luminance and *lowers* the contrast, so a ratio computed
-   * against the untinted surface would pass while the shipped rendering failed.
-   */
-  --automate-success: #206c32;
-  --automate-warning: #7e5415;
-  --automate-danger: #9f3331;
-  /* The dark steel, one step down: `#7C8DA6` is 2.53:1 on white. */
-  --automate-info: #4d5f79;
-  --automate-on-fill: #ffffff;
-  color-scheme: light;
-}
-
 /*
  * The three escape hatches, and they are Phase 1 rather than Phase 2.
  *
@@ -511,21 +475,6 @@
     --automate-glass-blur: 0px;
     --automate-glass-saturate: 1;
   }
-
-  [data-theme='light'] {
-    --automate-surface-sunken: #f1f1f4;
-    --automate-surface: #ffffff;
-    --automate-surface-raised: #fbfbfd;
-    --automate-surface-muted: #f4f4f5;
-    /* 3.08:1 on `--automate-surface-sunken`, the darkest step, which is the
-       binding constraint in this theme. */
-    --automate-border: #898990;
-    --automate-border-strong: #6b6b72;
-    /* The same three, for the reason above. Restated per theme because the block is. */
-    --automate-glass-fill: var(--automate-surface);
-    --automate-glass-blur: 0px;
-    --automate-glass-saturate: 1;
-  }
 }
 
 /*
@@ -543,22 +492,13 @@
     --automate-border: #6e6e76;
     --automate-border-strong: #9c9ca5;
   }
-
-  [data-theme='light'] {
-    --automate-fg-muted: #3f3f47;
-    --automate-border: #7c7c84;
-    --automate-border-strong: #4a4a51;
-  }
 }
 
 /*
  * `forced-colors: active` — Windows High Contrast replaces the palette with the
  * user's own, so the tokens that matter are the ones the OS will *not* paint:
  * `--automate-border`, which is how a control is identified when every other
- * colour has been substituted, and `--automate-border-strong` behind it. Both
- * themes collapse to `CanvasText`, because in forced-colors mode the two themes
- * are the same screen and keeping two values would be keeping a distinction the
- * user cannot see.
+ * colour has been substituted, and `--automate-border-strong` behind it.
  *
  * `forced-color-adjust` is deliberately not set to `none` anywhere. Overriding
  * it is how a component ends up with a colour the user did not choose, which is
@@ -566,8 +506,7 @@
  */
 @media (forced-colors: active) {
   :root,
-  [data-theme='dark'],
-  [data-theme='light'] {
+  [data-theme='dark'] {
     --automate-border: CanvasText;
     --automate-border-strong: CanvasText;
     --automate-surface-sunken: Canvas;

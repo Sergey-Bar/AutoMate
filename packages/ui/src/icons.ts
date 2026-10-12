@@ -36,6 +36,8 @@ export {
   ArrowDown,
   /** A metric that did not move. Replaces an em dash. */
   Minus,
+  /** The home link, the one every route is one click from. Replaces `⌂`. */
+  Home,
   /** The `system` theme: whatever the operating system says. */
   Monitor,
   /** The `dark` theme. */
@@ -50,4 +52,39 @@ export {
   TrendingUp,
   /** `StatCard` trend down. Replaces `↓`. */
   TrendingDown,
+  /** Code/test file. Replaces generic file icon. */
+  FileCode,
+  /** Browser/window. For browser automation. */
+  LayoutDashboard,
+  /** Shield/check. For security/accessibility. */
+  Shield,
+  /** Flask/conical flask. For testing frameworks. */
+  FlaskConical,
+  /** Gauge/speedometer. For performance/load testing. */
+  Gauge,
+  /** Bug. For mocking/test-data. */
+  Bug,
+  /** File text. For reporting/contract testing. */
+  FileText,
+  /** Git branch. For CI integration. */
+  GitBranch,
+  /** Database. For test data. */
+  Database,
+  /** Eye. For visual regression. */
+  Eye,
+  /** Zap/lightning. For chaos engineering. */
+  Zap,
+  /** Link. For API testing. */
+  Link2,
+  /** Smartphone. For mobile testing. */
+  Smartphone,
+  /** Settings/cog. For linters/config. */
+  Settings,
+  /** Package/box. For packages/dependencies. */
+  Package,
+  /** Globe. For CI/CD. */
+  Globe,
+  /** Chevron down/up for expand/collapse. */
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';

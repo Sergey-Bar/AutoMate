@@ -6,6 +6,9 @@ import { Route as analyticsRoute } from './routes/dashboard/analytics.js';
 import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
+import { Route as todayRoute } from './routes/dashboard/today.js';
+import { Route as toolsRoute } from './routes/dashboard/tools.js';
+import { Route as insightsRoute } from './routes/dashboard/insights.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
 
@@ -14,6 +17,14 @@ const dashboardTree = dashboardRoute.addChildren([
   runDetailRoute,
   analyticsRoute,
   quarantineRoute,
+  // **The daily page, and it sits above the screens it reads from.** The cockpit
+  // answers "what is the score"; today answers "what do I do", from the score
+  // diff, the findings engine, the decision queue and the timeline. The order
+  // here is the order the sidebar shows it in, and putting it first is the whole
+  // point of F0.2.
+  todayRoute,
+  toolsRoute,
+  insightsRoute,
   scoreRoute,
   GapsRoute,
   HollowRoute,

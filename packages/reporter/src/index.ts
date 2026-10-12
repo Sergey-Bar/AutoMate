@@ -34,6 +34,7 @@ export * from './adapters/k6-json.js';
 export * from './adapters/zap-xml.js';
 export {
   COVERAGE_ADAPTERS,
+  COVERAGE_FORMATS,
   parseCoverage,
   surfaceCoverage,
   type CoverageAdapter,

@@ -221,6 +221,15 @@ export interface ExecutionJob {
   leaseExpiresAt: string | null;
   fencingToken: number;
   heartbeatAt: string | null;
+  /**
+   * When this job was asked to stop, if it was.
+   *
+   * **On the job, and not only on the run.** `cancelRun` used to clear the
+   * job's lease along with marking the run, so the runner's next heartbeat had no
+   * owner left to ask and the job ran to completion and then failed to complete.
+   * The request now survives here until the runner reports the job cancelled.
+   */
+  cancelRequestedAt: string | null;
   idempotencyKey: string;
   error: { code: string; message: string } | null;
   createdAt: string;
@@ -254,6 +263,24 @@ export interface RunnerHeartbeat {
   lastHeartbeatAt: string;
   activeJobIds: string[];
   metrics?: Record<string, unknown>;
+  /**
+   * The jobs this runner holds that have been asked to stop.
+   *
+   * The runner's `runner-service.ts` has already read this field since before
+   * the server produced it — which is the whole defect P5: a cancel was
+   * recorded on the run and on nothing a heartbeat could see. The runner unions
+   * it with `cancelRequestedJobIds` and aborts those children.
+   */
+  cancelledJobIds: string[];
+  /** An alias the runner unions with `cancelledJobIds`, for a server that says both. */
+  cancelRequestedJobIds: string[];
+  /**
+   * The instant the renewed lease this heartbeat reported ends.
+   *
+   * Returned so the runner can re-arm a running job's deadline against the lease
+   * it actually holds now, rather than the one it was claimed under.
+   */
+  leaseExpiresAt?: string;
 }
 
 export interface JobClaim {

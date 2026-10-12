@@ -186,6 +186,18 @@ export const executionJobs = pgTable(
     leaseOwner: uuid('lease_owner').references(() => runners.id, { onDelete: 'restrict' }),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
     heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+    /**
+     * When this job was asked to stop, if it was.
+     *
+     * **On the job, not only on the run.** A cancel recorded on `runs` alone left
+     * the runner nothing to read: `cancelRun` also cleared the job's lease, so by
+     * the next heartbeat there was no owner left to ask and the job ran to
+     * completion and then failed to complete. The request survives here until the
+     * runner reports the job cancelled, which is what makes the handshake
+     * two-sided — and the index in migration 0025 exists for the heartbeat that
+     * reads it.
+     */
+    cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     fencingToken: integer('fencing_token').notNull().default(0),
     idempotencyKey: text('idempotency_key').notNull(),
     errorCode: text('error_code'),
@@ -204,6 +216,9 @@ export const executionJobs = pgTable(
     ),
     index('execution_jobs_claim_idx').on(table.state, table.availableAt, table.priority),
     index('execution_jobs_lease_expiry_idx').on(table.state, table.leaseExpiresAt),
+    // The cancel handshake's read path: the heartbeat asks for "the jobs *this
+    // runner holds* that were asked to stop", which leads with the owner.
+    index('execution_jobs_lease_owner_cancel_idx').on(table.leaseOwner, table.cancelRequestedAt),
     index('execution_jobs_workspace_idx').on(table.workspaceId),
     check('execution_jobs_attempt_check', sql`${table.attempt} > 0`),
     check('execution_jobs_timeout_check', sql`${table.timeoutMs} > 0`),

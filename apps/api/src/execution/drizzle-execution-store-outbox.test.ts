@@ -110,6 +110,7 @@ const SCHEMA_SQL = `
     lease_owner uuid,
     lease_expires_at timestamptz,
     heartbeat_at timestamptz,
+    cancel_requested_at timestamptz,
     fencing_token integer DEFAULT 0 NOT NULL,
     idempotency_key text NOT NULL,
     error_code text,

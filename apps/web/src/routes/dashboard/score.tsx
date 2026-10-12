@@ -61,15 +61,24 @@ export function ScorePage({
   // copy, and the copy is how this screen came to render `error.message` — "API
   // answered 404" — where its sibling screens rendered the server's own sentence.
   const resource = useResource<QaScore>(() => api.getScore(projectId), [api, projectId]);
-  if (resource.status === 'loading') return <Skeleton />;
+  // The loading and error states carry their ids, for the same reason every
+  // sibling screen's do: `route-state-matrix.test.ts` reads them, and a screen
+  // with no state ids is a screen nobody can check for states.
+  if (resource.status === 'loading') return <Skeleton data-testid="score-loading" />;
   if (resource.status === 'error') {
-    return <EmptyState title="Could not load the score" description={resource.message} />;
+    return (
+      <EmptyState
+        title="Could not load the score"
+        description={resource.message}
+        data-testid="score-error"
+      />
+    );
   }
 
   const score = resource.value;
   const capping = cappingCell(score);
   return (
-    <section aria-label="Health score">
+    <section aria-label="Health score" data-testid="score-page">
       <StatCard title="Health score" value={`${score.total.toFixed(1)}/100`} />
       {/* The limiter, on the same screen as the number it explains. */}
       <Card>
@@ -92,7 +101,22 @@ export function ScorePage({
           </TableBody>
         </Table>
       </Card>
-      <Matrix score={score} />
+      {/*
+        An empty register gets no reassuring message, and the reason is the one
+        already written on the hollow screen: "no hollow tests" answers a question
+        nobody asked, and a score of zero says the suite is empty while an *empty*
+        score says nobody has measured it yet. The two are different states, and
+        `route-state-matrix.test.ts` is what caught this screen not having one.
+      */}
+      {score.cells.length === 0 ? (
+        <EmptyState
+          data-testid="score-empty"
+          title="Nothing measured yet"
+          description="This project has no scored cells. Run its suite and the cells appear with their components."
+        />
+      ) : (
+        <Matrix score={score} />
+      )}
     </section>
   );
 }

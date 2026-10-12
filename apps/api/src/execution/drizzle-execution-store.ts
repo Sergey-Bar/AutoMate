@@ -2,7 +2,21 @@ import { createHash, randomUUID } from 'node:crypto';
 import { normaliseFailure } from '../services/reporter-persistence.js';
 import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
-import { and, asc, desc, eq, gt, inArray, isNotNull, lt, ne, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import {
@@ -35,6 +49,7 @@ import {
   COMPLETION_HASH_CAPACITY,
 } from './bounded-map.js';
 import { deriveRunState, isRequestablePhase, isTerminalPhase } from './phase-outcome.js';
+import { reapOutcome } from './lease-reap.js';
 import { resolveSummary } from './summary.js';
 import { decodeRunCursor, normalizeEventLimit, normalizeRunLimit } from './run-paging.js';
 import type {
@@ -303,6 +318,7 @@ function mapJob(row: DbRow): ExecutionJob {
     leaseExpiresAt: nullableDateIso(row['leaseExpiresAt']),
     fencingToken: numberValue(row['fencingToken']),
     heartbeatAt: nullableDateIso(row['heartbeatAt']),
+    cancelRequestedAt: nullableDateIso(row['cancelRequestedAt']),
     idempotencyKey: stringValue(row['idempotencyKey']),
     error:
       row['errorCode'] || row['errorMessage']
@@ -813,20 +829,33 @@ export class DrizzleExecutionStore implements ExecutionStore {
           cancelRequestedAt: new Date(timestamp),
         })
         .where(eq(runs.id, runId));
+      // **The stop request is recorded on the job, and the lease is kept.**
+      // Clearing `leaseOwner` here was what made a cancel un-deliverable: the next
+      // heartbeat from the owning runner had no job left to ask about, so the
+      // child ran on and then failed to complete — its lease was gone. The link
+      // now survives until the runner reports the job cancelled, and the reaper
+      // (below) refuses to re-run a job that was asked to stop.
+      //
+      // A job nobody is running needs no telling: it is terminal now.
+      await tx
+        .update(executionJobs)
+        .set({
+          cancelRequestedAt: new Date(timestamp),
+          updatedAt: new Date(timestamp),
+        })
+        .where(and(eq(executionJobs.runId, runId), eq(executionJobs.state, 'leased')));
       await tx
         .update(executionJobs)
         .set({
           state: 'cancelled',
+          cancelRequestedAt: new Date(timestamp),
           updatedAt: new Date(timestamp),
           leaseId: null,
           leaseOwner: null,
           leaseExpiresAt: null,
         })
         .where(
-          and(
-            eq(executionJobs.runId, runId),
-            inArray(executionJobs.state, ['queued', 'leased', 'requeued']),
-          ),
+          and(eq(executionJobs.runId, runId), inArray(executionJobs.state, ['queued', 'requeued'])),
         );
       await this.appendOutbox(tx, {
         workspaceId: run.workspaceId,
@@ -1009,21 +1038,53 @@ export class DrizzleExecutionStore implements ExecutionStore {
       .where(eq(runners.id, runnerId))
       .returning();
     if (updated.length === 0) return null;
+    const leaseMs = this.options.leaseDurationMs ?? this.options.leaseMs ?? 30_000;
+    // **The renewal is not the whole heartbeat.** The lease is extended for every
+    // job this runner holds — a suite that runs longer than one lease interval is
+    // normal, and a renewal that did not happen would kill it — and the delay is
+    // measured from `now` rather than from the run's start, so the budget is the
+    // remaining time and not an accumulating total.
     await this.db
       .update(executionJobs)
       .set({
         heartbeatAt: timestamp,
-        leaseExpiresAt: new Date(
-          timestamp.getTime() + (this.options.leaseDurationMs ?? this.options.leaseMs ?? 30_000),
-        ),
+        leaseExpiresAt: new Date(timestamp.getTime() + leaseMs),
         updatedAt: timestamp,
       })
       .where(and(eq(executionJobs.leaseOwner, runnerId), eq(executionJobs.state, 'leased')));
+    /**
+     * The jobs this runner holds that have been asked to stop.
+     *
+     * **`cancelRun` no longer clears the job's lease**, which is what used to make
+     * a cancel un-deliverable: by the time the next heartbeat arrived there was no
+     * owner left to ask. The request is recorded on the job (`cancel_requested_at`)
+     * and survives here until the runner reports the job cancelled, so the
+     * handshake is two-sided — a stopped child whose parent never asked is an
+     * orphan, and a parent whose child never heard is the defect this fixes.
+     */
+    const requested = await this.db
+      .select()
+      .from(executionJobs)
+      .where(
+        jobScope(
+          and(
+            eq(executionJobs.leaseOwner, runnerId),
+            eq(executionJobs.state, 'leased'),
+            isNotNull(executionJobs.cancelRequestedAt),
+          ),
+          undefined,
+        ),
+      );
     return {
       runnerId,
       health,
       lastHeartbeatAt: timestamp.toISOString(),
       activeJobIds: [...new Set(activeJobIds)],
+      cancelledJobIds: requested.map((row) => rowValue(row)['id'] as string),
+      // The same answer under the runner's other name for it, so a runner that
+      // unions the two lists and a runner that reads one both get the truth.
+      cancelRequestedJobIds: requested.map((row) => rowValue(row)['id'] as string),
+      leaseExpiresAt: new Date(timestamp.getTime() + leaseMs).toISOString(),
     };
   }
 
@@ -1053,7 +1114,18 @@ export class DrizzleExecutionStore implements ExecutionStore {
       const candidates = await tx
         .select()
         .from(executionJobs)
-        .where(jobScope(inArray(executionJobs.state, ['queued', 'requeued']), workspaceId))
+        .where(
+          jobScope(
+            and(
+              inArray(executionJobs.state, ['queued', 'requeued']),
+              // **A job that was asked to stop is not claimable.** The request
+              // outlives the lease that was cancelled, and a job whose run is
+              // already cancelled must not be picked up by a second runner.
+              isNull(executionJobs.cancelRequestedAt),
+            ),
+            workspaceId,
+          ),
+        )
         .orderBy(desc(executionJobs.priority), asc(executionJobs.createdAt))
         .limit(50)
         .for('update', { skipLocked: true });
@@ -1945,41 +2017,50 @@ export class DrizzleExecutionStore implements ExecutionStore {
     const results: LeaseReapResult[] = [];
     for (const row of expired) {
       const job = mapJob(rowValue(row));
-      const canRequeue = job.attempt < 3;
+      // **A job that was asked to stop is not re-run, whatever its lease says.**
+      // The operator's decision has to survive the runner losing the lease, or a
+      // cancelled run executes a second time and the second run's completion is
+      // the one that lands. The table itself lives in `lease-reap.ts`, shared
+      // with the in-memory store — two implementations of it was the way the two
+      // stores could disagree about a cancelled job.
+      const cancelRequested = job.cancelRequestedAt !== null;
+      const outcome = reapOutcome(cancelRequested, job.attempt);
+      const error = cancelRequested ? null : 'RUNNER_LOST';
+      const errorMessage = cancelRequested ? null : 'Runner lease expired';
       await this.db.transaction(async (tx) => {
         await tx
           .update(executionJobs)
           .set({
-            attempt: canRequeue ? job.attempt + 1 : job.attempt,
-            state: canRequeue ? 'queued' : 'failed',
-            availableAt: canRequeue ? now : new Date(job.availableAt),
+            attempt: outcome.attempt,
+            state: outcome.jobState,
+            availableAt: outcome.canRequeue ? now : new Date(job.availableAt),
             leaseId: null,
             leaseOwner: null,
             leaseExpiresAt: null,
-            errorCode: 'RUNNER_LOST',
-            errorMessage: 'Runner lease expired',
+            errorCode: error,
+            errorMessage,
             updatedAt: now,
           })
           .where(eq(executionJobs.id, job.id));
         await tx
           .update(runs)
           .set({
-            attempt: canRequeue ? job.attempt + 1 : job.attempt,
-            phase: canRequeue ? 'queued' : 'runner_lost',
-            outcome: canRequeue ? null : 'runner_lost',
-            status: canRequeue ? 'running' : 'interrupted',
+            attempt: outcome.attempt,
+            phase: outcome.phase,
+            outcome: outcome.outcome,
+            status: outcome.status,
             updatedAt: now,
-            errorCode: 'RUNNER_LOST',
-            errorMessage: 'Runner lease expired',
+            errorCode: error,
+            errorMessage,
           })
           .where(eq(runs.id, job.runId));
       });
       results.push({
         jobId: job.id,
         runId: job.runId,
-        requeued: canRequeue,
-        phase: canRequeue ? 'queued' : 'runner_lost',
-        status: canRequeue ? 'queued' : 'failed',
+        requeued: outcome.result.requeued,
+        phase: outcome.result.phase,
+        status: outcome.result.status,
       });
     }
     return results;

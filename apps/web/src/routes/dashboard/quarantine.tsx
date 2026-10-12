@@ -219,7 +219,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
               * list that no screen reader can read as one: `DefinitionListDetail` is a `<dd>`,
               * so the pair is announced as a unit rather than as four strings. And the row had
               * no hover or focus treatment, so a list a person scans with their eye gave the
-              * eye nothing to track — the same defect the Cockpit's queue had and the same
+              *               eye nothing to track — the same defect the MAIN queue had and the same
               * fix, because it is now a rule rather than a decision.
 
               `border-transparent` at rest and `border-border` on hover, so the resting state

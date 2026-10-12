@@ -38,6 +38,10 @@ import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
 import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
 import { fileSystemView } from '@automate/projects';
 import { createProjectsRoutes } from './routes/projects.js';
+import { DrizzleDecisionStore } from './execution/drizzle-decision-store.js';
+import { DrizzleScorePointStore } from './services/drizzle-derived-score-points.js';
+import { compileGlob, type DeclaredCoverageGlob } from './services/coverage-ingestion.js';
+import type { CoverageFormat } from '@automate/reporter';
 import {
   discoverProjectAtBoot,
   type ProjectRegistryServiceOptions,
@@ -239,8 +243,109 @@ function createExecutionStore(): ExecutionStore {
   return new InMemoryExecutionStore();
 }
 
+/**
+ * The decision store, or `null` when this install cannot keep one.
+ *
+ * The shape is the same as `createExecutionStore` above: a Drizzle store over
+ * the configured database, `null` otherwise. Nothing is constructed in-memory,
+ * because a verdict that disappears on restart is worse than a verdict that was
+ * never taken — the console would report "you accepted this" about a decision
+ * that is already gone.
+ */
+function createDecisionStore(): DrizzleDecisionStore | null {
+  const resources = databaseResources;
+  if (resources === null || resources === undefined) return null;
+  return new DrizzleDecisionStore(
+    resources.db as unknown as ConstructorParameters<typeof DrizzleDecisionStore>[0],
+  );
+}
+
+/**
+ * The score's photographs, and the same "no database, no durable record" rule the
+ * decision store follows.
+ *
+ * An install without a database computes every score from the runs exactly as it
+ * did before migration 0027 — the photographs buy a trend long enough to chart,
+ * and a chart is not worth inventing a durability story for. `qaScore` treats an
+ * absent store as "two points" rather than as a failure, so this returns null and
+ * the route options simply omit the key.
+ */
+function createScorePointStore(): DrizzleScorePointStore | null {
+  const resources = databaseResources;
+  if (resources === null || resources === undefined) return null;
+  return new DrizzleScorePointStore(
+    resources.db as unknown as ConstructorParameters<typeof DrizzleScorePointStore>[0],
+  );
+}
+
+/**
+ * The coverage reader, wired from the stores this install already has.
+ *
+ * **This is the wire that was missing.** `apps/api/src/services/qa-score-service.ts`
+ * has accepted a coverage-documents parameter since the score was written, and
+ * every caller passed `[]` — so the score's `depth` component was `unknown` on
+ * every cell of every screen, a fifth of the total answering "no idea" beside a
+ * printed number. The bytes were never the problem: the runner uploads artifacts
+ * into the store this function closes over, and `packages/reporter/parseCoverage`
+ * has parsed six formats since before the score existed. Nobody had joined them.
+ *
+ * The join is: list the run's uploaded artifacts, match each against the
+ * profile's declared `coverageGlobs`, read the bytes, hand back one document per
+ * glob with the format that glob declared. **No format is guessed** — a lcov and
+ * a cobertura can share an extension, and a guessed format is a misread number,
+ * which is the one thing this product cannot afford.
+ *
+ * The composition root is the only place this can live: it is where the artifact
+ * store and the workspace id both exist, and a service that reached for object
+ * storage directly could not be tested against a literal map.
+ */
+const readCoverageDocuments = async (
+  runId: string,
+  globs: readonly DeclaredCoverageGlob[],
+): Promise<ReadonlyArray<{ format: CoverageFormat; bytes: Uint8Array }>> => {
+  const rows = await executionStore.listArtifacts(
+    runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    runId,
+  );
+  const documents: Array<{ format: CoverageFormat; bytes: Uint8Array }> = [];
+  for (const glob of globs) {
+    const matcher = compileGlob(glob.glob);
+    for (const row of rows) {
+      // A glob names the run's **own filenames**, which is what `metadata.path`
+      // records: the storage key is an opaque store address, and matching a glob
+      // against it would compare a repository path against a bucket path.
+      const name = typeof row.metadata['path'] === 'string' ? row.metadata['path'] : row.name;
+      if (!matcher(name)) continue;
+      // The digest the row recorded, supplied so the store hands back what is
+      // actually there: evidence is a claim about bytes, and a read without its
+      // checksum would accept a truncated object as a passing artifact.
+      const bytes = await artifactBytesStore.get(row.storageKey, row.checksum);
+      if (bytes === null) continue;
+      documents.push({ format: glob.format, bytes });
+      break;
+    }
+  }
+  return documents;
+};
+
 const executionStore = withClassifiedErrors(createExecutionStore());
 const dashboardStores = createDashboardStores();
+
+/**
+ * The store a verdict about a derived finding is recorded in — the loop's spine.
+ *
+ * **Created beside the execution store, for the same reason, and with the same
+ * fallback.** A verdict is the most tenant-private thing this product holds: it
+ * names what one team accepted about their own suite. So it is durable when
+ * PostgreSQL is configured, and absent — `null`, which the route turns into
+ * `NOT_CONFIGURED` — when it is not. An in-memory fallback here would record
+ * verdicts that vanish on restart while reporting them as recorded, which is the
+ * one lie this product cannot afford.
+ */
+const decisionStore = createDecisionStore();
+
+/** `null` when this install has no database; see `createScorePointStore`. */
+const scorePointStore = createScorePointStore();
 
 /**
  * The one canonical store both reporting and the reporter doors resolve.
@@ -564,16 +669,44 @@ if (databaseResources !== undefined) {
     '/',
     createProjectsRoutes({
       ...registry,
-      // The command's argv is **not** resolved here. `run.start` already checked
-      // the id against the stored profile, and resolving it again at this depth
-      // would be a second place where an executable could enter the system —
-      // which is precisely what `no-second-authority` is about.
+      // The coverage reader — the wire that was missing. See the function's own
+      // doc comment: without it the score's `depth` component is `unknown` on
+      // every cell, and a fifth of the total has been answering "no idea".
+      readCoverageDocuments,
+      // The score's photographs. Optional, so an install with no database omits
+      // the key rather than carrying a store that cannot keep a point.
+      ...(scorePointStore === null ? {} : { scorePoints: scorePointStore }),
+      // The decision store, and it is the same store the API reads everywhere
+      // else. The in-memory fallback is the honest one: an install with no
+      // database has no durable place to record a verdict, and the route answers
+      // `NOT_CONFIGURED` rather than pretending a verdict landed somewhere.
+      ...(decisionStore === null ? {} : { decisionStore }),
+      // The command's argv is **resolved by the route**, against the stored
+      // profile, and travels here as data. An earlier note on this line said
+      // resolving it at this depth would be a second place an executable could
+      // enter the system; that was backwards. The authority is the profile, the
+      // route already read it to validate the id, and a spec carrying only the
+      // `commandId` left the runner with nothing to spawn — so every run fell
+      // back to the Playwright smoke fixture. The write below carries the same
+      // argv the runner needs, and it is still one authority: the profile.
       startRun: async (input) => {
         const created = await executionStore.create(
           {
             projectId: input.projectId,
             timeoutMs: input.timeoutMs,
-            configuration: { commandId: input.commandId },
+            configuration: {
+              commandId: input.commandId,
+              // The shape the runner's `readGenericCommand` parses: an argv, a
+              // working directory relative to the repository, the declared
+              // artifact globs and the environment variable *names* the runner
+              // resolves from its own environment.
+              command: {
+                argv: input.command.argv,
+                workingDirectory: '.',
+                artifactGlobs: input.command.artifactGlobs,
+                env: input.command.env,
+              },
+            },
           },
           input.idempotencyKey,
           runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,

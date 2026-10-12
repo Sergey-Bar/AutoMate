@@ -4,17 +4,23 @@ import {
   CopilotQuestionSchema,
   RunStartBodySchema,
   RunStopBodySchema,
+  type RunCommand,
 } from '@automate/shared-contracts';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { qaScore, stopRun } from '../services/qa-score-service.js';
 import { answer } from '../services/copilot-service.js';
-import { diffScores } from '@automate/projects';
+import { diffScores, probeToolchain, ProjectProfilePatchSchema } from '@automate/projects';
+import { DecisionError } from '../execution/decision-store.js';
+import type { DecisionStore } from '../execution/decision-store.js';
+import { DECISION_TIMELINE_WEEKS, DECISION_VERDICTS } from '@automate/db';
+import type { DecisionVerdict } from '@automate/db';
 import {
   ensureWorkspace,
   getProject,
   listCommands,
   listProjects,
   refreshProject,
+  updateProjectProfile,
   registerProject,
   type ProjectRegistryServiceOptions,
 } from '../services/project-registry-service.js';
@@ -40,10 +46,17 @@ import {
  * geometric formula, and the reader has no reason to distrust it.
  */
 export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
-  /** Starts a run. Injected so the routes have no database and no queue in them. */
+  /**
+   * The store a verdict about a derived finding is recorded in, and read back
+   * from. Injected rather than constructed, for the same reason the stores below
+   * are: an install with no database records nothing, and a test drives it with
+   * the in-memory store in one line.
+   */
+  decisionStore?: DecisionStore;
   startRun: (input: {
     projectId: string;
     commandId: string;
+    command: RunCommand;
     idempotencyKey: string;
     timeoutMs?: number;
   }) => Promise<{ runId: string; jobId: string; phase: string }>;
@@ -126,6 +139,52 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   });
 
   /**
+   * Edits a project's stored profile.
+   *
+   * **The endpoint the documentation site already promises** ("correcting a
+   * detected command is a profile edit — `automate.config.json` or `PATCH
+   * /projects/:id`") and that nothing served. An operator correcting a
+   * misdetection from the hosted install has no shell and no write access to the
+   * repository, so the profile was not editable through the product.
+   *
+   * The body is parsed through `ProjectProfilePatchSchema`, so a key this build
+   * does not understand is a 422 rather than a silent no-op on a field a reader
+   * believes they changed. What it may change is what the file may change — see
+   * `updateProjectProfile`, which merges through the same rule.
+   */
+  app.patch('/api/v1/projects/:id', async (context) => {
+    const projectId = context.req.param('id');
+    await getProject(options, projectId);
+    // `safeParse` against the patch schema, so a key this build does not know is a
+    // 422 with the message rather than a silent no-op on a field a reader believes
+    // they changed — the same discipline `RunStartBodySchema` gets below.
+    const parsed = ProjectProfilePatchSchema.safeParse(await readJson(context));
+    if (!parsed.success) {
+      return context.json(
+        {
+          error: {
+            code: ErrorCode.INVALID_REQUEST_BODY,
+            message: 'The profile edit is not a shape this build understands',
+            details: parsed.error.issues.map((issue) => ({
+              path: issue.path.join('.'),
+              message: issue.message,
+            })),
+          },
+        },
+        422,
+      );
+    }
+    const updated = await updateProjectProfile(options, projectId, parsed.data);
+    // The commands come back with the profile, for the same reason `POST` returns
+    // them: the edit's whole purpose is to change what can be run, so the answer
+    // is what can now be run.
+    return context.json({
+      project: updated,
+      commands: await listCommands(options, updated.id),
+    });
+  });
+
+  /**
    * Re-runs detection against the repository on disk.
    *
    * A stored profile is a **proposal from whenever the detector last ran**, and a
@@ -180,6 +239,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       await options.startRun({
         projectId,
         commandId: command.id,
+        command,
         idempotencyKey: parsed.data.idempotencyKey,
         timeoutMs: parsed.data.timeoutMs,
       }),
@@ -282,6 +342,46 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   });
 
   /**
+   * The toolchain probe: what this repository's QA stack actually is.
+   *
+   * ## The browser cannot ask this, and the browser used to pretend it could
+   *
+   * The cockpit carried a hand-written ten-path list and *assumed* the repository
+   * had those files, so "your stack" was whatever the client imagined. The probe
+   * reads the repository — through the same `RepositoryView` port the detector
+   * uses, so it is injectable and testable — and answers per tool with the path or
+   * manifest entry that proved it.
+   *
+   * **Every detection carries its evidence, and an undetected tool carries none.**
+   * A row with a fabricated path would be worse than a missing row, because the
+   * coverage figure the screen prints is computed from this join: a tool nobody
+   * can check is a number nobody can trust. `analyzeStack` turns these detections
+   * into the registry join, and the registry lives in `@automate/projects` so the
+   * API and the browser read one list of fifty tools.
+   *
+   * The working directory is the repository root and the environment is empty:
+   * an override here would be a claim about the runner's environment, which has
+   * its own endpoint and is not the repository's answer.
+   */
+  app.get('/api/v1/projects/:id/toolchain', async (context) => {
+    const projectId = context.req.param('id');
+    const project = await getProject(options, projectId);
+    // `repoPath` is `min(1)` on the registration *input*, but the stored type is
+    // `string | null` — the column is nullable, so a row can exist without a path
+    // (a legacy row, or a write from a path that did not validate). The guard is
+    // reachable, the refusal is honest, and the registration invariant asserted
+    // in `projects.test.ts` is what keeps it rare.
+    if (project.repoPath === null) {
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST,
+        'This project has no repository path, so its toolchain cannot be probed',
+      );
+    }
+    const detections = await probeToolchain(options.viewFor(project.repoPath), {});
+    return context.json({ projectId, detections });
+  });
+
+  /**
    * The provenance diff, between two readings of the same project.
    *
    * ## `since` is an **instant**, and it is a real filter
@@ -364,5 +464,260 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     return context.json(answer(parsed.data, score_));
   });
 
+  /**
+   * The decision inbox for one project — the loop, read back.
+   *
+   * ## What this route is for
+   *
+   * Everything above measures. This is where a human's verdict about what was
+   * measured is written and read, and it is what turns the insights screen from a
+   * dashboard into a work queue: the console derives a finding, the screen shows
+   * it, and a tester closes it with a verdict that names them and, for a
+   * deferral, a date.
+   *
+   * **A `POST` with no body records the verdict stated in the path** — no verdict
+   * means `open` — so the common case (a tester clicking "I'll take this") is the
+   * smallest possible write, and the failure wins are narrow: no unknown verdicts,
+   * no undated deferrals. Both are refused at the store, from the one rule shared
+   * with the in-memory store, and the parity suite is what proves it.
+   */
+  app.post('/api/v1/projects/:id/decisions', async (context) => {
+    const projectId = context.req.param('id');
+    await getProject(options, projectId);
+    const body = await readJson(context);
+    const input = asRecord(body);
+    if (options.decisionStore === undefined) {
+      throw new DomainError(
+        ErrorCode.NOT_CONFIGURED,
+        'This install has no decision store configured, so a verdict cannot be recorded',
+      );
+    }
+    const findingId = typeof input['findingId'] === 'string' ? input['findingId'] : null;
+    if (findingId === null) {
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST_BODY,
+        'A decision names the finding it is about',
+      );
+    }
+    const verdict = typeof input['verdict'] === 'string' ? input['verdict'] : 'open';
+    const cell = typeof input['cell'] === 'string' ? input['cell'] : null;
+    const recorded = await options.decisionStore
+      .record(
+        projectId,
+        {
+          findingId,
+          cell,
+          verdict: verdict as DecisionVerdict,
+          ownerId: typeof input['ownerId'] === 'string' ? input['ownerId'] : null,
+          note: typeof input['note'] === 'string' ? input['note'] : null,
+          deferUntil: typeof input['deferUntil'] === 'string' ? input['deferUntil'] : null,
+        },
+        options.workspaceId,
+      )
+      .catch((error: unknown) => {
+        // The store's refusal, in the API's own shape. The store already named the
+        // rule; the boundary maps it to a status so a caller can act on it rather
+        // than parsing English out of a 500.
+        if (error instanceof DecisionError) {
+          throw new DomainError(ErrorCode.INVALID_REQUEST_BODY, error.message, {
+            details: { code: error.code },
+          });
+        }
+        throw error;
+      });
+    return context.json({ decision: recorded }, 200);
+  });
+
+  /**
+   * The decisions for one project, and the two questions the loop asks daily.
+   *
+   * ## Two predicates, and each names the index behind it
+   *
+   * `?verdict=open&ownerId=<me>` is *what is waiting on me*, and it reads
+   * `decision_records_workspace_owner_idx` in index order — the composite is
+   * `(workspace_id, owner_id, verdict)` over open rows. `?decidedBy=<me>&since=7d`
+   * is *what I decided*, and it reads
+   * `decision_records_workspace_verdict_idx` on `decided_at`. A predicate with no
+   * index behind it would be the loop running a sequential scan on every page
+   * load, which is why there are three query fields and not eight.
+   *
+   * **`decidedBy` is `ownerId` spelled for the question it answers.** The store
+   * has one column, because one person owns a verdict whether it is waiting or
+   * recorded; the two spellings are the route's, and both land on it.
+   *
+   * ## `since` is an instant or a span, and it is resolved here
+   *
+   * An ISO instant is passed through. A span — `7d`, `12h` — is resolved against
+   * *this* request's clock and handed down as an absolute instant, so the store
+   * takes one shape and the URL a screen writes is the one a human would type.
+   * Anything else is a 400 rather than a silently empty window: a `since` that
+   * parsed to nothing would answer "you decided nothing" about a question whose
+   * window was never named.
+   *
+   * ## With no predicate at all, the order is the project list's
+   *
+   * Open first and then by recency, unchanged from before the predicates
+   * existed. A filtered read may reverse that order — `since` reads newest
+   * first — which is why an unfiltered one does not silently inherit it.
+   */
+  app.get('/api/v1/projects/:id/decisions', async (context) => {
+    const projectId = context.req.param('id');
+    await getProject(options, projectId);
+    if (options.decisionStore === undefined) {
+      throw new DomainError(
+        ErrorCode.NOT_CONFIGURED,
+        'This install has no decision store configured, so there is nothing to read',
+      );
+    }
+
+    const verdict = context.req.query('verdict');
+    if (verdict !== undefined && !(DECISION_VERDICTS as readonly string[]).includes(verdict)) {
+      // An unknown verdict is refused rather than treated as "no rows": a
+      // filter that matches nothing and a filter that was misspelled both
+      // return `[]`, and only one of them is an answer about the work.
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST_BODY,
+        `"${verdict}" is not a verdict this product knows`,
+      );
+    }
+    const ownerId = context.req.query('ownerId') ?? context.req.query('decidedBy');
+    const since = resolveSince(context.req.query('since'));
+
+    if (verdict === undefined && ownerId === undefined && since === undefined) {
+      const decisions = await options.decisionStore.listForProject(projectId, options.workspaceId);
+      return context.json({ decisions }, 200);
+    }
+
+    const decisions = await options.decisionStore.listFiltered(projectId, options.workspaceId, {
+      ...(verdict === undefined ? {} : { verdict: verdict as DecisionVerdict }),
+      ...(ownerId === undefined ? {} : { ownerId }),
+      ...(since === undefined ? {} : { since }),
+    });
+    return context.json({ decisions }, 200);
+  });
+
+  /**
+   * The decision timeline: verdicts by week, by owner, and what has none.
+   *
+   * ## The findings are the caller's, and that is the honest split
+   *
+   * The derived findings are the output of a pure engine — `lib/findings.ts` on
+   * the screen — and not a table, so this endpoint cannot know them and does not
+   * pretend to. The caller names the ids it derived in `findingIds`, and the
+   * store answers which of them have no row. **Name none and the undecided set
+   * is an answer about an empty set**, not a claim that nothing is undecided;
+   * the weeks and the owners are the store's own and are always complete.
+   *
+   * The window is read at one instant, threaded in rather than stamped twice, so
+   * a response whose weeks and owners disagree about which week it is cannot be
+   * produced.
+   */
+  app.get('/api/v1/projects/:id/decisions/timeline', async (context) => {
+    const projectId = context.req.param('id');
+    await getProject(options, projectId);
+    if (options.decisionStore === undefined) {
+      throw new DomainError(
+        ErrorCode.NOT_CONFIGURED,
+        'This install has no decision store configured, so there is no timeline to read',
+      );
+    }
+    const weeksParam = context.req.query('weeks');
+    // The default window is named here rather than left to the store, so the
+    // route's own doc comment and the response's `window.weeks` cannot disagree
+    // about how much history a screen gets when it asks for none.
+    const weeks =
+      weeksParam === undefined || weeksParam === ''
+        ? DECISION_TIMELINE_WEEKS
+        : Number.parseInt(weeksParam, 10);
+    if (weeks !== undefined && (!Number.isFinite(weeks) || weeks < 1 || weeks > 52)) {
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST_BODY,
+        'weeks must be a whole number of weeks between 1 and 52',
+      );
+    }
+    const findingIds = (context.req.query('findingIds') ?? '')
+      .split(',')
+      .map((findingId) => findingId.trim())
+      .filter((findingId) => findingId.length > 0);
+
+    const timeline = await options.decisionStore.timeline(projectId, options.workspaceId, {
+      findingIds,
+      weeks,
+      at: new Date().toISOString(),
+    });
+    return context.json(timeline, 200);
+  });
+
   return app;
+}
+
+/**
+ * The `since` a caller wrote, as the instant the store predicates on.
+ *
+ * ## A span is resolved here, and only here
+ *
+ * The store takes an instant — one shape, one comparison, no clock of its own.
+ * So a relative window is the route's spelling: `7d` is what a human means by
+ * "what I decided this week", and a URL that must carry
+ * `2026-10-05T00:00:00.000Z` to ask it is a URL nobody writes twice. The
+ * resolution is against *this request's* clock, which is the only clock a
+ * request has.
+ *
+ * ## Anything else is refused rather than parsed loosely
+ *
+ * `Date.parse` accepts `October 5, 2026` and `2026-10-05` and half a dozen
+ * other spellings, and a `since` that silently parsed to midnight when the
+ * caller meant an instant is a window that differs by hours from the one they
+ * asked for. So: an ISO 8601 instant, a `Nd`/`Nh` span, or a 400 naming both.
+ */
+
+/** How far back a `since` span may reach, in days. */
+const SPAN_DAYS_CAP = 3650;
+
+function resolveSince(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === '') return undefined;
+
+  const span = /^(\d+)([hd])$/u.exec(raw);
+  if (span !== null) {
+    const amount = Number.parseInt(span[1] ?? '0', 10);
+    const unitMs = span[2] === 'd' ? 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
+    const spanDays = span[2] === 'd' ? amount : amount / 24;
+    // **A span beyond the cap is refused, not clamped.** `Date.now() - amount *
+    // unitMs` leaves the representable epoch range at roughly 100,000,000 days,
+    // and `toISOString()` then throws a `RangeError` outside the `DomainError`
+    // mapping — so a URL with one extra digit answered a raw 500 where the route
+    // promised a 400. Clamping it to ten years instead would silence the crash
+    // and answer a *different question* than the one asked, which is the same sin
+    // as `Date.parse` accepting "October 5, 2026". Ten years of history is past
+    // anything a decision window means, and a caller who wants more names an
+    // instant.
+    if (spanDays > SPAN_DAYS_CAP) {
+      throw new DomainError(
+        ErrorCode.INVALID_REQUEST_BODY,
+        `since: a span longer than ${String(SPAN_DAYS_CAP)}d is not a window; name an ISO instant instead`,
+      );
+    }
+    return new Date(Date.now() - amount * unitMs).toISOString();
+  }
+
+  // Two tests rather than one pattern, for the reason `isIsoInstant` states: a
+  // fractional-seconds group inside an optional group is the nested quantifier
+  // `security/detect-unsafe-regex` refuses. This is that helper, exported from the
+  // store's module precisely so a second copy of a date shape cannot exist.
+  const head = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/u.test(raw);
+  const offset = /(?:Z|[+-]\d{2}:\d{2})$/u.test(raw);
+  if (!head || !offset) {
+    throw new DomainError(
+      ErrorCode.INVALID_REQUEST_BODY,
+      'since must be an ISO instant (e.g. 2026-10-05T00:00:00.000Z) or a span (7d, 12h)',
+    );
+  }
+  const at = Date.parse(raw);
+  if (Number.isNaN(at)) {
+    throw new DomainError(
+      ErrorCode.INVALID_REQUEST_BODY,
+      'since must be an ISO instant (e.g. 2026-10-05T00:00:00.000Z) or a span (7d, 12h)',
+    );
+  }
+  return new Date(at).toISOString();
 }

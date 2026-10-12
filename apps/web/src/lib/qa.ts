@@ -1,8 +1,12 @@
 import { z } from 'zod/v4';
 import {
   CopilotAnswerSchema,
+  DecisionListResponseSchema,
+  DecisionSchema,
+  DecisionTimelineSchema,
   QaScoreSchema,
   ScoreCellSchema,
+  ScoreDeltaSchema,
   StructuralFindingSchema,
   type QaScore,
 } from '@automate/shared-contracts';
@@ -15,9 +19,26 @@ import {
  * schemas are the **server's** contracts, imported rather than re-declared: a copy is
  * a second authority that disagrees the first time a field is added, which is the
  * defect `RUN_PHASES` was.
+ *
+ * The decision shapes are re-exported through this module for the same reason the
+ * copilot's are: **one import path for one client.** The server declares them in
+ * `@automate/shared-contracts`, which the route validates its own answer against and
+ * the client parses against as well — so the wire cannot drift between the two ends
+ * of it, and a screen never hand-writes a copy.
  */
-export { CopilotAnswerSchema, QaScoreSchema, ScoreCellSchema, StructuralFindingSchema };
+export {
+  CopilotAnswerSchema,
+  DecisionListResponseSchema,
+  DecisionSchema,
+  DecisionTimelineSchema,
+  QaScoreSchema,
+  ScoreCellSchema,
+  ScoreDeltaSchema,
+  StructuralFindingSchema,
+};
 export type { QaScore };
+export type { Decision, DecisionListResponse, DecisionTimeline } from '@automate/shared-contracts';
+export type { ScoreDelta } from '@automate/shared-contracts';
 export { CopilotQuestionSchema } from '@automate/shared-contracts';
 export type { CopilotAnswer } from '@automate/shared-contracts';
 

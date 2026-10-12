@@ -39,20 +39,31 @@ export interface ScreenProps {
   projectId: string;
 }
 
-/** Loading, error and empty are the same three states on every screen. */
+/**
+ * Loading, error and empty are the same three states on every screen.
+ *
+ * **And now they carry the same test-ids as their siblings.** The state matrix in
+ * `route-state-matrix.test.ts` reads these ids out of the source, so this screen
+ * was invisible to it: a screen with no ids has no states anybody can check. The
+ * ids are the mechanism, not decoration — they are what makes "every route has
+ * four states" a measurement rather than an intention.
+ */
 function frame<T>(
   resource:
     | { status: 'loading' }
     | { status: 'ready'; value: T }
     | { status: 'error'; message: string },
   title: string,
+  slug: string,
   children: (value: T) => React.ReactElement,
 ): React.ReactElement {
-  if (resource.status === 'loading') return <Skeleton />;
+  if (resource.status === 'loading') return <Skeleton data-testid={`${slug}-loading`} />;
   if (resource.status === 'error') {
     // The server's own words. A screen that rendered "something went wrong" would
     // hide the only sentence that would have helped.
-    return <EmptyState title={title} description={resource.message} />;
+    return (
+      <EmptyState title={title} description={resource.message} data-testid={`${slug}-error`} />
+    );
   }
   return children(resource.value);
 }
@@ -76,11 +87,15 @@ export const Route = createRoute({
  */
 export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
   const resource = useResource<QaGapsResponse>(() => api.getGaps(projectId), [api, projectId]);
-  return frame(resource, 'Could not load the gaps', (response) =>
+  return frame(resource, 'Could not load the gaps', 'gaps', (response: QaGapsResponse) =>
     response.gaps.length === 0 ? (
-      <EmptyState title="Nothing to fix" description="Every cell is either scored or marked n/a." />
+      <EmptyState
+        data-testid="gaps-empty"
+        title="Nothing to fix"
+        description="Every cell is either scored or marked n/a."
+      />
     ) : (
-      <section aria-label="Automation gaps">
+      <section aria-label="Automation gaps" data-testid="gaps-list">
         <Card>
           <CardHeader>
             <CardTitle>Automation gaps</CardTitle>
@@ -126,7 +141,7 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
  */
 export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement {
   const resource = useResource<QaHollowResponse>(() => api.getHollow(projectId), [api, projectId]);
-  return frame(resource, 'Could not load hollow tests', (response) => (
+  return frame(resource, 'Could not load hollow tests', 'hollow', (response) => (
     <section aria-label="Hollow tests">
       <Card>
         <CardHeader>
@@ -162,7 +177,7 @@ export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement 
 /** The flaky register, with the flake rate beside the fingerprints it describes. */
 export function FlakyPage({ api, projectId }: ScreenProps): React.ReactElement {
   const resource = useResource<QaFlakyResponse>(() => api.getFlaky(projectId), [api, projectId]);
-  return frame(resource, 'Could not load flaky tests', (response) => (
+  return frame(resource, 'Could not load flaky tests', 'flaky', (response) => (
     <section aria-label="Flaky tests">
       <Card>
         <CardHeader>
@@ -210,7 +225,7 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
     () => api.getStructure(projectId),
     [api, projectId],
   );
-  return frame(resource, 'Could not load structural findings', (response) =>
+  return frame(resource, 'Could not load structural findings', 'structure', (response) =>
     response.findings.length === 0 ? (
       <EmptyState
         title="No structural findings"

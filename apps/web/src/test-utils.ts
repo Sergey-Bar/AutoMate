@@ -154,6 +154,9 @@ export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
       passRate: 0,
       avgDurationMs: null,
     })),
+    // The KPI endpoint with an empty series, so a screen that renders it shows
+    // "nothing measured" rather than a number nobody sent.
+    getKpiSummary: vi.fn(async () => ({ kpis: [] })),
     getQuarantine: vi.fn(async () => []),
     // Annotated rather than inferred: without it `status` widens to `string` and the
     // mock stops satisfying `ApiClient`, so the compile error surfaces here rather

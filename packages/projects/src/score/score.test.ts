@@ -455,6 +455,37 @@ describe('the whole score, on a fixture project whose numbers are calculated by 
     expect(score_.surfaces.platform).toBe(0);
   });
 
+  it('carries no trend when no earlier window was read', () => {
+    // **A one-point series is a number wearing a chart's clothes.** With no
+    // earlier window there is no direction to report, and the empty series is the
+    // honest version of "nobody asked" — which is exactly the contract's default.
+    const score_ = score(fixture(), '2026-10-02T00:00:00.000Z');
+    expect(score_.trend.points).toEqual([]);
+    expect(score_.trend.labels).toEqual([]);
+  });
+
+  it('publishes the totals of the earlier windows, ending with its own', () => {
+    // The service reads the earlier window and scores it; this function publishes
+    // what it was given and appends its own. **Not a re-read.** A score that
+    // re-scored its own history would be both the arithmetic and the historian,
+    // and the two jobs are separated on purpose — see `ScoreInputs.trend`.
+    const score_ = score(
+      fixture({
+        trend: [
+          { at: '2026-09-20T00:00:00.000Z', total: 41 },
+          { at: '2026-09-27T00:00:00.000Z', total: 12.5 },
+        ],
+      }),
+      '2026-10-02T00:00:00.000Z',
+    );
+    expect(score_.trend.points).toEqual([41, 12.5, score_.total]);
+    expect(score_.trend.labels).toEqual([
+      '2026-09-20T00:00:00.000Z',
+      '2026-09-27T00:00:00.000Z',
+      '2026-10-02T00:00:00.000Z',
+    ]);
+  });
+
   it('excludes an n/a cell and renormalises, so a frontend-only repo is not zero forever', () => {
     const frontendOnly = score(
       fixture({

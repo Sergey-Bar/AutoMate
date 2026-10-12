@@ -317,8 +317,8 @@ let seeded = false;
  * A registered project, plus three runs — two passing, one failing — so the cockpit's queue,
  * limiter and matrix have something in them.
  *
- * **The project comes first because it is the cockpit's subject.** `Cockpit.tsx` reads
- * `listProjects()` and renders `cockpit-onboarding` — "No project is registered, so there is
+ * **The project comes first because it is the cockpit's subject.** `Main.tsx` reads
+ * `listProjects()` and renders `main-onboarding` — "No project is registered, so there is
  * nothing to score yet" — when the list is empty. That screen is a legitimate state and the
  * axe sweep above measures it, but it shows neither a queue nor a matrix, so a screenshot
  * taken there would be evidence of nothing. Registering through `POST /api/v1/projects` is
@@ -425,7 +425,7 @@ test.describe('glass legibility evidence', () => {
       await useTheme(page, theme);
       await page.goto(`${WEB_BASE}/dashboard`);
 
-      await expect(page.getByTestId('cockpit-queue')).toBeVisible();
+      await expect(page.getByTestId('main-queue')).toBeVisible();
       await expect(
         page.locator('[data-testid^="cell-"]', { hasText: 'unmeasured' }).first(),
         'the cockpit shows no unmeasured cell, so the screenshot would not show the floor it ' +

@@ -10,6 +10,8 @@ import { createOrchestrationRoutes } from './routes/orchestration.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createChatRoutes } from './routes/chat.js';
+import { createProjectsRoutes } from './routes/projects.js';
+import { literalView } from '@automate/projects';
 import { aiGatewayOrUnconfigured } from './observability/ai-gateway.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createDashboardModule } from './modules/dashboard/index.js';
@@ -95,6 +97,31 @@ function mountedApp(): Hono {
       gateway: aiGatewayOrUnconfigured({
         kind: 'none',
         reason: 'no provider in the manifest test',
+      }),
+    }),
+  );
+  /**
+   * The project registry, mounted at the position `index.ts` mounts it.
+   *
+   * **It was missing, and the two assertions below are why that mattered.** The
+   * fourteen project endpoints were live in the real app and absent from this
+   * harness, so the manifest could not see them: a duplicated path there, or a
+   * path colliding with the legacy control plane, would have been invisible. The
+   * suite is about the route *set*, so it mounts the routes and never calls one —
+   * which is why the registry service takes a `{} as never` for the database (the
+   * same cast `index.ts` gives the real one) and a literal empty view, the seam
+   * the detector's file reads exist to be injected through.
+   */
+  app.route(
+    '/',
+    createProjectsRoutes({
+      db: {} as never,
+      workspaceId: 'workspace-routes',
+      viewFor: () => literalView({}),
+      startRun: async (input) => ({
+        runId: input.commandId,
+        jobId: input.commandId,
+        phase: 'queued',
       }),
     }),
   );
@@ -195,6 +222,10 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['POST', '/api/v1/jobs/:jobId/events/batch'],
   ['POST', '/api/v1/jobs/:jobId/artifacts'],
   ['POST', '/api/v1/jobs/:jobId/complete'],
+  // The queue, at `/execution/jobs` rather than `/api/v1/jobs`: the orchestration
+  // module owns that path for its own in-process envelope list, and a collision
+  // there would have been a silent 404 rather than a mount-time failure.
+  ['GET', '/api/v1/execution/jobs'],
   // Artifacts.
   ['GET', '/api/v1/artifacts/:artifactId'],
   // Reporting.
@@ -216,6 +247,9 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/dashboard/suites'],
   ['GET', '/api/v1/dashboard/runs/:runId/tests'],
   ['GET', '/api/v1/dashboard/analytics/summary'],
+  // The KPIs, each carrying the unit it was computed in — the endpoint that ends
+  // the two-formatter guesswork (GLASS-3).
+  ['GET', '/api/v1/dashboard/kpis/summary'],
   ['GET', '/api/v1/dashboard/quarantine'],
   ['POST', '/api/v1/dashboard/quarantine'],
   ['PATCH', '/api/v1/dashboard/quarantine/:id'],
@@ -223,6 +257,33 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/dashboard/quality-gates'],
   ['POST', '/api/v1/dashboard/quality-gates'],
   ['GET', '/api/v1/dashboard/quality-gates/:id'],
+  // Projects: the registry, the command a run is resolved against, the run stop
+  // that closes the loop, and the four derived QA reads plus the score diff.
+  ['POST', '/api/v1/projects'],
+  ['GET', '/api/v1/projects'],
+  ['GET', '/api/v1/projects/:id'],
+  // The profile edit, which the documentation site promised and nothing served.
+  ['PATCH', '/api/v1/projects/:id'],
+  // The decision loop: a verdict about a derived finding, recorded and read back.
+  ['POST', '/api/v1/projects/:id/decisions'],
+  ['GET', '/api/v1/projects/:id/decisions'],
+  // The same store, asked the two questions the daily screen asks: whose work is
+  // waiting, and what changed since. The timeline is the second one.
+  ['GET', '/api/v1/projects/:id/decisions/timeline'],
+  ['POST', '/api/v1/projects/:id/detect'],
+  ['GET', '/api/v1/projects/:id/commands'],
+  ['POST', '/api/v1/projects/:id/run.start'],
+  ['POST', '/api/v1/runs/:runId/stop'],
+  ['GET', '/api/v1/projects/:id/qa/score'],
+  ['GET', '/api/v1/projects/:id/qa/gaps'],
+  ['GET', '/api/v1/projects/:id/qa/hollow'],
+  ['GET', '/api/v1/projects/:id/qa/flaky'],
+  ['GET', '/api/v1/projects/:id/qa/structure'],
+  // The probe's answer, for one project: what the repository's QA stack is,
+  // with the evidence for every tool that was found.
+  ['GET', '/api/v1/projects/:id/toolchain'],
+  ['GET', '/api/v1/projects/:id/qa/score/diff'],
+  ['POST', '/api/v1/projects/:id/copilot/answer'],
   // Legacy process-local control plane.
   ['POST', '/api/v1/runner/v1/enroll'],
   ['POST', '/api/v1/runner/v1/sync'],

@@ -144,6 +144,36 @@ describe('the dashboard summary', () => {
     expect(fromSql).toEqual({ totalRuns: 6, passRate: 60, avgDurationMs: 2200 });
   });
 
+  it('computes the same KPIs, units included, as the in-memory aggregation', async () => {
+    // **The KPI parity is the parity that matters for GLASS-3.** A unit or a value
+    // that differed between the two repositories would be the unit trap in a new
+    // place: a dashboard whose numbers change depending on which repository is
+    // mounted. The `unit` is compared explicitly rather than through `toEqual`
+    // alone, so the message names the field when it drifts.
+    const memory = new InMemoryRunRepository();
+    for (const run of FIXTURE) await memory.upsertRun(run);
+    const fromSql = await sql.getKpiSummary();
+    const fromMemory = await memory.getKpiSummary();
+    expect(fromSql.kpis.map((kpi) => [kpi.id, kpi.value, kpi.unit])).toEqual(
+      fromMemory.kpis.map((kpi) => [kpi.id, kpi.value, kpi.unit]),
+    );
+    // And the units themselves: a percent for the pass rate, a count for the
+    // total, milliseconds for the duration — the declaration a screen formats from.
+    expect(fromSql.kpis.find((kpi) => kpi.id === 'pass-rate')).toMatchObject({
+      value: 60,
+      unit: 'percent',
+      denominator: 5,
+    });
+    expect(fromSql.kpis.find((kpi) => kpi.id === 'total-runs')).toMatchObject({
+      value: 6,
+      unit: 'count',
+    });
+    expect(fromSql.kpis.find((kpi) => kpi.id === 'avg-duration')).toMatchObject({
+      value: 2200,
+      unit: 'duration_ms',
+    });
+  });
+
   it('excludes a running run from the pass rate but counts it as a run', () => {
     // The distinction the route comment claims: a run still executing is not a
     // failure, and is not evidence of a pass either.

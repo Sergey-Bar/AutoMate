@@ -232,10 +232,22 @@ export class GenericSpawnAdapter implements ExecutionProvider {
   ): Promise<boolean> {
     let timedOut = false;
     let spawnError: Error | undefined;
-    const timer = setTimeout(() => {
+    const stop = (): void => {
       timedOut = true;
       void this.terminateProcess(child);
-    }, context.deadlineMs);
+    };
+    // **The timer is re-armable, and the re-arm is what makes a long suite
+    // survivable.** The budget started once, from the lease as it stood when the
+    // child started; a heartbeat that renews the lease calls `reArmDeadline` with
+    // the new remaining time, and the clock restarts from now rather than
+    // accumulating — the lease is what says this runner still owns the job.
+    let timer = setTimeout(stop, context.deadlineMs);
+    if (context.reArmDeadline !== undefined) {
+      context.reArmDeadline((deadlineMs: number): void => {
+        clearTimeout(timer);
+        timer = setTimeout(stop, Math.max(1, deadlineMs));
+      });
+    }
     const abort = (): void => void this.terminateProcess(child);
     context.signal.addEventListener('abort', abort, { once: true });
     if (context.signal.aborted) abort();

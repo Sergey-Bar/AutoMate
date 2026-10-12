@@ -61,6 +61,17 @@ export const RunnerHeartbeatSchema = z
     activeJobIds: z.array(IdSchema).default([]),
     cancelledJobIds: z.array(IdSchema).default([]),
     cancelRequestedJobIds: z.array(IdSchema).default([]),
+    /**
+     * The instant the renewed lease this heartbeat reported ends.
+     *
+     * The server extends the lease for **every** job this runner holds, so one
+     * field covers the batch. Optional because a heartbeat from a runner with no
+     * active jobs has no lease to renew, and because a server that has not
+     * implemented renewal yet must still be answerable — the runner then treats
+     * the claim's own lease as current, which is the behaviour that existed
+     * before the field did.
+     */
+    leaseExpiresAt: IsoSchema.optional(),
   })
   .passthrough();
 

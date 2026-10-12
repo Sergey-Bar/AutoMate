@@ -2,6 +2,19 @@ import { Config, ConfigProvider, Effect, Option } from 'effect';
 import type { AppConfig } from '@automate/config';
 
 /**
+ * The value in an `Option`, or `undefined`.
+ *
+ * **Twenty fields needed the same sentence**, each as a two-line ternary
+ * spread across the object below — and one of them (`cookieSecret`) had
+ * fallen back to `sessionSecret` while the rest had not, which is the kind
+ * of drift that comes from a rule restated per field. The mapping from
+ * `Option` to plain configuration is one idea and lives in one place.
+ */
+function optional(option: Option.Option<string>): string | undefined {
+  return Option.getOrUndefined(option);
+}
+
+/**
  * Get validated configuration. This is the primary export for the rest of the API.
  *
  * Uses Effect's ConfigProvider to parse and validate environment variables,
@@ -84,46 +97,42 @@ export const getConfig = (): AppConfig => {
       : undefined;
 
   // cookieSecret falls back to SESSION_SECRET if not set
-  const cookieSecret = Option.isSome(config.cookieSecret)
-    ? config.cookieSecret.value
-    : Option.isSome(config.sessionSecret)
-      ? config.sessionSecret.value
-      : 'development-only-cookie-secret-32-chars';
+  // The one deliberate cascade: a cookie secret may be given either way, and
+  // an install with neither falls back to a development-only value rather than
+  // borrowing the session secret silently.
+  const cookieSecret =
+    optional(config.cookieSecret) ??
+    optional(config.sessionSecret) ??
+    'development-only-cookie-secret-32-chars';
 
   return {
     nodeEnv: config.nodeEnv,
     host: config.host,
     port: config.port,
-    databaseUrl: Option.isSome(config.databaseUrl) ? config.databaseUrl.value : undefined,
+    databaseUrl: optional(config.databaseUrl),
     cookieSecret,
-    sessionSecret: Option.isSome(config.sessionSecret) ? config.sessionSecret.value : undefined,
-    vaultSecret: Option.isSome(config.vaultSecret) ? config.vaultSecret.value : undefined,
+    sessionSecret: optional(config.sessionSecret),
+    vaultSecret: optional(config.vaultSecret),
     publicAppUrl: config.publicAppUrl,
     workspaceId: config.workspaceId,
-    installationApiKey: Option.isSome(config.automateApiKey)
-      ? config.automateApiKey.value
-      : undefined,
-    reporterSecret: Option.isSome(config.reporterSecret) ? config.reporterSecret.value : undefined,
-    runnerRegistrationSecret: Option.isSome(config.runnerRegistrationSecret)
-      ? config.runnerRegistrationSecret.value
-      : undefined,
+    installationApiKey: optional(config.automateApiKey),
+    reporterSecret: optional(config.reporterSecret),
+    runnerRegistrationSecret: optional(config.runnerRegistrationSecret),
     artifactRoot: config.artifactRoot,
     workerPollIntervalMs: config.workerPollIntervalMs,
     workerLeaseDurationMs: config.workerLeaseDurationMs,
     workerMaxAttempts: config.workerMaxAttempts,
-    kiloGatewayUrl: Option.isSome(config.kiloGatewayUrl) ? config.kiloGatewayUrl.value : undefined,
-    kiloApiKey: Option.isSome(config.kiloApiKey) ? config.kiloApiKey.value : undefined,
-    ollamaBaseUrl: Option.isSome(config.ollamaBaseUrl) ? config.ollamaBaseUrl.value : undefined,
+    kiloGatewayUrl: optional(config.kiloGatewayUrl),
+    kiloApiKey: optional(config.kiloApiKey),
+    ollamaBaseUrl: optional(config.ollamaBaseUrl),
     sessionTtlHours: config.sessionTtlHours,
     sessionRetentionDays: config.sessionRetentionDays,
     sseReplayRetentionHours: config.sseReplayRetentionHours,
     auditRetentionDays: config.auditRetentionDays,
     retentionSweepIntervalSeconds: config.retentionSweepIntervalSeconds,
-    projectRoot: Option.isSome(config.projectRoot) ? config.projectRoot.value : undefined,
+    projectRoot: optional(config.projectRoot),
     objectStore,
-    artifactReadFallbackRoot: Option.isSome(config.artifactReadFallbackRoot)
-      ? config.artifactReadFallbackRoot.value
-      : undefined,
+    artifactReadFallbackRoot: optional(config.artifactReadFallbackRoot),
   } satisfies AppConfig;
 };
 

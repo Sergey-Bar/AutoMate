@@ -26,12 +26,16 @@
  * own project, so `pnpm test:e2e` still runs it rather than quietly skipping it.
  *
  * **What this cannot prove, stated so nobody reads more into a green run than is in it.**
- * The `apps/worker` lease-recovery loop is not started by the API's `webServer` command,
- * so stage 8 recovers its lease by *expiring* it — the API's own fencing path — rather
- * than by running the worker. What is proven is that the durable state a worker would
- * find is correct and that a stale holder is refused; what is not proven is that the
- * worker finds it. That gap is ledger **X-1** and it is deliberate, not an oversight here.
+ * The `apps/worker` lease-recovery loop *is* started now, as its own process against the
+ * same database — see the `worker` stage below, which is ledger **RF-6e** closed. What
+ * remains unproven by this file is that the worker *claims* a job, which it does not do
+ * by design: `apps/worker/src/main.ts` passes no `JobHandler`, because execution belongs
+ * to the runner and a claiming worker would compete with the runners for the same jobs
+ * from a process with no execution capability. That invariant is pinned by
+ * `apps/worker/src/worker.test.ts` rather than by an E2E run, and it is documented at
+ * length at the call site.
  */
+import { spawn } from 'node:child_process';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {
   createRun,
@@ -39,6 +43,7 @@ import {
   registerRunner,
   uniqueRunId,
   uploadArtifact,
+  type CanonicalRun,
   type JobClaim,
 } from '../support/api.js';
 import { API_AUTH_HEADERS, API_BASE, QA_CONTRACT_VERSION } from '../support/config.js';
@@ -447,3 +452,160 @@ async function cancelRunOnce(
   expect(response.status(), `POST /api/v1/runs/${runId}/cancel -> ${response.status()}`).toBe(200);
   return (await response.json()) as { phase?: string; outcome?: string | null };
 }
+
+/**
+ * The worker, as a **separate process** against the same database.
+ *
+ * ## Why this is a stage and not a unit test
+ *
+ * Ledger **RF-6e** is a claim about three processes agreeing about one row, and a
+ * claim about processes is not a claim about code paths. A test with all three in
+ * one process proves the paths and not the claim: it cannot fail when a claim
+ * query and a callback query disagree about a column, because they would be
+ * reading the same connection to the same store. So the worker is spawned here,
+ * with the same `DATABASE_URL` the API is using, and its effect is observed over
+ * HTTP.
+ *
+ * ## What the worker does, and what it deliberately does not
+ *
+ * It is the **scheduler and the lease-recovery loop**. It passes no `JobHandler`,
+ * so it never claims a job — execution belongs to the runner, and a claiming
+ * worker would compete with the runners for the same jobs from a process with no
+ * execution capability. `apps/worker/src/main.ts` documents that at length and
+ * `apps/worker/src/worker.test.ts` pins it. What this stage proves is the part
+ * neither of those can: a process that is not the API, reading the same durable
+ * rows, **writing** to them.
+ *
+ * Returns a disposer, so the loop does not outlive the test.
+ */
+async function startWorker(): Promise<() => Promise<void>> {
+  const databaseUrl = process.env['DATABASE_URL'] ?? '';
+  expect(
+    databaseUrl.length,
+    'the worker needs the same DATABASE_URL the API was given',
+  ).toBeGreaterThan(0);
+  const child = spawn(process.execPath, ['--import', 'tsx', 'apps/worker/src/main.ts'], {
+    env: {
+      ...process.env,
+      DATABASE_URL: databaseUrl,
+      // A short poll so the loop's work is observable inside a test's budget,
+      // and a health port far from the API's. Both are the worker's own
+      // configuration, read in `apps/worker/src/config.ts`.
+      WORKER_POLL_INTERVAL_MS: '250',
+      WORKER_LEASE_RENEW_INTERVAL_MS: '250',
+      WORKER_HEALTH_PORT: '4319',
+      WORKER_INSTANCE_ID: 'e2e-durable-path-worker',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let log = '';
+  child.stdout?.on('data', (chunk: Buffer) => {
+    log += chunk.toString('utf8');
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    log += chunk.toString('utf8');
+  });
+  try {
+    // The health endpoint is the readiness signal, and it is the worker's own:
+    // a loop that cannot serve health is a loop nobody can observe.
+    await expect
+      .poll(
+        async () => {
+          const probe = await fetch('http://127.0.0.1:4319/health').catch(() => null);
+          return probe === null ? 0 : probe.status;
+        },
+        {
+          message: `the worker never became healthy. Its log so far:\n${log}`,
+          timeout: 30_000,
+          intervals: [250],
+        },
+      )
+      .toBe(200);
+  } catch (failure) {
+    child.kill('SIGKILL');
+    throw failure;
+  }
+  return async () => {
+    child.kill('SIGTERM');
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        resolve();
+      }, 5_000);
+      child.once('exit', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+  };
+}
+
+/**
+ * The tenth stage: **worker**, as its own process, against the same PostgreSQL.
+ *
+ * This is what closes RF-6e, and the assertion is chosen so it can actually fail.
+ * A run is put into `running` with a lease that expires, the worker's reaper is
+ * started, and the run's phase is polled until it moves. If the worker were
+ * reading a different database, or not running at all, nothing would move it —
+ * and a test that asserted "the phase is still running" would pass for the same
+ * reason.
+ */
+test('the worker, as its own process, reaps an expired lease in the durable store', async ({
+  request,
+}) => {
+  const stopWorker = await startWorker();
+  try {
+    // ---------------------------------------------------------------- enqueue
+    // A run of our own, so the assertion is about this row and not about
+    // whatever the suite ahead of us left in the queue.
+    const queued = await createRun(request);
+    const runner = await registerRunner(request);
+    const claim = await claimJobFor(request, runner.runnerId, runner.token, queued.id);
+    expect(claim.runId, 'the job we leased should be ours').toBe(queued.id);
+    // A claim moves the run to `assigned` on the claim path and `running` once the
+    // runner reports it; either is past `queued`, which is the assertion — the
+    // lease is mine, and the state that says so is not the one this test started
+    // from.
+    const leased = await getRun(request, queued.id);
+    expect(leased?.phase, 'a claimed run is no longer queued').not.toBe('queued');
+
+    // ------------------------------------------------------------------ worker
+    // The reaper is a poll over `lease_expires_at`, so the row has to expire
+    // before the loop can see it. The API cannot expire a lease on demand — a
+    // caller that could would be able to reap anyone's job — so this waits out
+    // the lease the claim was given, which is the honest route to the same
+    // state: the store's own expiry predicate, met by time rather than by a
+    // back door.
+    const deadline = Date.now() + 60_000;
+    let reaped: CanonicalRun | undefined;
+    while (Date.now() < deadline) {
+      const current = await getRun(request, queued.id);
+      if (current === undefined) break;
+      // `phase` is the execution vocabulary, and the reaper moves it: a requeued
+      // job's run goes back to `queued`, a cancelled one to `cancelled`. Either is
+      // the loop having written, and reading the field rather than a status the
+      // canonical shape does not have keeps this poll honest about what it sees.
+      if (current.phase !== 'running') {
+        reaped = current;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    expect(
+      reaped,
+      `the worker's reaper did not reap the expired lease within 60s. The run is still ` +
+        `running, which means either the worker process was not reading this database or ` +
+        `its loop was not polling.`,
+    ).not.toBeNull();
+    // `queued` is the recovery the same store produced for the API's own fencing
+    // path in stage 8, and `cancelled` is what a job whose cancel was asked for
+    // becomes. Either is the reaper having written; neither is "nothing happened".
+    expect(
+      ['queued', 'cancelled', 'interrupted'],
+      `the reaper moved the run to "${reaped?.phase}", which is not a recovery state`,
+    ).toContain(reaped?.phase);
+    saveEvidence('durable-path', 'worker-reaps-expired-lease.json', reaped);
+  } finally {
+    await stopWorker();
+  }
+});

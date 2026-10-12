@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createRoute } from '@tanstack/react-router';
 import { Badge, Button, Card, EmptyState } from '@automate/ui';
-import type { RunPhase } from '@automate/shared-contracts';
+import { ACTIVE_RUN_PHASE_SET, type RunPhase } from '@automate/shared-contracts';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useRunDetail } from '../../hooks/useDashboard.js';
 import { isRunActive } from '../../hooks/useRuns.js';
@@ -17,6 +17,9 @@ export const Route = createRoute({
   },
 });
 
+// The timeline's own path, which includes the terminal phases a run can end in.
+// It is a presentation list rather than the phase vocabulary, so it stays here —
+// but "is this phase in flight" is the contract's answer, not a second copy.
 const PHASES: RunPhase[] = [
   'queued',
   'assigned',
@@ -28,17 +31,6 @@ const PHASES: RunPhase[] = [
   'gate_evaluation',
   'complete',
 ];
-
-const ACTIVE_PHASES = new Set<RunPhase>([
-  'queued',
-  'assigned',
-  'preparing',
-  'running',
-  'collecting',
-  'normalizing',
-  'analyzing',
-  'gate_evaluation',
-]);
 
 /**
  * Run detail says `UNKNOWN` where the runs list says `Not started`: here the
@@ -57,7 +49,7 @@ function outcomeTone(outcome: string | null): 'success' | 'danger' | 'warning' |
 }
 
 function PhaseTimeline({ phase }: { phase: RunPhase }) {
-  const active = ACTIVE_PHASES.has(phase);
+  const active = ACTIVE_RUN_PHASE_SET.has(phase);
   const currentIndex = PHASES.indexOf(phase);
 
   return (

@@ -3,6 +3,8 @@ import {
   ArtifactDescriptorSchema,
   CreateRunRequestSchema,
   GateEvaluationSchema,
+  KpiSchema,
+  KpiSummarySchema,
   NormalizedRunSchema,
   ReleaseReadinessSchema,
   RunEventEnvelopeSchema,
@@ -10,6 +12,8 @@ import {
   type ArtifactDescriptor,
   type CreateRunRequest,
   type GateEvaluation,
+  type Kpi,
+  type KpiSummary,
   type NormalizedRun,
   type ReleaseReadiness,
   type RunEventEnvelope,
@@ -27,6 +31,17 @@ export const AnalyticsSummarySchema = z.object({
   passRate: z.number(),
   avgDurationMs: z.number().nullable(),
 });
+
+/**
+ * The KPI shapes, the contract's own schema re-exported.
+ *
+ * **Not a local re-declaration.** The whole point of the `unit` field is that the
+ * number and its meaning travel together and are decided in one place; a client
+ * copy that forgot a unit would reintroduce GLASS-3 in the one file that exists
+ * to end it.
+ */
+export { KpiSchema, KpiSummarySchema };
+export type { Kpi, KpiSummary };
 
 export const QuarantineEntrySchema = z.object({
   id: z.string(),
@@ -260,6 +275,14 @@ export interface ApiClient {
     options?: RequestOptions,
   ): Promise<ReleaseReadiness | null>;
   getAnalyticsSummary(options?: RequestOptions): Promise<AnalyticsSummary>;
+  /**
+   * The KPIs, each with the unit it was computed in.
+   *
+   * A screen formats from `kpi.unit` rather than from memory — the two
+   * formatters this replaces chose between them at each call site, and the
+   * choice was made wrong once.
+   */
+  getKpiSummary(options?: RequestOptions): Promise<KpiSummary>;
   getQuarantine(options?: RequestOptions): Promise<QuarantineEntry[]>;
   addQuarantine(
     entry: { testTitle: string; testFile: string; reason?: string },
@@ -640,6 +663,9 @@ export const defaultApiClient: ApiClient = {
     ),
   getAnalyticsSummary: (options) =>
     getJson('/api/v1/dashboard/analytics/summary', AnalyticsSummarySchema, options),
+  // The KPI endpoint, read with the contract's own schema so the `unit` on each
+  // KPI is validated rather than trusted.
+  getKpiSummary: (options) => getJson('/api/v1/dashboard/kpis/summary', KpiSummarySchema, options),
   getQuarantine: (options) =>
     getJson('/api/v1/dashboard/quarantine', z.array(QuarantineEntrySchema), options),
   addQuarantine: async (entry, options) => {

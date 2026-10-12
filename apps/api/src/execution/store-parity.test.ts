@@ -249,6 +249,71 @@ const SCENARIOS: Array<{
       expect(await store.getJob(claim.jobId, 'another-workspace')).toBeNull();
     },
   },
+  {
+    name: 'delivers a cancel to the runner that holds the lease',
+    run: async ({ store, runnerId }) => {
+      // **P5, and the shape of the one-sided handshake.** `cancelRun` used to clear
+      // the job's `leaseOwner` along with marking the run, so by the next heartbeat
+      // there was no owner left to ask: the runner ran on, then failed to complete
+      // a job whose lease was gone. The request now survives on the job, and the
+      // heartbeat says so — which is what makes a cancel two-sided.
+      await store.createRun(
+        {
+          externalId: 'ext-cancel',
+          source: 'api',
+          testType: 'browser',
+          framework: 'playwright',
+          timeoutMs: 60_000,
+          requiredCapabilities: [],
+          labels: [],
+          configuration: {},
+        } as never,
+        'parity-cancel',
+        WORKSPACE,
+      );
+      const claim = await store.claimJob(runnerId, [], [], undefined, WORKSPACE);
+      if (claim === null) return;
+      await store.cancelRun(claim.runId, WORKSPACE);
+      const heartbeat = await store.heartbeatRunner(runnerId, [claim.jobId], 'healthy');
+      expect(heartbeat?.cancelledJobIds).toContain(claim.jobId);
+      expect(heartbeat?.cancelRequestedJobIds).toContain(claim.jobId);
+      // The renewal the runner re-arms its deadline from.
+      expect(heartbeat?.leaseExpiresAt).toBeDefined();
+      // A reader sees the cancellation immediately, whatever the runner reports.
+      expect((await store.getRun(claim.runId, WORKSPACE))?.phase).toBe('cancelled');
+      // And the job still has an owner, which is what let the heartbeat name it.
+      expect((await store.getJob(claim.jobId, WORKSPACE))?.leaseOwner).toBe(runnerId);
+    },
+  },
+  {
+    name: 'does not re-run a cancelled job whose lease expires',
+    run: async ({ store, runnerId }) => {
+      // The operator's decision has to survive the runner losing the lease. A
+      // requeue here would execute a cancelled run a second time, and the second
+      // completion is the one that lands.
+      await store.createRun(
+        {
+          externalId: 'ext-cancel-reap',
+          source: 'api',
+          testType: 'browser',
+          framework: 'playwright',
+          timeoutMs: 60_000,
+          requiredCapabilities: [],
+          labels: [],
+          configuration: {},
+        } as never,
+        'parity-cancel-reap',
+        WORKSPACE,
+      );
+      const claim = await store.claimJob(runnerId, [], [], undefined, WORKSPACE);
+      if (claim === null) return;
+      await store.cancelRun(claim.runId, WORKSPACE);
+      const reaped = await store.reapExpiredLeases(new Date(Date.now() + 10 * 60_000));
+      const entry = reaped.find((result) => result.jobId === claim.jobId);
+      expect(entry?.requeued).toBe(false);
+      expect(entry?.phase).toBe('cancelled');
+    },
+  },
 ];
 
 describe('both ExecutionStore implementations behave identically', () => {

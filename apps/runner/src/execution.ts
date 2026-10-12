@@ -53,7 +53,28 @@ export interface ExecutionContext {
   command?: unknown;
   /** The Playwright project, when the job is a browser run. */
   playwrightProject?: string;
+  /**
+   * Milliseconds before the run is declared timed out, measured from when the
+   * child starts.
+   *
+   * **A starting budget, not a fixed one.** `reArmDeadline` is how a runner that
+   * is alive and heart-beating tells a long run that its lease was renewed, so a
+   * 40-minute suite is not killed at the end of a lease that has since been
+   * extended.
+   */
   deadlineMs: number;
+  /**
+   * Hands this provider's deadline re-arm to the runner.
+   *
+   * **The provider calls it, not the runner.** A generic spawn owns the timer
+   * that kills its child, so the runner cannot re-arm a function it does not
+   * hold; the provider passes one in and the runner keeps it on the job, then
+   * invokes it with the remaining budget on every heartbeat that reports a
+   * renewed lease. A provider that never calls it — a Playwright run, or a
+   * spawn that has not started — simply has no re-armable deadline, and its job
+   * is bounded by the budget it was claimed with.
+   */
+  reArmDeadline?: (reArm: (deadlineMs: number) => void) => void;
   signal: AbortSignal;
   onEvent?: (event: z.infer<typeof eventLineSchema>) => Promise<void>;
   redactions?: string[];

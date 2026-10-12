@@ -10,9 +10,13 @@ import {
   profileFromDetection,
   ProjectProfileSchema,
   type ProjectProfile,
+  type ProjectProfilePatch,
   type RepositoryView,
 } from '@automate/projects';
 import { RunCommandSchema, type RunCommand } from '@automate/shared-contracts';
+import type { CoverageFormat } from '@automate/reporter';
+import type { DeclaredCoverageGlob } from './coverage-ingestion.js';
+import type { ScorePointStore } from './derived-score-points.js';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 
 type AnyPgDb =
@@ -35,6 +39,36 @@ type AnyPgDb =
 export interface ProjectRegistryServiceOptions {
   db: AnyPgDb;
   workspaceId: string;
+  /**
+   * Reads the coverage documents one run uploaded, given the globs that declare
+   * them.
+   *
+   * Injected rather than imported because the bytes live in whichever artifact
+   * store this install configured, and a service that reads object storage
+   * directly cannot be tested against a literal map. The globs arrive from the
+   * caller because they are per-project and this function is about one run — the
+   * composition root knows storage, the service knows the profile, and neither
+   * needs the other's to answer.
+   *
+   * **The absent case is an empty list, not a failure**: an install that never
+   * connected an artifact store has no coverage, and `depth` is `unknown` there
+   * rather than fabricated.
+   */
+  readCoverageDocuments?: (
+    runId: string,
+    globs: readonly DeclaredCoverageGlob[],
+  ) => Promise<ReadonlyArray<{ format: CoverageFormat; bytes: Uint8Array }>>;
+  /**
+   * The score's photographs, written on each read and read back for the trend.
+   *
+   * Optional for the same reason `readCoverageDocuments` is: a service that
+   * reached a table it was not handed could not be driven from a literal map.
+   * **The absent case is a two-point trend, not a failure** — the score is still
+   * computed from the runs, exactly as it was before the table existed, and the
+   * chart is simply short. What the option buys is a series long enough to see a
+   * direction in, at the cost of one upsert per score read.
+   */
+  scorePoints?: ScorePointStore;
   /**
    * Resolves a stored repo path to a view of it.
    *
@@ -182,6 +216,61 @@ export async function refreshProject(
     .where(and(eq(projects.workspaceId, options.workspaceId), eq(projects.id, projectId)));
 
   return { profile: resolved.profile, evidence: evidenceFrom(detected) };
+}
+
+/**
+ * Applies a profile edit to a stored project.
+ *
+ * ## The API edit is an override, not a second authority
+ *
+ * `PATCH /projects/:id` takes the keys `automate.config.json` takes and merges
+ * them through **the same `mergeConfig` rule**: the patch wins for the keys it
+ * names, and every other key falls through to what is stored. That is not
+ * convenience — an edit API with its own merge rule would be two rules, and the
+ * one nobody reads would be the one that decides what a customer's project runs.
+ *
+ * **Why the endpoint exists at all.** A detector that names the wrong command
+ * left `automate.config.json` as the only way to correct it: the operator writes a
+ * file, commits it, and presses Re-detect. An operator who has neither a shell nor
+ * write access to the repository — a customer of the hosted install, correcting a
+ * detection from the dashboard — had no path at all. The profile was not editable
+ * through the product the profile exists to serve.
+ *
+ * The edit *replaces* the stored profile rather than being remembered beside it,
+ * which means a later Re-detect reads the repository again and the edit is
+ * gone — the same direction a file override has, and for the same reason: the
+ * repository is the source, and an edit is a correction to it until the file
+ * catches up.
+ */
+export async function updateProjectProfile(
+  options: ProjectRegistryServiceOptions,
+  projectId: string,
+  patch: ProjectProfilePatch,
+): Promise<RegisteredProject> {
+  const existing = await getProject(options, projectId);
+  // The version belongs to the *file* format; an API body that omits it is not a
+  // malformed config. Supplying it here is the only place that translation lives.
+  const resolved = mergeConfig(existing.profile, { version: 1, ...patch });
+  // `overriddenKeys` counts the keys the caller actually named, `$schema` and
+  // `version` aside — so a body that names nothing is a no-op and answered as one.
+  if (resolved.overriddenKeys.length === 0) {
+    throw new DomainError(
+      ErrorCode.INVALID_REQUEST_BODY,
+      'A profile edit has to name at least one key it changes, otherwise there is nothing to apply',
+    );
+  }
+  const rows = await options.db
+    .update(projects)
+    .set({
+      profile: resolved.profile as unknown as Record<string, unknown>,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(projects.workspaceId, options.workspaceId), eq(projects.id, projectId)))
+    .returning({ id: projects.id });
+  if (rows.length === 0) {
+    throw new DomainError(ErrorCode.NOT_FOUND, 'No such project');
+  }
+  return getProject(options, projectId);
 }
 
 export async function listProjects(

@@ -76,12 +76,16 @@ export function stripComments(source) {
  * Read the table declarations out of one schema source file.
  *
  * The parse is deliberately narrow and is the kind that fails loudly rather than
- * quietly: Drizzle declares `workspace_id` in exactly one shape in this codebase
- * (`text('workspace_id')` with an optional `.notNull()` and no `.references()`),
- * and the tests below pin that. If someone introduces a second shape, the
- * declaration stops matching, the column reads as absent, and the gate reports a
- * regression — which is the correct outcome for a parser that has met something
- * it does not understand.
+ * quietly: Drizzle declares `workspace_id` in exactly two shapes in this
+ * codebase (`text('workspace_id')` and `uuid('workspace_id')`, each with an
+ * optional `.notNull()` and no `.references()`), and the tests below pin both.
+ * **The uuid spelling was the bug this list exists to describe.** Migration
+ * 0026 declared `decision_records.workspaceId` as a uuid, the pattern matched
+ * only `text`, and the register reported the column as `absent` on the one
+ * table whose boundary is the strongest — so the register said "no tenant
+ * column" about a `NOT NULL` one, and a note claiming the parse fails loudly
+ * made the wrong answer look like the design. A third spelling still reads as
+ * absent, and that is the failure mode a parser should have.
  *
  * @param {string} raw the text of one `packages/db/src/schema/*.ts` file
  * @returns {Array<{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }>}
@@ -89,7 +93,7 @@ export function stripComments(source) {
 export function parseTableStates(raw) {
   const source = stripComments(raw);
   // Only the column head, with no greedy continuation — see the note at the call site.
-  const COLUMN_HEAD = /workspaceId:\s*text\(\s*'workspace_id'\s*\)/;
+  const COLUMN_HEAD = /workspaceId:\s*(?:text|uuid)\(\s*'workspace_id'\s*\)/;
 
   /** @type {Array<{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }>} */
   const tables = [];

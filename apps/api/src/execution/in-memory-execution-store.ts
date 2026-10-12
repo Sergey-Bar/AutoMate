@@ -6,6 +6,7 @@ import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
 import { countTests, resolveSummary } from './summary.js';
 import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
 import { normalizeEventLimit, pageRuns } from './run-paging.js';
+import { reapOutcome } from './lease-reap.js';
 import {
   isTerminalPhase,
   type ArtifactDescriptor,
@@ -254,6 +255,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
       leaseExpiresAt: null,
       fencingToken: 0,
       heartbeatAt: null,
+      cancelRequestedAt: null,
       idempotencyKey: `${normalizedKey}:attempt:${attempt}`,
       error: null,
       createdAt: timestamp,
@@ -314,11 +316,18 @@ export class InMemoryExecutionStore implements ExecutionStore {
         job.runId === runId &&
         (job.state === 'queued' || job.state === 'leased' || job.state === 'requeued')
       ) {
-        job.state = 'cancelled';
+        // **The stop request is recorded, and a leased job keeps its lease.**
+        // Clearing the lease here left the next heartbeat with no owner to ask,
+        // so the child ran on and then failed to complete — which is the one-sided
+        // handshake this file's Drizzle twin fixed the same way.
+        job.cancelRequestedAt = timestamp;
         job.updatedAt = timestamp;
-        job.leaseId = null;
-        job.leaseOwner = null;
-        job.leaseExpiresAt = null;
+        if (job.state !== 'leased') {
+          job.state = 'cancelled';
+          job.leaseId = null;
+          job.leaseOwner = null;
+          job.leaseExpiresAt = null;
+        }
       }
     }
     return clone(run);
@@ -440,14 +449,30 @@ export class InMemoryExecutionStore implements ExecutionStore {
     runner.health = health;
     runner.activeJobIds = [...new Set(activeJobIds)];
     runner.updatedAt = timestamp;
+    // The same renewal the Drizzle store applies, and the same re-arm frontier:
+    // the lease this runner holds is extended from *now*, so the deadline a job
+    // is bounded by is the remaining time and not an accumulating total.
+    const leaseExpiresAt = iso(new Date(this.now().getTime() + this.leaseDurationMs));
+    const cancelledJobIds: string[] = [];
     for (const job of this.jobs.values()) {
       if (job.leaseOwner === runnerId && job.state === 'leased') {
         job.heartbeatAt = timestamp;
-        job.leaseExpiresAt = iso(new Date(this.now().getTime() + this.leaseDurationMs));
+        job.leaseExpiresAt = leaseExpiresAt;
         job.updatedAt = timestamp;
+        // A job that was asked to stop keeps its lease so this list can say so;
+        // the runner unions the two names for the same answer.
+        if (job.cancelRequestedAt !== null) cancelledJobIds.push(job.id);
       }
     }
-    return { runnerId, health, lastHeartbeatAt: timestamp, activeJobIds: [...runner.activeJobIds] };
+    return {
+      runnerId,
+      health,
+      lastHeartbeatAt: timestamp,
+      activeJobIds: [...runner.activeJobIds],
+      cancelledJobIds,
+      cancelRequestedJobIds: cancelledJobIds,
+      leaseExpiresAt,
+    };
   }
 
   async claimJob(
@@ -921,47 +946,96 @@ export class InMemoryExecutionStore implements ExecutionStore {
       )
         continue;
       const run = this.runs.get(job.runId);
-      const canRequeue = job.attempt < 3 && run !== undefined && !isTerminalPhase(run.phase);
+      // The decision and the shared table live in `lease-reap.ts` — the Drizzle
+      // store applies the same one, and two implementations of "requeue or stop"
+      // is how they would eventually disagree about a cancelled job.
+      const outcome = reapOutcome(job.cancelRequestedAt !== null, job.attempt);
       job.updatedAt = timestamp;
       job.leaseId = null;
       job.leaseOwner = null;
       job.leaseExpiresAt = null;
       job.heartbeatAt = null;
-      job.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
-      if (canRequeue) {
+      job.error =
+        job.cancelRequestedAt !== null
+          ? null
+          : { code: 'RUNNER_LOST', message: 'Runner lease expired' };
+      if (outcome.phase === 'cancelled') {
+        job.state = 'cancelled';
+        this.reapRun(run, {
+          phase: 'cancelled',
+          outcome: 'cancelled',
+          status: 'interrupted',
+          completedAt: timestamp,
+          message: 'Runner lease expired',
+          updatedAt: timestamp,
+          attempt: null,
+        });
+      } else if (outcome.canRequeue) {
         job.state = 'queued';
-        job.attempt += 1;
+        job.attempt = outcome.attempt;
         job.availableAt = timestamp;
-        if (run) {
-          run.attempt = job.attempt;
-          run.phase = 'queued';
-          run.outcome = null;
-          run.status = 'queued';
-          run.updatedAt = timestamp;
-          run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired; job requeued' };
-          run.runner = null;
-        }
+        this.reapRun(run, {
+          phase: 'queued',
+          outcome: null,
+          status: 'queued',
+          completedAt: null,
+          message: 'Runner lease expired; job requeued',
+          updatedAt: timestamp,
+          attempt: outcome.attempt,
+        });
       } else {
         job.state = 'failed';
-        if (run) {
-          run.phase = 'runner_lost';
-          run.outcome = 'runner_lost';
-          run.status = 'runner_lost';
-          run.completedAt = timestamp;
-          run.updatedAt = timestamp;
-          run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
-          run.runner = null;
-        }
+        this.reapRun(run, {
+          phase: 'runner_lost',
+          outcome: 'runner_lost',
+          status: 'runner_lost',
+          completedAt: timestamp,
+          message: 'Runner lease expired',
+          updatedAt: timestamp,
+          attempt: null,
+        });
       }
       results.push({
         jobId: job.id,
         runId: job.runId,
-        requeued: canRequeue,
-        phase: run?.phase ?? 'runner_lost',
-        status: canRequeue ? 'queued' : 'failed',
+        requeued: outcome.result.requeued,
+        phase: outcome.result.phase,
+        status: outcome.result.status,
       });
     }
     return results;
+  }
+
+  /**
+   * Applies one lease-reap outcome to a run, when there is one.
+   *
+   * Three small fields set three times is simpler than three blocks that each
+   * set the same five fields, and the shape of the outcome is the rule in
+   * `lease-reap.ts` so this function cannot invent a fourth.
+   */
+  private reapRun(
+    run: ExecutionRun | undefined,
+    outcome: {
+      phase: RunPhase;
+      outcome: RunOutcome | null;
+      status: ExecutionRun['status'];
+      completedAt: string | null;
+      message: string;
+      updatedAt: string;
+      attempt: number | null;
+    },
+  ): void {
+    if (!run) return;
+    // `attempt: null` means "unchanged", which is what a cancellation is: the job
+    // did not retry, it stopped.
+    if (outcome.attempt !== null) run.attempt = outcome.attempt;
+    run.phase = outcome.phase;
+    run.outcome = outcome.outcome;
+    run.status = outcome.status;
+    run.completedAt = outcome.completedAt;
+    run.updatedAt = outcome.updatedAt;
+    run.error = { code: 'RUNNER_LOST', message: outcome.message };
+    run.runner = null;
   }
 
   async getReadiness(

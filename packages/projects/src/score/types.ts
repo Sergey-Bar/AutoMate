@@ -102,6 +102,18 @@ export interface ScoreInputs {
   uncoveredModules: readonly string[];
   /** Fingerprints that run at the e2e layer *and* in a unit suite. */
   singleLayerE2eFingerprints: readonly string[];
+  /**
+   * The totals of the windows before this one, oldest first.
+   *
+   * **A total is not an input to the arithmetic — it is a read.** Each entry names
+   * an instant and the total the score produced for the window ending there, which
+   * the service obtained by reading and scoring that window. `score()` publishes
+   * them and appends its own, because the one thing it must not do is re-score the
+   * rows twice: the function that is the score is not also the function that
+   * remembers history, and an input that is another score's output is the honest
+   * way to say so.
+   */
+  trend?: readonly { at: string; total: number }[];
 }
 
 /**

@@ -51,7 +51,7 @@ function screenSources(): Array<{ name: string; body: string }> {
     }
   };
   walk(path.join(SRC, 'routes', 'dashboard'));
-  for (const name of ['components/RunList.tsx', 'components/Cockpit.tsx']) {
+  for (const name of ['components/Main.tsx']) {
     const full = path.join(SRC, name);
     found.push({ name, body: readFileSync(full, 'utf8') });
   }
@@ -66,7 +66,7 @@ function screenSources(): Array<{ name: string; body: string }> {
  * 
 eplace(/\\/\*[\\s\\S]*?\\*\\//g) assumes no /* appears inside a string literal. One
  * does, and from that point every subsequent comment was read as code — so
- * Cockpit.tsx's own JSDoc, which quotes the exact sentence
+ * Main.tsx's own JSDoc, which quotes the exact sentence
  * Observed 0.8148148148148148 unit, was flagged as uncapped prose on a paragraph that is
  * already capped. A comment explaining a bug reproduced by the scanner is the hardest kind of
  * false positive to see, because the evidence and the defect look the same.
@@ -166,7 +166,7 @@ describe('every screen is composed, not just dressed', () => {
       expect(
         levels.filter((level) => level === 1).length === 1 ||
           // A screen with no headings of its own composes its title from a shared component;
-          // `dashboard/index.tsx` is the cockpit, whose `h1` lives in `Cockpit.tsx`.
+          // `dashboard.tsx` is MAIN, whose `h1` lives in `Main.tsx`.
           h1s.length === 0,
         `${'name'} opens with ${String(h1s.length)} h1 elements and ${String(levels.length)} ` +
           `headings in total. One screen, one name: a heading list that starts at h2 has no ` +
@@ -321,7 +321,7 @@ describe('the screens obey the typography rules the library asserts for itself',
         'numeric' +
         BACKTICK +
         ', so its digits are ' +
-        'proportional and the column shifts sideways as the score updates. The Cockpit matrix has ' +
+        'proportional and the column shifts sideways as the score updates. The MAIN matrix has ' +
         'had ' +
         BACKTICK +
         'numeric' +

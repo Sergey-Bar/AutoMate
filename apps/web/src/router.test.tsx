@@ -30,7 +30,7 @@ function mockAuthenticatedApi(): void {
       const url = String(input);
       if (url.endsWith('/api/v1/auth/session')) return new Response('{}', { status: 200 });
       if (url.endsWith('/api/v1/runs')) return new Response('[]', { status: 200 });
-      // `/dashboard` is the cockpit now, and the cockpit reads the registry first. An
+      // `/dashboard` is MAIN now, and MAIN reads the registry first. An
       // empty registry is the cheapest honest answer here: these tests are about
       // *routing*, and the onboarding screen is what an install with no project
       // renders.
@@ -50,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the root route owns the redirect to the cockpit', () => {
+describe('the root route owns the redirect to MAIN', () => {
   // This is the shape that made the render above cost 15 seconds instead of 1.5.
   //
   // The redirect was a rendered `<Navigate>` on a child route declared with
@@ -86,7 +86,7 @@ describe('the root route owns the redirect to the cockpit', () => {
 });
 
 describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
-  it('activates the dashboard route and renders the cockpit', async () => {
+  it('activates the dashboard route and renders MAIN', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
     await waitFor(
@@ -96,10 +96,10 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
   });
 
-  it('redirects the root route to the cockpit instead of a placeholder home', async () => {
+  it('redirects the root route to MAIN instead of a placeholder home', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/']} />);
-    // The heading, not a sub-state testid: the cockpit has two states — a report and
+    // The heading, not a sub-state testid: MAIN has two states — a report and
     // an onboarding screen — and both are named `Automate`, so this assertion holds
     // whichever one a bare install is in.
     await waitFor(
@@ -123,7 +123,7 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(container.querySelectorAll('[data-testid="dashboard-page"]')).toHaveLength(1);
   });
 
-  it('navigates from the cockpit to the runs list in one click', async () => {
+  it('navigates from MAIN to the runs list in one click', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
     await waitFor(
@@ -141,13 +141,13 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     const runs = screen.getAllByRole('link', { name: /runs/i })[0];
     expect(runs).toBeDefined();
     fireEvent.click(runs as HTMLElement);
-    // The **cockpit body** goes, not the layout: `/dashboard-page` is the layout that
-    // wraps either the cockpit or the child, so it is still here — and it *should* be,
+    // The **MAIN body** goes, not the layout: `/dashboard-page` is the layout that
+    // wraps either MAIN or the child, so it is still here — and it *should* be,
     // because a layout that unmounted with its child would remount every child on
     // every navigation.
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument(), {
       timeout: RENDER_TIMEOUT_MS,
     });
-    expect(screen.queryByTestId('cockpit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('main')).not.toBeInTheDocument();
   });
 });

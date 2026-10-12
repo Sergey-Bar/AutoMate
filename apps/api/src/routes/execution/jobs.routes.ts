@@ -203,4 +203,30 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
     );
     return c.json(toCanonicalRun(result.run), 200);
   });
+
+  /**
+   * The queue: what is waiting, what is in flight, and whose lease holds it.
+   *
+   * **A read that already existed, served.** Both stores implement
+   * `listJobs(workspaceId)`; nothing exposed it, so the only way to see a job
+   * queue was to be a runner that had just claimed one. An operator asking why
+   * a run was late had no answer from the API — not a slow answer, none.
+   *
+   * **The path is `/api/v1/execution/jobs`, and that is the collision this
+   * route avoids.** `/api/v1/jobs` belongs to the orchestration module and
+   * serves its own in-process envelope list; registering the same method and
+   * path here would have been a 404 for whichever caller lost the race, and
+   * `route-manifest.test.ts` asserts no method+path is registered twice, so it
+   * would have failed at mount rather than in production — which is the right
+   * place for it and the wrong response for the console.
+   *
+   * Workspace-scoped like every other read on this group: the parameter is the
+   * resolved `ws`, and a job in another workspace is not a job this caller can
+   * see. No lease credentials, because this is the operator's view rather than a
+   * runner's — a runner proves ownership per job on the paths above.
+   */
+  app.get('/api/v1/execution/jobs', async (c) => {
+    const jobs = await options.store.listJobs(ws);
+    return c.json({ jobs, workspaceId: ws });
+  });
 }

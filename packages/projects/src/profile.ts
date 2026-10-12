@@ -147,6 +147,47 @@ export type AutomateConfig = z.infer<typeof AutomateConfigSchema>;
 /** The filename the override is looked for under, at the repository root. */
 export const AUTOMATE_CONFIG_FILENAME = 'automate.config.json';
 
+/**
+ * A profile edit, as an API body rather than a file.
+ *
+ * ## Exactly the keys the merge can apply
+ *
+ * **Six fields, and they are `mergeConfig`'s six.** A patch that accepted a key
+ * the merge drops — `env` and `timeoutMs` are read-time concerns the profile does
+ * not store — would answer 200 for an edit that changed nothing, which is the
+ * failure a reader can least detect. `profile-patch.test.ts` asserts the two
+ * surfaces agree, so a future field added to one and not the other fails there
+ * rather than here.
+ *
+ * Every field is optional, and only the named keys are replaced — see `mergeConfig`
+ * for the direction and for why an append would be wrong. The version is accepted
+ * and ignored: it is a *file-format* marker, and an API caller editing the unit
+ * command should not have to send the repository file's schema version to be
+ * understood.
+ */
+export const ProjectProfilePatchSchema = z.object({
+  $schema: z.string().optional(),
+  version: z.literal(1).optional(),
+  commands: z.partialRecord(z.enum(SCORE_CATEGORIES), z.array(z.string().min(1)).min(1)).optional(),
+  artifactGlobs: ArtifactGlobList.optional(),
+  coverageGlobs: CoverageGlobList.optional(),
+  coverageFormats: z.array(z.string().min(1)).min(1).optional(),
+  excludedCells: ExcludedCellList.optional(),
+  targets: TargetSet.optional(),
+});
+
+export type ProjectProfilePatch = z.infer<typeof ProjectProfilePatchSchema>;
+
+/** The keys a patch may name, as `mergeConfig`'s editable surface sees them. */
+export const PROJECT_PROFILE_PATCH_KEYS = [
+  'commands',
+  'artifactGlobs',
+  'coverageGlobs',
+  'coverageFormats',
+  'excludedCells',
+  'targets',
+] as const;
+
 /** A detected proposal plus whatever the operator declared, and which won. */
 export interface ResolvedProfile {
   profile: ProjectProfile;

@@ -108,31 +108,39 @@ peerDependencyRules:
 # Review procedure: on or after the date, either confirm the advisory is fixed
 # upstream and drop the override, or move the date and say why it still applies.
 overrides:
+  # Reviewed 2026-10-11.
   # GHSA-vfh2-g5qg-2w2x / CVE-2024-45590 (body-parser DoS) reaches us through
-  # ajv 8.20.0's fast-uri < 3.1.1. Reviewed 2026-09-29.
+  # ajv 8.20.0's fast-uri < 3.1.1; first reviewed 2026-09-29.
   #
   # Raised 3.1.6 -> 3.1.7 on 2026-09-29: two further high advisories landed against
   # 3.1.6 itself — GHSA-qw65-cvwx-89v3 (authority injection via an unvalidated port
   # in `serialize`) and GHSA-58mr-gqgx-xq4g (host confusion via an unclosed bracket
-  # in the URI authority). 3.1.7 is the first version fixed for both. An override
-  # pinned to the version that was current when it was written is the failure mode
-  # this file's own header warns about, so a review date that arrives is a trigger
-  # to re-check the advisory rather than to move the date.
-  'ajv@8.20.0>fast-uri': 3.1.7
+  # in the URI authority). 3.1.7 was the first version fixed for both when that
+  # review happened; the registry has since published 3.1.8, which is the fix for
+  # GHSA-hrr3-gc8f-f4qj (the regexp DoS in the same authority parser), and that
+  # advisory was still live in `pnpm audit` against 3.1.7 until this row moved.
+  # An override pinned to the version that was current when it was written is the
+  # failure mode this file's own header warns about, so a review date that
+  # arrives is a trigger to re-check the advisory rather than to move the date.
+  'ajv@8.20.0>fast-uri': 3.1.8
   # GHSA-7fh5-64p2-3v2j (browserslist ReDoS) in 4.28.2 and earlier. Reviewed
-  # 2026-06-30.
-  'browserslist@4.28.2': 4.28.7
+  # 2026-10-11: 4.29.3 is the current 4.x, so this row moves forward a minor and
+  # the advisory stays closed.
+  'browserslist@4.28.2': 4.29.3
   # CVE-2025-5889 (brace-expansion ReDoS) in 1.x and 2.x, reached through
   # minimatch 10.2.5. The 5.x line is the maintained rewrite. Reviewed
-  # 2026-06-30.
-  'minimatch@10.2.5>brace-expansion': 5.0.9
+  # 2026-10-11: 5.0.12 is current, and matches the parent-scoped row below.
+  'minimatch@10.2.5>brace-expansion': 5.0.12
   # CVE-2025-8914 (postcss line-return parsing error), GHSA-hwj9-h5mp-3pg3 and
   # GHSA-7fp3-64rv-78g5 (postcss arbitrary code execution under non-default
-  # settings). 8.5.18 is the first fixed 8.x. Reviewed 2026-06-30.
-  'postcss@8.5.13': 8.5.18
+  # settings). 8.5.18 was the first fixed 8.x; reviewed 2026-10-11, 8.5.29 is
+  # current and carries several more fixes in the same line.
+  'postcss@8.5.13': 8.5.29
   # CVE-2024-55565 (nanoid predictable results when given a non-integer seed),
-  # reached through postcss. Reviewed 2026-06-30.
-  'postcss@8.5.18>nanoid': 3.3.18
+  # reached through postcss. Reviewed 2026-10-11: 3.3.20 is the current 3.x, and
+  # the 4.x line is not taken because postcss declares `^3` and a major here
+  # would be an API change in a transitive dependency.
+  'postcss@8.5.18>nanoid': 3.3.20
   # Two high-severity DoS advisories against brace-expansion, both reached through
   # minimatch (and so through ESLint's own config resolution and
   # typescript-eslint's): uncontrolled recursion on nested brace groups, and the same
@@ -146,7 +154,8 @@ overrides:
   #
   # An override rather than a bump because `brace-expansion` is transitive and nothing
   # here declares it; a direct bump would mean depending on a package the code does
-  # not import. Reviewed 2026-09-30.
+  # not import. Reviewed 2026-10-11: 5.0.12 is current and both advisories are
+  # closed against it.
   'minimatch@>=10.0.0 <11>brace-expansion': 5.0.12
   # GHSA-fx2h-pf6j-xcff (vite `server.fs.deny` bypass on Windows alternate paths,
   # fixed in 6.4.3) reached through `vitepress`, which pins vite 5. VitePress is a
@@ -161,8 +170,22 @@ overrides:
   # future breakage is caught by a gate rather than discovered in production. But
   # the combination is unsupported upstream, and the honest fix is a VitePress that
   # takes a patched vite, not a permanent override. Revisit when 2.x stabilises.
-  # Reviewed 2026-09-29.
-  'vitepress>vite': ^6.4.3
+  # Reviewed 2026-10-11: VitePress is still on the 1.x line that declares vite
+  # ^5.4.14, so the override stands and moves to the current 6.x patch (6.4.4)
+  # rather than being dropped.
+  'vitepress>vite': ^6.4.4
+  # GHSA-hm9v-46x5-whpr (seroval code injection through its own function
+  # serialization), reached through @tanstack/react-router's server runtime. The
+  # 1.6.3 patch is the same minor, so nothing here pins a fork. Remove this row
+  # when a direct dependency takes the patched version on its own. Reviewed
+  # 2026-10-11.
+  seroval@<=1.6.2: ^1.6.3
+  # GHSA-4w5j-6c7q-8vw2 (source-map-js arbitrary code injection through a
+  # malicious source map), reached through vitest's coverage chain — a dev-only
+  # path, which is why it waited for an audit rather than a lockfile bump. The
+  # 1.2.2 patch is the same minor. Remove this row when vitest takes the patched
+  # version on its own. Reviewed 2026-10-11.
+  source-map-js@>=1.0.0 <1.2.2: ^1.2.2
 
 catalog:
   '@eslint/js': ^10.0.1

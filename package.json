@@ -71,7 +71,8 @@
     "site:doctor": "node ./scripts/site-doctor.mjs",
     "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/docs-drift.test.mjs scripts/lib/ledger-json.test.mjs",
     "docs:dead-exports": "node --test scripts/lib/dead-exports.test.mjs",
-    "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline"
+    "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline",
+    "capability:evidence": "node ./scripts/capability-evidence.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -92,8 +93,8 @@
     "pg": "catalog:",
     "prettier": "catalog:",
     "turbo": "^2.10.4",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "catalog:",
+    "@typescript/native": "catalog:",
     "typescript-eslint": "catalog:",
     "vite": "catalog:",
     "vitest": "catalog:"

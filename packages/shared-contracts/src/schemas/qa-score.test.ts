@@ -115,11 +115,47 @@ const validScore: QaScore = {
     rows: { unit: 0.18, integration: 0.18, e2e: 0.18, performance: 0.18, security: 0.18 },
     pyramid: 0.1,
   },
+  // Two windows: the one before, and this. A one-point series would be a number
+  // wearing a chart's clothes, so the shape asserted here is the one the API
+  // publishes — earlier windows first, this score's own total last.
+  trend: {
+    points: [48, 62],
+    labels: ['2026-09-20T00:00:00.000Z', '2026-10-02T00:00:00.000Z'],
+  },
 };
 
 describe('the score contract', () => {
   it('accepts a complete score', () => {
     expect(QaScoreSchema.safeParse(validScore).success).toBe(true);
+  });
+
+  it('requires a trend whose points and labels agree in length', () => {
+    // A chart with six points and four labels draws six bars and labels four of
+    // them, which is a chart that lies about which point is which. Enforced here
+    // rather than promised in a comment.
+    expect(
+      QaScoreSchema.safeParse({
+        ...validScore,
+        trend: { points: [48, 62], labels: ['2026-09-20T00:00:00.000Z'] },
+      }).success,
+    ).toBe(false);
+    expect(
+      QaScoreSchema.safeParse({
+        ...validScore,
+        trend: {
+          points: [48, 62],
+          labels: ['2026-09-20T00:00:00.000Z', '2026-10-02T00:00:00.000Z'],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('defaults the trend to no series, not to a flat one', () => {
+    // "No earlier window was read" and "the score did not move" are different
+    // claims, and a default that invented a flat line would be the second one.
+    const parsed = QaScoreSchema.parse({ ...validScore, trend: undefined });
+    expect(parsed.trend.points).toEqual([]);
+    expect(parsed.trend.labels).toEqual([]);
   });
 
   it('requires the capping term, because the total alone cannot be diagnosed', () => {

@@ -49,6 +49,8 @@ export * from './execution-event-line.js';
 export * from './legacy-reporter-adapter.js';
 export * from './reporter-upload.js';
 export * from './qa-score.js';
+export * from './decisions.js';
+export * from './kpi.js';
 export * from './run-command.js';
 export * from './copilot.js';
 export * from './tui-commands.js';

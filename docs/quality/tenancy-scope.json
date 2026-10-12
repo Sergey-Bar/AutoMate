@@ -24,14 +24,14 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 56,
+    "total": 58,
     "global": 13,
-    "workspaceScoped": 43,
-    "workspaceScopedWithHardBoundary": 15,
+    "workspaceScoped": 45,
+    "workspaceScopedWithHardBoundary": 17,
     "workspaceScopedNullable": 3,
     "workspaceScopedAbsent": 25,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
-    "interpretation": "`workspaceScopedAbsent` is 25 tables with no tenant column at all. It is **not** a claim that 25 tables are exploitable today: the product ships one tenant per installation, so most have no reader that can cross workspaces. It is a claim that **nothing in the tree knows that**, which means the boundary is a convention rather than a constraint, and that the next table added without a column will be indistinguishable from the twenty-five that already are. `P-20` tracks the subset where the gap is live today (`runs` and `audit_events` nullable, `trends` absent)."
+    "interpretation": "`workspaceScopedAbsent` is 25 tables with no tenant column at all. It is **not** a claim that 25 tables are exploitable today: the product ships one tenant per installation, so most have no reader that can cross workspaces. It is a claim that **nothing in the tree knows that**, which means the boundary is a convention rather than a constraint, and that the next table added without a column will be indistinguishable from the twenty-five that already are. `P-20` tracks the subset where the gap is live today (`runs` and `audit_events` nullable, `trends` absent). The `not-null` count moved from 15 to 17 on 2026-10-12, and the count is the small part of what happened: the reader learned the `uuid` spelling of `workspace_id` the same day, and found the two newest tables (`decision_records`, `derived_score_points`) had declared that spelling — a column type that **failed** against `DEFAULT_WORKSPACE_ID` being `'default-workspace'`, a name rather than a uuid, with `22P02` on every read and write of the default install. Both are `text` now, like every other tenant key in the schema, and `scripts/lib/tenancy-scope.mjs` reads either spelling because a reader that silently reports a hard boundary as absent is worse than one that has never read."
   },
   "tables": {
     "installations": {
@@ -313,6 +313,16 @@
       "scope": "workspace",
       "column": "absent",
       "reason": "Tenant-owned reporting aggregates. No workspace column, which is the specific subject of the open P-20 row at `packages/db/src/schema/dashboard.ts:406`."
+    },
+    "decision_records": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A decision names what one team accepted about their own suite — the most tenant-private row in the product. Hard boundary: every method on both stores takes the workspaceId and the SQL predicates are in the query rather than checked after the fact, which is what decision-store-parity.test.ts asserts in both the Drizzle and the in-memory implementation. (The column was `absent` here for one wave while migration 0026 already declared `workspace_id NOT NULL`: the reader matched only the `text` spelling of the column and this schema uses `uuid`, which is precisely the class of failure this register exists to make visible. `scripts/lib/tenancy-scope.mjs` now reads both spellings and its test pins the uuid one.)"
+    },
+    "derived_score_points": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A project's score history names what one team's suite scored and is as tenant-private as the verdicts beside it. Hard boundary: the unique key is `(workspace_id, project_id, at)`, so a point for one workspace cannot collide with or be read as another's, and `DrizzleScorePointStore` predicates on the workspace in both the upsert and the series read rather than filtering after the fact — asserted by the cross-workspace test in `services/derived-score-points.test.ts`, which reads and writes under `DEFAULT_WORKSPACE_ID` so the `22P02` that shipped in `decision_records` for one wave cannot repeat here."
     }
   }
 }

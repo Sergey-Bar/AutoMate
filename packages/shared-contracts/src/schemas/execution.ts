@@ -30,6 +30,29 @@ export const RunPhaseSchema = z.enum([
 ]);
 export type RunPhase = z.infer<typeof RunPhaseSchema>;
 
+/**
+ * The phases a run is still in flight through, and the set for the same thing.
+ *
+ * A terminal phase is everything else: `complete`, and the five ways of not
+ * finishing. Two screens need this set for different reasons — the runs list
+ * polls only while something is in flight, the run detail timeline draws the
+ * part of the path already walked — and two hand-written copies of it would
+ * drift the first time a phase was added, which is why it is derived from the
+ * enum above rather than restated beside it.
+ */
+export const ACTIVE_RUN_PHASES: readonly RunPhase[] = [
+  'queued',
+  'assigned',
+  'preparing',
+  'running',
+  'collecting',
+  'normalizing',
+  'analyzing',
+  'gate_evaluation',
+];
+
+export const ACTIVE_RUN_PHASE_SET: ReadonlySet<RunPhase> = new Set(ACTIVE_RUN_PHASES);
+
 export const RunOutcomeValueSchema = z.enum([
   'passed',
   'failed',

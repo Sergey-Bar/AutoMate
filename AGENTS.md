@@ -390,7 +390,14 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 
 ### Server Patterns (Hono / Effect)
 
-- Use Effect for dependency injection and error handling in services.
+- Effect is used at **one boundary**: `apps/api/src/bootstrap` reads and validates
+  configuration through it, and the composition root runs that program with
+  `Effect.runSync`. Two files, one import. Everything else on the request path is
+  plain TypeScript — see `docs/migration/unified-repository-migration.md:517` for the
+  policy and the reason (framework-neutral domain packages), and
+  `apps/api/src/bootstrap/index.ts` for the shape to copy. Writing an Effect service
+  layer elsewhere is not following the documented pattern; it is inventing a second
+  one.
 - Request validation via Zod schemas defined in `shared-contracts`.
 - Return structured JSON responses with appropriate HTTP status codes.
 - One error boundary for the app (`src/errors/boundary.ts`); every response carries a

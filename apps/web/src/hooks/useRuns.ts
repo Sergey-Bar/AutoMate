@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ACTIVE_RUN_PHASE_SET } from '@automate/shared-contracts';
 import { defaultApiClient, isAbortError, type Run, type RunEvent } from '../lib/api.js';
 import { useRequestLifecycle } from './use-request-lifecycle.js';
 
-const ACTIVE_PHASES = new Set<Run['phase']>([
-  'queued',
-  'assigned',
-  'preparing',
-  'running',
-  'collecting',
-  'normalizing',
-  'analyzing',
-  'gate_evaluation',
-]);
+// The phase vocabulary lives once, in the contract's `RunPhaseSchema`, and
+// `ACTIVE_RUN_PHASE_SET` is derived from it there. This file used to restate the
+// eight in-flight phases by hand, and so did the run detail screen, which is two
+// copies of one rule — the first new phase would have been active in the list and
+// static in the timeline.
 
 export function projectRunEvent(run: Run, event: RunEvent): Run {
   switch (event.type) {
@@ -140,5 +136,5 @@ export function useRuns(api = defaultApiClient) {
 }
 
 export function isRunActive(run: Run): boolean {
-  return ACTIVE_PHASES.has(run.phase);
+  return ACTIVE_RUN_PHASE_SET.has(run.phase);
 }

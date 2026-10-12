@@ -11,6 +11,7 @@
     "lint": "eslint --max-warnings=0 src/"
   },
   "dependencies": {
+    "@automate/projects": "workspace:*",
     "@automate/realtime": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
     "@automate/ui": "workspace:*",

@@ -32,6 +32,40 @@ const doctor = path.join(root, 'scripts', 'site-doctor.mjs');
 const sitePackage = path.join(root, 'site');
 const siteTheme = path.join(sitePackage, '.vitepress', 'theme', 'custom.css');
 
+/**
+ * Writes the real stylesheet back, and retries while Windows holds it.
+ *
+ * **The restore used to be a bare `writeFileSync` in a `finally`, and it failed.**
+ * The suite ran during a `verify` pass, the write raised `UNKNOWN, open` — a
+ * transient handle lock on this platform — and the file kept the
+ * `.rogue { color: #ff0000; }` the test had appended to prove check 8 can fail.
+ * The tree was left dirty by the gate that checks the tree, which is worse than
+ * the failure it was trying to report.
+ *
+ * A bounded retry is the honest shape of the fix: the lock is transient, and a
+ * restore that cannot complete must still fail loudly rather than leave the
+ * source file mutated.
+ *
+ * @param {string} contents
+ */
+function restoreTheme(contents) {
+  let lastError = /** @type {unknown} */ (null);
+  for (const delay of [0, 50, 200, 800]) {
+    if (delay > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delay);
+    try {
+      writeFileSync(siteTheme, contents, 'utf8');
+      return;
+    } catch (failure) {
+      lastError = failure;
+    }
+  }
+  throw new Error(
+    `custom.css could not be restored after mutation, so the tree is left dirty: ${String(
+      lastError instanceof Error ? lastError.message : lastError,
+    )}`,
+  );
+}
+
 /** Build the site, so the DOM half has something to read. */
 function buildSite() {
   execFileSync('npx', ['--no-install', 'vitepress', 'build', '.'], {
@@ -119,7 +153,7 @@ test('the token half of check 8 still fails on a site that ships its own palette
       'a site that stopped importing the product tokens still passed check 8',
     );
   } finally {
-    writeFileSync(siteTheme, original, 'utf8');
+    restoreTheme(original);
   }
   // And the restore is itself asserted: a test that leaves the tree broken has moved
   // the defect rather than caught it.
@@ -136,7 +170,7 @@ test('check 8 catches a literal colour in the site stylesheet', () => {
     writeFileSync(siteTheme, `${original}\n.rogue { color: #ff0000; }\n`, 'utf8');
     assert.match(runDoctor(), /has a literal colour/, 'a literal hex in the site passed check 8');
   } finally {
-    writeFileSync(siteTheme, original, 'utf8');
+    restoreTheme(original);
   }
   assert.equal(readFileSync(siteTheme, 'utf8'), original);
 });

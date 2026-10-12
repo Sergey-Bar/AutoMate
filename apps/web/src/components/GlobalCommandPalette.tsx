@@ -1,19 +1,17 @@
 import { CommandPalette } from '@automate/ui';
 import { useCommandStore, useCommandActions } from '../hooks/useCommandActions.js';
-import { useTheme } from '../theme/ThemeProvider.js';
 import { useNavigate } from '@tanstack/react-router';
 import { useMemo } from 'react';
 
 export function GlobalCommandPalette() {
   const actions = useCommandStore();
-  const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
 
   const builtInActions = useMemo(
     () => [
       {
         id: 'nav-dashboard',
-        label: 'Go to Cockpit',
+        label: 'Go to MAIN',
         onSelect: () => void navigate({ to: '/dashboard' }),
       },
       {
@@ -21,16 +19,14 @@ export function GlobalCommandPalette() {
         label: 'Go to Runs',
         onSelect: () => void navigate({ to: '/dashboard/runs' }),
       },
-      {
-        id: 'theme-toggle',
-        label: 'Toggle Theme',
-        onSelect: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
-      },
+      // **No theme action.** The product ships one theme — dark — so there is
+      // nothing to toggle, and a palette entry that does nothing is an
+      // affordance the product cannot honour.
       // **No "Sign Out" action.** There is no session to end on an open install, and a
       // palette entry that navigated to a route which no longer exists would leave the
       // user on a dead link.
     ],
-    [navigate, setTheme, theme],
+    [navigate],
   );
 
   useCommandActions(builtInActions);

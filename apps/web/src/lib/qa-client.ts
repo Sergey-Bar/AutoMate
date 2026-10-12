@@ -1,6 +1,8 @@
 import { z } from 'zod/v4';
 import {
   CopilotAnswerSchema,
+  DecisionListResponseSchema,
+  DecisionTimelineSchema,
   ProjectDetailResponseSchema,
   ProjectListResponseSchema,
   QaFlakyResponseSchema,
@@ -8,13 +10,17 @@ import {
   QaHollowResponseSchema,
   QaScoreSchema,
   QaStructureResponseSchema,
+  ScoreDeltaSchema,
   type CopilotAnswer,
+  type Decision,
+  type DecisionTimeline,
   type ProjectDetailResponse,
   type QaFlakyResponse,
   type QaGapsResponse,
   type QaHollowResponse,
   type QaScore,
   type QaStructureResponse,
+  type ScoreDelta,
   type RegisteredProject,
 } from './qa.js';
 
@@ -38,11 +44,34 @@ export interface QaClient {
   listProjects(): Promise<RegisteredProject[]>;
   getProject(projectId: string): Promise<ProjectDetailResponse>;
   getScore(projectId: string): Promise<QaScore>;
+  /** The score as it moved between one instant and now. */
+  getScoreDiff(projectId: string, since: string): Promise<ScoreDelta>;
   getGaps(projectId: string): Promise<QaGapsResponse>;
   getHollow(projectId: string): Promise<QaHollowResponse>;
   getFlaky(projectId: string): Promise<QaFlakyResponse>;
   getStructure(projectId: string): Promise<QaStructureResponse>;
   askCopilot(projectId: string, question: string): Promise<CopilotAnswer>;
+  /**
+   * The decision rows for one project, filtered.
+   *
+   * The three predicates are the server's, and the two the daily screen asks are
+   * `verdict=open` with an `ownerId` (what is waiting on me) and `since` (what I
+   * decided). A predicate with no filter at all returns the project list, open
+   * first — which is why the arguments here are optional rather than required.
+   *
+   * **`readonly` because the contract's array is one.** The server's schema
+   * declares the list immutable, and a client that promised a mutable copy would
+   * be a promise the wire never made.
+   */
+  getDecisions(
+    projectId: string,
+    query?: { verdict?: string; ownerId?: string; since?: string },
+  ): Promise<readonly Decision[]>;
+  /** Verdicts by week, by owner, and the findings nobody has decided. */
+  getTimeline(
+    projectId: string,
+    options?: { weeks?: number; findingIds?: readonly string[] },
+  ): Promise<DecisionTimeline>;
   startRun(
     projectId: string,
     commandId: string,
@@ -113,6 +142,38 @@ export function createQaClient(baseUrl = '', fetchImpl: typeof fetch = fetch): Q
         { question },
         CopilotAnswerSchema,
       ),
+    // **Every query value is encoded, every path is built here.** A screen builds
+    // no URL and no query string, which is how the "no screen constructs a path
+    // with a project id in it" rule survives the day a predicate needs two
+    // values rather than one.
+    getScoreDiff: (projectId, since) =>
+      get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/qa/score/diff?since=${encodeURIComponent(since)}`,
+        ScoreDeltaSchema,
+      ),
+    getDecisions: (projectId, query = {}) => {
+      const search = new URLSearchParams();
+      if (query.verdict !== undefined) search.set('verdict', query.verdict);
+      if (query.ownerId !== undefined) search.set('ownerId', query.ownerId);
+      if (query.since !== undefined) search.set('since', query.since);
+      const suffix = search.size > 0 ? `?${search.toString()}` : '';
+      return get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/decisions${suffix}`,
+        DecisionListResponseSchema,
+      ).then((list) => list.decisions);
+    },
+    getTimeline: (projectId, options = {}) => {
+      const search = new URLSearchParams();
+      if (options.weeks !== undefined) search.set('weeks', String(options.weeks));
+      if (options.findingIds !== undefined && options.findingIds.length > 0) {
+        search.set('findingIds', options.findingIds.join(','));
+      }
+      const suffix = search.size > 0 ? `?${search.toString()}` : '';
+      return get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/decisions/timeline${suffix}`,
+        DecisionTimelineSchema,
+      );
+    },
     // **A command id, never an executable.** The body has no field that could carry
     // an argv, so the client cannot start a command the profile does not declare.
     startRun: (projectId, commandId, idempotencyKey) =>

@@ -84,6 +84,25 @@ interface ActiveJob {
   sequence: number;
   eventChain: Promise<void>;
   promise: Promise<void>;
+  /**
+   * The instant the current lease ends, as the **latest** heartbeat reported it.
+   *
+   * A claim carries the lease it was claimed under; every heartbeat after that
+   * reports the lease the server has since extended it to. Keeping the live value
+   * here rather than re-reading `claim.leaseExpiresAt` is the whole of P6: the
+   * deadline must be computed from the lease this runner holds *now*, not from the
+   * one it was handed when it started.
+   */
+  leaseExpiresAt: string;
+  /**
+   * The in-flight run's deadline re-arm, when the provider supported one.
+   *
+   * Set by the executor the first time it is called with a `reArmDeadline` seam,
+   * and invoked by the next heartbeat with the remaining budget. A provider that
+   * cannot re-arm (a run that never started) simply never fills it, and the job
+   * is bounded by the timeout it was claimed with.
+   */
+  reArm?: (deadlineMs: number) => void;
 }
 
 type DeliveryOutcome =
@@ -305,6 +324,31 @@ export class RunnerService {
     for (const jobId of new Set([...response.cancelledJobIds, ...response.cancelRequestedJobIds])) {
       this.cancel(jobId);
     }
+    // **P6: the lease the heartbeat reports is the lease this runner holds.**
+    // The server extends `leaseExpiresAt` for every job this runner holds, so a
+    // renewed lease arrives once for the whole batch and applies to each. A job
+    // whose lease is not renewed is *already* reclaimable by another runner, and
+    // its deadline is not re-armed — the fencing token is what stops the
+    // completion from landing, and the deadline is what stops the work.
+    if (response.leaseExpiresAt === undefined) return;
+    for (const job of this.active.values()) {
+      if (new Date(response.leaseExpiresAt).getTime() <= new Date(job.leaseExpiresAt).getTime()) {
+        continue;
+      }
+      job.leaseExpiresAt = response.leaseExpiresAt;
+      job.reArm?.(this.remainingLeaseMs(job));
+    }
+  }
+
+  /**
+   * The milliseconds left on the job's current lease.
+   *
+   * At least one millisecond, because a zero or negative budget would kill the
+   * child before it started: a lease that expired while this tick was in flight
+   * is a race the *interval* loses, not the child.
+   */
+  private remainingLeaseMs(job: ActiveJob): number {
+    return Math.max(1, new Date(job.leaseExpiresAt).getTime() - this.now().getTime());
   }
 
   private startClaim(claim: JobClaim): void {
@@ -316,6 +360,7 @@ export class RunnerService {
       sequence: this.options.spool.lastSequence(claim.jobId),
       eventChain: Promise.resolve(),
       promise: Promise.resolve(),
+      leaseExpiresAt: claim.leaseExpiresAt,
     };
     this.active.set(claim.jobId, state);
     state.promise = this.executeClaim(claim, state).catch(this.onError);
@@ -371,17 +416,25 @@ export class RunnerService {
         command === undefined ? stringValue(specification['playwrightProject']) : undefined;
       const targetUrl =
         stringValue(specification['targetUrl']) ?? stringValue(specification['baseUrl']);
-      const remainingLeaseMs = Math.max(
-        1,
-        new Date(claim.leaseExpiresAt).getTime() - this.now().getTime(),
-      );
       const result = await this.options.executor.execute({
         jobId: claim.jobId,
         targetUrl,
         project,
         playwrightProject: project,
         command,
-        deadlineMs: Math.min(claim.timeoutMs, remainingLeaseMs),
+        // **P6: the budget comes from the lease this runner holds now**, which is
+        // the claim's lease until a heartbeat renews it — and the remaining time,
+        // not the original timeout, so a job claimed with a long timeout and a
+        // short lease is bounded by the lease.
+        deadlineMs: Math.min(claim.timeoutMs, this.remainingLeaseMs(state)),
+        // The seam the provider (a generic spawn) hands its timer through: it
+        // calls this with a function that re-arms that timer, and the next
+        // heartbeat stores it on `state.reArm` and invokes it with the remaining
+        // budget. A provider that never calls it is a provider whose deadline is
+        // not re-armable, and its job is bounded by the timeout it claimed with.
+        reArmDeadline: (reArm) => {
+          state.reArm = reArm;
+        },
         signal: state.controller.signal,
         redactions: [...(this.options.redactions ?? [])],
         onEvent: async (event) => {

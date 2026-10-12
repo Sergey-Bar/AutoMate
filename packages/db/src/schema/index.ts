@@ -4,3 +4,5 @@ export * from './automate.js';
 export * from './vault.js';
 export * from './identity.js';
 export * from './execution.js';
+export * from './decisions.js';
+export * from './score-points.js';

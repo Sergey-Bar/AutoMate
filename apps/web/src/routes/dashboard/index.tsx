@@ -95,7 +95,7 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
       {/*
         The launch form lives here rather than on `/dashboard`.
 
-        The cockpit's job is to say what is blocking you, and a form is not that — and
+        MAIN's job is to say what is blocking you, and a form is not that — and
         putting an eight-field form above the verdict made the home page a page you had
         to fill in before it told you anything. Everything here is evidence *about* runs,
         so it belongs with the runs.
@@ -119,13 +119,13 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
         <EmptyState
           data-testid="runs-list-empty"
           title="No execution evidence"
-          description="Launch a run with the form above to create the first one, or let the cockpit show what is blocking you."
+          description="Launch a run with the form above to create the first one, or let MAIN show what is blocking you."
           action={
             <a
               href="/dashboard"
               className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
             >
-              Open the cockpit
+              Open MAIN
             </a>
           }
         />

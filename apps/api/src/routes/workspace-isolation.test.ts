@@ -82,7 +82,10 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'execution stores',
     files: [
       'execution/canonical.ts',
+      'execution/decision-store.ts',
+      'execution/drizzle-decision-store.ts',
       'execution/drizzle-execution-store.ts',
+      'execution/in-memory-decision-store.ts',
       'execution/in-memory-execution-store.ts',
       'execution/quality-gate.ts',
       'execution/types.ts',
@@ -163,6 +166,17 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
       'services/qa-score-service.ts',
       'routes/projects.ts',
     ],
+  },
+  {
+    // The score's photographs. Both halves are claimed because both touch a
+    // workspace id: one upserts a point with it and the other reads the project's
+    // points back with it, and a series readable across tenants would chart one
+    // workspace's score history as another's. The unique key is
+    // `(workspace_id, project_id, at)` — so a point for one workspace cannot
+    // collide with another's — and `derived-score-points.test.ts` writes under
+    // one workspace and reads under a second to prove the second sees nothing.
+    family: 'derived score points',
+    files: ['services/derived-score-points.ts', 'services/drizzle-derived-score-points.ts'],
   },
 ];
 

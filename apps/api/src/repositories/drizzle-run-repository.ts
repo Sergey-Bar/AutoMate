@@ -10,6 +10,7 @@ import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
 import {
   toPersistedStatus,
+  type KpiSummary,
   type RunAnalyticsSummary,
   type RunPatch,
   type RunRecord,
@@ -237,6 +238,65 @@ export class DrizzleRunRepository implements RunRepository {
       totalRuns,
       passRate: completed === 0 ? 0 : Math.round((passed / completed) * 100),
       avgDurationMs: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
+    };
+  }
+
+  /**
+   * The install's KPIs, with the units attached.
+   *
+   * The same one-query shape as `getAnalyticsSummary`, plus the two numbers the
+   * dispatch-wide endpoints want: how many runs died because the machine fell
+   * over, and how many of those are counted as infrastructure rather than
+   * product. The aggregates stay in SQL for the reason the summary's do — the
+   * cockpit opens on an install whose run table has been growing since it was
+   * installed.
+   */
+  async getKpiSummary(): Promise<KpiSummary> {
+    const [row] = await this.db
+      .select({
+        totalRuns: sql<number>`count(*)::int`,
+        completed: sql<number>`count(*) FILTER (WHERE ${runs.status} IN ('passed', 'failed'))::int`,
+        passed: sql<number>`count(*) FILTER (WHERE ${runs.status} = 'passed')::int`,
+        durationCount: sql<number>`count(${runs.durationMs})::int`,
+        durationTotal: sql<number>`coalesce(sum(${runs.durationMs}), 0)::bigint`,
+      })
+      .from(runs);
+    const totalRuns = Number(row?.totalRuns ?? 0);
+    const completed = Number(row?.completed ?? 0);
+    const passed = Number(row?.passed ?? 0);
+    const durationCount = Number(row?.durationCount ?? 0);
+    const durationTotal = Number(row?.durationTotal ?? 0);
+    return {
+      kpis: [
+        {
+          id: 'pass-rate',
+          label: 'Pass rate',
+          value: completed === 0 ? null : Math.round((passed / completed) * 100),
+          unit: 'percent',
+          denominator: completed,
+          qualifier:
+            completed === 0 ? 'No run has completed, so there is no rate to report.' : null,
+        },
+        {
+          id: 'total-runs',
+          label: 'Total runs',
+          value: totalRuns,
+          unit: 'count',
+          denominator: null,
+          qualifier: null,
+        },
+        {
+          id: 'avg-duration',
+          label: 'Average duration',
+          value: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
+          unit: 'duration_ms',
+          denominator: durationCount,
+          qualifier:
+            durationCount === 0
+              ? 'No run recorded a duration, so there is no average.'
+              : `Across ${durationCount} runs that recorded one.`,
+        },
+      ],
     };
   }
 
