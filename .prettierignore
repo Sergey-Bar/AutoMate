@@ -32,6 +32,18 @@ pnpm-lock.yaml
 # scripts use real globs, the exclusion has to be explicit, and it is.
 packages/db/drizzle/meta/
 
+# The generated OpenAPI document, for the same reason as the Drizzle metadata above:
+# its bytes are the generator's, and a formatter's opinion about JSON array
+# wrapping is not one the generator shares. `scripts/openapi.mjs` writes
+# `JSON.stringify(document, null, 2)`, which puts one array element per line;
+# prettier collapses a short array onto one. Left in scope, `format:check` rewrites
+# the file and then `docs:check`'s staleness test regenerates it and reports drift
+# — a permanently red gate created by two tools disagreeing about a file neither of
+# them authored. The drift test is what decides these bytes: it runs the generator
+# and compares the committed artefact, so an edit here without a regeneration still
+# fails. This exclusion makes the formatter agree with that, not the other way.
+docs/api/
+
 # Agent definitions in `.github/agents` are **not** excluded: they are prose a person
 # edits, and the twenty-entry glob list that predated real globs never mentioned that
 # directory, so twelve of them had never been formatted or checked. Listed here only

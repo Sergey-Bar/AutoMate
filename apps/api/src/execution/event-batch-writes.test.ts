@@ -20,10 +20,19 @@ import path from 'node:path';
  * the thing being pinned is that the write is not in the loop at all, which is
  * visible in the code and invisible in a mock's call log. The behavioural
  * guarantee that the last write wins is covered by the store's own event-application
- * tests in `drizzle-execution-store.test.ts`, which is where a transformation that
- * got the ordering wrong would actually be caught.
+ * tests, which is where a transformation that got the ordering wrong would
+ * actually be caught.
+ *
+ * Read from the canonical seam, where `appendEvents` now lives. The durable store
+ * was split into four modules along seams the file already contained, and this
+ * method moved with the runs it writes — so the file this reads moved with it,
+ * and the delegation in `drizzle-execution-store.ts` is deliberately not what is
+ * asserted: that would read the composer and prove nothing about the write.
  */
-const source = readFileSync(path.join(import.meta.dirname, 'drizzle-execution-store.ts'), 'utf8');
+const source = readFileSync(
+  path.join(import.meta.dirname, 'drizzle-execution-store-canonical.ts'),
+  'utf8',
+);
 
 /** The body of the per-event `for` loop, and nothing else. */
 function completeJobLoop(): string {
@@ -65,7 +74,7 @@ describe('the run row is written once per batch, not once per event', () => {
     //
     // Sliced *up to* the outbox append rather than from it: the first version
     // started at that index, which is downstream of the write it was looking for.
-    const marker = source.indexOf('await this.appendOutboxBatch(tx, outboxBatch);');
+    const marker = source.indexOf('await this.outbox.appendBatch(tx, outboxBatch);');
     expect(marker, 'the outbox append is still where it was').toBeGreaterThan(-1);
     const loopEnd = source.indexOf('for (const [runId, sequence] of eventSequenceByRun)');
     expect(loopEnd, 'the single write follows the loop').toBeGreaterThan(-1);

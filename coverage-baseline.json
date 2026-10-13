@@ -119,6 +119,12 @@
     "functions": 97.22,
     "lines": 99.25
   },
+  "packages/tool-sdk": {
+    "statements": 93.61,
+    "branches": 90.62,
+    "functions": 100,
+    "lines": 94.73
+  },
   "packages/ui": {
     "statements": 67.13,
     "branches": 84.27,

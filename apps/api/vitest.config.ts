@@ -68,14 +68,15 @@ export default defineConfig({
         // fails if anything outside a `*.test.ts` imports from there — so the
         // directory cannot quietly become a second product package.
         'src/test-support/**',
-        // MEASURED, not asserted, and the register carries the number: lifting this
-        // puts the file at 76.11% statements / 58.48% branches and drops `apps/api` from
-        // 93.95 to 91.52 statements and 84.71 to 79.42 branches — below the 93/80
-        // floors. The named gap is the runner lifecycle, which
-        // `runner-lifecycle.drizzle.test.ts` now covers, plus `getReadiness` and the
-        // `mapRuns` batch loader. `docs/quality/coverage-exclusions.md` row B4 has the
+        // MEASURED, not asserted, and the register carries the number: the durable
+        // `ExecutionStore` — the composer and the four seams it delegates to, which
+        // is what the glob names — is at 88.76% statements and 78.38% branches across
+        // the seams, and the row-mapping module at 83.82/60.97. Lifting it drops
+        // `apps/api` from 95.26/86.16/94.6/97.27 to 95.14/84.8/94.05/96.69, below the
+        // floors on all four. The named gap is the runner lifecycle and
+        // `getReadiness`. `docs/quality/coverage-exclusions.md` row B4 has the
         // per-method breakdown.
-        'src/execution/drizzle-execution-store.ts',
+        'src/execution/drizzle-execution-store*.ts',
         'src/infrastructure/drizzle-realtime-feed.ts',
         'src/execution/index.ts',
         'dist/**',

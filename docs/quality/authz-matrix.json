@@ -1,0 +1,684 @@
+{
+  "rows": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ready",
+      "status": 503,
+      "className": "server_error",
+      "limitation": "no dependency registry",
+      "note": "The harness mounts no dependency registry, so health answers 503 rather than reporting dependencies it does not have. The route is the productâ€™s; the answer is the harnessâ€™s."
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "status": 503,
+      "className": "server_error",
+      "limitation": "no dependency registry",
+      "note": "The harness mounts no dependency registry, so health answers 503 rather than reporting dependencies it does not have. The route is the productâ€™s; the answer is the harnessâ€™s."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/features",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/session",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reporter/events",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reporter/upload",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reporter/results",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runs",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs/:runId",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs/:runId/events",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runs/:runId/cancel",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runs/:runId/retry",
+      "status": 409,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs/:runId/gate",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs/:runId/artifacts",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/runs/:runId/artifacts/:artifactId",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/releases/:releaseId/readiness",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality-policies",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/quality-policies",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/maturity",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runners/register",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runners/:runnerId/heartbeat",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runners/:runnerId/jobs/claim",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/:jobId/events",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/:jobId/events/batch",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/:jobId/artifacts",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/:jobId/complete",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/execution/jobs",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/artifacts/:artifactId",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/runs/:runId",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/reporting/kpis",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/:domain",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/:domain/:action",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/chat/models",
+      "status": 503,
+      "className": "server_error",
+      "limitation": "the refusing AI gateway",
+      "note": "The harness mounts the unconfigured AI gateway, which refuses rather than needing a provider. A real gateway answers 200 here."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/chat/completions",
+      "status": 422,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/runs/:id",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/dashboard/runs/:id/status",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/tests",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/suites",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/runs/:runId/tests",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/analytics/summary",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/kpis/summary",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/quarantine",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/quarantine",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/dashboard/quarantine/:id",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/dashboard/quarantine/:id",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/quality-gates",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/quality-gates",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/quality-gates/:id",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "status": 400,
+      "className": "client_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/:id",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/decisions",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/decisions",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/decisions/timeline",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/detect",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/commands",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/run.start",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runs/:runId/stop",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/score",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/gaps",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/hollow",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/flaky",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/structure",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/toolchain",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/qa/score/diff",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/copilot/answer",
+      "status": 500,
+      "className": "server_error",
+      "limitation": "the empty database",
+      "note": "The project registry takes a database and the harness has none â€” the `{} as never` cast `route-manifest.test.ts` records â€” so every project read raises. Against a real PostgreSQL this route answers its own 2xx or 4xx."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runner/v1/enroll",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runner/v1/sync",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/runner/v1/jobs/:jobId/events/batch",
+      "status": 401,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automations",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automations",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/schedules",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/schedules",
+      "status": 400,
+      "className": "client_error",
+      "limitation": null,
+      "note": "Refuses before reading a resource: validation, a missing secret, or a body the harness did not supply."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/jobs",
+      "status": 200,
+      "className": "ok",
+      "limitation": null,
+      "note": "Answers without credentials or arguments, because the route needs neither and reads no resource."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automations/:id/jobs",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/jobs/:id/cancel",
+      "status": 404,
+      "className": "not_found",
+      "limitation": null,
+      "note": "Accepts the call with no credentials and refuses because the resource does not exist, which is the refusal the harness is designed to provoke."
+    }
+  ]
+}

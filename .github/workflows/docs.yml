@@ -86,6 +86,29 @@ jobs:
       - name: Build
         run: pnpm --filter @automate/docs build
 
+      # The second half of SITE-1's removal condition.
+      #
+      # The first half — a workflow that publishes `site/dist` with `pages: write`
+      # and `id-token: write` granted on purpose — is the deploy job below and was
+      # already here. This is the other half: the ten `site-doctor` checks run
+      # against the **built** output, so the report is a statement about the HTML
+      # that was just produced rather than about whichever build happened to be
+      # lying on a developer's disk.
+      #
+      # **Here, and not in the Check step above, and the ordering is the point.**
+      # `SITE_DOCTOR_BUILT=1` is an opt-in precisely because a build on a
+      # developer's disk may be stale. Placed after `Build`, the five DOM checks
+      # read the markup this job just emitted, and a check that would have
+      # reported `GAP` reports `pass` or `fail`. Placed anywhere earlier they
+      # would report `GAP` forever and the step would be decoration.
+      #
+      # The five source checks already ran in the Check step above, without the
+      # build, because they read the tree. Running them twice is the honest
+      # version of "the same ten": the suite is one command and this is where it
+      # can see everything.
+      - name: Run the site doctor against the built output
+        run: SITE_DOCTOR_BUILT=1 pnpm site:doctor
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:

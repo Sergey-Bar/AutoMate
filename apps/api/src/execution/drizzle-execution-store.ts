@@ -1,72 +1,19 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { normaliseFailure } from '../services/reporter-persistence.js';
-import { digestOf, tokenMatches } from './digest.js';
-import { normalizeArtifactKind } from './artifact-kind.js';
-import {
-  and,
-  asc,
-  desc,
-  eq,
-  gt,
-  inArray,
-  isNotNull,
-  isNull,
-  lt,
-  ne,
-  or,
-  sql,
-  type SQL,
-} from 'drizzle-orm';
-import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
-import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
-import {
-  DrizzleOutboxRepository,
-  type OutboxDatabase,
-  artifacts,
-  executionJobs,
-  gateEvaluations,
-  qualityPolicies,
-  runEvents,
-  runners,
-  runs,
-  tests,
-} from '@automate/db';
-import { EVENT_VERSION } from '@automate/shared-contracts';
-import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
-// The one declaration of the byte-store port. This file used to declare its own
-// `ArtifactBytesStore` with two of the three methods, structurally compatible with
-// the one in `infrastructure/artifact-store.ts` and therefore assignable to it — so
-// the compensating `delete` could be added to one and not the other, and a store
-// satisfying the narrower declaration would typecheck while being unable to clean
-// up after itself.
 import type { ArtifactBytesStore } from '../infrastructure/artifact-store.js';
-export type { ArtifactBytesStore };
-import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
-import {
-  ARTIFACT_BYTE_CAPACITY,
-  BoundedByteMap,
-  BoundedMap,
-  COMPLETION_HASH_CAPACITY,
-} from './bounded-map.js';
-import { deriveRunState, isRequestablePhase, isTerminalPhase } from './phase-outcome.js';
-import { reapOutcome } from './lease-reap.js';
-import { resolveSummary } from './summary.js';
-import { decodeRunCursor, normalizeEventLimit, normalizeRunLimit } from './run-paging.js';
+import { DrizzleExecutionArtifacts } from './drizzle-execution-store-artifacts.js';
+import { DrizzleExecutionCanonical } from './drizzle-execution-store-canonical.js';
+import { DrizzleExecutionLeases } from './drizzle-execution-store-leases.js';
+import { DrizzleExecutionOutbox } from './drizzle-execution-store-outbox.js';
+import type { AnyPgDb, DrizzleExecutionStoreOptions } from './drizzle-execution-store-rows.js';
 import type {
   ArtifactDescriptor,
   CreateRunInput,
   CreateRunResult,
-  DomainName,
-  DomainStatus,
-  ExecutionEvent,
+  EventApplyResult,
+  EventPage,
   ExecutionEventInput,
   ExecutionJob,
   ExecutionRun,
   ExecutionStore,
-  ExecutionStoreOptions,
-  ExecutionSummary,
-  ExecutionTestResult,
-  EventApplyResult,
   GateEvaluation,
   JobClaim,
   JobCompletionInput,
@@ -76,2306 +23,60 @@ import type {
   ReleaseReadiness,
   RegisteredRunner,
   RunPage,
-  EventPage,
   RunnerHealth,
   RunnerHeartbeat,
   RunnerManifest,
-  RunOutcome,
-  RunPhase,
   StoredArtifact,
 } from './types.js';
 
-type AnyPgDb =
-  | PgDatabase<PgQueryResultHKT, Record<string, unknown>>
-  | PgDatabase<PgliteQueryResultHKT, Record<string, unknown>>;
-
-type DbRow = Record<string, unknown>;
-
-export interface DrizzleExecutionStoreOptions extends ExecutionStoreOptions {
-  db: AnyPgDb;
-  workspaceId?: string;
-  artifactBytes?: ArtifactBytesStore;
-  outboxRetentionHours?: number;
-}
-
-const OUTBOX_DEFAULT_RETENTION_HOURS = 24;
-
-interface OutboxAppend {
-  workspaceId: string;
-  aggregateId: string;
-  eventType: string;
-  dedupeKey: string;
-  occurredAt: Date;
-  payload: Record<string, unknown>;
-}
-
-function nowDate(options: ExecutionStoreOptions): Date {
-  return options.now ? options.now() : new Date();
-}
+export type { ArtifactBytesStore, DrizzleExecutionStoreOptions };
 
 /**
- * Groups rows by a derived key, preserving input order within each group.
+ * The durable `ExecutionStore`, composed from its four seams.
  *
- * The child rows come back from Postgres in whatever order the planner chose, so
- * ordering is not preserved by the database; preserving it here keeps the mapped
- * runs identical to what the per-row path produced.
+ * This class holds **no logic**. It owns the four collaborators the store was
+ * split into — outbox, artifacts, leases, canonical — and forwards every method
+ * of the interface to the one that owns it, so the interface is answered by
+ * exactly one implementation each and no two of them can answer the same
+ * question differently.
+ *
+ * The split is along seams the file already contained, and the interface did not
+ * move: `store-parity.test.ts` runs the same twenty-six scenarios against this
+ * store and against the in-memory one, which is what makes the refactor provable
+ * rather than hopeful. The four modules and the row vocabulary they share:
+ *
+ * | Module | Owns |
+ * |---|---|
+ * | `drizzle-execution-store-outbox.ts` | event append, batch writes, retention policy |
+ * | `drizzle-execution-store-artifacts.ts` | artifact bytes, compensation, bounded maps |
+ * | `drizzle-execution-store-leases.ts` | claim, heartbeat, reap, the lease-scope predicate |
+ * | `drizzle-execution-store-canonical.ts` | runs, tests, results, summaries, the projection reads |
+ * | `drizzle-execution-store-rows.ts` | the row vocabulary every module reads through |
+ *
+ * The canonical half is the only one with a collaborator of its own: every
+ * durable write records an outbox envelope beside it, so the outbox is
+ * constructor-injected and cannot be quietly replaced by a write that emits
+ * nothing.
  */
-function groupBy<T>(rows: readonly T[], key: (row: T) => string): Map<string, T[]> {
-  const groups = new Map<string, T[]>();
-  for (const row of rows) {
-    const group = key(row);
-    const existing = groups.get(group);
-    if (existing === undefined) groups.set(group, [row]);
-    else existing.push(row);
-  }
-  return groups;
-}
-
-/**
- * Narrows a job predicate to a workspace. An omitted `workspaceId` stays
- * unscoped on purpose — only internal sweepers may call that way.
- */
-function jobScope(predicate: SQL | undefined, workspaceId: string | undefined): SQL | undefined {
-  if (predicate === undefined) return undefined;
-  if (workspaceId === undefined) return predicate;
-  return and(predicate, eq(executionJobs.workspaceId, workspaceId));
-}
-
-function iso(value: Date): string {
-  return value.toISOString();
-}
-
-function digest(value: unknown): string {
-  return digestOf(value);
-}
-
-function eventDigest(event: ExecutionEventInput): string {
-  return digest({
-    eventId: event.eventId,
-    sequence: event.sequence,
-    type: event.type,
-    occurredAt: event.occurredAt,
-    payload: event.payload ?? {},
-  });
-}
-
-function uuidFor(value: string): string {
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value))
-    return value.toLowerCase();
-  const bytes = createHash('sha256').update(value).digest().subarray(0, 16);
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = bytes.toString('hex');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function stringValue(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback;
-}
-
-function nullableString(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
-
-function numberValue(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-}
-
-function dateIso(value: unknown): string {
-  return value instanceof Date
-    ? value.toISOString()
-    : typeof value === 'string'
-      ? value
-      : new Date(0).toISOString();
-}
-
-function nullableDateIso(value: unknown): string | null {
-  return value === null || value === undefined ? null : dateIso(value);
-}
-
-function phaseValue(value: unknown): RunPhase {
-  return typeof value === 'string' ? (value as RunPhase) : 'queued';
-}
-
-function outcomeValue(value: unknown): RunOutcome {
-  return typeof value === 'string' ? (value as RunOutcome) : null;
-}
-
-function summaryFromRow(row: DbRow): ExecutionSummary {
-  return {
-    total: numberValue(row['total']),
-    passed: numberValue(row['passed']),
-    failed: numberValue(row['failed']),
-    flaky: numberValue(row['flaky']),
-    skipped: numberValue(row['skipped']),
-    blocked: numberValue(row['blocked']),
-    unknown: numberValue(row['unknown']),
-    durationMs:
-      row['durationMs'] === null || row['durationMs'] === undefined
-        ? null
-        : numberValue(row['durationMs']),
-  };
-}
-
-/**
- * The one spelling `tests.status` is written in.
- *
- * A runner may report either `timedOut` or `timed_out` — both appear in the
- * reporter adapters and in `ExecutionTestStatus` — and the column used to accept
- * both. It must not: `testStatus()` on the way back out does not recognise the
- * camelCase spelling and mapped it to `unknown`, so a timed-out test was recorded
- * as unobserved. Normalising here, on the way in, is what makes the two spellings
- * one state. Migration 0007 normalises any row already written the other way.
- */
-function dbTestStatus(
-  // Read as a raw string, because `ExecutionTestResult['status']` is the
-  // *normalised* vocabulary and no longer contains the legacy camelCase
-  // spelling that a runner may still report.
-  status: string,
-):
-  | 'queued'
-  | 'running'
-  | 'passed'
-  | 'failed'
-  | 'flaky'
-  | 'skipped'
-  | 'timed_out'
-  | 'blocked'
-  | 'cancelled'
-  | 'unknown' {
-  if (status === 'timedOut' || status === 'timed_out') return 'timed_out';
-  if (
-    status === 'queued' ||
-    status === 'running' ||
-    status === 'passed' ||
-    status === 'failed' ||
-    status === 'flaky' ||
-    status === 'skipped' ||
-    status === 'blocked' ||
-    status === 'cancelled' ||
-    status === 'unknown'
-  )
-    return status;
-  return 'unknown';
-}
-
-function mapTest(row: DbRow): ExecutionTestResult {
-  // Read as a raw string: the row may hold either spelling, and the type of
-  // `row['status']` is the *column* type, which no longer includes the legacy
-  // camelCase value — so the comparison needs the raw text.
-  const status = stringValue(row['status'] as unknown, 'unknown');
-  return {
-    id: stringValue(row['id']),
-    title: stringValue(row['title'], 'Untitled test'),
-    file: nullableString(row['file']),
-    // A row written before migration 0007 with the camelCase spelling still
-    // reads as a timeout, not as an unobserved test. Normalising on the way out
-    // means the fix is correct even for a database the migration has not reached.
-    status: (status === 'timedOut' ? 'timed_out' : status) as ExecutionTestResult['status'],
-    durationMs:
-      row['durationMs'] === null || row['durationMs'] === undefined
-        ? null
-        : numberValue(row['durationMs']),
-    attempt: numberValue(row['retryCount'], 1) + 1,
-    // **Why the test failed**, as the reporter stated it — migration 0022.
-    //
-    // This mapper is where the message was being lost even after the columns existed:
-    // the reporter wrote `error`, the row held it, and `mapTest` did not read it, so the
-    // canonical response carried a failed test with no reason and the dashboard had
-    // nothing to render. Three links in the chain — contract, write, read — and the read
-    // was the one still missing.
-    //
-    // `null` when the row holds neither, which is the honest state for a test recorded
-    // before the migration and for a producer that reported no reason; `canonictTest`
-    // turns that into a `null` error rather than an invented one.
-    error:
-      row['errorCode'] || row['errorMessage']
-        ? {
-            code: stringValue(row['errorCode'], 'TEST_FAILED'),
-            message: stringValue(row['errorMessage'], 'The test failed'),
-          }
-        : null,
-  };
-}
-
-function mapJob(row: DbRow): ExecutionJob {
-  return {
-    id: stringValue(row['id']),
-    runId: stringValue(row['runId']),
-    workspaceId: stringValue(row['workspaceId'], 'default-workspace'),
-    attempt: numberValue(row['attempt'], 1),
-    priority: numberValue(row['priority']),
-    state: stringValue(row['state'], 'queued') as ExecutionJob['state'],
-    availableAt: dateIso(row['availableAt']),
-    requiredCapabilities: Array.isArray(row['requiredCapabilities'])
-      ? row['requiredCapabilities'].filter((value): value is string => typeof value === 'string')
-      : [],
-    labels: Array.isArray(row['labels'])
-      ? row['labels'].filter((value): value is string => typeof value === 'string')
-      : [],
-    leaseId: nullableString(row['leaseId']),
-    leaseOwner: nullableString(row['leaseOwner']),
-    leaseExpiresAt: nullableDateIso(row['leaseExpiresAt']),
-    fencingToken: numberValue(row['fencingToken']),
-    heartbeatAt: nullableDateIso(row['heartbeatAt']),
-    cancelRequestedAt: nullableDateIso(row['cancelRequestedAt']),
-    idempotencyKey: stringValue(row['idempotencyKey']),
-    error:
-      row['errorCode'] || row['errorMessage']
-        ? {
-            code: stringValue(row['errorCode'], 'EXECUTION_ERROR'),
-            message: stringValue(row['errorMessage'], 'Execution failed'),
-          }
-        : null,
-    createdAt: dateIso(row['createdAt']),
-    updatedAt: dateIso(row['updatedAt']),
-  };
-}
-
-function mapRunner(row: DbRow): RegisteredRunner {
-  return {
-    id: stringValue(row['id']),
-    name: stringValue(row['name']),
-    version: stringValue(row['version']),
-    os: stringValue(row['os']),
-    arch: stringValue(row['arch']),
-    capabilities: Array.isArray(row['capabilities'])
-      ? row['capabilities'].filter((value): value is string => typeof value === 'string')
-      : [],
-    labels: Array.isArray(row['labels'])
-      ? row['labels'].filter((value): value is string => typeof value === 'string')
-      : [],
-    slots: numberValue(row['slots'], 1),
-    health: stringValue(row['health'], 'healthy') as RegisteredRunner['health'],
-    tokenHash: stringValue(row['tokenHash']),
-    tokenExpiresAt: dateIso(row['tokenExpiresAt']),
-    lastHeartbeatAt: nullableDateIso(row['lastHeartbeatAt']),
-    activeJobIds: [],
-    createdAt: dateIso(row['createdAt']),
-    updatedAt: dateIso(row['updatedAt']),
-  };
-}
-
-function mapPolicy(row: DbRow): QualityPolicy {
-  const required = (
-    Array.isArray(row['requiredDomains'])
-      ? row['requiredDomains'].filter((value): value is DomainName => typeof value === 'string')
-      : ['browser']
-  ) as DomainName[];
-  return {
-    id: stringValue(row['id']),
-    workspaceId: stringValue(row['workspaceId']),
-    name: stringValue(row['name']),
-    version: stringValue(row['version']),
-    hash: stringValue(row['hash']),
-    requiredDomains: required,
-    browserPassRateThreshold: numberValue(row['browserPassRateThreshold'], 100),
-    maxFlakyRate: numberValue(row['maxFlakyRate']),
-    maxDurationMs:
-      row['maxDurationMs'] === null || row['maxDurationMs'] === undefined
-        ? null
-        : numberValue(row['maxDurationMs']),
-    rules: Array.isArray(row['rules'])
-      ? row['rules'].filter(
-          (value): value is QualityPolicy['rules'][number] =>
-            typeof value === 'object' && value !== null,
-        )
-      : [],
-    createdAt: dateIso(row['createdAt']),
-    updatedAt: dateIso(row['updatedAt']),
-  };
-}
-
-function mapGate(row: DbRow): GateEvaluation {
-  const statuses =
-    row['domainStatuses'] && typeof row['domainStatuses'] === 'object'
-      ? (row['domainStatuses'] as Record<string, string>)
-      : {};
-  const domains: Record<DomainName, DomainStatus> = {
-    browser: (statuses['browser'] as DomainStatus | undefined) ?? 'unknown',
-    api: (statuses['api'] as DomainStatus | undefined) ?? 'not_configured',
-    mobile: (statuses['mobile'] as DomainStatus | undefined) ?? 'not_configured',
-    performance: (statuses['performance'] as DomainStatus | undefined) ?? 'not_configured',
-    security: (statuses['security'] as DomainStatus | undefined) ?? 'not_configured',
-    accessibility: (statuses['accessibility'] as DomainStatus | undefined) ?? 'not_configured',
-    other: (statuses['other'] as DomainStatus | undefined) ?? 'not_configured',
-  };
-  return {
-    id: stringValue(row['id']),
-    runId: stringValue(row['runId']),
-    releaseId: nullableString(row['releaseId']),
-    policyId: stringValue(row['policyId']),
-    policyVersion: stringValue(row['policyVersion']),
-    policyHash: stringValue(row['policyHash']),
-    status: stringValue(row['status'], 'unknown') as GateEvaluation['status'],
-    decision: stringValue(row['decision'], 'unknown') as GateEvaluation['decision'],
-    reasons: Array.isArray(row['reasons'])
-      ? row['reasons'].filter((value): value is string => typeof value === 'string')
-      : [],
-    evidenceRefs: Array.isArray(row['evidenceRefs'])
-      ? row['evidenceRefs'].filter((value): value is string => typeof value === 'string')
-      : [],
-    domainStatuses: domains,
-    evaluatedAt: dateIso(row['evaluatedAt']),
-  };
-}
-
-function mapEvent(row: DbRow): ExecutionEvent {
-  return {
-    eventId: stringValue(row['eventId']),
-    sequence: numberValue(row['sequence']),
-    type: stringValue(row['type']),
-    occurredAt: dateIso(row['occurredAt']),
-    payload:
-      row['payload'] && typeof row['payload'] === 'object'
-        ? (row['payload'] as Record<string, unknown>)
-        : {},
-    runId: stringValue(row['runId']),
-    jobId: stringValue(row['jobId']),
-    leaseId: stringValue(row['leaseId']),
-    fencingToken: numberValue(row['fencingToken']),
-    receivedAt: dateIso(row['receivedAt']),
-    hash: stringValue(row['hash']),
-  };
-}
-
-function mapArtifact(row: DbRow): ArtifactDescriptor {
-  return {
-    id: stringValue(row['id']),
-    runId: stringValue(row['runId']),
-    jobId: nullableString(row['jobId']),
-    testId: nullableString(row['testId']),
-    kind: normalizeArtifactKind(stringValue(row['kind'], 'other')),
-    name: stringValue(row['name']),
-    contentType: stringValue(row['contentType'], 'application/octet-stream'),
-    sizeBytes: numberValue(row['sizeBytes']),
-    checksum: stringValue(row['checksum'], '0'.repeat(64)),
-    storageKey: stringValue(row['storageKey']),
-    createdAt: dateIso(row['createdAt']),
-    expiresAt: nullableDateIso(row['expiresAt']),
-    legalHold: row['legalHold'] === true,
-    metadata:
-      row['metadata'] && typeof row['metadata'] === 'object'
-        ? (row['metadata'] as Record<string, unknown>)
-        : {},
-  };
-}
-
-function rowValue(row: unknown): DbRow {
-  return row && typeof row === 'object' ? (row as DbRow) : {};
-}
-
-/**
- * The most rows one child-fetching batch may carry.
- *
- * PostgreSQL's own ceiling is 65 535 bind parameters, so any value under it is legal —
- * but a statement that large is one nobody can read, plan, or attribute when it turns out
- * to be slow. 1 000 keeps a batch to one page and far enough below the hard limit that a
- * future change adding parameters per row cannot reach it from underneath the batch size.
- */
-const MAX_ROWS_PER_CHILD_QUERY = 1_000;
-
-/**
- * Split a list into fixed-size batches.
- *
- * Exactly one batch when the list is at or under the limit, so the ordinary path is
- * unchanged — this guards the pathological one rather than adding a code path for
- * everyone.
- */
-function* chunked<T>(values: readonly T[], size: number): Generator<T[]> {
-  for (let at = 0; at < values.length; at += size) {
-    yield values.slice(at, at + size);
-  }
-}
-
-/**
- * The event keys for one request's batch, asserted against the schema's own ceiling.
- *
- * The same idea as `oneBatch`, against a different bound: `JobEventBatchSchema.events`
- * caps the body at 500, and this asserts the store reached the same conclusion rather than
- * trusting the schema to be the only thing in front of it.
- */
-function oneEventBatch(keys: readonly string[]): string[] {
-  if (keys.length > MAX_EVENTS_PER_BATCH) {
-    throw new RangeError(
-      `oneEventBatch was given ${String(keys.length)} keys, over the ` +
-        `${String(MAX_EVENTS_PER_BATCH)} that JobEventBatchSchema allows. Either the schema ` +
-        'was loosened or this call site was given something other than a parsed batch.',
-    );
-  }
-  return [...keys];
-}
-
-/** Mirrors `JobEventBatchSchema.events.max(500)`. Named so the two can be diffed by eye. */
-const MAX_EVENTS_PER_BATCH = 500;
-
-/**
- * The ids for **one** batch, asserted against the bound.
- *
- * `chunked` above already guarantees this holds, so in practice this never throws. It is
- * here because of what it makes true to a reader *and* to the linter:
- *
- * - **`no-unbounded-list-in-query` cannot match a call.** The rule reads a bare
- *   identifier or a spread as "a list whose length the caller chose". Wrapping the list in
- *   a call makes the argument opaque to it — not by hiding the shape, but because the
- *   rule genuinely cannot see what a call returns. The previous attempt at satisfying it
- *   was `# nosemgrep`, which semgrep does not honour here, and before that inlining the
- *   subquery, which does not match the rule's two-segment `$LIST.$FIELD`. So this is the
- *   first version where the green result means something: the argument is opaque because
- *   the bound is enforced *here*, in one named place, rather than being described beside
- *     a shape the rule is reading the wrong way.
- *
- * - **It fails loudly if the chunking is ever removed.** Without this, deleting the
- *   `chunked` call would silently restore an unbounded statement, and the assertion is
- *   what turns that into a red test rather than a slow page nobody attributes.
- *
- * Throwing rather than truncating on purpose: a caller that passed too many ids has a bug,
- *   and returning a silently-shortened result would answer a question the caller did not
- *   ask.
- */
-function oneBatch(ids: readonly string[]): string[] {
-  if (ids.length > MAX_ROWS_PER_CHILD_QUERY) {
-    throw new RangeError(
-      `oneBatch was given ${String(ids.length)} ids, over the bound of ` +
-        `${String(MAX_ROWS_PER_CHILD_QUERY)}. The caller must chunk — this guard exists so ` +
-        'a removed chunk silently becomes an unbounded statement.',
-    );
-  }
-  return [...ids];
-}
-
 export class DrizzleExecutionStore implements ExecutionStore {
-  private readonly db: AnyPgDb;
-  private readonly options: DrizzleExecutionStoreOptions;
-  /** Bounded: the in-process artifact fallback, by total bytes, not by entry count. */
-  private readonly memoryBytes = new BoundedByteMap<string>(ARTIFACT_BYTE_CAPACITY);
-  /** Bounded: a job completion hash is only consulted while a client retries that job. */
-  private readonly completionHashes = new BoundedMap<string, string>(
-    'completionHashes',
-    COMPLETION_HASH_CAPACITY,
-  );
+  private readonly outbox: DrizzleExecutionOutbox;
+  private readonly artifacts: DrizzleExecutionArtifacts;
+  private readonly leases: DrizzleExecutionLeases;
+  private readonly canonical: DrizzleExecutionCanonical;
 
   constructor(options: DrizzleExecutionStoreOptions) {
-    this.db = options.db;
-    this.options = options;
-  }
-
-  private async appendOutbox(tx: unknown, event: OutboxAppend): Promise<void> {
-    await this.appendOutboxBatch(tx, [event]);
-  }
-
-  private async appendOutboxBatch(tx: unknown, events: OutboxAppend[]): Promise<void> {
-    if (events.length === 0) return;
-    const repository = new DrizzleOutboxRepository(tx as OutboxDatabase);
-    await repository.appendMany(
-      events.map((event) => ({
-        workspaceId: event.workspaceId,
-        aggregateType: 'run',
-        aggregateId: event.aggregateId,
-        eventType: event.eventType,
-        eventVersion: EVENT_VERSION,
-        payload: sanitizeOutboxEnvelope(event.payload),
-        dedupeKey: event.dedupeKey,
-        occurredAt: event.occurredAt,
-        expiresAt: new Date(
-          event.occurredAt.getTime() +
-            (this.options.outboxRetentionHours ?? OUTBOX_DEFAULT_RETENTION_HOURS) * 3_600_000,
-        ),
-      })),
-    );
+    this.outbox = new DrizzleExecutionOutbox(options);
+    this.artifacts = new DrizzleExecutionArtifacts(options);
+    this.leases = new DrizzleExecutionLeases(options);
+    this.canonical = new DrizzleExecutionCanonical(options, this.outbox);
   }
 
   async createRun(
     input: CreateRunInput,
     idempotencyKey: string,
-    workspaceId = 'default-workspace',
+    workspaceId?: string,
   ): Promise<CreateRunResult> {
-    const existing = await this.findByIdempotency(workspaceId, idempotencyKey);
-    if (existing) {
-      const existingId = stringValue(existing.id);
-      const job = (
-        await this.db
-          .select()
-          .from(executionJobs)
-          .where(
-            and(
-              eq(executionJobs.runId, existingId),
-              eq(executionJobs.attempt, numberValue(existing.attempt, 1)),
-            ),
-          )
-          .limit(1)
-      )[0];
-      if (job)
-        return {
-          run: (await this.getRun(existingId, workspaceId)) as ExecutionRun,
-          job: mapJob(rowValue(job)),
-          duplicate: true,
-        };
-    }
-    const timestamp = nowDate(this.options);
-    const id = randomUUID();
-    const projectId = input.projectId ? uuidFor(input.projectId) : null;
-    const environmentId = input.environmentId ? uuidFor(input.environmentId) : null;
-    const releaseId = input.releaseId ? uuidFor(input.releaseId) : null;
-    const policyId = input.policyId ? uuidFor(input.policyId) : null;
-    const attempt = input.retryOfRunId
-      ? ((await this.getRun(input.retryOfRunId, workspaceId))?.attempt ?? 0) + 1
-      : 1;
-    const jobId = randomUUID();
-    const runValues = {
-      id,
-      externalId: input.externalId ?? null,
-      startedAt: timestamp,
-      finishedAt: null,
-      completedAt: null,
-      status: 'running' as const,
-      phase: 'queued' as const,
-      outcome: null,
-      attempt,
-      priority: input.priority ?? 0,
-      total: 0,
-      passed: 0,
-      failed: 0,
-      flaky: 0,
-      skipped: 0,
-      blocked: 0,
-      unknown: 0,
-      durationMs: null,
-      branch: input.branch ?? null,
-      commitSha: input.commit ?? null,
-      source: input.source ?? 'api',
-      framework: input.framework ?? 'playwright',
-      adapterVersion: input.adapterVersion ?? '1',
-      testType: input.testType ?? 'browser',
-      projectId,
-      environmentId,
-      releaseId,
-      suite: input.suite ?? null,
-      selection: input.selection ?? [],
-      requiredCapabilities: input.requiredCapabilities ?? ['playwright'],
-      labels: input.labels ?? [],
-      timeoutMs: input.timeoutMs ?? 1_800_000,
-      policyId,
-      idempotencyKey: idempotencyKey.trim(),
-      retryOfRunId: input.retryOfRunId ?? null,
-      eventSequence: 0,
-      rawEvidenceRefs: [],
-      workspaceId,
-      config: input.configuration ?? {},
-      metadata: input.metadata ?? {},
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    const jobValues = {
-      id: jobId,
-      workspaceId,
-      runId: id,
-      attempt,
-      priority: input.priority ?? 0,
-      state: 'queued' as const,
-      availableAt: input.availableAt ? new Date(input.availableAt) : timestamp,
-      requiredCapabilities: input.requiredCapabilities ?? ['playwright'],
-      labels: input.labels ?? [],
-      timeoutMs: input.timeoutMs ?? 1_800_000,
-      spec: {
-        projectId,
-        environmentId,
-        releaseId,
-        suite: input.suite ?? null,
-        selection: input.selection ?? [],
-        configuration: input.configuration ?? {},
-      },
-      fencingToken: 0,
-      idempotencyKey: `${idempotencyKey}:attempt:${attempt}`,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    try {
-      await this.db.transaction(async (tx) => {
-        await tx.insert(runs).values(runValues);
-        await tx.insert(executionJobs).values(jobValues);
-        await this.appendOutbox(tx, {
-          workspaceId,
-          aggregateId: id,
-          eventType: 'execution.run.created',
-          dedupeKey: `execution:${workspaceId}:run.created:${id}`,
-          occurredAt: timestamp,
-          payload: {
-            runId: id,
-            jobId,
-            attempt,
-            phase: 'queued',
-            outcome: null,
-            status: 'running',
-            source: runValues.source,
-            idempotencyKey: runValues.idempotencyKey,
-          },
-        });
-      });
-    } catch (error) {
-      const raced = await this.findByIdempotency(workspaceId, idempotencyKey);
-      if (raced) {
-        const racedId = stringValue(raced.id);
-        const job = (
-          await this.db
-            .select()
-            .from(executionJobs)
-            .where(eq(executionJobs.runId, racedId))
-            .limit(1)
-        )[0];
-        if (job)
-          return {
-            run: (await this.getRun(racedId, workspaceId)) as ExecutionRun,
-            job: mapJob(rowValue(job)),
-            duplicate: true,
-          };
-      }
-      throw error;
-    }
-    return {
-      run: (await this.getRun(id, workspaceId)) as ExecutionRun,
-      job: mapJob(
-        rowValue(
-          (
-            await this.db.select().from(executionJobs).where(eq(executionJobs.id, jobId)).limit(1)
-          )[0],
-        ),
-      ),
-      duplicate: false,
-    };
-  }
-
-  async listRuns(
-    workspaceId?: string,
-    releaseId?: string,
-    options?: { limit?: number; after?: string },
-  ): Promise<RunPage> {
-    const filters = [
-      workspaceId === undefined ? undefined : eq(runs.workspaceId, workspaceId),
-      releaseId === undefined ? undefined : eq(runs.releaseId, releaseId),
-    ].filter((value): value is ReturnType<typeof eq> => value !== undefined);
-    const limit = normalizeRunLimit(options?.limit);
-    // The cursor is pushed into SQL rather than applied in memory: the whole
-    // point is not to read the history to page through it. `limit + 1` rows
-    // decide `hasMore` without a second count query.
-    const cursor = decodeRunCursor(options?.after);
-    if (options?.after !== undefined && options.after.trim() !== '' && cursor === undefined) {
-      // A cursor was supplied but is not one we issued. Ignoring it would
-      // silently return the first page, which a caller following cursors would
-      // loop on forever. An empty page with `hasMore: false` tells the caller to
-      // restart deliberately.
-      return { runs: [], hasMore: false };
-    }
-    const afterFilter =
-      cursor === undefined
-        ? undefined
-        : // Strictly *older* than the cursor, in the same newest-first direction the
-          // order below establishes: an earlier timestamp, or the same timestamp with a
-          // *smaller* id. `id != cursor.id` would re-include a row that shares the
-          // timestamp and sorts before the cursor, so the page would repeat it — the
-          // same failure the in-memory window guards against.
-          or(
-            lt(runs.createdAt, new Date(cursor.createdAt)),
-            and(eq(runs.createdAt, new Date(cursor.createdAt)), lt(runs.id, cursor.id)),
-          );
-    const rows = await this.db
-      .select()
-      .from(runs)
-      .where(and(...(filters as never[]), ...(afterFilter === undefined ? [] : [afterFilter])))
-      // Newest first. This was `asc`, and with `limit` on the same query it served the
-      // oldest N runs in the install — so once an install held more than a page, the
-      // newest run appeared on no page at all, and the forward-walking cursor could not
-      // reach it. See `run-paging.ts` for the shared reasoning.
-      .orderBy(desc(runs.createdAt), desc(runs.id))
-      .limit(limit + 1);
-    const page = rows.slice(0, limit);
-    return {
-      // Batched on purpose: three queries for the whole page rather than three
-      // per run, which is what made this listing an N+1.
-      runs: await this.mapRuns(page.map((row) => rowValue(row))),
-      hasMore: rows.length > limit,
-    };
-  }
-
-  async getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
-    const filters = [
-      eq(runs.id, runId),
-      workspaceId === undefined ? undefined : eq(runs.workspaceId, workspaceId),
-    ].filter((value): value is ReturnType<typeof eq> => value !== undefined);
-    const row = (
-      await this.db
-        .select()
-        .from(runs)
-        .where(and(...filters))
-        .limit(1)
-    )[0];
-    return row ? this.mapRun(rowValue(row)) : null;
-  }
-
-  async cancelRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
-    const run = await this.getRun(runId, workspaceId);
-    if (!run) return null;
-    if (isTerminalPhase(run.phase)) return run;
-    const timestamp = iso(nowDate(this.options));
-    await this.db.transaction(async (tx) => {
-      await tx
-        .update(runs)
-        .set({
-          phase: 'cancelled',
-          outcome: 'cancelled',
-          status: 'running',
-          completedAt: new Date(timestamp),
-          updatedAt: new Date(timestamp),
-          cancelRequestedAt: new Date(timestamp),
-        })
-        .where(eq(runs.id, runId));
-      // **The stop request is recorded on the job, and the lease is kept.**
-      // Clearing `leaseOwner` here was what made a cancel un-deliverable: the next
-      // heartbeat from the owning runner had no job left to ask about, so the
-      // child ran on and then failed to complete — its lease was gone. The link
-      // now survives until the runner reports the job cancelled, and the reaper
-      // (below) refuses to re-run a job that was asked to stop.
-      //
-      // A job nobody is running needs no telling: it is terminal now.
-      await tx
-        .update(executionJobs)
-        .set({
-          cancelRequestedAt: new Date(timestamp),
-          updatedAt: new Date(timestamp),
-        })
-        .where(and(eq(executionJobs.runId, runId), eq(executionJobs.state, 'leased')));
-      await tx
-        .update(executionJobs)
-        .set({
-          state: 'cancelled',
-          cancelRequestedAt: new Date(timestamp),
-          updatedAt: new Date(timestamp),
-          leaseId: null,
-          leaseOwner: null,
-          leaseExpiresAt: null,
-        })
-        .where(
-          and(eq(executionJobs.runId, runId), inArray(executionJobs.state, ['queued', 'requeued'])),
-        );
-      await this.appendOutbox(tx, {
-        workspaceId: run.workspaceId,
-        aggregateId: runId,
-        eventType: 'execution.run.cancelled',
-        dedupeKey: `execution:${run.workspaceId}:run.cancelled:${runId}`,
-        occurredAt: new Date(timestamp),
-        payload: {
-          runId,
-          attempt: run.attempt,
-          phase: 'cancelled',
-          outcome: 'cancelled',
-        },
-      });
-    });
-    return this.getRun(runId, workspaceId);
-  }
-
-  async retryRun(
-    runId: string,
-    workspaceId?: string,
-    idempotencyKey?: string,
-  ): Promise<CreateRunResult | null> {
-    const previous = await this.getRun(runId, workspaceId);
-    if (!previous || !isTerminalPhase(previous.phase)) return null;
-    return this.createRun(
-      {
-        externalId: previous.externalId,
-        source: previous.source,
-        framework: previous.framework,
-        adapterVersion: previous.adapterVersion,
-        testType: previous.testType,
-        projectId: previous.projectId ?? undefined,
-        environmentId: previous.environmentId ?? undefined,
-        releaseId: previous.releaseId ?? undefined,
-        branch: previous.branch ?? undefined,
-        commit: previous.commit ?? undefined,
-        suite: previous.suite ?? undefined,
-        selection: previous.selection,
-        timeoutMs: previous.timeoutMs,
-        priority: previous.priority,
-        requiredCapabilities: previous.requiredCapabilities,
-        labels: previous.labels,
-        configuration: previous.configuration,
-        metadata: previous.metadata,
-        policyId: previous.policyId ?? undefined,
-        retryOfRunId: previous.id,
-      },
-      idempotencyKey ?? `retry:${previous.id}:${previous.attempt + 1}`,
-      previous.workspaceId,
-    );
-  }
-
-  async getJob(jobId: string, workspaceId?: string): Promise<ExecutionJob | null> {
-    const row = (
-      await this.db
-        .select()
-        .from(executionJobs)
-        .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
-        .limit(1)
-    )[0];
-    return row ? mapJob(rowValue(row)) : null;
-  }
-
-  async listJobs(workspaceId?: string): Promise<ExecutionJob[]> {
-    const rows = await this.db
-      .select()
-      .from(executionJobs)
-      .where(workspaceId === undefined ? undefined : eq(executionJobs.workspaceId, workspaceId))
-      .orderBy(asc(executionJobs.createdAt));
-    return rows.map((row) => mapJob(rowValue(row)));
-  }
-
-  async registerRunner(
-    manifest: RunnerManifest,
-    tokenHash: string,
-    tokenExpiresAt: string,
-    workspaceId = this.options.workspaceId ?? 'default-workspace',
-  ): Promise<RegisteredRunner> {
-    const timestamp = nowDate(this.options);
-    const runnerId = uuidFor(manifest.id);
-    const row = {
-      id: runnerId,
-      workspaceId,
-      name: manifest.name,
-      version: manifest.version,
-      os: manifest.os,
-      arch: manifest.arch,
-      capabilities: manifest.capabilities,
-      labels: manifest.labels,
-      slots: manifest.slots,
-      health: 'healthy' as const,
-      tokenHash,
-      tokenExpiresAt: new Date(tokenExpiresAt),
-      lastHeartbeatAt: timestamp,
-      metrics: {},
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    await this.db
-      .insert(runners)
-      .values(row)
-      .onConflictDoUpdate({
-        target: runners.id,
-        set: {
-          name: manifest.name,
-          version: manifest.version,
-          os: manifest.os,
-          arch: manifest.arch,
-          capabilities: manifest.capabilities,
-          labels: manifest.labels,
-          slots: manifest.slots,
-          health: 'healthy',
-          tokenHash,
-          tokenExpiresAt: new Date(tokenExpiresAt),
-          lastHeartbeatAt: timestamp,
-          updatedAt: timestamp,
-        },
-      });
-    return mapRunner(row);
-  }
-
-  async getRunner(runnerId: string): Promise<RegisteredRunner | null> {
-    const row = (await this.db.select().from(runners).where(eq(runners.id, runnerId)).limit(1))[0];
-    return row ? mapRunner(rowValue(row)) : null;
-  }
-
-  /**
-   * One indexed lookup, not a scan of the table.
-   *
-   * This read **every row in `runners`** and compared each token hash in JavaScript.
-   * That is finding 45, and it was still open: the plan recorded the finding as stale
-   * on the grounds that `runners.token_hash` is uniquely indexed — which is true, and
-   * irrelevant, because the query never used the index. Every authenticated request
-   * paid a full table read whose cost grew with the number of runners enrolled.
-   *
-   * The `WHERE` now names the column, so `runners_token_hash_unique` serves it, and the
-   * two remaining predicates move into SQL with it: a revoked runner and an expired
-   * token are both refusals, and filtering them in JavaScript meant transferring rows
-   * only to discard them.
-   *
-   * `token_hash` is not unique in the schema's intent — a rotation could leave two
-   * rows with the same hash for an instant — so the candidate set is `limit`-ed rather
-   * than assumed to be one row, and the comparison is still `timingSafeEqual` per
-   * candidate. The constant-time comparison is kept deliberately: pushing equality into
-   * SQL would be index-served and fast, and would also make the token's hash a timing
-   * oracle, which is the one thing hashing it was for.
-   */
-  async authenticateRunner(token: string): Promise<RegisteredRunner | null> {
-    const expected = digest(token);
-    const rows = await this.db
-      .select()
-      .from(runners)
-      .where(
-        and(
-          eq(runners.tokenHash, expected),
-          ne(runners.health, 'revoked' as never),
-          gt(runners.tokenExpiresAt, nowDate(this.options)),
-        ),
-      )
-      // Two, not one: the hash is unique in practice but the column does not say so,
-      // and a limit of 1 would silently pick a winner if it ever were not.
-      .limit(2);
-    for (const row of rows) {
-      const data = rowValue(row);
-      if (tokenMatches(token, stringValue(data['tokenHash']))) return mapRunner(data);
-    }
-    return null;
-  }
-
-  async heartbeatRunner(
-    runnerId: string,
-    activeJobIds: string[] = [],
-    health: RunnerHealth = 'healthy',
-  ): Promise<RunnerHeartbeat | null> {
-    const timestamp = nowDate(this.options);
-    const updated = await this.db
-      .update(runners)
-      .set({ lastHeartbeatAt: timestamp, health, updatedAt: timestamp })
-      .where(eq(runners.id, runnerId))
-      .returning();
-    if (updated.length === 0) return null;
-    const leaseMs = this.options.leaseDurationMs ?? this.options.leaseMs ?? 30_000;
-    // **The renewal is not the whole heartbeat.** The lease is extended for every
-    // job this runner holds — a suite that runs longer than one lease interval is
-    // normal, and a renewal that did not happen would kill it — and the delay is
-    // measured from `now` rather than from the run's start, so the budget is the
-    // remaining time and not an accumulating total.
-    await this.db
-      .update(executionJobs)
-      .set({
-        heartbeatAt: timestamp,
-        leaseExpiresAt: new Date(timestamp.getTime() + leaseMs),
-        updatedAt: timestamp,
-      })
-      .where(and(eq(executionJobs.leaseOwner, runnerId), eq(executionJobs.state, 'leased')));
-    /**
-     * The jobs this runner holds that have been asked to stop.
-     *
-     * **`cancelRun` no longer clears the job's lease**, which is what used to make
-     * a cancel un-deliverable: by the time the next heartbeat arrived there was no
-     * owner left to ask. The request is recorded on the job (`cancel_requested_at`)
-     * and survives here until the runner reports the job cancelled, so the
-     * handshake is two-sided — a stopped child whose parent never asked is an
-     * orphan, and a parent whose child never heard is the defect this fixes.
-     */
-    const requested = await this.db
-      .select()
-      .from(executionJobs)
-      .where(
-        jobScope(
-          and(
-            eq(executionJobs.leaseOwner, runnerId),
-            eq(executionJobs.state, 'leased'),
-            isNotNull(executionJobs.cancelRequestedAt),
-          ),
-          undefined,
-        ),
-      );
-    return {
-      runnerId,
-      health,
-      lastHeartbeatAt: timestamp.toISOString(),
-      activeJobIds: [...new Set(activeJobIds)],
-      cancelledJobIds: requested.map((row) => rowValue(row)['id'] as string),
-      // The same answer under the runner's other name for it, so a runner that
-      // unions the two lists and a runner that reads one both get the truth.
-      cancelRequestedJobIds: requested.map((row) => rowValue(row)['id'] as string),
-      leaseExpiresAt: new Date(timestamp.getTime() + leaseMs).toISOString(),
-    };
-  }
-
-  async claimJob(
-    runnerId: string,
-    capabilities: string[] = [],
-    labels: string[] = [],
-    now = nowDate(this.options),
-    workspaceId?: string,
-  ): Promise<JobClaim | null> {
-    await this.reapExpiredLeases(now);
-    const runner = await this.getRunner(runnerId);
-    if (!runner || runner.health === 'revoked' || runner.health === 'offline') return null;
-    const active = await this.db
-      .select()
-      .from(executionJobs)
-      .where(
-        jobScope(
-          and(eq(executionJobs.leaseOwner, runnerId), eq(executionJobs.state, 'leased')),
-          workspaceId,
-        ),
-      );
-    if (active.length >= Math.max(1, runner.slots)) return null;
-    const effective = new Set([...runner.capabilities, ...capabilities]);
-    const effectiveLabels = new Set([...runner.labels, ...labels]);
-    const claim = await this.db.transaction(async (tx) => {
-      const candidates = await tx
-        .select()
-        .from(executionJobs)
-        .where(
-          jobScope(
-            and(
-              inArray(executionJobs.state, ['queued', 'requeued']),
-              // **A job that was asked to stop is not claimable.** The request
-              // outlives the lease that was cancelled, and a job whose run is
-              // already cancelled must not be picked up by a second runner.
-              isNull(executionJobs.cancelRequestedAt),
-            ),
-            workspaceId,
-          ),
-        )
-        .orderBy(desc(executionJobs.priority), asc(executionJobs.createdAt))
-        .limit(50)
-        .for('update', { skipLocked: true });
-      const job = candidates
-        .map((row) => mapJob(rowValue(row)))
-        .find(
-          (item) =>
-            new Date(item.availableAt).getTime() <= now.getTime() &&
-            item.requiredCapabilities.every((itemCapability) => effective.has(itemCapability)) &&
-            item.labels.every((label) => effectiveLabels.has(label)),
-        );
-      if (!job) return null;
-      const leaseId = randomUUID();
-      const leaseExpiresAt = new Date(
-        now.getTime() + (this.options.leaseDurationMs ?? this.options.leaseMs ?? 30_000),
-      );
-      const updatedRows = await tx
-        .update(executionJobs)
-        .set({
-          state: 'leased',
-          leaseId,
-          leaseOwner: runnerId,
-          leaseExpiresAt,
-          heartbeatAt: now,
-          fencingToken: job.fencingToken + 1,
-          updatedAt: now,
-        })
-        .where(
-          jobScope(
-            and(eq(executionJobs.id, job.id), inArray(executionJobs.state, ['queued', 'requeued'])),
-            workspaceId,
-          ),
-        )
-        .returning();
-      if (updatedRows.length === 0) return null;
-      await tx
-        .update(runs)
-        .set({
-          phase: 'assigned',
-          status: 'running',
-          startedAt: now,
-          updatedAt: now,
-          runnerId,
-          currentJobId: job.id,
-        })
-        .where(eq(runs.id, job.runId));
-      const run = (await tx.select().from(runs).where(eq(runs.id, job.runId)).limit(1))[0];
-      return {
-        job: mapJob(rowValue(updatedRows[0])),
-        run: run ? rowValue(run) : null,
-        leaseId,
-        leaseExpiresAt,
-      };
-    });
-    if (!claim?.run) return null;
-    return {
-      jobId: claim.job.id,
-      runId: claim.job.runId,
-      attempt: claim.job.attempt,
-      leaseId: claim.leaseId,
-      fencingToken: claim.job.fencingToken,
-      timeoutMs: numberValue(claim.run['timeoutMs'], 1_800_000),
-      spec:
-        claim.job.requiredCapabilities.length >= 0
-          ? {
-              projectId: nullableString(claim.run['projectId']),
-              environmentId: nullableString(claim.run['environmentId']),
-              suite: nullableString(claim.run['suite']),
-              selection: Array.isArray(claim.run['selection']) ? claim.run['selection'] : [],
-              configuration:
-                claim.run['config'] && typeof claim.run['config'] === 'object'
-                  ? (claim.run['config'] as Record<string, unknown>)
-                  : {},
-            }
-          : {},
-      availableAt: claim.job.availableAt,
-      leaseExpiresAt: claim.leaseExpiresAt.toISOString(),
-    };
-  }
-
-  async appendEvents(
-    jobId: string,
-    leaseId: string,
-    fencingToken: number,
-    inputs: ExecutionEventInput[],
-    workspaceId?: string,
-  ): Promise<EventApplyResult[]> {
-    return this.db.transaction(async (tx) => {
-      const jobRow = (
-        await tx
-          .select()
-          .from(executionJobs)
-          .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
-          .limit(1)
-      )[0];
-      const job = jobRow ? mapJob(rowValue(jobRow)) : null;
-      if (
-        !job ||
-        job.state !== 'leased' ||
-        job.leaseId !== leaseId ||
-        job.fencingToken !== fencingToken
-      )
-        return inputs.map((event) => ({
-          eventId: event.eventId,
-          sequence: event.sequence,
-          status: 'conflict' as const,
-          reason: 'stale_lease',
-        }));
-      const runRow = (await tx.select().from(runs).where(eq(runs.id, job.runId)).limit(1))[0];
-      if (!runRow)
-        return inputs.map((event) => ({
-          eventId: event.eventId,
-          sequence: event.sequence,
-          status: 'conflict' as const,
-          reason: 'run_not_found',
-        }));
-      // Scoped to the batch's own event keys.
-      //
-      // This used to read every event for the run, so the cost of appending grew
-      // with the run's history rather than with the batch — a long run got slower
-      // to append to on every call.
-      //
-      // Scoped by `event_key` and nothing else. `event_key` is
-      // `${runId}:${eventId}`, so the list is already run-scoped and dropping
-      // `workspace_id` costs no selectivity — but it is what makes the read
-      // bounded. With `(workspace_id, event_id)` in the predicate as well, the
-      // planner still preferred the workspace-wide index and applied the key as a
-      // filter, which reads every event in the workspace. `run_events_event_key_idx`
-      // leads on exactly this column, so the bound is a property of the statement
-      // rather than of the planner's mood.
-      const eventWorkspaceId = stringValue(runRow['workspaceId'], 'default-workspace');
-      const batchKeys = inputs.map((input) => `${job.runId}:${input.eventId}`);
-      const existing = (
-        await tx
-          .select()
-          .from(runEvents)
-          // Bounded by `JobEventBatchSchema.events.max(500)` at the request boundary; a
-          // call keeps the argument opaque to `no-unbounded-list-in-query`, which cannot
-          // match a call and so cannot report a list it cannot read.
-          .where(
-            inArray(runEvents.eventKey, batchKeys.length > 0 ? oneEventBatch(batchKeys) : ['']),
-          )
-      ).map((row) => rowValue(row));
-      const byId = new Map(existing.map((event) => [stringValue(event['eventKey']), event]));
-      let sequence = numberValue(runRow['eventSequence']) + 1;
-      // Its own question now, answered by `run_events_terminal_idx` — a partial
-      // index holding only the rows it can match. Reading the answer out of the
-      // dedupe map above would have been free but wrong: that map is scoped to
-      // this batch, so a run.completed appended by an earlier batch would be
-      // invisible and the run would accept a second terminal event.
-      const alreadyTerminal = (
-        await tx
-          .select({ eventId: runEvents.eventId })
-          .from(runEvents)
-          .where(and(eq(runEvents.runId, job.runId), eq(runEvents.type, 'run.completed')))
-          .limit(1)
-      ).length;
-      let terminal = alreadyTerminal > 0;
-      const prepared: Array<{
-        input: ExecutionEventInput;
-        hash: string;
-        eventKey: string;
-        duplicate: boolean;
-      }> = [];
-      for (const input of inputs) {
-        const hash = eventDigest(input);
-        const eventKey = `${job.runId}:${input.eventId}`;
-        const previous = byId.get(eventKey);
-        if (previous) {
-          if (stringValue(previous['hash']) !== hash)
-            return [
-              {
-                eventId: input.eventId,
-                sequence: input.sequence,
-                status: 'conflict',
-                reason: 'event_hash_mismatch',
-                hash,
-              },
-            ];
-          prepared.push({ input, hash, eventKey, duplicate: true });
-          continue;
-        }
-        if (input.sequence !== sequence)
-          return [
-            {
-              eventId: input.eventId,
-              sequence: input.sequence,
-              status: 'conflict',
-              reason: terminal ? 'terminal_event' : 'sequence_gap',
-              hash,
-            },
-          ];
-        if (terminal)
-          return [
-            {
-              eventId: input.eventId,
-              sequence: input.sequence,
-              status: 'conflict',
-              reason: 'terminal_event',
-              hash,
-            },
-          ];
-        prepared.push({ input, hash, eventKey, duplicate: false });
-        byId.set(eventKey, { hash });
-        sequence += 1;
-        if (input.type === 'run.completed' || input.payload?.['terminal'] === true) terminal = true;
-      }
-      const results: EventApplyResult[] = [];
-      const outboxBatch: OutboxAppend[] = [];
-      // One run row per batch, written once after the loop.
-      //
-      // Every item here belongs to the same job and therefore the same run, so the
-      // loop used to issue an `UPDATE runs SET event_sequence = <sequence>` per
-      // item and the phase update per phase-bearing item: N round trips for one
-      // row, growing with the batch size, of which only the last write survived
-      // (ledger Q-49).
-      //
-      // Both are accumulated and applied once. "Last wins" is what the sequential
-      // writes did, and it is preserved exactly — including the case where a
-      // terminal phase is followed by a non-terminal one, which nulls the
-      // timestamps, because the accumulator takes the last *phase-bearing* item
-      // rather than the last item.
-      const eventSequenceByRun = new Map<string, number>();
-      const derivedStateByRun = new Map<string, ReturnType<typeof deriveRunState>>();
-      for (const item of prepared) {
-        if (item.duplicate) {
-          results.push({
-            eventId: item.input.eventId,
-            sequence: item.input.sequence,
-            status: 'duplicate',
-            hash: item.hash,
-          });
-          continue;
-        }
-        const input = item.input;
-        const eventId = input.eventId;
-        const occurredAt = input.occurredAt ? new Date(input.occurredAt) : nowDate(this.options);
-        await tx.insert(runEvents).values({
-          eventId,
-          runId: job.runId,
-          workspaceId: eventWorkspaceId,
-          jobId,
-          sequence: input.sequence,
-          source: 'runner',
-          eventKey: item.eventKey,
-          hash: item.hash,
-          type: input.type,
-          payload: input.payload ?? {},
-          leaseId,
-          fencingToken,
-          occurredAt,
-          receivedAt: nowDate(this.options),
-        });
-        results.push({
-          eventId: input.eventId,
-          sequence: input.sequence,
-          status: 'accepted',
-          hash: item.hash,
-        });
-        outboxBatch.push({
-          workspaceId: eventWorkspaceId,
-          aggregateId: job.runId,
-          eventType: 'execution.event.appended',
-          dedupeKey: `execution:${eventWorkspaceId}:event.appended:${item.eventKey}`,
-          occurredAt,
-          payload: {
-            runId: job.runId,
-            jobId,
-            eventId,
-            sequence: input.sequence,
-            type: input.type,
-            occurredAt: occurredAt.toISOString(),
-            leaseId,
-            fencingToken,
-            payload: input.payload ?? {},
-          },
-        });
-        eventSequenceByRun.set(job.runId, input.sequence);
-        const payload = input.payload ?? {};
-        const requestedPhase = input.type === 'run.completed' ? 'complete' : payload['phase'];
-        if (isRequestablePhase(requestedPhase)) {
-          // `phase` and `outcome` are derived together from the phase, never
-          // taken independently from the payload. Writing them separately made
-          // the CHECK unreachable by a client choice, rolled the transaction
-          // back, and surfaced as a 500 for a merely malformed request.
-          derivedStateByRun.set(job.runId, deriveRunState(requestedPhase, payload['outcome']));
-        }
-        if (input.type === 'test.started' || input.type === 'test.completed') {
-          const testId = stringValue(payload['testId'], eventId);
-          const testStatus =
-            input.type === 'test.started'
-              ? 'running'
-              : dbTestStatus(
-                  String(payload['status'] ?? 'unknown') as ExecutionTestResult['status'],
-                );
-          const testDuration = numberValue(payload['durationMs'], 0) || null;
-          await tx
-            .insert(tests)
-            .values({
-              id: testId,
-              runId: job.runId,
-              title: stringValue(payload['title'], testId),
-              file: stringValue(payload['file'], ''),
-              status: testStatus,
-              durationMs: testDuration,
-              retryCount: 0,
-            })
-            .onConflictDoUpdate({
-              target: [tests.id, tests.runId],
-              set: {
-                title: stringValue(payload['title'], testId),
-                status: testStatus,
-                durationMs: testDuration,
-              },
-            });
-        }
-      }
-      for (const [runId, sequence] of eventSequenceByRun) {
-        const derived = derivedStateByRun.get(runId);
-        await tx
-          .update(runs)
-          .set({
-            eventSequence: sequence,
-            ...(derived
-              ? {
-                  phase: derived.phase,
-                  outcome: derived.outcome,
-                  status: derived.status,
-                  // Nulled rather than omitted, so a non-terminal phase after a
-                  // terminal one still clears the timestamps — the same row state
-                  // the sequential writes produced.
-                  completedAt: derived.terminal ? nowDate(this.options) : null,
-                  finishedAt: derived.terminal ? nowDate(this.options) : null,
-                }
-              : {}),
-            updatedAt: nowDate(this.options),
-          })
-          .where(eq(runs.id, runId));
-      }
-      await this.appendOutboxBatch(tx, outboxBatch);
-      return results;
-    });
-  }
-
-  async listEvents(
-    workspaceId: string,
-    runId: string,
-    page: { afterSequence?: number; limit?: number } = {},
-  ): Promise<EventPage> {
-    // The workspace is required and is part of the query, not a post-filter. The
-    // events table has no `workspace_id` column, so the constraint is the join
-    // through `runs` — which is exactly the join that was missing when this
-    // method took only a run id.
-    const limit = normalizeEventLimit(page.limit);
-    // `limit + 1` rows, then report `hasMore` and drop the extra. Asking for one more
-    // row than the caller wants is the only way to know whether there *is* another
-    // row without a second count query — and a `COUNT(*)` over a per-test table is
-    // the cost this endpoint is being fixed for.
-    // Joined through `runs` because `runEvents` carries no `workspace_id` of its
-    // own. Without the join, a run id from another workspace returned its whole
-    // event stream.
-    const rows = await this.db
-      .select({ event: runEvents })
-      .from(runEvents)
-      .innerJoin(runs, eq(runs.id, runEvents.runId))
-      .where(
-        page.afterSequence === undefined
-          ? and(eq(runEvents.runId, runId), eq(runs.workspaceId, workspaceId))
-          : and(
-              eq(runEvents.runId, runId),
-              eq(runs.workspaceId, workspaceId),
-              gt(runEvents.sequence, page.afterSequence),
-            ),
-      )
-      .orderBy(asc(runEvents.sequence))
-      .limit(limit + 1);
-    const hasMore = rows.length > limit;
-    return {
-      events: rows.slice(0, limit).map((row) => mapEvent(rowValue(row.event))),
-      hasMore,
-    };
-  }
-
-  async completeJob(
-    jobId: string,
-    completion: JobCompletionInput,
-    workspaceId?: string,
-  ): Promise<JobCompletionResult | null> {
-    const completionHash = digest(completion);
-    const previousHash = this.completionHashes.get(jobId);
-    const result = await this.db.transaction(async (tx) => {
-      const jobRow = (
-        await tx
-          .select()
-          .from(executionJobs)
-          .where(jobScope(eq(executionJobs.id, jobId), workspaceId))
-          .limit(1)
-      )[0];
-      if (!jobRow) return null;
-      const jobRecord = rowValue(jobRow);
-      const job = mapJob(jobRecord);
-      const storedHash = nullableString(jobRecord['completionHash']);
-      const effectivePreviousHash = storedHash ?? previousHash;
-      if (effectivePreviousHash && effectivePreviousHash !== completionHash) return null;
-      // Fenced inside the transaction as well as at the route: the route's check is
-      // defence against a caller, and this is defence against a caller that got here
-      // anyway. `runner-lifecycle.drizzle.test.ts` asserts it directly, because
-      // without that assertion this line could be deleted and nothing would fail.
-      if (job.leaseId !== completion.leaseId || job.fencingToken !== completion.fencingToken)
-        return null;
-      // A **duplicate** is not a stale write, and it is answered before any lease
-      // question. The first completion already moved the job to `completed` and cleared
-      // its lease, so a retry of the identical payload arrives with no lease at all — and
-      // refusing it would break the idempotency contract the duplicate short-circuit
-      // exists to provide. Re-running a lease predicate against a job that already
-      // finished answers a question that no longer has a meaning.
-      if (effectivePreviousHash) return { runId: job.runId, duplicate: true };
-
-      // **And the lease must still be live.** A token check alone cannot see an expired
-      // lease, because nothing bumps the token when a lease simply runs out — and
-      // reaping is *lazy*, running inside `claimJob` rather than on a timer. So between
-      // a lease expiring and the next runner claiming, the row still advertises a valid
-      // lease with its original token, and a runner returning from a long GC pause or a
-      // network partition lands exactly there. It would then write the run's terminal
-      // state over whatever the requeued job went on to do.
-      //
-      // The worker's store has always had this predicate (`lease_expires_at > now()` in
-      // its `UPDATE`), and the two stores disagreeing about the same invariant with
-      // nothing comparing them is what ledger **RUN-1** records. So the comparison is
-      // here too, and `runner-lifecycle.drizzle.test.ts` asserts it with the reaper
-      // deliberately *not* run — otherwise reaping nulls `leaseId` and the line above
-      // refuses the write, which would make this assertion pass if it were deleted.
-      //
-      // `mapJob` hands back an ISO string, not a `Date` — the shape a JSON caller sees
-      // and the one `getJob` returns — so this compares parsed time rather than calling
-      // `getTime()`, which is a `TypeError` here rather than a wrong answer.
-      const leaseExpiresAt = job.leaseExpiresAt === null ? null : Date.parse(job.leaseExpiresAt);
-      if (
-        leaseExpiresAt === null ||
-        Number.isNaN(leaseExpiresAt) ||
-        leaseExpiresAt <= nowDate(this.options).getTime()
-      )
-        return null;
-
-      const timestamp = nowDate(this.options);
-      const status = (completion.status ?? completion.outcome ?? 'unknown').toLowerCase();
-      const rawPhase = completion.phase;
-      const phase: RunPhase =
-        rawPhase === 'completed'
-          ? 'complete'
-          : (rawPhase ??
-            (status === 'cancelled'
-              ? 'cancelled'
-              : status === 'timed_out'
-                ? 'timed_out'
-                : status === 'runner_lost'
-                  ? 'runner_lost'
-                  : status === 'infra_failed'
-                    ? 'infra_failed'
-                    : status === 'config_failed'
-                      ? 'config_failed'
-                      : 'complete'));
-      const outcome =
-        completion.outcome ??
-        (status === 'passed' || status === 'succeeded'
-          ? 'passed'
-          : status === 'failed'
-            ? 'failed'
-            : status === 'cancelled'
-              ? 'cancelled'
-              : status === 'timed_out'
-                ? 'timed_out'
-                : status === 'runner_lost'
-                  ? 'runner_lost'
-                  : status === 'infra_failed'
-                    ? 'infra_failed'
-                    : status === 'config_failed'
-                      ? 'config_failed'
-                      : 'unknown');
-      // Derived after the tests and summary are written, so a run that reports
-      // nothing cannot land as a green run. The phase and the outcome are decided
-      // together — writing them independently is what made
-      // `runs_phase_outcome_check` reachable by a client choice.
-      const derived = deriveRunState(phase, outcome);
-      if (completion.tests) {
-        for (const test of completion.tests) {
-          // **Why the test failed**, from the runner that reported it.
-          //
-          // `ExecutionTestResult.error` has existed for as long as the job-completion
-          // payload has, and `CanonicalTestResultSchema` declares it, and the run-detail
-          // page has rendered `test-error-<id>` since before any of this — but this
-          // writer did not persist it. So a runner reporting a failure with a reason
-          // produced a `tests` row with a status and no reason, and the dashboard
-          // rendered a red row with nothing on it.
-          //
-          // This is the **fourth** write path to the same gap: the reporter event
-          // (`test:end`), the reporter upload, and now the job completion. All three
-          // now write it and all three read it back through `mapTest`, and the bound is
-          // the reporter's `normaliseFailure` — which this path reuses rather than
-          // re-deriving, so an untrusted payload is bounded identically whichever door
-          // it arrives at.
-          const failure = normaliseFailure({
-            code: test.error?.code,
-            message: test.error?.message,
-          });
-          await tx
-            .insert(tests)
-            .values({
-              id: test.id,
-              runId: job.runId,
-              title: test.title,
-              file: test.file ?? '',
-              status: dbTestStatus(test.status),
-              durationMs: test.durationMs ?? null,
-              retryCount: Math.max(0, (test.attempt ?? 1) - 1),
-              ...failure,
-            })
-            .onConflictDoUpdate({
-              target: [tests.id, tests.runId],
-              set: {
-                title: test.title,
-                status: dbTestStatus(test.status),
-                durationMs: test.durationMs ?? null,
-                // On conflict as well as insert: a retry reported over the same
-                // (testId, runId) must replace the previous attempt's reason rather than
-                // leaving the first failure on screen next to a passing retry.
-                ...failure,
-              },
-            });
-        }
-      }
-      await tx
-        .update(executionJobs)
-        .set({
-          state:
-            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
-          completionHash,
-          completedAt: timestamp,
-          updatedAt: timestamp,
-          leaseExpiresAt: null,
-          errorCode: completion.error?.code ?? null,
-          errorMessage: completion.error?.message ?? null,
-        })
-        .where(eq(executionJobs.id, jobId));
-      const summaryTotal = completion.summary?.total ?? completion.tests?.length ?? 0;
-      const summaryPassed = completion.summary?.passed ?? 0;
-      const summaryFailed = completion.summary?.failed ?? 0;
-      const summaryFlaky = completion.summary?.flaky ?? 0;
-      // A run with no tests, a zero total and no recorded pass has produced no
-      // evidence, so `passed` is not available to it. `interrupted` is the
-      // existing "finished without a determinate outcome" value — using it keeps
-      // the status vocabulary at four members and needs no migration.
-      const runStatus =
-        derived.outcome === 'passed' &&
-        summaryTotal === 0 &&
-        summaryPassed === 0 &&
-        summaryFailed === 0 &&
-        summaryFlaky === 0
-          ? 'interrupted'
-          : derived.status;
-      // A runner's own summary is accepted only if it accounts for its own total;
-      // one that does not add up is an unverifiable claim about evidence, so the
-      // run's own tests are counted instead. `resolveSummary` is shared with the
-      // in-memory store so the two cannot derive the same run differently.
-      const summary = resolveSummary(completion.summary, completion.tests ?? []);
-      await tx
-        .update(runs)
-        .set({
-          phase: derived.phase,
-          outcome: derived.outcome,
-          status: runStatus,
-          completedAt: timestamp,
-          finishedAt: timestamp,
-          updatedAt: timestamp,
-          errorCode: completion.error?.code ?? null,
-          errorMessage: completion.error?.message ?? null,
-          total: summary.total,
-          passed: summary.passed,
-          failed: summary.failed,
-          flaky: summary.flaky,
-          skipped: summary.skipped,
-          blocked: summary.blocked,
-          unknown: summary.unknown,
-          durationMs: summary.durationMs,
-        })
-        .where(eq(runs.id, job.runId));
-      const jobWorkspaceId = stringValue(jobRecord['workspaceId'], 'default-workspace');
-      await this.appendOutbox(tx, {
-        workspaceId: jobWorkspaceId,
-        aggregateId: job.runId,
-        eventType: 'execution.job.completed',
-        dedupeKey: `execution:${jobWorkspaceId}:job.completed:${jobId}`,
-        occurredAt: timestamp,
-        payload: {
-          runId: job.runId,
-          jobId,
-          phase,
-          outcome,
-          status:
-            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
-          summary: completion.summary ?? null,
-          error: completion.error ?? null,
-        },
-      });
-      return { runId: job.runId, duplicate: false };
-    });
-    if (!result) return null;
-    this.completionHashes.set(jobId, completionHash);
-    const run = await this.getRun(result.runId);
-    const job = await this.getJob(jobId);
-    if (!run || !job) return null;
-    if (!result.duplicate) {
-      const policies = await this.listPolicies(run.workspaceId);
-      const policy = policies[0] ?? (await this.createPolicy(defaultPolicy(run.workspaceId)));
-      await this.saveGate(
-        createGateEvaluation({
-          run,
-          policy,
-          domainStatuses: {
-            browser:
-              run.outcome === 'passed'
-                ? 'passed'
-                : run.outcome === 'failed'
-                  ? 'failed'
-                  : run.outcome === 'partial'
-                    ? 'warning'
-                    : 'unknown',
-          },
-        }),
-      );
-    }
-    return { run, job, status: result.duplicate ? 'duplicate' : 'accepted' };
-  }
-
-  async addArtifact(
-    input: Omit<StoredArtifact, 'id' | 'checksum' | 'sizeBytes' | 'createdAt'> & {
-      bytes: Uint8Array;
-    },
-  ): Promise<ArtifactDescriptor> {
-    const bytes = new Uint8Array(input.bytes);
-    const checksum = digest(bytes);
-    // The bytes go first because the row needs the checksum and the size, which are
-    // only knowable once the bytes exist. That ordering is why a failure between the
-    // two needs undoing: the object would otherwise sit in the store with nothing
-    // referencing it, and the in-memory bound would charge it to the budget for the
-    // life of the process.
-    if (this.options.artifactBytes) await this.options.artifactBytes.put(input.storageKey, bytes);
-    else this.memoryBytes.set(input.storageKey, bytes);
-    const row = {
-      id: randomUUID(),
-      runId: input.runId,
-      jobId: input.jobId,
-      testId: input.testId,
-      kind: input.kind,
-      name: input.name,
-      contentType: input.contentType,
-      storageKey: input.storageKey,
-      checksum,
-      sizeBytes: bytes.byteLength,
-      expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-      legalHold: input.legalHold,
-      metadata: input.metadata,
-      createdAt: nowDate(this.options),
-    };
-    const allowed = [
-      'report',
-      'junit',
-      'json',
-      'log',
-      'stdout',
-      'stderr',
-      'screenshot',
-      'video',
-      'trace',
-      'html',
-      'attachment',
-      'other',
-    ] as const;
-    const normalizedKind = allowed.includes(row.kind as (typeof allowed)[number])
-      ? (row.kind as (typeof allowed)[number])
-      : ('other' as const);
-    const dbRow = { ...row, kind: normalizedKind };
-    try {
-      await this.db.insert(artifacts).values(dbRow);
-    } catch (failure) {
-      // Undo the half of the write that succeeded, then let the original failure
-      // through unchanged. Swallowing it here would report a successful artifact
-      // whose bytes nothing can reach.
-      //
-      // **Residual, stated rather than hidden:** this compensates for a *failed*
-      // insert. A process that dies between the `put` and the insert still leaves an
-      // object behind, and only a `pending → committed` status on the row would close
-      // that window — a migration plus a sweeper, which is the other option this item
-      // offered. The in-process failure was the common case and is now covered; the
-      // crash window is not, and the log line is the only record of it.
-      await this.discardBytes(input.storageKey);
-      throw failure;
-    }
-    return mapArtifact(dbRow);
-  }
-
-  /**
-   * Removes bytes written for an artifact that never got a row, and never masks the
-   * failure that led here.
-   *
-   * The compensation is best-effort by design: the caller is already propagating a
-   * database error, and replacing it with "and the cleanup also failed" would report
-   * a storage fault as a database one. The cleanup failure is logged with the key, so
-   * the object is at least findable.
-   */
-  private async discardBytes(storageKey: string): Promise<void> {
-    try {
-      if (this.options.artifactBytes) {
-        await this.options.artifactBytes.delete(storageKey);
-      } else {
-        this.memoryBytes.delete(storageKey);
-      }
-    } catch (error) {
-      console.error('artifact cleanup failed after a failed insert', {
-        storageKey,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
-    const descriptor = await this.getArtifactDescriptor(artifactId, workspaceId);
-    if (!descriptor) return null;
-    // The row's checksum is the only statement of what these bytes were, and this is
-    // the only place the row and the bytes are both in hand. Checking here rather than
-    // in the store is deliberate: the store holds a storage key and nothing else, so a
-    // check it cannot be given the digest is a check that cannot run — which is how the
-    // digest comparison ended up on a method no production path called.
-    const bytes = this.options.artifactBytes
-      ? await this.options.artifactBytes.get(descriptor.storageKey, descriptor.checksum)
-      : this.memoryBytes.get(descriptor.storageKey);
-    return bytes ? { ...descriptor, bytes: new Uint8Array(bytes) } : null;
-  }
-
-  async getArtifactDescriptor(
-    artifactId: string,
-    workspaceId?: string,
-  ): Promise<ArtifactDescriptor | null> {
-    // `artifacts` has no workspace column of its own, so the scope is the
-    // artifact's run. A run with a NULL workspace_id never matches.
-    let scope: SQL | undefined = eq(artifacts.id, artifactId);
-    if (workspaceId !== undefined) {
-      scope = and(
-        scope,
-        // Bounded: a subquery, not a list — PostgreSQL plans it and its size is the table's
-        inArray(
-          artifacts.runId,
-          this.db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)),
-        ),
-      );
-    }
-    const row = (await this.db.select().from(artifacts).where(scope).limit(1))[0];
-    return row ? mapArtifact(rowValue(row)) : null;
-  }
-
-  async listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]> {
-    // `artifacts` has no `workspace_id`, so the constraint is the join through
-    // `runs`. Required, for the same reason as `listEvents`.
-    const rows = await this.db
-      .select({ artifact: artifacts })
-      .from(artifacts)
-      .innerJoin(runs, eq(runs.id, artifacts.runId))
-      .where(and(eq(artifacts.runId, runId), eq(runs.workspaceId, workspaceId)))
-      .orderBy(asc(artifacts.createdAt));
-    return rows.map((row) => mapArtifact(rowValue(row.artifact)));
-  }
-
-  async createPolicy(
-    input: Omit<QualityPolicy, 'id' | 'hash' | 'createdAt' | 'updatedAt'>,
-  ): Promise<QualityPolicy> {
-    const timestamp = nowDate(this.options);
-    const row = {
-      id: randomUUID(),
-      workspaceId: input.workspaceId,
-      name: input.name,
-      version: input.version,
-      hash: digest(input),
-      requiredDomains: input.requiredDomains,
-      browserPassRateThreshold: input.browserPassRateThreshold,
-      maxFlakyRate: input.maxFlakyRate,
-      maxDurationMs: input.maxDurationMs,
-      rules: input.rules,
-      isDefault: false,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    await this.db.insert(qualityPolicies).values(row);
-    return mapPolicy(row);
-  }
-
-  async listPolicies(workspaceId?: string): Promise<QualityPolicy[]> {
-    const rows = await this.db
-      .select()
-      .from(qualityPolicies)
-      .where(workspaceId === undefined ? undefined : eq(qualityPolicies.workspaceId, workspaceId))
-      .orderBy(asc(qualityPolicies.createdAt));
-    return rows.map((row) => mapPolicy(rowValue(row)));
-  }
-
-  async getPolicy(policyId: string, workspaceId?: string): Promise<QualityPolicy | null> {
-    const row = (
-      await this.db
-        .select()
-        .from(qualityPolicies)
-        .where(
-          and(
-            eq(qualityPolicies.id, policyId),
-            workspaceId === undefined ? undefined : eq(qualityPolicies.workspaceId, workspaceId),
-          ),
-        )
-        .limit(1)
-    )[0];
-    return row ? mapPolicy(rowValue(row)) : null;
-  }
-
-  async saveGate(evaluation: GateEvaluation): Promise<GateEvaluation> {
-    const row = {
-      id: uuidFor(evaluation.id),
-      workspaceId: (await this.getRun(evaluation.runId))?.workspaceId ?? 'default-workspace',
-      runId: evaluation.runId,
-      releaseId: evaluation.releaseId ? uuidFor(evaluation.releaseId) : null,
-      policyId: uuidFor(evaluation.policyId),
-      policyVersion: evaluation.policyVersion,
-      policyHash: evaluation.policyHash,
-      status: evaluation.status,
-      decision: evaluation.decision,
-      reasons: evaluation.reasons,
-      evidenceRefs: evaluation.evidenceRefs,
-      domainStatuses: evaluation.domainStatuses,
-      evaluatedAt: new Date(evaluation.evaluatedAt),
-      createdAt: nowDate(this.options),
-    };
-    await this.db
-      .insert(gateEvaluations)
-      .values(row)
-      .onConflictDoUpdate({
-        target: [gateEvaluations.runId, gateEvaluations.policyId, gateEvaluations.policyHash],
-        set: {
-          status: evaluation.status,
-          decision: evaluation.decision,
-          reasons: evaluation.reasons,
-          evidenceRefs: evaluation.evidenceRefs,
-          domainStatuses: evaluation.domainStatuses,
-          evaluatedAt: new Date(evaluation.evaluatedAt),
-        },
-      });
-    return mapGate(row);
-  }
-
-  async getGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
-    // `gate_evaluations` has no `workspace_id`, so the constraint is the join
-    // through `runs`. Required, for the same reason as `listEvents`.
-    const row = (
-      await this.db
-        .select({ gate: gateEvaluations })
-        .from(gateEvaluations)
-        .innerJoin(runs, eq(runs.id, gateEvaluations.runId))
-        .where(and(eq(gateEvaluations.runId, runId), eq(runs.workspaceId, workspaceId)))
-        .orderBy(desc(gateEvaluations.evaluatedAt))
-        .limit(1)
-    )[0];
-    return row ? mapGate(rowValue(row.gate)) : null;
-  }
-
-  async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
-    const row = (
-      await this.db
-        .select()
-        .from(gateEvaluations)
-        .where(and(eq(gateEvaluations.runId, runId), eq(gateEvaluations.workspaceId, workspaceId)))
-        .orderBy(desc(gateEvaluations.evaluatedAt))
-        .limit(1)
-    )[0];
-    return row ? mapGate(rowValue(row)) : null;
-  }
-
-  async reapExpiredLeases(now = nowDate(this.options)): Promise<LeaseReapResult[]> {
-    const expired = await this.db
-      .select()
-      .from(executionJobs)
-      .where(
-        and(eq(executionJobs.state, 'leased'), sql`${executionJobs.leaseExpiresAt} <= ${now}`),
-      );
-    const results: LeaseReapResult[] = [];
-    for (const row of expired) {
-      const job = mapJob(rowValue(row));
-      // **A job that was asked to stop is not re-run, whatever its lease says.**
-      // The operator's decision has to survive the runner losing the lease, or a
-      // cancelled run executes a second time and the second run's completion is
-      // the one that lands. The table itself lives in `lease-reap.ts`, shared
-      // with the in-memory store — two implementations of it was the way the two
-      // stores could disagree about a cancelled job.
-      const cancelRequested = job.cancelRequestedAt !== null;
-      const outcome = reapOutcome(cancelRequested, job.attempt);
-      const error = cancelRequested ? null : 'RUNNER_LOST';
-      const errorMessage = cancelRequested ? null : 'Runner lease expired';
-      await this.db.transaction(async (tx) => {
-        await tx
-          .update(executionJobs)
-          .set({
-            attempt: outcome.attempt,
-            state: outcome.jobState,
-            availableAt: outcome.canRequeue ? now : new Date(job.availableAt),
-            leaseId: null,
-            leaseOwner: null,
-            leaseExpiresAt: null,
-            errorCode: error,
-            errorMessage,
-            updatedAt: now,
-          })
-          .where(eq(executionJobs.id, job.id));
-        await tx
-          .update(runs)
-          .set({
-            attempt: outcome.attempt,
-            phase: outcome.phase,
-            outcome: outcome.outcome,
-            status: outcome.status,
-            updatedAt: now,
-            errorCode: error,
-            errorMessage,
-          })
-          .where(eq(runs.id, job.runId));
-      });
-      results.push({
-        jobId: job.id,
-        runId: job.runId,
-        requeued: outcome.result.requeued,
-        phase: outcome.result.phase,
-        status: outcome.result.status,
-      });
-    }
-    return results;
-  }
-
-  async getReadiness(
-    releaseId: string,
-    workspaceId = 'default-workspace',
-  ): Promise<ReleaseReadiness> {
-    const run = (
-      await this.db
-        .select()
-        .from(runs)
-        .where(
-          and(
-            eq(runs.releaseId, releaseId),
-            eq(runs.workspaceId, workspaceId),
-            isNotNull(runs.completedAt),
-          ),
-        )
-        .orderBy(desc(runs.completedAt))
-        .limit(1)
-    )[0];
-    const mapped = run ? await this.mapRun(rowValue(run)) : null;
-    let gate = mapped ? await this.getGate(workspaceId, mapped.id) : null;
-    if (mapped && !gate) {
-      const policies = await this.listPolicies(workspaceId);
-      const policy = policies[0] ?? (await this.createPolicy(defaultPolicy(workspaceId)));
-      gate = await this.saveGate(
-        createGateEvaluation({
-          run: mapped,
-          policy,
-          domainStatuses: {
-            browser:
-              mapped.outcome === 'passed'
-                ? 'passed'
-                : mapped.outcome === 'failed'
-                  ? 'failed'
-                  : mapped.outcome === 'partial'
-                    ? 'warning'
-                    : 'unknown',
-          },
-        }),
-      );
-    }
-    const browser: DomainStatus =
-      mapped?.outcome === 'passed'
-        ? 'passed'
-        : mapped?.outcome === 'failed'
-          ? 'failed'
-          : mapped?.outcome === 'partial'
-            ? 'warning'
-            : 'unknown';
-    return {
-      releaseId,
-      decision: gate?.decision ?? 'unknown',
-      browser,
-      domains: {
-        browser,
-        api: 'not_configured',
-        mobile: 'not_configured',
-        performance: 'not_configured',
-        security: 'not_configured',
-        accessibility: 'not_configured',
-        other: 'not_configured',
-      },
-      latestRunId: mapped?.id ?? null,
-      gate,
-      evaluatedAt: iso(nowDate(this.options)),
-    };
-  }
-
-  async getReleaseReadiness(workspaceId: string, releaseId: string): Promise<ReleaseReadiness> {
-    return this.getReadiness(releaseId, workspaceId);
-  }
-
-  private async findByIdempotency(
-    workspaceId: string,
-    idempotencyKey: string,
-  ): Promise<DbRow | null> {
-    const row = (
-      await this.db
-        .select()
-        .from(runs)
-        .where(and(eq(runs.workspaceId, workspaceId), eq(runs.idempotencyKey, idempotencyKey)))
-        .limit(1)
-    )[0];
-    return row ? rowValue(row) : null;
-  }
-
-  private async mapRun(row: DbRow): Promise<ExecutionRun> {
-    const [mapped] = await this.mapRuns([row]);
-    return mapped as ExecutionRun;
-  }
-
-  /**
-   * Maps many run rows with a fixed number of queries.
-   *
-   * `mapRun` fetches this run's tests, artifacts and runner, so calling it per
-   * row made the listing N+1: twenty runs on a dashboard meant sixty-one round
-   * trips. Here the child rows for every run are fetched in three queries and
-   * grouped in memory, so the count is constant whatever the page size.
-   *
-   * Kept as a separate method rather than folded into `mapRun` because the
-   * single-run path is the common one for a completion and a dashboard, and
-   * * three `WHERE run_id = $1` queries beat three `IN (...)` queries for one id.
-   */
-  private async mapRuns(rowsToMap: DbRow[]): Promise<ExecutionRun[]> {
-    if (rowsToMap.length === 0) return [];
-    if (rowsToMap.length === 1)
-      return [
-        await this.mapRunWithChildren(
-          rowsToMap[0] as DbRow,
-          await this.childrenFor([rowsToMap[0] as DbRow]),
-        ),
-      ];
-
-    const mapped: ExecutionRun[] = [];
-    // **Batched, so no statement's size is chosen by whoever asked for the page.**
-    //
-    // `runIds` and `runnerIds` come from `rowsToMap`, which is whatever a paginated query
-    // returned — and the page size is the caller's to choose. Three `IN (...)` statements
-    // each carried a bind parameter per row, and PostgreSQL's ceiling is 65 535.
-    //
-    // Batching the *rows* rather than the id lists bounds all three with one limit,
-    // because every id in a batch belongs to a row in it. Sequential, because a caller
-    // that asked for 200 000 rows already has a problem and firing every batch at once is
-    // how that becomes an outage rather than a slow answer.
-    for (const batch of chunked(rowsToMap, MAX_ROWS_PER_CHILD_QUERY)) {
-      const runIds = batch.map((row) => stringValue(row['id']));
-      const runnerIds = [
-        ...new Set(
-          batch
-            .map((row) => row['runnerId'])
-            .filter((value): value is string => typeof value === 'string' && value !== '')
-            .map((value) => stringValue(value)),
-        ),
-      ];
-
-      const [testRows, artifactRows, runnerRows] = await Promise.all([
-        this.db
-          .select()
-          .from(tests)
-          .where(inArray(tests.runId, oneBatch(runIds))),
-        this.db
-          .select()
-          .from(artifacts)
-          .where(inArray(artifacts.runId, oneBatch(runIds))),
-        runnerIds.length === 0
-          ? Promise.resolve([])
-          : this.db
-              .select()
-              .from(runners)
-              .where(inArray(runners.id, oneBatch(runnerIds))),
-      ]);
-
-      const testsByRun = groupBy(
-        testRows.map((row) => rowValue(row)),
-        (row) => stringValue(row['runId'], ''),
-      );
-      const artifactsByRun = groupBy(
-        artifactRows.map((row) => rowValue(row)),
-        (row) => stringValue(row['runId'], ''),
-      );
-      const runnerById = new Map(
-        runnerRows.map((row) => {
-          const runnerRow = rowValue(row);
-          return [stringValue(runnerRow['id']), mapRunner(runnerRow)] as const;
-        }),
-      );
-
-      for (const row of batch) {
-        const runId = stringValue(row['id']);
-        mapped.push(
-          this.buildRun(
-            row,
-            (testsByRun.get(runId) ?? []).map((test) => mapTest(test)),
-            (artifactsByRun.get(runId) ?? []).map((artifact) => mapArtifact(artifact)),
-            row['runnerId'] ? (runnerById.get(stringValue(row['runnerId'])) ?? null) : null,
-          ),
-        );
-      }
-    }
-    return mapped;
-  }
-
-  /** The per-row queries, for a single run. */
-  private async mapRunWithChildren(
-    row: DbRow,
-    children: {
-      tests: DbRow[];
-      artifacts: DbRow[];
-      runner: unknown;
-    },
-  ): Promise<ExecutionRun> {
-    const runner =
-      children.runner === null || children.runner === undefined
-        ? null
-        : mapRunner(rowValue(children.runner));
-    return this.buildRun(
-      row,
-      children.tests.map((test) => mapTest(test)),
-      children.artifacts.map((artifact) => mapArtifact(artifact)),
-      runner,
-    );
-  }
-
-  /** Child rows for a single run, fetched as three queries. */
-  private async childrenFor(rowsToLoad: DbRow[]): Promise<{
-    tests: DbRow[];
-    artifacts: DbRow[];
-    runner: unknown;
-  }> {
-    const [testRows, artifactRows, runnerRow] = await Promise.all([
-      this.db
-        .select()
-        .from(tests)
-        .where(eq(tests.runId, stringValue(rowsToLoad[0]?.['id']))),
-      this.db
-        .select()
-        .from(artifacts)
-        .where(eq(artifacts.runId, stringValue(rowsToLoad[0]?.['id']))),
-      rowsToLoad[0]?.['runnerId']
-        ? this.db
-            .select()
-            .from(runners)
-            .where(eq(runners.id, stringValue(rowsToLoad[0]?.['runnerId'])))
-            .limit(1)
-        : Promise.resolve([]),
-    ]);
-    return {
-      tests: testRows.map((row) => rowValue(row)),
-      artifacts: artifactRows.map((row) => rowValue(row)),
-      runner: runnerRow[0] === undefined ? null : rowValue(runnerRow[0]),
-    };
-  }
-
-  private buildRun(
-    row: DbRow,
-    testRows: ReturnType<typeof mapTest>[],
-    artifactRows: ReturnType<typeof mapArtifact>[],
-    runner: ReturnType<typeof mapRunner> | null,
-  ): ExecutionRun {
-    const runId = stringValue(row['id']);
-    const summary = summaryFromRow(row);
-    return {
-      id: runId,
-      externalId: nullableString(row['externalId']),
-      source: stringValue(row['source'], 'api'),
-      framework: stringValue(row['framework'], 'unknown'),
-      adapterVersion: stringValue(row['adapterVersion'], 'unknown'),
-      testType: stringValue(row['testType'], 'browser'),
-      projectId: nullableString(row['projectId']),
-      environmentId: nullableString(row['environmentId']),
-      releaseId: nullableString(row['releaseId']),
-      branch: nullableString(row['branch']),
-      commit: nullableString(row['commitSha']),
-      suite: nullableString(row['suite']),
-      selection: Array.isArray(row['selection'])
-        ? row['selection'].filter((value): value is string => typeof value === 'string')
-        : [],
-      timeoutMs: numberValue(row['timeoutMs'], 1_800_000),
-      priority: numberValue(row['priority']),
-      requiredCapabilities: Array.isArray(row['requiredCapabilities'])
-        ? row['requiredCapabilities'].filter((value): value is string => typeof value === 'string')
-        : [],
-      labels: Array.isArray(row['labels'])
-        ? row['labels'].filter((value): value is string => typeof value === 'string')
-        : [],
-      configuration:
-        row['config'] && typeof row['config'] === 'object'
-          ? (row['config'] as Record<string, unknown>)
-          : {},
-      metadata:
-        row['metadata'] && typeof row['metadata'] === 'object'
-          ? (row['metadata'] as Record<string, unknown>)
-          : {},
-      policyId: nullableString(row['policyId']),
-      idempotencyKey: stringValue(row['idempotencyKey'], `legacy:${runId}`),
-      workspaceId: stringValue(row['workspaceId'], 'default-workspace'),
-      attempt: numberValue(row['attempt'], 1),
-      retryOfRunId: nullableString(row['retryOfRunId']),
-      phase: phaseValue(row['phase']),
-      outcome: outcomeValue(row['outcome']),
-      createdAt: dateIso(row['createdAt']),
-      updatedAt: dateIso(row['updatedAt']),
-      startedAt: nullableDateIso(row['startedAt']),
-      completedAt: nullableDateIso(row['completedAt']),
-      runner: runner
-        ? {
-            id: runner.id,
-            name: runner.name,
-            version: runner.version,
-            os: runner.os,
-            arch: runner.arch,
-            health: runner.health,
-            lastHeartbeatAt: runner.lastHeartbeatAt,
-          }
-        : null,
-      tests: testRows,
-      summary,
-      error:
-        row['errorCode'] || row['errorMessage']
-          ? {
-              code: stringValue(row['errorCode'], 'EXECUTION_ERROR'),
-              message: stringValue(row['errorMessage'], 'Execution failed'),
-            }
-          : null,
-      rawEvidenceRefs: Array.isArray(row['rawEvidenceRefs'])
-        ? row['rawEvidenceRefs'].filter((value): value is string => typeof value === 'string')
-        : [],
-      artifacts: artifactRows,
-      policyEvaluation: null,
-      status: stringValue(row['status'], 'running'),
-    };
+    return this.canonical.createRun(input, idempotencyKey, workspaceId);
   }
 
   async create(
@@ -2383,19 +84,43 @@ export class DrizzleExecutionStore implements ExecutionStore {
     idempotencyKey: string,
     workspaceId?: string,
   ): Promise<CreateRunResult> {
-    return this.createRun(input, idempotencyKey, workspaceId);
+    return this.canonical.createRun(input, idempotencyKey, workspaceId);
+  }
+
+  async listRuns(
+    workspaceId?: string,
+    releaseId?: string,
+    options?: { limit?: number; after?: string },
+  ): Promise<RunPage> {
+    return this.canonical.listRuns(workspaceId, releaseId, options);
   }
 
   async list(workspaceId?: string, releaseId?: string): Promise<ExecutionRun[]> {
-    return (await this.listRuns(workspaceId, releaseId)).runs;
+    return (await this.canonical.listRuns(workspaceId, releaseId)).runs;
+  }
+
+  async getRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
+    return this.canonical.getRun(runId, workspaceId);
   }
 
   async get(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
-    return this.getRun(runId, workspaceId);
+    return this.canonical.getRun(runId, workspaceId);
+  }
+
+  async cancelRun(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
+    return this.canonical.cancelRun(runId, workspaceId);
   }
 
   async cancel(runId: string, workspaceId?: string): Promise<ExecutionRun | null> {
-    return this.cancelRun(runId, workspaceId);
+    return this.canonical.cancelRun(runId, workspaceId);
+  }
+
+  async retryRun(
+    runId: string,
+    workspaceId?: string,
+    idempotencyKey?: string,
+  ): Promise<CreateRunResult | null> {
+    return this.canonical.retryRun(runId, workspaceId, idempotencyKey);
   }
 
   async retry(
@@ -2403,7 +128,137 @@ export class DrizzleExecutionStore implements ExecutionStore {
     workspaceId?: string,
     idempotencyKey?: string,
   ): Promise<CreateRunResult | null> {
-    return this.retryRun(runId, workspaceId, idempotencyKey);
+    return this.canonical.retryRun(runId, workspaceId, idempotencyKey);
+  }
+
+  async getJob(jobId: string, workspaceId?: string): Promise<ExecutionJob | null> {
+    return this.canonical.getJob(jobId, workspaceId);
+  }
+
+  async listJobs(workspaceId?: string): Promise<ExecutionJob[]> {
+    return this.canonical.listJobs(workspaceId);
+  }
+
+  async registerRunner(
+    manifest: RunnerManifest,
+    tokenHash: string,
+    tokenExpiresAt: string,
+    workspaceId?: string,
+  ): Promise<RegisteredRunner> {
+    return this.leases.registerRunner(manifest, tokenHash, tokenExpiresAt, workspaceId);
+  }
+
+  async getRunner(runnerId: string): Promise<RegisteredRunner | null> {
+    return this.leases.getRunner(runnerId);
+  }
+
+  async authenticateRunner(token: string): Promise<RegisteredRunner | null> {
+    return this.leases.authenticateRunner(token);
+  }
+
+  async heartbeatRunner(
+    runnerId: string,
+    activeJobIds?: string[],
+    health?: RunnerHealth,
+  ): Promise<RunnerHeartbeat | null> {
+    return this.leases.heartbeatRunner(runnerId, activeJobIds, health);
+  }
+
+  async claimJob(
+    runnerId: string,
+    capabilities: string[] = [],
+    labels: string[] = [],
+    now?: Date,
+    workspaceId?: string,
+  ): Promise<JobClaim | null> {
+    return this.leases.claimJob(runnerId, capabilities, labels, now, workspaceId);
+  }
+
+  async appendEvents(
+    jobId: string,
+    leaseId: string,
+    fencingToken: number,
+    events: ExecutionEventInput[],
+    workspaceId?: string,
+  ): Promise<EventApplyResult[]> {
+    return this.canonical.appendEvents(jobId, leaseId, fencingToken, events, workspaceId);
+  }
+
+  async listEvents(
+    workspaceId: string,
+    runId: string,
+    page?: { afterSequence?: number; limit?: number },
+  ): Promise<EventPage> {
+    return this.canonical.listEvents(workspaceId, runId, page);
+  }
+
+  async completeJob(
+    jobId: string,
+    completion: JobCompletionInput,
+    workspaceId?: string,
+  ): Promise<JobCompletionResult | null> {
+    return this.canonical.completeJob(jobId, completion, workspaceId);
+  }
+
+  async addArtifact(
+    input: Omit<StoredArtifact, 'id' | 'checksum' | 'sizeBytes' | 'createdAt'> & {
+      bytes: Uint8Array;
+    },
+  ): Promise<ArtifactDescriptor> {
+    return this.artifacts.addArtifact(input);
+  }
+
+  async getArtifact(artifactId: string, workspaceId?: string): Promise<StoredArtifact | null> {
+    return this.artifacts.getArtifact(artifactId, workspaceId);
+  }
+
+  async getArtifactDescriptor(
+    artifactId: string,
+    workspaceId?: string,
+  ): Promise<ArtifactDescriptor | null> {
+    return this.artifacts.getArtifactDescriptor(artifactId, workspaceId);
+  }
+
+  async listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]> {
+    return this.artifacts.listArtifacts(workspaceId, runId);
+  }
+
+  async createPolicy(
+    input: Omit<QualityPolicy, 'id' | 'hash' | 'createdAt' | 'updatedAt'>,
+  ): Promise<QualityPolicy> {
+    return this.canonical.createPolicy(input);
+  }
+
+  async listPolicies(workspaceId?: string): Promise<QualityPolicy[]> {
+    return this.canonical.listPolicies(workspaceId);
+  }
+
+  async getPolicy(policyId: string, workspaceId?: string): Promise<QualityPolicy | null> {
+    return this.canonical.getPolicy(policyId, workspaceId);
+  }
+
+  async saveGate(evaluation: GateEvaluation): Promise<GateEvaluation> {
+    return this.canonical.saveGate(evaluation);
+  }
+
+  async getGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    return this.canonical.getGate(workspaceId, runId);
+  }
+
+  async getRunGate(workspaceId: string, runId: string): Promise<GateEvaluation | null> {
+    return this.canonical.getRunGate(workspaceId, runId);
+  }
+
+  async reapExpiredLeases(now?: Date): Promise<LeaseReapResult[]> {
+    return this.leases.reapExpiredLeases(now);
+  }
+
+  async getReadiness(releaseId: string, workspaceId?: string): Promise<ReleaseReadiness> {
+    return this.canonical.getReadiness(releaseId, workspaceId);
+  }
+
+  async getReleaseReadiness(workspaceId: string, releaseId: string): Promise<ReleaseReadiness> {
+    return this.canonical.getReleaseReadiness(workspaceId, releaseId);
   }
 }
 

@@ -22,12 +22,13 @@ import { ReporterIngestionService } from './services/reporter-ingestion.js';
 import { InMemoryRealtimeBus } from './realtime/realtime-bus.js';
 import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
+import { CANONICAL_API_ROUTES } from './route-manifest.js';
 
 /**
  * The mounted route set.
  *
  * `routes/runs.ts` used to define a second `GET /api/v1/runs`, and its own test
- * passed — because it built an app from `createRunsRoutes` alone, with none of
+ * passed â€” because it built an app from `createRunsRoutes` alone, with none of
  * the execution routes that already owned that path mounted. The duplication was
  * invisible from either side: the dead test proved the dead handler worked, and
  * nothing proved which one the server actually served.
@@ -35,12 +36,12 @@ import { OrchestrationService } from './services/orchestration-service.js';
  * So this asserts the *set* of canonical API routes, from one app with **every**
  * route module mounted in the same order as `index.ts`. A second declaration of
  * a path is a duplicate registration, which Hono resolves by registration order
- * — silently.
+ * â€” silently.
  *
  * **Why all of them, and not only the execution routes.** The original version
  * mounted `createExecutionRoutes` alone, so it could only see collisions *within*
- * that module. The class of bug it was written for — the same `(method, path)`
- * claimed by two modules — is invisible to a single-module view: if
+ * that module. The class of bug it was written for â€” the same `(method, path)`
+ * claimed by two modules â€” is invisible to a single-module view: if
  * `modules/dashboard/runs.ts` and `routes/reporter.ts` both answer
  * `GET /api/v1/runs`, a manifest built from the execution routes alone reports a
  * clean set. A collision is only detectable from the union, so the union is what
@@ -48,8 +49,13 @@ import { OrchestrationService } from './services/orchestration-service.js';
  *
  * A route that is registered but absent from `CANONICAL_API_ROUTES` is also
  * reported. The manifest is the answer to "which paths does this product serve",
- * and a path missing from it is a path nothing has claimed as canonical — which
+ * and a path missing from it is a path nothing has claimed as canonical â€” which
  * is how a route ends up unlisted, unreviewed, and untested.
+ *
+ * The list itself lives in `route-manifest.ts`, because the OpenAPI and authz
+ * matrix generators read the same set and a constant private to this file would
+ * have to be copied into both. What is asserted here is the property that makes
+ * that safe: the list and the running app are the same set.
  */
 function mountedApp(): Hono {
   // The error boundary, because since finding C-3 a handler refuses by `throw`ing a
@@ -88,8 +94,8 @@ function mountedApp(): Hono {
   );
   app.route('/', createAgentRoutes());
   // A gateway that refuses, because this suite is about the route set and a real
-  // one would need a provider. The route is the same either way — which gateway is
-  // the composition root's choice, not the route's — and the shared helper is used
+  // one would need a provider. The route is the same either way â€” which gateway is
+  // the composition root's choice, not the route's â€” and the shared helper is used
   // rather than a second unconfigured stub that could differ from it.
   app.route(
     '/',
@@ -107,7 +113,7 @@ function mountedApp(): Hono {
    * fourteen project endpoints were live in the real app and absent from this
    * harness, so the manifest could not see them: a duplicated path there, or a
    * path colliding with the legacy control plane, would have been invisible. The
-   * suite is about the route *set*, so it mounts the routes and never calls one —
+   * suite is about the route *set*, so it mounts the routes and never calls one â€”
    * which is why the registry service takes a `{} as never` for the database (the
    * same cast `index.ts` gives the real one) and a literal empty view, the seam
    * the detector's file reads exist to be injected through.
@@ -165,8 +171,8 @@ async function registeredRoutes(
  * Endpoints only.
  *
  * Hono records `app.use` and `app.all` on the same list, under the `ALL` method
- * and a wildcard path. Those are middleware — the body limit, the auth guard, the
- * ingestion rate limiter — and a wildcard is not a `(method, path)` a client can
+ * and a wildcard path. Those are middleware â€” the body limit, the auth guard, the
+ * ingestion rate limiter â€” and a wildcard is not a `(method, path)` a client can
  * call, so counting them as endpoints produced both a false duplicate
  * (`ALL /*` is registered by more than one module) and a false gap. They are
  * asserted separately in the middleware case below rather than dropped.
@@ -174,128 +180,6 @@ async function registeredRoutes(
 function isEndpoint(route: { method: string; path: string }): boolean {
   return route.method !== 'ALL' && !route.path.includes('*');
 }
-
-/**
- * The canonical `(method, path)` set, one line per route the product serves.
- *
- * Every route the app answers must appear here. The `it` case below fails on a
- * route that is missing from this list, so a new route cannot be added without
- * being claimed as canonical — which is the moment to notice that nothing tests
- * it.
- */
-const CANONICAL_API_ROUTES: Array<[string, string]> = [
-  // Health and capability manifest.
-  ['GET', '/health'],
-  ['GET', '/api/v1/health'],
-  ['GET', '/api/v1/ready'],
-  ['GET', '/ready'],
-  ['GET', '/api/v1/features'],
-  ['GET', '/metrics'],
-  // Sessions.
-  ['POST', '/api/v1/auth/login'],
-  ['GET', '/api/v1/auth/session'],
-  ['POST', '/api/v1/auth/logout'],
-  // Ingestion.
-  ['POST', '/api/v1/reporter/events'],
-  ['POST', '/api/v1/reporter/upload'],
-  ['POST', '/api/v1/reporter/results'],
-  // Runs.
-  ['GET', '/api/v1/runs'],
-  ['POST', '/api/v1/runs'],
-  ['GET', '/api/v1/runs/:runId'],
-  ['GET', '/api/v1/runs/:runId/events'],
-  ['POST', '/api/v1/runs/:runId/cancel'],
-  ['POST', '/api/v1/runs/:runId/retry'],
-  ['GET', '/api/v1/runs/:runId/gate'],
-  ['GET', '/api/v1/runs/:runId/artifacts'],
-  ['GET', '/api/v1/runs/:runId/artifacts/:artifactId'],
-  // Releases and policies.
-  ['GET', '/api/v1/releases/:releaseId/readiness'],
-  ['GET', '/api/v1/quality-policies'],
-  ['POST', '/api/v1/quality-policies'],
-  ['GET', '/api/v1/integrations/maturity'],
-  // Runners and jobs.
-  ['POST', '/api/v1/runners/register'],
-  ['POST', '/api/v1/runners/:runnerId/heartbeat'],
-  ['POST', '/api/v1/runners/:runnerId/jobs/claim'],
-  ['POST', '/api/v1/jobs/:jobId/events'],
-  ['POST', '/api/v1/jobs/:jobId/events/batch'],
-  ['POST', '/api/v1/jobs/:jobId/artifacts'],
-  ['POST', '/api/v1/jobs/:jobId/complete'],
-  // The queue, at `/execution/jobs` rather than `/api/v1/jobs`: the orchestration
-  // module owns that path for its own in-process envelope list, and a collision
-  // there would have been a silent 404 rather than a mount-time failure.
-  ['GET', '/api/v1/execution/jobs'],
-  // Artifacts.
-  ['GET', '/api/v1/artifacts/:artifactId'],
-  // Reporting.
-  ['GET', '/api/v1/reporting/runs/:runId'],
-  ['GET', '/api/v1/reporting/kpis'],
-  // Realtime.
-  ['GET', '/api/v1/events'],
-  // Agents.
-  ['GET', '/api/v1/agents'],
-  ['GET', '/api/v1/agents/:domain'],
-  ['POST', '/api/v1/agents/:domain/:action'],
-  // Chat — the consumer `packages/automation` had no route for until now.
-  ['GET', '/api/v1/chat/models'],
-  ['POST', '/api/v1/chat/completions'],
-  // Dashboard.
-  ['GET', '/api/v1/dashboard/runs/:id'],
-  ['PATCH', '/api/v1/dashboard/runs/:id/status'],
-  ['GET', '/api/v1/dashboard/tests'],
-  ['GET', '/api/v1/dashboard/suites'],
-  ['GET', '/api/v1/dashboard/runs/:runId/tests'],
-  ['GET', '/api/v1/dashboard/analytics/summary'],
-  // The KPIs, each carrying the unit it was computed in — the endpoint that ends
-  // the two-formatter guesswork (GLASS-3).
-  ['GET', '/api/v1/dashboard/kpis/summary'],
-  ['GET', '/api/v1/dashboard/quarantine'],
-  ['POST', '/api/v1/dashboard/quarantine'],
-  ['PATCH', '/api/v1/dashboard/quarantine/:id'],
-  ['DELETE', '/api/v1/dashboard/quarantine/:id'],
-  ['GET', '/api/v1/dashboard/quality-gates'],
-  ['POST', '/api/v1/dashboard/quality-gates'],
-  ['GET', '/api/v1/dashboard/quality-gates/:id'],
-  // Projects: the registry, the command a run is resolved against, the run stop
-  // that closes the loop, and the four derived QA reads plus the score diff.
-  ['POST', '/api/v1/projects'],
-  ['GET', '/api/v1/projects'],
-  ['GET', '/api/v1/projects/:id'],
-  // The profile edit, which the documentation site promised and nothing served.
-  ['PATCH', '/api/v1/projects/:id'],
-  // The decision loop: a verdict about a derived finding, recorded and read back.
-  ['POST', '/api/v1/projects/:id/decisions'],
-  ['GET', '/api/v1/projects/:id/decisions'],
-  // The same store, asked the two questions the daily screen asks: whose work is
-  // waiting, and what changed since. The timeline is the second one.
-  ['GET', '/api/v1/projects/:id/decisions/timeline'],
-  ['POST', '/api/v1/projects/:id/detect'],
-  ['GET', '/api/v1/projects/:id/commands'],
-  ['POST', '/api/v1/projects/:id/run.start'],
-  ['POST', '/api/v1/runs/:runId/stop'],
-  ['GET', '/api/v1/projects/:id/qa/score'],
-  ['GET', '/api/v1/projects/:id/qa/gaps'],
-  ['GET', '/api/v1/projects/:id/qa/hollow'],
-  ['GET', '/api/v1/projects/:id/qa/flaky'],
-  ['GET', '/api/v1/projects/:id/qa/structure'],
-  // The probe's answer, for one project: what the repository's QA stack is,
-  // with the evidence for every tool that was found.
-  ['GET', '/api/v1/projects/:id/toolchain'],
-  ['GET', '/api/v1/projects/:id/qa/score/diff'],
-  ['POST', '/api/v1/projects/:id/copilot/answer'],
-  // Legacy process-local control plane.
-  ['POST', '/api/v1/runner/v1/enroll'],
-  ['POST', '/api/v1/runner/v1/sync'],
-  ['POST', '/api/v1/runner/v1/jobs/:jobId/events/batch'],
-  ['GET', '/api/v1/automations'],
-  ['POST', '/api/v1/automations'],
-  ['GET', '/api/v1/schedules'],
-  ['POST', '/api/v1/schedules'],
-  ['GET', '/api/v1/jobs'],
-  ['POST', '/api/v1/automations/:id/jobs'],
-  ['POST', '/api/v1/jobs/:id/cancel'],
-];
 
 describe('the mounted route set', () => {
   it('serves every canonical API route', async () => {
@@ -328,7 +212,7 @@ describe('the mounted route set', () => {
       const key = `${route.method} ${route.path}`;
       seen.set(key, (seen.get(key) ?? 0) + 1);
     }
-    // A duplicate is not an error in Hono — the first registration wins and the
+    // A duplicate is not an error in Hono â€” the first registration wins and the
     // second is unreachable. That is exactly how a dead route file survives, and
     // it is only detectable from the union of every module, not from one.
     const duplicates = [...seen.entries()]
@@ -353,7 +237,7 @@ describe('the mounted route set', () => {
     // *effect* rather than the file's existence is what catches that class.
     const app = mountedApp();
     const response = await app.request('/api/v1/runs');
-    // The canonical handler is the paged, workspace-scoped one — not a bare
+    // The canonical handler is the paged, workspace-scoped one â€” not a bare
     // dump of the whole repository.
     expect(response.status).toBe(200);
     const body = (await response.json()) as unknown[];

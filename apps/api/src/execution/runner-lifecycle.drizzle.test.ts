@@ -567,9 +567,13 @@ describe('a swept lease releases the job it was holding', () => {
    */
   it('records the cross-workspace question the reaper\u2019s predicate raises', () => {
     const query = readFileSync(
-      path.join(path.dirname(fileURLToPath(import.meta.url)), 'drizzle-execution-store.ts'),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), 'drizzle-execution-store-leases.ts'),
       'utf8',
     );
+    // Read from the leases seam rather than from the composer: the reaper moved
+    // there with the claim and the heartbeat it is the other half of, and reading
+    // the composer would find a delegation instead of the predicate this note is
+    // about.
     const reaper = query.slice(
       query.indexOf('async reapExpiredLeases'),
       query.indexOf('async reapExpiredLeases') + 700,

@@ -1,8 +1,9 @@
+import { authzMatrixFindings } from './authz-matrix.mjs';
+
 /**
  * The anti-drift assertions, as detectors.
  *
- * Roadmap E4 named seven things a document may claim that the code does not do, and
- * §17's tenth point is the gate over them. Only one of the seven was implemented
+ * Roadmap E4 named seven things a document may claim that the code does not do, and * §17's tenth point is the gate over them. Only one of the seven was implemented
  * when this file was written, and the six that were not were the six holding real
  * defects — which is the argument for the list being written down rather than
  * remembered:
@@ -31,6 +32,17 @@
  * was derived from it, and the v3.0 plan was written against a tree where 16 was the
  * answer. The value is one `&&`-split away, so a copy of it in prose is a copy of
  * something that moves.
+ *
+ * **And a tenth, which is the first that reads an artefact rather than a document.**
+ * `docs/quality/authz-matrix.json` is generated — recorded by an API test that asks
+ * the running application what every canonical route answers — so the numbers in
+ * it are not a claim anybody made. What the runtime check cannot see is the two
+ * ways the artefact and `route-manifest.ts` drift apart: a route added with no row,
+ * and a row left behind for a route that was removed. The tenth detector reads the
+ * two committed files and reports both gaps, which is a static check over a
+ * generated artefact rather than a static check over prose. It was added on
+ * 2026-10-12, and the count is asserted in `docs-drift.test.mjs` because a
+ * detector added without its decision recorded is the ninth's failure repeating.
  *
  * **Each assertion is a detector, not a keyword.** The first attempt at point 10
  * grepped the doc-gate's source for words like `port` and `transport` and reported
@@ -70,7 +82,11 @@
  * @property {Set<string>} adrNumbers
  * @property {Map<string, string>} coverageFloors
  * @property {number | null} verifySteps
- * @property {(relative: string) => boolean} fileExists
+ * @property {((relative: string) => boolean)} fileExists
+ * @property {(relative: string) => string} read a file's contents, `''` when absent. Held on
+ *   the environment rather than re-derived per detector, because two detectors now read a
+ *   committed JSON artefact rather than a markdown document — the authz matrix — and a
+ *   detector that had to open the tree itself would be a fourth way to read a file.
  */
 
 /**
@@ -241,6 +257,12 @@ export const ASSERTIONS = [
     id: 'verify-steps',
     rule: 'a step count quoted for `pnpm verify` is the one `package.json` chains',
     check: checkVerifySteps,
+    gap: '',
+  },
+  {
+    id: 'authz-matrix',
+    rule: 'the committed authz matrix has a row for every canonical route, and only those',
+    check: checkAuthzMatrix,
     gap: '',
   },
 ];
@@ -686,6 +708,26 @@ function checkVerifySteps(env) {
   });
 }
 
+// ── 10. The authz matrix ────────────────────────────────────────────────────
+
+/**
+ * The tenth detector, and the only one that reads a JSON artefact rather than a
+ * markdown document.
+ *
+ * The matrix is generated, so the code in it is not a claim; what can go wrong is
+ * the two gaps between it and the route set that nothing running can catch. A
+ * route added to `route-manifest.ts` without a row leaves the API suite green in
+ * one direction — the matrix test only compares the *recorded* set against what
+ * the harness answers, so an entirely absent row is only caught by a second,
+ * case-level assertion in that suite, and a reader has to run it.
+ *
+ * @param {DriftEnvironment} env
+ * @returns {string[]}
+ */
+function checkAuthzMatrix(env) {
+  return authzMatrixFindings(env.read);
+}
+
 // ── Deriving the truth ──────────────────────────────────────────────────────
 
 /**
@@ -716,6 +758,7 @@ export function collectDriftEnvironment(root, read, files, rootScripts, register
       const clean = relative.replaceAll('\\', '/').replace(/\/$/, '');
       return files().some((file) => file === clean || file.startsWith(`${clean}/`));
     },
+    read,
   };
 }
 

@@ -69,6 +69,11 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     files: ['index.ts', 'bootstrap/index.ts'],
   },
   { family: 'execution routes', files: ['routes/execution.ts'] },
+  // The agent boundary reads a workspace id only as the *subject a token is minted
+  // to*, and the route proves it does not read across it: the adapter mints a grant
+  // and never queries a store, and `api-adapter.test.ts` asserts the subject is the
+  // request's own workspace rather than any other.
+  { family: 'agent boundary', files: ['routes/agents.ts', 'agents/api-adapter.ts'] },
   { family: 'reporter results', files: ['routes/reporter-results.ts'] },
   { family: 'reporting', files: ['routes/reporting.ts'] },
   { family: 'runner', files: ['routes/runner.ts'] },
@@ -85,6 +90,11 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
       'execution/decision-store.ts',
       'execution/drizzle-decision-store.ts',
       'execution/drizzle-execution-store.ts',
+      'execution/drizzle-execution-store-artifacts.ts',
+      'execution/drizzle-execution-store-canonical.ts',
+      'execution/drizzle-execution-store-leases.ts',
+      'execution/drizzle-execution-store-outbox.ts',
+      'execution/drizzle-execution-store-rows.ts',
       'execution/in-memory-decision-store.ts',
       'execution/in-memory-execution-store.ts',
       'execution/quality-gate.ts',
@@ -283,7 +293,18 @@ describe('every workspace-scoped family constrains on the workspace', () => {
  * @returns one entry per method, with its parameter list as written
  */
 function executionStoreContract(): Array<{ name: string; parameters: string }> | null {
-  const files = ['execution/types.ts', 'execution/drizzle-execution-store.ts'];
+  const files = [
+    'execution/types.ts',
+    'execution/drizzle-execution-store.ts',
+    // The four seams the durable store was split into. The composer is listed
+    // separately because it is the thing a route holds, and the seams because
+    // the methods that actually touch the database now live in them — the
+    // signature check would otherwise only ever read the delegation.
+    'execution/drizzle-execution-store-artifacts.ts',
+    'execution/drizzle-execution-store-canonical.ts',
+    'execution/drizzle-execution-store-leases.ts',
+    'execution/drizzle-execution-store-outbox.ts',
+  ];
   /** @type {Map<string, { name: string, parameters: string }>} */
   const byName = new Map();
 

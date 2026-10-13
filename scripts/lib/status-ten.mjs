@@ -462,7 +462,25 @@ function pointFive(ctx) {
     .files('packages')
     .concat(ctx.files('apps'))
     .filter((file) => /\.(test|spec)\.tsx?$/.test(file) && /property|fuzz/i.test(file));
-  const authz = ctx.files('docs').filter((file) => /authz/i.test(file));
+  /**
+   * The authz matrix, and **both halves of what makes it generated rather than
+   * written**.
+   *
+   * The first version of this clause looked for a file under `docs/` whose name
+   * contained `authz`, and reported it as `ok` with the filename. That is a
+   * filename, not a property: a hand-written JSON file would satisfy it, which is
+   * the same defect as the twelve-point page claiming a check exists because the
+   * word appears in the script. So the clause now pairs the artefact with the
+   * only thing that distinguishes it — the test that asks the running application
+   * what each route answers and fails when the artefact disagrees. Without that
+   * test the matrix is a description somebody typed.
+   */
+  const authzArtefacts = ctx.files('docs').filter((file) => /authz/i.test(file));
+  const authzProbe = ctx
+    .files('apps/api/src')
+    .filter((file) => /authz-matrix\.test\.ts$/.test(file));
+  const authz =
+    authzArtefacts.length > 0 && authzProbe.length > 0 ? [...authzArtefacts, ...authzProbe] : [];
   const perf = /** @type {{ recorded?: unknown }} */ (ctx.json('performance/thresholds.json'));
 
   return [
@@ -491,10 +509,15 @@ function pointFive(ctx) {
           'no property or fuzz suite exists in any package.',
         ),
     authz.length > 0
-      ? ok('an authz matrix is generated from the app', authz.join(', '))
+      ? ok(
+          'an authz matrix is generated from the app',
+          `${authz.join(', ')} — the artefact and the test that re-asks the application ` +
+            'for every canonical route.',
+        )
       : broken(
           'the authz matrix is generated from the application',
-          'no generated authz matrix exists.',
+          'no generated authz matrix exists, or no test regenerates it against the application. ' +
+            'An artefact without that test is a description somebody typed.',
         ),
     perf?.recorded === true
       ? ok(

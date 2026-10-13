@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { AgentRequestSchema } from '@automate/shared-contracts';
 import { AGENT_DOMAINS } from './agent-registry.js';
+import { domainFor } from '@automate/tool-sdk';
+import { runApiAgent } from '../agents/api-adapter.js';
 
 /**
  * The registered domains and actions.
@@ -55,18 +57,27 @@ function agentError(
   };
 }
 
-export function createAgentRoutes(): Hono {
+export function createAgentRoutes(workspaceId = 'default-workspace'): Hono {
   const app = new Hono();
+  // The one domain this product genuinely implements, and the only reason this
+  // route is not a uniform 501. `domainFor` is the tool-sdk's registry, so "is this
+  // implemented" has one answer in one place — the alternative is a second list of
+  // implemented domains beside the contract's, and that list drifts.
+  const IMPLEMENTED = new Set<string>(
+    (['browser', 'api', 'load', 'security', 'mobile'] as const).filter(
+      (domain) => domainFor(domain) !== null,
+    ),
+  );
   app.get('/api/v1/agents', (c) =>
     c.json({
       integrations: [...DOMAINS].map((domain) => ({
         domain,
-        status: 'not_configured',
-        implemented: false,
+        status: IMPLEMENTED.has(domain) ? 'implemented' : 'not_configured',
+        implemented: IMPLEMENTED.has(domain),
       })),
     }),
   );
-  app.post('/api/v1/agents/:domain/:action', (c) => {
+  app.post('/api/v1/agents/:domain/:action', async (c) => {
     const domain = c.req.param('domain');
     const action = c.req.param('action');
     // The two halves are refused separately. One opaque 404 for both meant a caller
@@ -90,6 +101,57 @@ export function createAgentRoutes(): Hono {
       );
       return c.json(error.body, error.httpStatus);
     }
+    if (domain === 'api') {
+      // The one real domain. It proposes a task that names a failing test and
+      // never writes — see `agents/api-adapter.ts` for why the absence of a write
+      // path is structural rather than a promise.
+      const body = AgentRequestSchema.safeParse(await c.req.json().catch(() => null));
+      if (!body.success) {
+        // A malformed body is **not** a 404. Answering `AGENT_ACTION_NOT_FOUND`
+        // here would tell a caller their verb was wrong when the pair was
+        // registered — the same opacity the two-half refusal above exists to
+        // remove, reintroduced through the parse path.
+        return c.json(
+          {
+            status: 'not_configured',
+            implemented: true,
+            code: 'AGENT_INVALID_REQUEST',
+            message:
+              'The api domain asks for a valid agent request: a domain, an action, and ' +
+              'either a specPath or a metadata.testLocation naming the failing test.',
+          },
+          400,
+        );
+      }
+      const outcome = runApiAgent(
+        {
+          domain: 'api',
+          action: body.data.action,
+          specPath: body.data.specPath,
+          targetUrl: body.data.targetUrl,
+          metadata: { ...(body.data.metadata ?? {}), summary: body.data.prompt },
+          workspaceId,
+        },
+        () => Date.now(),
+        () => globalThis.crypto.randomUUID(),
+      );
+      if (!outcome.ok) {
+        // The adapter's refusal, in this route's own shape. A caller that cannot be
+        // offered a checkable proposal is told so rather than given a 501 it would
+        // have to interpret.
+        const status = outcome.failure.code === 'INVALID_REQUEST_BODY' ? 400 : 501;
+        return c.json(
+          {
+            status: 'not_configured',
+            implemented: true,
+            code: outcome.failure.code,
+            message: outcome.failure.message,
+          },
+          status,
+        );
+      }
+      return c.json({ ...outcome.result, implemented: true }, 200);
+    }
     const error = agentError(
       'not_configured',
       501,
@@ -109,6 +171,15 @@ export function createAgentRoutes(): Hono {
         'Agent domain is not registered',
       );
       return c.json(error.body, error.httpStatus);
+    }
+    if (IMPLEMENTED.has(domain)) {
+      return c.json({
+        domain,
+        status: 'implemented',
+        implemented: true,
+        capabilities: domainFor(domain)?.capabilities ?? [],
+        description: domainFor(domain)?.description ?? '',
+      });
     }
     const error = agentError(
       'not_configured',

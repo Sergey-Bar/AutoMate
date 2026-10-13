@@ -21,6 +21,7 @@
     "@automate/reporter": "workspace:*",
     "@automate/reporting": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
+    "@automate/tool-sdk": "workspace:*",
     "@hono/node-server": "^1.19.14",
     "@sentry/node": "catalog:",
     "drizzle-orm": "catalog:",

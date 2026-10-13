@@ -1,0 +1,2457 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Automate API",
+    "version": "2.2.0",
+    "description": "Generated. Paths from `apps/api/src/route-manifest.ts`, responses from the recorded authz matrix, request bodies from `z.toJSONSchema` over the Zod schema each route validates with. Regenerate with `pnpm openapi`; `pnpm docs:check` fails on drift."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "get-health",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "operationId": "get-api-v1-health",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/ready": {
+      "get": {
+        "operationId": "get-api-v1-ready",
+        "description": "Recorded answer: 503 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "503": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "get-ready",
+        "description": "Recorded answer: 503 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "503": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/features": {
+      "get": {
+        "operationId": "get-api-v1-features",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "get-metrics",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "post-api-v1-auth-login",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The login body is validated by a schema local to `apps/api/src/routes/auth.ts`, which owns the cookie and session vocabulary this API enforces. `auth.ts` in shared-contracts exports a session and a bearer-token schema, not the credential pair a login carries.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/session": {
+      "get": {
+        "operationId": "get-api-v1-auth-session",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "post-api-v1-auth-logout",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the route reads the session cookie and nothing else.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/reporter/events": {
+      "post": {
+        "operationId": "post-api-v1-reporter-events",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/eventschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reporter/upload": {
+      "post": {
+        "operationId": "post-api-v1-reporter-upload",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A multipart form the API parses with its own local schema, because the upload boundary is infrastructure this package does not model and multipart is not JSON.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/reporter/results": {
+      "post": {
+        "operationId": "post-api-v1-reporter-results",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/routes/reporter-results.ts`. `CanonicalRunResultSchema` in shared-contracts is the *result* vocabulary, not the upload envelope, and describing one for the other is the failure this table exists to prevent.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "operationId": "get-api-v1-runs",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-runs",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/createrunschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId": {
+      "get": {
+        "operationId": "get-api-v1-runs",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/events": {
+      "get": {
+        "operationId": "get-api-v1-runs-events",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/cancel": {
+      "post": {
+        "operationId": "post-api-v1-runs-cancel",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the run id is the whole request.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/retry": {
+      "post": {
+        "operationId": "post-api-v1-runs-retry",
+        "description": "Recorded answer: 409 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the run id and the idempotency key are the whole request.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/gate": {
+      "get": {
+        "operationId": "get-api-v1-runs-gate",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/artifacts": {
+      "get": {
+        "operationId": "get-api-v1-runs-artifacts",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/artifacts/:artifactId": {
+      "get": {
+        "operationId": "get-api-v1-runs-artifacts",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/releases/:releaseId/readiness": {
+      "get": {
+        "operationId": "get-api-v1-releases-readiness",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "releaseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/quality-policies": {
+      "get": {
+        "operationId": "get-api-v1-quality-policies",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-quality-policies",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/policyschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/integrations/maturity": {
+      "get": {
+        "operationId": "get-api-v1-integrations-maturity",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/runners/register": {
+      "post": {
+        "operationId": "post-api-v1-runners-register",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/registrationschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runners/:runnerId/heartbeat": {
+      "post": {
+        "operationId": "post-api-v1-runners-heartbeat",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runnerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/heartbeatschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runners/:runnerId/jobs/claim": {
+      "post": {
+        "operationId": "post-api-v1-runners-jobs-claim",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runnerId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/claimschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/:jobId/events": {
+      "post": {
+        "operationId": "post-api-v1-jobs-events",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/eventschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/:jobId/events/batch": {
+      "post": {
+        "operationId": "post-api-v1-jobs-events-batch",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/eventbatchschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/:jobId/artifacts": {
+      "post": {
+        "operationId": "post-api-v1-jobs-artifacts",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/artifactschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/:jobId/complete": {
+      "post": {
+        "operationId": "post-api-v1-jobs-complete",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/completeschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/execution/jobs": {
+      "get": {
+        "operationId": "get-api-v1-execution-jobs",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/artifacts/:artifactId": {
+      "get": {
+        "operationId": "get-api-v1-artifacts",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "artifactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/reporting/runs/:runId": {
+      "get": {
+        "operationId": "get-api-v1-reporting-runs",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/reporting/kpis": {
+      "get": {
+        "operationId": "get-api-v1-reporting-kpis",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "operationId": "get-api-v1-events",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/agents": {
+      "get": {
+        "operationId": "get-api-v1-agents",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/agents/:domain": {
+      "get": {
+        "operationId": "get-api-v1-agents",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/agents/:domain/:action": {
+      "post": {
+        "operationId": "post-api-v1-agents",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "action",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/agentrequestschema"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/models": {
+      "get": {
+        "operationId": "get-api-v1-chat-models",
+        "description": "Recorded answer: 503 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "503": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/chat/completions": {
+      "post": {
+        "operationId": "post-api-v1-chat-completions",
+        "description": "Recorded answer: 422 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/routes/chat.ts`, because it is the provider-neutral request the gateway adapters consume and shared-contracts owns only the message and stream-event halves of it.",
+        "parameters": [],
+        "responses": {
+          "422": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/runs/:id": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-runs",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/runs/:id/status": {
+      "patch": {
+        "operationId": "patch-api-v1-dashboard-runs-status",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/modules/dashboard/runs.ts`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/tests": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-tests",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/suites": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-suites",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/runs/:runId/tests": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-runs-tests",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/analytics/summary": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-analytics-summary",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/kpis/summary": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-kpis-summary",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/quarantine": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-quarantine",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-dashboard-quarantine",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/modules/dashboard/quarantine.ts`.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/quarantine/:id": {
+      "patch": {
+        "operationId": "patch-api-v1-dashboard-quarantine",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/modules/dashboard/quarantine.ts`.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      },
+      "delete": {
+        "operationId": "delete-api-v1-dashboard-quarantine",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/quality-gates": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-quality-gates",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-dashboard-quality-gates",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/modules/dashboard/quality-gates.ts`.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/dashboard/quality-gates/:id": {
+      "get": {
+        "operationId": "get-api-v1-dashboard-quality-gates",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/projects": {
+      "post": {
+        "operationId": "post-api-v1-projects",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/routes/projects.ts`, which owns the registration vocabulary the project registry enforces.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      },
+      "get": {
+        "operationId": "get-api-v1-projects",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id": {
+      "get": {
+        "operationId": "get-api-v1-projects",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patch-api-v1-projects",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema published by `@automate/projects`, which owns the profile shape and is not reachable from a build-free gate here.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/decisions": {
+      "post": {
+        "operationId": "post-api-v1-projects-decisions",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: **The handler reads the body by hand** — `input['findingId']`, `input['verdict']` and four siblings, with no Zod schema anywhere on the path. There is nothing to derive a document from, and `DECISION_VERDICTS` in `@automate/db` — the vocabulary the decision store enforces on write — is not consulted either. This null is a finding about the route, not a limitation of this generator: the route that records a verdict has no contract for the verdict.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      },
+      "get": {
+        "operationId": "get-api-v1-projects-decisions",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/decisions/timeline": {
+      "get": {
+        "operationId": "get-api-v1-projects-decisions-timeline",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/detect": {
+      "post": {
+        "operationId": "post-api-v1-projects-detect",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the project id and the detector name are the whole request.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/commands": {
+      "get": {
+        "operationId": "get-api-v1-projects-commands",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/run.start": {
+      "post": {
+        "operationId": "post-api-v1-projects-run-start",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The route validates `RunStartBodySchema` from shared-contracts, but it is exported from `run-command.ts`, which imports `./qa-score.js` and so cannot be loaded under Node's type stripping. Filling this in needs the module's own imports fixed, not a copy.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runs/:runId/stop": {
+      "post": {
+        "operationId": "post-api-v1-runs-stop",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The same `run-command.ts` module as run.start, for the same reason.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/score": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-score",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/gaps": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-gaps",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/hollow": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-hollow",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/flaky": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-flaky",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/structure": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-structure",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/toolchain": {
+      "get": {
+        "operationId": "get-api-v1-projects-toolchain",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/qa/score/diff": {
+      "get": {
+        "operationId": "get-api-v1-projects-qa-score-diff",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/projects/:id/copilot/answer": {
+      "post": {
+        "operationId": "post-api-v1-projects-copilot-answer",
+        "description": "Recorded answer: 500 (server_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The same `run-command.ts` module, which is where `CopilotQuestionSchema` lives. The reason records the constraint rather than hiding it: a body that cannot be imported is a body that cannot be derived, and a hand-written copy of it would be a second authority for the question being asked.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "500": {
+            "description": "Recorded by the authz matrix as server_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runner/v1/enroll": {
+      "post": {
+        "operationId": "post-api-v1-runner-v1-enroll",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/routes/runner.ts`, which owns the legacy process-local enrolment vocabulary.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runner/v1/sync": {
+      "post": {
+        "operationId": "post-api-v1-runner-v1-sync",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the runner control plane reads its own state.",
+        "parameters": [],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/runner/v1/jobs/:jobId/events/batch": {
+      "post": {
+        "operationId": "post-api-v1-runner-v1-jobs-events-batch",
+        "description": "Recorded answer: 401 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: A local schema in `apps/api/src/routes/runner.ts`.",
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/automations": {
+      "get": {
+        "operationId": "get-api-v1-automations",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-automations",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The route validates `AutomationDefinitionSchema.omit({ id: true })`. The named export is not what the route accepts — it carries an `id` the route rejects on create — so deriving from it would document a body the product refuses.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/schedules": {
+      "get": {
+        "operationId": "get-api-v1-schedules",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      },
+      "post": {
+        "operationId": "post-api-v1-schedules",
+        "description": "Recorded answer: 400 (client_error). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: The same `.omit({ id: true })` variant as automations, for the same reason.",
+        "parameters": [],
+        "responses": {
+          "400": {
+            "description": "Recorded by the authz matrix as client_error."
+          }
+        }
+      }
+    },
+    "/api/v1/jobs": {
+      "get": {
+        "operationId": "get-api-v1-jobs",
+        "description": "Recorded answer: 200 (ok). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document.",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Recorded by the authz matrix as ok."
+          }
+        }
+      }
+    },
+    "/api/v1/automations/:id/jobs": {
+      "post": {
+        "operationId": "post-api-v1-automations-jobs",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the automation id and the command are the whole request.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/:id/cancel": {
+      "post": {
+        "operationId": "post-api-v1-jobs-cancel",
+        "description": "Recorded answer: 404 (not_found). Measured by `apps/api/src/routes/authz-matrix.test.ts`, not asserted by this document. No machine-checked request body: No body: the job id is the whole request.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Recorded by the authz matrix as not_found."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "eventschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "payload": {
+            "default": {},
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "eventId",
+          "sequence",
+          "type",
+          "payload"
+        ],
+        "additionalProperties": {}
+      },
+      "createrunschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "externalId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source": {
+            "type": "string",
+            "minLength": 1
+          },
+          "framework": {
+            "type": "string",
+            "minLength": 1
+          },
+          "adapterVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "testType": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "environmentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "releaseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "branch": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "suite": {
+            "type": "string"
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "testIds": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "paths": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "tags": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "testIds",
+                  "paths",
+                  "tags"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 86400000
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "requiredCapabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "configuration": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "policyId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": {}
+      },
+      "policyschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "default": "Universal QA policy",
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "default": "1",
+            "type": "string",
+            "minLength": 1
+          },
+          "requiredDomains": {
+            "default": [
+              "browser"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "browser",
+                "api",
+                "mobile",
+                "performance",
+                "security",
+                "accessibility",
+                "other"
+              ]
+            }
+          },
+          "browserPassRateThreshold": {
+            "default": 100,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "maxFlakyRate": {
+            "default": 0,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "maxDurationMs": {
+            "default": null,
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rules": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "domain": {
+                  "type": "string",
+                  "enum": [
+                    "browser",
+                    "api",
+                    "mobile",
+                    "performance",
+                    "security",
+                    "accessibility",
+                    "other"
+                  ]
+                },
+                "required": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "minimumPassRate": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "requiredArtifactKinds": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "domain",
+                "required",
+                "requiredArtifactKinds"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "requiredDomains",
+          "browserPassRateThreshold",
+          "maxFlakyRate",
+          "maxDurationMs",
+          "rules"
+        ],
+        "additionalProperties": {}
+      },
+      "registrationschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "runnerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "default": "runner",
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "default": "unknown",
+            "type": "string",
+            "minLength": 1
+          },
+          "os": {
+            "default": "win32",
+            "type": "string",
+            "minLength": 1
+          },
+          "arch": {
+            "default": "x64",
+            "type": "string",
+            "minLength": 1
+          },
+          "capabilities": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "labels": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "slots": {
+            "default": 1,
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 1000
+          },
+          "rotationToken": {
+            "type": "string",
+            "minLength": 1
+          },
+          "manifest": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "os": {
+                "type": "string",
+                "minLength": 1
+              },
+              "arch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "capabilities": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "slots": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 1000
+              }
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "name",
+          "version",
+          "os",
+          "arch",
+          "capabilities",
+          "labels",
+          "slots"
+        ],
+        "additionalProperties": {}
+      },
+      "heartbeatschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "activeJobIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "activeJobs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "health": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "degraded",
+              "draining",
+              "offline"
+            ]
+          },
+          "leaseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "metrics": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "additionalProperties": {}
+      },
+      "claimschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "requiredCapabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": {}
+      },
+      "eventbatchschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "leaseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fencingToken": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "events": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "eventId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "type": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                },
+                "payload": {
+                  "default": {},
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "eventId",
+                "sequence",
+                "type",
+                "payload"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "nextSequence": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "terminal": {
+            "type": "boolean"
+          },
+          "sentAt": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "additionalProperties": {}
+      },
+      "artifactschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "default": "raw",
+            "type": "string",
+            "minLength": 1
+          },
+          "contentType": {
+            "default": "application/octet-stream",
+            "type": "string",
+            "minLength": 1
+          },
+          "bytesBase64": {
+            "type": "string"
+          },
+          "contentBase64": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "string"
+          },
+          "leaseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fencingToken": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checksum": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "testId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "legalHold": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "contentType"
+        ],
+        "additionalProperties": {}
+      },
+      "completeschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "runId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attempt": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "leaseId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fencingToken": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "assigned",
+              "preparing",
+              "running",
+              "collecting",
+              "normalizing",
+              "analyzing",
+              "gate_evaluation",
+              "complete",
+              "completed",
+              "cancelled",
+              "timed_out",
+              "runner_lost",
+              "infra_failed",
+              "config_failed",
+              "blocked",
+              "partial"
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "passed",
+                  "failed",
+                  "unknown",
+                  "partial",
+                  "cancelled",
+                  "timed_out",
+                  "runner_lost",
+                  "infra_failed",
+                  "config_failed",
+                  "blocked"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "flaky": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "skipped": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "blocked": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "unknown": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "durationMs": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "testId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "title": {
+                  "default": "",
+                  "type": "string"
+                },
+                "file": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "queued",
+                    "running",
+                    "passed",
+                    "failed",
+                    "flaky",
+                    "skipped",
+                    "blocked",
+                    "unknown",
+                    "cancelled",
+                    "timed_out"
+                  ]
+                },
+                "durationMs": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "error": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "message"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "status"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "leaseId",
+          "fencingToken"
+        ],
+        "additionalProperties": {}
+      },
+      "agentrequestschema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "enum": [
+              "browser",
+              "api",
+              "load",
+              "security",
+              "mobile"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "generate",
+              "run",
+              "scan"
+            ]
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "specPath": {
+            "type": "string"
+          },
+          "targetUrl": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "domain",
+          "action"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

@@ -179,8 +179,11 @@ describe('a failed artifact row insert does not orphan the bytes', () => {
       workspaceId: 'ws-1',
     });
     const runId = await aRun(store);
-    const held = (store as unknown as { memoryBytes: { size: number; byteLength: number } })
-      .memoryBytes;
+    // The in-process byte budget lives on the artifacts seam, which is the module
+    // whose writes fill it. Following the seam rather than the composer keeps
+    // this asserting the container itself.
+    const artifacts = (store as unknown as { artifacts: unknown }).artifacts;
+    const held = (artifacts as { memoryBytes: { size: number; byteLength: number } }).memoryBytes;
 
     await expect(
       store.addArtifact({ ...ARTIFACT, runId: '00000000-0000-4000-8000-0000000000fe' }),

@@ -97,13 +97,19 @@ test('the collector reaches the documents, or every detector below passes on not
 test('every declared assertion has a detector', () => {
   assert.equal(
     ASSERTIONS.length,
-    9,
+    10,
     'roadmap E4 names seven, the eighth is `coverage-floors`, added on 2026-10-02 and ' +
       "recorded in this file's header because `AGENTS.md` quoted a floor table that was wrong " +
       'in every row, and the ninth is `verify-steps`, added on 2026-10-03 because `verify` has ' +
       'grown 12 → 13 → 14 → 15 → 16 steps across this history and three documents state the ' +
       'count independently, none of them derived. The v3.0 plan, written against the tree, put it ' +
-      'at 15. A tenth is another decision to record, not a number to bump.',
+      'at 15. **The tenth is `authz-matrix`, added on 2026-10-12**, and the decision it records is ' +
+      'that a generated artefact needs a static staleness gate beside the runtime one: ' +
+      '`docs/quality/authz-matrix.json` is recorded by an API test against the running app, so ' +
+      'nothing running catches the two gaps between it and `route-manifest.ts` — a route added ' +
+      'with no row, and a row for a route that was removed. Both are claims about the *code* ' +
+      'while being invisible to a document check, which is the shape E4 named. A tenth is a ' +
+      'decision to record, not a number to bump.',
   );
   assert.deepEqual(
     unimplemented(),

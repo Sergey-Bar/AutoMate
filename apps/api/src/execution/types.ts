@@ -48,7 +48,7 @@ export type ExecutionTestStatus =
  * *contract* union and includes states the column cannot hold (`running`,
  * `waiting_approval`, `expired`). The two are different types with the same name,
  * so importing the wrong one type-checks and then fails at runtime; `mapJob`'s
- * cast at `drizzle-execution-store.ts` is therefore not a mismatch, and
+ * cast at `drizzle-execution-store-rows.ts` is therefore not a mismatch, and
  * `fromStoredJobState` having no callers is correct rather than dead code.
  * `STORED_JOB_STATES` in `@automate/orchestration` is the machine-checked list.
  */

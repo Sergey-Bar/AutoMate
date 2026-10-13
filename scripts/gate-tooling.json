@@ -68,6 +68,7 @@
     "docs:check": "pr-blocking",
     "docs:dead-exports": "pr-blocking",
     "site:generate": "pr-blocking",
+    "openapi": "never-in-ci",
     "docs:capability-register": "pr-blocking",
     "findings:check": "pr-blocking",
     "test:e2e": "pr-blocking",
@@ -255,6 +256,11 @@
       "requires": [],
       "tier": 2,
       "why": "**The ten checks of §17's twelfth point, run as a script rather than kept as a list.** Tier `pr-reporting`, and it stays that way while three of the ten report `GAP`: they need the built site, and the only way to get that honestly is to run the check immediately after the build with `SITE_DOCTOR_BUILT=1`, which is what the docs workflow does. Reading whatever `site/dist` happened to be lying on a developer's disk would make the report a statement about yesterday's markup, so the DOM checks report `GAP` and name the build instead. **`pr-reporting` is also the honest tier while the site is not deployed**: a required check on a site nobody can reach proves the site is well-formed, not that it is live, and the last clause of point 12 — that it is live at the URL — is a `not_configured` row on every host including CI. It needs no binary, and it reads only committed files plus, when the workflow says so, a build that just happened."
+    },
+    "openapi": {
+      "requires": [],
+      "tier": 5,
+      "why": "**`never-in-ci`, for the same reason the five baseline writers are: it rewrites a committed artefact.** `docs/api/openapi.json` is generated from `apps/api/src/route-manifest.ts`, the recorded authz matrix, and `z.toJSONSchema` over the Zod schema each route validates with — so it is derived, not authored, and the document a reader trusts is the one that was reviewed as a diff. Running the generator in a workflow would satisfy the very comparison `docs:check` makes, because the staleness check would regenerate the file it is about to compare. That is the exact failure `scripts/lib/docs-paths.test.mjs` records for the generated status pages, and reintroducing it by wiring the generator into CI is how the artefact stops being evidence. The check is `docs:check`, which is `pr-blocking`; the generator is a hand run.\n\n**Dependency-free, and needs no binary.** It imports the schema modules by path and relies on Node 24's TypeScript type-stripping, which is why it needs no build step and why `docs:check` can run it without one. The constraint that produces is recorded in the script itself: a schema module whose own imports do not resolve (shared-contracts' `run-command.ts` imports `./qa-score.js`) cannot be imported, and the routes validated against it are declared null *with a reason* rather than given a hand-written body. The request bodies it *does* derive — ten of them — each carry the generator failing loudly if the mapping names a module that will not load or an export that does not exist, because a wrong mapping would produce a document describing a contract the product does not have."
     },
     "deps:policy": {
       "requires": [],

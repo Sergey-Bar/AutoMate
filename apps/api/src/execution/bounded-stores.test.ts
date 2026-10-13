@@ -68,11 +68,18 @@ describe('the execution stores hold bounded containers, not plain Maps', () => {
         db: drizzle(client, { schema }),
         workspaceId: 'ws-1',
       });
-      const hashes = privateField<{ capacity: number }>(store, 'completionHashes');
+      // The containers live on the seams that own them — the completion hash
+      // beside the writes that consult it, the artifact bytes beside the writes
+      // that fill them — so the observation follows the seam rather than
+      // expecting the composer to still hold them. The property is unchanged:
+      // what is asserted is the container at runtime, not where it is filed.
+      const canonical = privateField<object>(store, 'canonical');
+      const hashes = privateField<{ capacity: number }>(canonical, 'completionHashes');
       expect(hashes).toBeInstanceOf(BoundedMap);
       expect(hashes.capacity).toBe(COMPLETION_HASH_CAPACITY);
 
-      const bytes = privateField<BoundedByteMap<string>>(store, 'memoryBytes');
+      const artifacts = privateField<object>(store, 'artifacts');
+      const bytes = privateField<BoundedByteMap<string>>(artifacts, 'memoryBytes');
       expect(bytes).toBeInstanceOf(BoundedByteMap);
       // Starts empty, and reports its own accounting so a leak is observable from
       // outside rather than only in a heap snapshot.

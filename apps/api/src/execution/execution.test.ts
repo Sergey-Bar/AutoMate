@@ -233,8 +233,20 @@ describe('canonical execution routes', () => {
 
   it('returns explicit agent maturity for unconfigured integrations', async () => {
     const app = withErrorBoundary(createAgentRoutes());
-    const response = await app.request('/api/v1/agents/api/generate', { method: 'POST' });
-    expect(response.status).toBe(501);
-    expect(((await response.json()) as { status: string }).status).toBe('not_configured');
+    // A domain with no adapter still refuses explicitly, and names the pair.
+    const unconfigured = await app.request('/api/v1/agents/browser/generate', { method: 'POST' });
+    expect(unconfigured.status).toBe(501);
+    expect(((await unconfigured.json()) as { status: string }).status).toBe('not_configured');
+
+    // And the one implemented domain answers rather than 501-ing — it proposes a
+    // task naming a failing test, and says so in the body. The first version of
+    // this case asserted 501 for `api` as well, which was true when every domain
+    // had no adapter; it is the case this change exists to close.
+    const configured = await app.request('/api/v1/agents/api/generate', {
+      method: 'POST',
+      body: JSON.stringify({ domain: 'api', action: 'generate', specPath: 'src/x.test.ts:4' }),
+    });
+    expect(configured.status).toBe(200);
+    expect(((await configured.json()) as { status: string }).status).toBe('proposed');
   });
 });

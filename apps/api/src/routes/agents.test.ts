@@ -9,28 +9,44 @@ const DOMAINS = AgentDomainSchema.options;
 const ACTIONS = (AgentRequestSchema.shape.action as { options: string[] }).options;
 
 describe('agent maturity routes', () => {
-  it('reports configured domains without claiming execution', async () => {
+  it('reports the one implemented domain, and claims execution for nothing else', async () => {
     const app = createAgentRoutes();
     const listing = await app.request('/api/v1/agents');
     expect(listing.status).toBe(200);
     const body = (await listing.json()) as {
-      integrations: Array<{ status: string; implemented: boolean }>;
+      integrations: Array<{ domain: string; status: string; implemented: boolean }>;
     };
     expect(body.integrations).toHaveLength(5);
-    expect(
-      body.integrations.every((item) => item.status === 'not_configured' && !item.implemented),
-    ).toBe(true);
+    // Exactly one domain is implemented, and it is `api`. The row this test pins is
+    // the first version of this assertion, which read `every(...)` while all five
+    // answered 501 — that was true then and is the sentence the register corrected.
+    const implemented = body.integrations.filter((item) => item.implemented);
+    expect(implemented.map((item) => item.domain)).toEqual(['api']);
+    for (const item of body.integrations) {
+      if (item.domain === 'api') {
+        expect(item.status).toBe('implemented');
+        expect(item.implemented).toBe(true);
+      } else {
+        expect(item.status).toBe('not_configured');
+        expect(item.implemented).toBe(false);
+      }
+    }
 
+    // A domain that is not implemented still refuses explicitly, and still says so
+    // with the pair named — the posture the route had for all five.
     const known = await app.request('/api/v1/agents/browser/scan', { method: 'POST' });
     expect(known.status).toBe(501);
     expect((await known.json()) as { implemented: boolean }).toMatchObject({ implemented: false });
+
+    // And the implemented one answers, rather than 501-ing.
+    const api = await app.request('/api/v1/agents/api', { method: 'GET' });
+    expect(api.status).toBe(200);
+    expect(((await api.json()) as { domain: string; implemented: boolean }).domain).toBe('api');
 
     const unknown = await app.request('/api/v1/agents/other/scan', { method: 'POST' });
     expect(unknown.status).toBe(404);
     const domain = await app.request('/api/v1/agents/other');
     expect(domain.status).toBe(404);
-    const domainKnown = await app.request('/api/v1/agents/api');
-    expect(domainKnown.status).toBe(501);
   });
 
   it('derives its allowlist from the contract rather than restating it', () => {
@@ -69,6 +85,10 @@ describe('agent maturity routes', () => {
   it('accepts every domain/action pair the contract declares', async () => {
     // The derived sets, asserted against the contract rather than against a copy
     // of it: a 404 here means the route's allowlist no longer matches the schema.
+    //
+    // A 400 on the `api` domain is not a failure of this assertion — that domain
+    // asks for a body naming a failing test, so an empty request is asked for one.
+    // What must not happen is a registered pair answering 404.
     for (const domain of DOMAINS) {
       for (const action of ACTIONS) {
         const response = await createAgentRoutes().request(`/api/v1/agents/${domain}/${action}`, {
@@ -80,6 +100,38 @@ describe('agent maturity routes', () => {
         ).not.toBe(404);
       }
     }
+  });
+
+  it('answers the api domain with a proposal that names its failing test', async () => {
+    // The load-bearing new behaviour, asserted against the tool-sdk's own contract
+    // rather than against a string: the proposal is one the tool-sdk would have
+    // refused to produce without a failing test.
+    const app = createAgentRoutes();
+    const answered = await app.request('/api/v1/agents/api/generate', {
+      method: 'POST',
+      body: JSON.stringify({ domain: 'api', action: 'generate', specPath: 'src/x.test.ts:9' }),
+    });
+    expect(answered.status).toBe(200);
+    const body = (await answered.json()) as {
+      status: string;
+      diff: string | null;
+      implemented: boolean;
+      task: { failingTest: { location: string } };
+    };
+    expect(body.status).toBe('proposed');
+    expect(body.implemented).toBe(true);
+    expect(body.task.failingTest.location).toBe('src/x.test.ts:9');
+    // No diff, because there is no repository here to read. A fabricated diff is
+    // the thing the failure-first rule refuses, not a placeholder to be improved.
+    expect(body.diff).toBeNull();
+
+    // And a request that names nothing is refused rather than answered with one.
+    const refused = await app.request('/api/v1/agents/api/generate', {
+      method: 'POST',
+      body: JSON.stringify({ domain: 'api', action: 'generate' }),
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { code: string }).code).toBe('INVALID_REQUEST_BODY');
   });
 
   it('refuses an unregistered pair, and says which half is wrong', async () => {

@@ -3,7 +3,7 @@
   "version": "2.2.0",
   "private": true,
   "type": "module",
-  "description": "Automate — AI-Orchestrated QA Platform",
+  "description": "Automate â€” AI-Orchestrated QA Platform",
   "packageManager": "pnpm@11.28.4",
   "scripts": {
     "prepare": "husky",
@@ -67,9 +67,10 @@
     "test:coverage": "turbo run test -- --coverage && node ./scripts/write-coverage-provenance-all.mjs",
     "coverage:provenance": "node ./scripts/write-coverage-provenance-all.mjs",
     "docs:capability-register": "node ./scripts/capability-register.mjs",
+    "openapi": "node ./scripts/openapi.mjs",
     "site:generate": "node ./scripts/build-site-pages.mjs",
     "site:doctor": "node ./scripts/site-doctor.mjs",
-    "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/docs-drift.test.mjs scripts/lib/ledger-json.test.mjs",
+    "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/docs-drift.test.mjs scripts/lib/openapi.test.mjs scripts/lib/ledger-json.test.mjs",
     "docs:dead-exports": "node --test scripts/lib/dead-exports.test.mjs",
     "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline",
     "capability:evidence": "node ./scripts/capability-evidence.mjs"
