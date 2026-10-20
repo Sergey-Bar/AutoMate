@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DurableSpool, readOrCreateSpoolKey } from '@automate/runner-sdk';
 import { readStoredToken, writeStoredToken } from './token-store.js';
 
 describe('the runner credential kept between restarts', () => {
@@ -41,6 +42,17 @@ describe('the runner credential kept between restarts', () => {
     await writeStoredToken(root, 'runner-1', 'first');
     await writeStoredToken(root, 'runner-1', 'second');
     expect(await readStoredToken(root, 'runner-1')).toBe('second');
+  });
+
+  it('creates the spool directory private, so the spool that shares it can open', async () => {
+    // The runner writes its token into the spool directory before the spool opens. Created
+    // with the umask (0755), the directory was refused by DurableSpool.open on POSIX, and the
+    // runner died at startup with SpoolError. Windows has no mode bits.
+    const directory = join(root, 'spool');
+    await writeStoredToken(directory, 'runner-1', 'secret-token-value');
+    if (process.platform !== 'win32') expect((await stat(directory)).mode & 0o777).toBe(0o700);
+    const key = await readOrCreateSpoolKey(join(directory, 'spool.key'));
+    await expect(DurableSpool.open({ directory, key })).resolves.toBeInstanceOf(DurableSpool);
   });
 
   it('is readable by its owner only where the platform has file modes', async () => {

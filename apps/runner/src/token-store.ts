@@ -49,7 +49,10 @@ export async function writeStoredToken(
   runnerId: string,
   token: string,
 ): Promise<void> {
-  await mkdir(directory, { recursive: true });
+  // 0700, because this is the spool directory and it is often what creates it: made with the
+  // umask (0755), DurableSpool.open then refused it as accessible beyond this account, and the
+  // runner could not start on Linux.
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   const target = join(directory, FILE_NAME);
   const staging = `${target}.${String(process.pid)}.tmp`;
   const body: StoredToken = { runnerId, token };
