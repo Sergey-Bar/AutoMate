@@ -52,5 +52,6 @@ export * from './qa-score.js';
 export * from './run-command.js';
 export * from './repo-scan.js';
 export * from './analytics-trend.js';
+export * from './qa-insights.js';
 export * from './copilot.js';
 export * from './tui-commands.js';

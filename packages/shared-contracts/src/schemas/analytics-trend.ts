@@ -17,6 +17,12 @@ export const TrendBucketSchema = z.object({
   runs: z.number().int().min(0),
   passed: z.number().int().min(0),
   failed: z.number().int().min(0),
+  /**
+   * Runs that ended without a verdict **because a test was flaky** — the product's own
+   * vocabulary maps a flaky run to `partial`. Disjoint from `passed`, `failed` and
+   * `other`, so the four sum to `runs` and can be stacked.
+   */
+  flaky: z.number().int().min(0),
   /** Runs that ended without a test verdict: infrastructure, timeout, cancelled. */
   other: z.number().int().min(0),
   /** 0–100 over runs with a verdict, or `null` when the day had none. */
