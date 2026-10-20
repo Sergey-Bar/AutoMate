@@ -1,5 +1,8 @@
 import {
   forwardRef,
+  useEffect,
+  useRef,
+  useState,
   type HTMLAttributes,
   type TdHTMLAttributes,
   type ThHTMLAttributes,
@@ -9,11 +12,41 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 
 export type TableProps = HTMLAttributes<HTMLTableElement>;
 
-export const Table = forwardRef<HTMLTableElement, TableProps>(({ className, ...props }, ref) => (
-  <div className="w-full overflow-auto">
-    <table ref={ref} className={cn('w-full caption-bottom text-sm', className)} {...props} />
-  </div>
-));
+export const Table = forwardRef<HTMLTableElement, TableProps>(({ className, ...props }, ref) => {
+  /*
+   * **Focusable only when it can scroll.** On a narrow screen a table is wider than its
+   * container; a scroll region a keyboard cannot reach is a region a keyboard user cannot
+   * read (axe `scrollable-region-focusable`). It becomes a named `region` in the tab order
+   * exactly while it overflows, so a table that fits costs no extra tab stop.
+   */
+  const scroller = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useEffect(() => {
+    const element = scroller.current;
+    if (element === null) return;
+    const measure = () =>
+      setScrolls(
+        element.scrollWidth > element.clientWidth + 1 ||
+          element.scrollHeight > element.clientHeight + 1,
+      );
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div
+      ref={scroller}
+      {...(scrolls
+        ? { tabIndex: 0, role: 'region', 'aria-label': props['aria-label'] ?? 'Table' }
+        : {})}
+      className="w-full overflow-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+    >
+      <table ref={ref} className={cn('w-full caption-bottom text-sm', className)} {...props} />
+    </div>
+  );
+});
 Table.displayName = 'Table';
 
 export const TableHeader = forwardRef<

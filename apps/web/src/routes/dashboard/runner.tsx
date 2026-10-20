@@ -177,7 +177,7 @@ function RunnerGrid({
   // Header, notice, panel title, filter and pager: about 340px above and below the rows.
   const pager = usePager(visible, useViewportRows(340, 57));
   return (
-    <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[13rem_minmax(0,1fr)_19rem]">
+    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)_19rem]">
       <Panel title="Groups">
         <ul className="space-y-1">
           {TOOL_GROUPS.map((candidate) => {
@@ -248,7 +248,9 @@ function ToolRow({
     <li data-testid={`tool-${tool.id}`} className="flex items-center gap-3 py-1.5">
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="truncate font-mono text-sm">{tool.name}</span>
+          <span className="truncate font-mono text-sm" title={tool.name}>
+            {tool.name}
+          </span>
           <Badge variant="outline">{tool.kind}</Badge>
         </div>
         <div className="truncate text-xs text-fg-muted" title={tool.evidence}>
@@ -289,7 +291,10 @@ function Activity({ runs }: { runs: Run[] }): React.ReactElement {
       title="Activity"
       data-testid="runner-activity"
       action={
-        <Link to="/dashboard/runs" className={cn(LINK, 'text-xs text-accent')}>
+        <Link
+          to="/dashboard/runs"
+          className={cn(LINK, '-my-3 inline-flex min-h-11 items-center px-1 text-xs text-accent')}
+        >
           All runs
         </Link>
       }
@@ -302,7 +307,7 @@ function Activity({ runs }: { runs: Run[] }): React.ReactElement {
             <li key={run.id} data-testid={`activity-${run.id}`} className="flex items-center gap-2">
               <a
                 href={runDetailPath(run.id)}
-                className="min-w-0 flex-1 truncate rounded-sm text-sm no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                className="flex min-h-11 min-w-0 flex-1 items-center truncate rounded-sm text-sm no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
               >
                 {run.suite ?? run.id.slice(0, 8)}
               </a>

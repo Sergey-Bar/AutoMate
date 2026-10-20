@@ -80,11 +80,15 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
 
   if (error) {
     return (
-      <EmptyState
-        data-testid="runs-list-error"
-        title="Runs unavailable"
-        description={error.message}
-      />
+      <PageFrame>
+        <PageHeader title="Runs" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="runs-list-error"
+          title="Runs unavailable"
+          description={error.message}
+        />
+      </PageFrame>
     );
   }
 
@@ -122,9 +126,10 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
         />
         <Kpi data-testid="stat-running" label="Active" value={String(active)} />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
         {runs.length === 0 ? (
           <EmptyState
+            headingLevel={2}
             data-testid="runs-list-empty"
             title="No execution evidence"
             description="Start a tool from the Runner, launch a browser run, or let the dashboard show what is blocking you."
@@ -139,7 +144,7 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
           />
         ) : (
           <Panel title="All runs" data-testid="runs-table">
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 xl:overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -158,7 +163,7 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
                       <TableCell>
                         <a
                           href={runDetailPath(run.id)}
-                          className="rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                          className="inline-flex min-h-6 items-center rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                         >
                           {run.suite ?? run.id.slice(0, 8)}
                         </a>

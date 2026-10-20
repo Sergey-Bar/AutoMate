@@ -87,9 +87,9 @@ export function TrendChart({
                 <rect
                   key={bucket.date}
                   data-testid="trend-bar"
-                  x={index * step + step * 0.2}
+                  x={index * step + step * 0.275}
                   y={HEIGHT - height}
-                  width={step * 0.6}
+                  width={step * 0.45}
                   height={height}
                   fill="currentColor"
                 />
@@ -110,6 +110,27 @@ export function TrendChart({
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+            {/*
+              A dot on every day with a verdict, so a short history still reads as data.
+              A zero-length stroke with a round cap is a circle that survives the stretched
+              `viewBox`, where a `<circle>` would be drawn as an ellipse.
+            */}
+            {buckets.map((bucket, index) =>
+              bucket.passRate === null ? null : (
+                <line
+                  key={bucket.date}
+                  data-testid="trend-point"
+                  x1={index * step + step / 2}
+                  x2={index * step + step / 2}
+                  y1={HEIGHT - (bucket.passRate / 100) * HEIGHT}
+                  y2={HEIGHT - (bucket.passRate / 100) * HEIGHT}
+                  stroke="currentColor"
+                  strokeWidth={7}
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              ),
+            )}
           </g>
         </svg>
         <div

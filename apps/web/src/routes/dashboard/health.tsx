@@ -151,7 +151,7 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
           footer={scan.ecosystems.join(' · ') || 'no ecosystem'}
         />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <Panel title="QA capabilities" data-testid="health-capabilities">
           <ul className="grid min-h-0 flex-1 grid-cols-2 gap-2 md:grid-cols-4">
             {scan.capabilities.map((entry) => (
@@ -174,7 +174,7 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
                   <span className="sr-only">{entry.covered ? ', covered' : ', missing'}</span>
                 </span>
                 <span
-                  className="mt-1 truncate text-xs text-fg-muted"
+                  className="mt-1 line-clamp-2 text-xs text-fg-muted"
                   title={entry.providers.join(', ')}
                 >
                   {entry.covered
@@ -201,7 +201,12 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
                       {report.kind}
                     </Badge>
                   </div>
-                  <div className="truncate pl-4 font-mono text-xs text-fg-muted">{report.path}</div>
+                  <div
+                    className="truncate pl-4 font-mono text-xs text-fg-muted"
+                    title={report.path}
+                  >
+                    {report.path}
+                  </div>
                 </li>
               ))}
             </ul>

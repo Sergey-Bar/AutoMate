@@ -22,7 +22,17 @@ import type {
   RepoReport,
   RepoScan,
 } from '../lib/qa.js';
-import { Delta, Kpi, PageFrame, PageHeader, Panel, Quiet, Segmented, StatusDot } from './kit.js';
+import {
+  Delta,
+  Kpi,
+  PageFrame,
+  PageHeader,
+  Panel,
+  Quiet,
+  Segmented,
+  StatusDot,
+  useFitCount,
+} from './kit.js';
 import { ProjectGate } from './ProjectGate.js';
 import { TrendChart } from './TrendChart.js';
 
@@ -125,6 +135,7 @@ function DashboardBody({
       {snapshot.status === 'ready' ? (
         <DashboardGrid
           snapshot={snapshot.value}
+          projectId={project.id}
           trend={trend.status === 'ready' ? trend.value : null}
           trendFailure={trend.status === 'error' ? trend.message : null}
         />
@@ -178,7 +189,9 @@ function DashboardGrid({
   snapshot,
   trend,
   trendFailure,
+  projectId,
 }: {
+  projectId: string;
   snapshot: Snapshot;
   trend: AnalyticsTrend | null;
   trendFailure: string | null;
@@ -200,14 +213,14 @@ function DashboardGrid({
         </p>
       ) : null}
       <Figures snapshot={snapshot} trend={trend} comparisons={comparisons} />
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-3 lg:grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-3 xl:grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <Panel
           title={
             trend === null
               ? 'Pass rate and volume'
               : `Pass rate and volume · last ${String(trend.days)} days`
           }
-          className="lg:col-span-2"
+          className="min-h-72 xl:col-span-2 xl:min-h-0"
           data-testid="dashboard-trend"
         >
           {trend === null ? (
@@ -218,7 +231,7 @@ function DashboardGrid({
         </Panel>
         <BeforeNow comparisons={comparisons} trend={trend} />
         <Matrix score={snapshot.score.value} />
-        <NextActions gaps={snapshot.gaps.value} scan={snapshot.scan.value} />
+        <NextActions gaps={snapshot.gaps.value} scan={snapshot.scan.value} projectId={projectId} />
         <Reports scan={snapshot.scan.value} />
       </div>
     </>
@@ -474,7 +487,7 @@ function MatrixCell({ cell }: { cell: ScoreCell | undefined }): React.ReactEleme
 }
 
 const LINK =
-  'rounded-sm text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
+  '-my-3 inline-flex min-h-11 items-center rounded-sm px-1 text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 
@@ -488,18 +501,25 @@ const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 function NextActions({
   gaps,
   scan,
+  projectId,
 }: {
   gaps: QaGapsResponse | null;
   scan: RepoScan | null;
+  projectId: string;
 }): React.ReactElement {
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const room = useFitCount(listRef, 52, 5);
+  const tools = (scan?.toolbox ?? [])
+    .filter((entry) => entry.status === 'recommended')
+    .sort((left, right) => PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority]);
+  // As many actions as the panel has room for, at most five; one slot is kept for a missing
+  // tool when there is one, because a gap list alone never says what to install.
+  const total = Math.min(5, room);
+  const missing = tools.slice(0, tools.length === 0 ? 0 : total >= 5 ? 2 : 1);
   const ranked = (gaps?.gaps ?? [])
     .slice()
     .sort((left, right) => right.potential - left.potential || left.cell.localeCompare(right.cell))
-    .slice(0, 3);
-  const missing = (scan?.toolbox ?? [])
-    .filter((entry) => entry.status === 'recommended')
-    .sort((left, right) => PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority])
-    .slice(0, 2);
+    .slice(0, Math.max(0, total - missing.length));
   return (
     <Panel
       title="Next best actions"
@@ -513,28 +533,47 @@ function NextActions({
       {ranked.length === 0 && missing.length === 0 ? (
         <Quiet>Nothing queued: no cell is below target and no capability is missing.</Quiet>
       ) : (
-        <ul className="space-y-2">
-          {ranked.map((gap) => (
-            <li key={gap.cell} data-testid={`queue-gap-${gap.cell}`} className="min-w-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-mono text-sm">{gap.cell}</span>
-                <span className="shrink-0 tabular-nums text-xs text-success">
-                  +{(gap.potential * 100).toFixed(0)} pts
-                </span>
-              </div>
-              <p className="max-w-measure truncate text-xs text-fg-muted">{gap.cheapestClosure}</p>
-            </li>
-          ))}
-          {missing.map((entry) => (
-            <li key={entry.id} data-testid={`queue-tool-${entry.id}`} className="min-w-0">
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate text-sm">Add {entry.name}</span>
-                <span className="shrink-0 text-xs uppercase text-warning">{entry.priority}</span>
-              </div>
-              <p className="max-w-measure truncate text-xs text-fg-muted">{entry.reason}</p>
-            </li>
-          ))}
-        </ul>
+        <div ref={listRef} className="xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+          <ul className="-mx-2 space-y-0.5">
+            {ranked.map((gap) => (
+              <li key={gap.cell} data-testid={`queue-gap-${gap.cell}`} className="min-w-0">
+                <Link
+                  to="/dashboard/gaps/$projectId"
+                  params={{ projectId }}
+                  title={gap.cheapestClosure}
+                  className="block min-w-0 rounded-lg px-2 py-1.5 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate font-mono text-sm">{gap.cell}</span>
+                    <span className="shrink-0 tabular-nums text-xs text-success">
+                      +{(gap.potential * 100).toFixed(0)} pts
+                    </span>
+                  </div>
+                  <p className="max-w-measure truncate text-xs text-fg-muted">
+                    {gap.cheapestClosure}
+                  </p>
+                </Link>
+              </li>
+            ))}
+            {missing.map((entry) => (
+              <li key={entry.id} data-testid={`queue-tool-${entry.id}`} className="min-w-0">
+                <Link
+                  to="/dashboard/toolbox"
+                  title={entry.reason}
+                  className="block min-w-0 rounded-lg px-2 py-1.5 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-sm">Add {entry.name}</span>
+                    <span className="shrink-0 text-xs uppercase text-warning">
+                      {entry.priority}
+                    </span>
+                  </div>
+                  <p className="max-w-measure truncate text-xs text-fg-muted">{entry.reason}</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Panel>
   );
@@ -575,6 +614,9 @@ export function summariseReports(reports: readonly RepoReport[]): {
 function Reports({ scan }: { scan: RepoScan | null }): React.ReactElement {
   const reports = scan?.reports ?? [];
   const summary = summariseReports(reports);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  // As many report lines as the panel has room for, on a big screen; three otherwise.
+  const shown = useFitCount(listRef, 24, 3);
   return (
     <Panel
       title="Reports on disk"
@@ -607,19 +649,25 @@ function Reports({ scan }: { scan: RepoScan | null }): React.ReactElement {
             />
             <Mini label="Findings" value={String(summary.findings)} />
           </dl>
-          <ul className="mt-3 space-y-1.5">
-            {reports.slice(0, 3).map((report) => (
-              <li key={report.path} className="flex min-w-0 items-center gap-2 text-xs">
-                <StatusDot status={report.status} />
-                <span className="truncate">{report.headline}</span>
-              </li>
-            ))}
-            {reports.length === 0 ? (
-              <li className="text-xs text-fg-muted">
-                No coverage, test, lint or security report was found in the repository.
-              </li>
-            ) : null}
-          </ul>
+          <div ref={listRef} className="mt-3 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+            <ul className="space-y-1.5">
+              {reports.slice(0, shown).map((report) => (
+                <li
+                  key={report.path}
+                  className="flex min-w-0 items-center gap-2 text-xs"
+                  title={report.path}
+                >
+                  <StatusDot status={report.status} />
+                  <span className="truncate">{report.headline}</span>
+                </li>
+              ))}
+              {reports.length === 0 ? (
+                <li className="text-xs text-fg-muted">
+                  No coverage, test, lint or security report was found in the repository.
+                </li>
+              ) : null}
+            </ul>
+          </div>
         </>
       )}
     </Panel>

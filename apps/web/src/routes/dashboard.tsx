@@ -331,10 +331,10 @@ export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
             className="flex items-center justify-between gap-3 rounded-md py-2 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             <div className="min-w-0">
-              <div className="truncate font-mono text-xs">{run.suite ?? run.id}</div>
-              <div className="truncate text-xs text-fg-muted">
-                {run.projectId ?? 'UNKNOWN PROJECT'} · {formatRequiredDate(run.createdAt)}
+              <div className="truncate font-mono text-xs" title={run.suite ?? run.id}>
+                {run.suite ?? run.id}
               </div>
+              <div className="text-xs text-fg-muted">{formatRequiredDate(run.createdAt)}</div>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>

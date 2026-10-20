@@ -36,3 +36,15 @@ describe('EmptyState', () => {
     expect(screen.getByTestId('empty-state')).toHaveClass('custom-class');
   });
 });
+
+describe('EmptyState heading level', () => {
+  // Inside a panel under an `h2` the title is an `h3`; as a screen's body under its `h1`
+  // it is an `h2`, or the heading list skips a level (axe `heading-order`).
+  it('is an h3 by default and an h2 when it is the page body', () => {
+    const { unmount } = render(<EmptyState title="Nothing here" description="Empty." />);
+    expect(screen.getByRole('heading', { level: 3, name: 'Nothing here' })).toBeInTheDocument();
+    unmount();
+    render(<EmptyState headingLevel={2} title="Nothing here" description="Empty." />);
+    expect(screen.getByRole('heading', { level: 2, name: 'Nothing here' })).toBeInTheDocument();
+  });
+});

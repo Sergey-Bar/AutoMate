@@ -65,21 +65,29 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
 
   if (error) {
     return (
-      <EmptyState
-        data-testid="analytics-error"
-        title="Error Loading Analytics"
-        description={error.message}
-      />
+      <PageFrame>
+        <PageHeader title="Analytics" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="analytics-error"
+          title="Error Loading Analytics"
+          description={error.message}
+        />
+      </PageFrame>
     );
   }
 
   if (!data) {
     return (
-      <EmptyState
-        data-testid="analytics-empty"
-        title="No Data"
-        description="No analytics data available."
-      />
+      <PageFrame>
+        <PageHeader title="Analytics" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="analytics-empty"
+          title="No Data"
+          description="No analytics data available."
+        />
+      </PageFrame>
     );
   }
 
@@ -92,16 +100,16 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
         actions={<Segmented label="Window" options={WINDOWS} value={days} onChange={setDays} />}
       />
       <section aria-label="Run figures" className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-6">
-        <Kpi data-testid="stat-total-runs" label="Runs, all time" value={String(data.totalRuns)} />
+        <Kpi data-testid="stat-total-runs" label="Runs · all time" value={String(data.totalRuns)} />
         <Kpi
           data-testid="stat-pass-rate"
-          label="Pass rate, all time"
+          label="Pass rate · all time"
           value={String(data.passRate)}
           unit="%"
         />
         <Kpi
           data-testid="stat-avg-duration"
-          label="Avg duration, all time"
+          label="Avg duration"
           /*
             `not measured`, not `N/A`: a missing measurement is a state rather than a value,
             and the word is the one the dashboard's unmeasured cells use, so one phrase means
@@ -127,8 +135,8 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
           footer={window === null ? undefined : `of ${String(window.tests)} executed`}
         />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <Panel title={`Pass rate and volume · ${days} days`}>
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title={`Pass rate and volume · ${days} days`} className="min-h-72 xl:min-h-0">
           {trend.status === 'ready' ? (
             <TrendChart buckets={trend.value.buckets} data-testid="analytics-trend" />
           ) : (
