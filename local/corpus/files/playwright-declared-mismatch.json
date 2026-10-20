@@ -1,0 +1,35 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "m.spec.ts",
+      "file": "tests/m.spec.ts",
+      "specs": [
+        {
+          "title": "only failure",
+          "ok": false,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 10,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "expected": 0,
+    "unexpected": 2,
+    "skipped": 0,
+    "flaky": 0
+  }
+}

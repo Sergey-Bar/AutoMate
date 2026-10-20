@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="checkout" tests="3" failures="1" errors="0" skipped="0" timestamp="2026-10-18T10:00:00">
+  <testcase classname="checkout" name="adds to cart" time="0.4" file="tests/checkout.spec.ts"/>
+  <testcase classname="checkout" name="pays" time="0.9" file="tests/checkout.spec.ts"/>
+  <testcase classname="checkout" name="refunds" time="0.7" file="tests/checkout.spec.ts">
+    <failure message="refund missing" type="Error">refund missing</failure>
+  </testcase>
+</testsuite>

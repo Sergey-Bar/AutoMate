@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<!DOCTYPE d [
+  <!ENTITY xxe SYSTEM "file:///C:/repo/spikes/local-feasibility/corpus/files/sentinel.txt">
+  <!ENTITY ssrf SYSTEM "http://127.0.0.1:9/never-fetched">
+]>
+<testsuites>
+  <testsuite name="s" tests="1" failures="1">
+    <testcase classname="c" name="reads">
+      <failure message="&xxe;">&xxe;&ssrf;</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

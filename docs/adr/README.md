@@ -26,14 +26,20 @@ collision recurring — not this paragraph, and not a reviewer's memory.
 
 ## Index
 
-| ADR                                                       | Decision                                                                 | Status   | Date       | Supersedes |
-| --------------------------------------------------------- | ------------------------------------------------------------------------ | -------- | ---------- | ---------- |
-| [ADR-001](./001-hono-modular-monolith.md)                 | Hono on Node, as a modular monolith in one pnpm workspace                | accepted | 2026-05-05 | —          |
-| [ADR-002](./002-sse-over-a-durable-outbox.md)             | Realtime is SSE over a durable outbox feed, never WebSocket              | accepted | 2026-05-05 | —          |
-| [ADR-003](./003-postgres-only-durable-queue.md)           | One database, PostgreSQL, for state and the durable queue                | accepted | 2026-05-05 | —          |
-| [ADR-004](./004-native-reporting-not-allure.md)           | Reporting is native evidence and KPI policy, not Allure/Grafana/InfluxDB | accepted | 2026-09-26 | —          |
-| [ADR-005](./005-path-versioning.md)                       | The API is versioned by path prefix, not by header                       | accepted | 2026-09-30 | —          |
-| [ADR-006](./006-single-node-single-tenant-self-hosted.md) | Single node, single tenant, self-hosted, English only                    | accepted | 2026-09-26 | —          |
+| ADR                                                                            | Decision                                                                             | Status   | Date       | Supersedes |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | -------- | ---------- | ---------- |
+| [ADR-001](./001-hono-modular-monolith.md)                                      | Hono on Node, as a modular monolith in one pnpm workspace                            | accepted | 2026-05-05 | —          |
+| [ADR-002](./002-sse-over-a-durable-outbox.md)                                  | Realtime is SSE over a durable outbox feed, never WebSocket                          | accepted | 2026-05-05 | —          |
+| [ADR-003](./003-postgres-only-durable-queue.md)                                | One database, PostgreSQL, for state and the durable queue                            | accepted | 2026-05-05 | —          |
+| [ADR-004](./004-native-reporting-not-allure.md)                                | Reporting is native evidence and KPI policy, not Allure/Grafana/InfluxDB             | accepted | 2026-09-26 | —          |
+| [ADR-005](./005-path-versioning.md)                                            | The API is versioned by path prefix, not by header                                   | accepted | 2026-09-30 | —          |
+| [ADR-006](./006-single-node-single-tenant-self-hosted.md)                      | Single node, single tenant, self-hosted, English only                                | accepted | 2026-09-26 | —          |
+| [ADR-007](./007-local-product-separate-from-server-platform.md)                | AUTOMATE (local) is a separate product in this monorepo, reusing only portable parts | proposed | 2026-10-19 | —          |
+| [ADR-008](./008-staged-delivery-engine-and-loopback-ui-first.md)               | Staged delivery: local engine and loopback UI first, desktop shell later             | proposed | 2026-10-19 | —          |
+| [ADR-009](./009-sqlite-and-content-addressed-evidence-store.md)                | SQLite for metadata, a content-addressed directory for raw evidence                  | proposed | 2026-10-19 | —          |
+| [ADR-010](./010-local-evidence-model-mapped-from-server-contract.md)           | A separate local evidence model, mapped one way from the server contract             | proposed | 2026-10-19 | —          |
+| [ADR-011](./011-execution-safety-posture-no-isolation-in-the-first-release.md) | Execution safety posture: control the process tree, promise no isolation             | proposed | 2026-10-19 | —          |
+| [ADR-012](./012-node-engine-and-typed-loopback-interface.md)                   | Node 24 engine behind a typed loopback interface                                     | proposed | 2026-10-19 | —          |
 
 ## Decisions with no record, and where they went
 

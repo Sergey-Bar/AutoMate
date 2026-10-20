@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="unit" tests="2" failures="0" errors="0" skipped="1">
+  <testcase classname="unit" name="c" time="0.01" file="src/c.test.js"/>
+  <testcase classname="unit" name="d" time="0" file="src/d.test.js">
+    <skipped message="later"/>
+  </testcase>
+</testsuite>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+  <testsuite name="com.example.CartTest" tests="4" failures="1" errors="1" skipped="1" time="0.045" timestamp="2026-10-18T09:00:00">
+    <properties>
+      <property name="java.version" value="21"/>
+    </properties>
+    <testcase classname="com.example.CartTest" name="addsItem" time="0.012" file="src/cart.test.js"/>
+    <testcase classname="com.example.CartTest" name="removesItem" time="0.020">
+      <failure message="expected 0 but was 1" type="AssertionError">AssertionError: expected 0 but was 1
+    at CartTest.removesItem(CartTest.java:42)</failure>
+    </testcase>
+    <testcase classname="com.example.CartTest" name="totalsEmpty" time="0.008">
+      <error message="NullPointerException" type="java.lang.NullPointerException">java.lang.NullPointerException
+    at Cart.total(Cart.java:17)</error>
+    </testcase>
+    <testcase classname="com.example.CartTest" name="legacyPath" time="0">
+      <skipped message="not supported on CI"/>
+    </testcase>
+  </testsuite>
+</testsuites>

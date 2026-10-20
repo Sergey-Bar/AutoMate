@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Params" tests="5" failures="1" errors="0" skipped="0">
+  <testcase classname="Params" name="adds" time="0.001"/>
+  <testcase classname="Params" name="adds" time="0.001"/>
+  <testcase classname="Params" name="adds" time="0.001"/>
+  <testcase classname="Params" name="network" time="0.5">
+    <failure message="connection refused" type="Error">first</failure>
+  </testcase>
+  <testcase classname="Params" name="network" time="0.4"/>
+</testsuite>

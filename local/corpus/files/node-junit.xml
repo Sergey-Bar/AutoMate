@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testsuite name="arithmetic" time="0.002427" disabled="0" errors="0" tests="5" failures="3" skipped="2" timestamp="2026-10-19T16:57:11.573Z" hostname="host-redacted">
+		<testcase name="adds two numbers" time="0.000521" classname="arithmetic" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs"/>
+		<testcase name="fails on purpose" time="0.000680" classname="arithmetic" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs" failure="Expected values to be strictly equal:&#10;&#10;2 !== 3&#10;">
+			<failure type="testCodeFailure" message="Expected values to be strictly equal:&#10;&#10;2 !== 3">
+Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:
+
+2 !== 3
+
+    at async Promise.all (index 0) {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  2 !== 3
+  
+      at TestContext.&lt;anonymous> (file:///C:/repo/spikes/local-feasibility/corpus/generators/node-sample-suite.mjs:19:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Promise.all (index 0)
+      at async Suite.run (node:internal/test_runner/test:1905:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 2,
+    expected: 3,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+}
+			</failure>
+		</testcase>
+		<testcase name="throws on purpose" time="0.000063" classname="arithmetic" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs" failure="boom from the sample suite">
+			<failure type="testCodeFailure" message="boom from the sample suite">
+[Error [ERR_TEST_FAILURE]: boom from the sample suite] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: TypeError: boom from the sample suite
+      at TestContext.&lt;anonymous> (file:///C:/repo/spikes/local-feasibility/corpus/generators/node-sample-suite.mjs:23:11)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:974:7)
+}
+			</failure>
+		</testcase>
+		<testcase name="is skipped" time="0.000051" classname="arithmetic" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs">
+			<skipped type="skipped" message="skipped by design"/>
+		</testcase>
+		<testcase name="is a todo" time="0.000157" classname="arithmetic" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs" failure="todo bodies still run, and this one fails">
+			<skipped type="todo" message="not written yet"/>
+			<failure type="testCodeFailure" message="todo bodies still run, and this one fails">
+[Error [ERR_TEST_FAILURE]: todo bodies still run, and this one fails] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: todo bodies still run, and this one fails
+      at TestContext.&lt;anonymous> (file:///C:/repo/spikes/local-feasibility/corpus/generators/node-sample-suite.mjs:31:12)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Suite.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'fail',
+    diff: 'simple'
+  }
+}
+			</failure>
+		</testcase>
+	</testsuite>
+	<testcase name="top-level test with a parameter-like name [case=1]" time="0.000066" classname="test" file="C:\repo\spikes\local-feasibility\corpus\generators\node-sample-suite.mjs"/>
+	<!-- tests 6 -->
+	<!-- suites 1 -->
+	<!-- pass 2 -->
+	<!-- fail 2 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 1 -->
+	<!-- todo 1 -->
+	<!-- duration_ms 19.9589 -->
+</testsuites>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Filtered" tests="10" failures="0" errors="0" skipped="0">
+  <testcase classname="Filtered" name="one" time="0.1"/>
+  <testcase classname="Filtered" name="two" time="0.1">
+    <failure message="two failed" type="Error">two</failure>
+  </testcase>
+</testsuite>

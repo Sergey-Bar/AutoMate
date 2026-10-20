@@ -1,0 +1,658 @@
+[
+  {
+    "id": "node-junit",
+    "file": "node-junit.xml",
+    "kind": "real-tool-output",
+    "context": {
+      "repoRoot": "C:\\repo"
+    },
+    "provenance": {
+      "origin": "output of the Node.js built-in test runner (junit reporter)",
+      "licence": "MIT (this repository); generated from the sample suite in corpus/generators",
+      "generation": "node --test --test-isolation=none --experimental-test-coverage --test-reporter=junit --test-reporter-destination=<out> node-sample-suite.mjs",
+      "tool": "the Node.js built-in test runner (junit reporter)",
+      "toolVersion": "v24.21.0",
+      "date": "2026-10-19",
+      "postProcessing": "repository path prefix replaced with C:\\repo; hostname replaced with host-redacted"
+    }
+  },
+  {
+    "id": "node-junit-noroot",
+    "file": "node-junit.xml",
+    "kind": "variant",
+    "provenance": {
+      "origin": "output of the Node.js built-in test runner (junit reporter)",
+      "licence": "MIT (this repository); generated from the sample suite in corpus/generators",
+      "generation": "same bytes as node-junit, ingested without a repository root",
+      "tool": "the Node.js built-in test runner (junit reporter)",
+      "toolVersion": "v24.21.0",
+      "date": "2026-10-19",
+      "postProcessing": "same as node-junit"
+    }
+  },
+  {
+    "id": "node-lcov",
+    "file": "node-lcov.info",
+    "kind": "real-tool-output",
+    "provenance": {
+      "origin": "output of the Node.js built-in test runner (lcov reporter)",
+      "licence": "MIT (this repository); generated from the sample suite in corpus/generators",
+      "generation": "node --test --test-isolation=none --experimental-test-coverage --test-reporter=lcov --test-reporter-destination=<out> node-sample-suite.mjs",
+      "tool": "the Node.js built-in test runner (lcov reporter)",
+      "toolVersion": "v24.21.0",
+      "date": "2026-10-19",
+      "postProcessing": "none"
+    }
+  },
+  {
+    "id": "junit-basic",
+    "file": "junit-basic.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-basic-copy",
+    "file": "junit-basic-copy.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "byte-identical copy of junit-basic.xml",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-zero-tests",
+    "file": "junit-zero-tests.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-surefire-flaky",
+    "file": "junit-surefire-flaky.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand using the flakyFailure and rerunFailure element names that Maven Surefire documents",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-rerun-only",
+    "file": "junit-rerun-only.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "a rerunFailure with no failure beside it, read as the packages/reporter adapter reads it",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-duplicate-names",
+    "file": "junit-duplicate-names.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-shard-1",
+    "file": "junit-shard-1.xml",
+    "kind": "handwritten",
+    "context": {
+      "commit": "0123abc",
+      "runKey": "ci-100",
+      "shard": "1/2"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-shard-2",
+    "file": "junit-shard-2.xml",
+    "kind": "handwritten",
+    "context": {
+      "commit": "0123abc",
+      "runKey": "ci-100",
+      "shard": "2/2"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-truncated",
+    "file": "junit-truncated.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand, cut off inside an attribute value",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-undefined-entity",
+    "file": "junit-undefined-entity.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "not-a-report",
+    "file": "not-a-report.txt",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-wrong-root",
+    "file": "junit-wrong-root.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "xml-billion-laughs",
+    "file": "xml-billion-laughs.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "the classic nested-entity pattern, nine levels of ten",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "xml-external-entity",
+    "file": "xml-external-entity.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "a SYSTEM entity naming sentinel.txt in this directory, and one naming a loopback URL",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    },
+    "companions": ["sentinel.txt"]
+  },
+  {
+    "id": "junit-unsafe-paths",
+    "file": "junit-unsafe-paths.xml",
+    "kind": "handwritten",
+    "context": {
+      "repoRoot": "C:\\repo"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-latin1",
+    "file": "junit-latin1.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written as bytes: ISO-8859-1 prolog and the single byte 0xE9",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-bad-utf8",
+    "file": "junit-bad-utf8.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written as bytes: a UTF-8 prolog and the invalid byte 0xFF",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-time-garbage",
+    "file": "junit-time-garbage.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-declared-mismatch",
+    "file": "junit-declared-mismatch.xml",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "playwright-basic",
+    "file": "playwright-basic.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-retries",
+    "file": "playwright-retries.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-projects",
+    "file": "playwright-projects.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-zero",
+    "file": "playwright-zero.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-null-suite",
+    "file": "playwright-null-suite.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-unknown-status",
+    "file": "playwright-unknown-status.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-malformed",
+    "file": "playwright-malformed.txt",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand, cut off inside an array",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "playwright-setup-error",
+    "file": "playwright-setup-error.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "playwright-declared-mismatch",
+    "file": "playwright-declared-mismatch.json",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "pair-junit",
+    "file": "pair-junit.xml",
+    "kind": "handwritten",
+    "context": {
+      "commit": "4a5b6c7",
+      "observedAt": "2026-10-18T10:00:00Z"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "one execution, reported in two formats: see pair-playwright",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "pair-playwright",
+    "file": "pair-playwright.json",
+    "kind": "handwritten",
+    "context": {
+      "commit": "4a5b6c7",
+      "observedAt": "2026-10-18T10:00:30Z"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "pair-junit-other-commit",
+    "file": "pair-junit.xml",
+    "kind": "variant",
+    "context": {
+      "commit": "9d8e7f6",
+      "observedAt": "2026-10-18T10:00:00Z"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "same bytes as pair-junit, labelled with a different commit",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "contradict-junit",
+    "file": "contradict-junit.xml",
+    "kind": "handwritten",
+    "context": {
+      "commit": "4a5b6c7",
+      "observedAt": "2026-10-18T10:00:00Z"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "reports pays as passed; see contradict-playwright",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "contradict-playwright",
+    "file": "contradict-playwright.json",
+    "kind": "handwritten",
+    "context": {
+      "commit": "4a5b6c7",
+      "observedAt": "2026-10-18T10:00:30Z"
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19",
+      "note": "Shape taken from packages/reporter/src/adapters/playwright-json.ts. Real Playwright output was not produced, so conformance with Playwright itself is unverified."
+    }
+  },
+  {
+    "id": "lcov-basic",
+    "file": "lcov-basic.info",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "lcov-empty-file",
+    "file": "lcov-empty-file.info",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "lcov-truncated",
+    "file": "lcov-truncated.info",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand, cut off inside a DA record",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "lcov-mismatch",
+    "file": "lcov-mismatch.info",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "lcov-unknown-tag",
+    "file": "lcov-unknown-tag.info",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "written by hand for this spike",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "empty",
+    "file": "empty.bin",
+    "kind": "handwritten",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "a zero-byte file",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-oversized-message",
+    "generator": "junit-oversized-message",
+    "kind": "generated-at-test",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "built in memory by the test: one failure message of 20000 characters",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-too-large",
+    "generator": "junit-too-large",
+    "kind": "generated-at-test",
+    "options": {
+      "xml": {
+        "maxBytes": 1024
+      }
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "built in memory by the test: 2048 bytes against a 1024 byte limit",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-too-deep",
+    "generator": "junit-too-deep",
+    "kind": "generated-at-test",
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "built in memory by the test: 300 nested elements against the default limit",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  },
+  {
+    "id": "junit-many-tests",
+    "generator": "junit-many-tests",
+    "kind": "generated-at-test",
+    "options": {
+      "maxTests": 100
+    },
+    "provenance": {
+      "origin": "authored in this repository for this spike",
+      "licence": "MIT (this repository)",
+      "generation": "built in memory by the test: 150 testcases against a limit of 100",
+      "tool": null,
+      "toolVersion": null,
+      "date": "2026-10-19"
+    }
+  }
+]
