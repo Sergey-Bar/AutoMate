@@ -51,7 +51,7 @@ function screenSources(): Array<{ name: string; body: string }> {
     }
   };
   walk(path.join(SRC, 'routes', 'dashboard'));
-  for (const name of ['components/RunList.tsx', 'components/Cockpit.tsx']) {
+  for (const name of ['components/RunList.tsx', 'components/Dashboard.tsx']) {
     const full = path.join(SRC, name);
     found.push({ name, body: readFileSync(full, 'utf8') });
   }

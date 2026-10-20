@@ -1,5 +1,6 @@
 import { z } from 'zod/v4';
 import {
+  AnalyticsTrendSchema,
   CopilotAnswerSchema,
   ProjectDetailResponseSchema,
   ProjectListResponseSchema,
@@ -8,6 +9,8 @@ import {
   QaHollowResponseSchema,
   QaScoreSchema,
   QaStructureResponseSchema,
+  RepoScanSchema,
+  type AnalyticsTrend,
   type CopilotAnswer,
   type ProjectDetailResponse,
   type QaFlakyResponse,
@@ -16,6 +19,7 @@ import {
   type QaScore,
   type QaStructureResponse,
   type RegisteredProject,
+  type RepoScan,
 } from './qa.js';
 
 /**
@@ -43,6 +47,10 @@ export interface QaClient {
   getFlaky(projectId: string): Promise<QaFlakyResponse>;
   getStructure(projectId: string): Promise<QaStructureResponse>;
   askCopilot(projectId: string, question: string): Promise<CopilotAnswer>;
+  /** Every tool, report and capability in the repository. `fresh` skips the server's cache. */
+  getScan(projectId: string, fresh?: boolean): Promise<RepoScan>;
+  /** Run history as a daily series, with the window before it for comparison. */
+  getTrend(days: number): Promise<AnalyticsTrend>;
   startRun(
     projectId: string,
     commandId: string,
@@ -112,6 +120,16 @@ export function createQaClient(baseUrl = '', fetchImpl: typeof fetch = fetch): Q
         `/api/v1/projects/${encodeURIComponent(projectId)}/copilot/answer`,
         { question },
         CopilotAnswerSchema,
+      ),
+    getScan: (projectId, fresh = false) =>
+      get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/scan${fresh ? '?fresh=1' : ''}`,
+        RepoScanSchema,
+      ),
+    getTrend: (days) =>
+      get(
+        `/api/v1/dashboard/analytics/trend?days=${String(Math.trunc(days))}`,
+        AnalyticsTrendSchema,
       ),
     // **A command id, never an executable.** The body has no field that could carry
     // an argv, so the client cannot start a command the profile does not declare.

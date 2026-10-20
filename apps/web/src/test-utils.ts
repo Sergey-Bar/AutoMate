@@ -1,6 +1,16 @@
 import { vi } from 'vitest';
 import type { RunEventEnvelope } from '@automate/shared-contracts';
 import type { ApiClient, QuarantineEntry, Run } from './lib/api.js';
+import type { QaClient } from './lib/qa-client.js';
+import {
+  AnalyticsTrendSchema,
+  RepoScanSchema,
+  type AnalyticsTrend,
+  type RegisteredProject,
+  type RepoScan,
+  type RepoTool,
+  type TrendWindow,
+} from './lib/qa.js';
 
 export const TEST_TIMESTAMP = '2026-09-25T00:00:00.000Z';
 
@@ -171,4 +181,232 @@ export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     subscribeToRunEvents: vi.fn(() => () => undefined),
   };
   return { ...base, ...overrides };
+}
+
+export const TEST_PROJECT: RegisteredProject = {
+  id: 'project-1',
+  workspaceId: 'ws-1',
+  name: 'Automate',
+  slug: 'automate',
+  repoPath: '/repos/automate',
+  detectorVersion: 1,
+  createdAt: TEST_TIMESTAMP,
+};
+
+export function makeTool(overrides: Partial<RepoTool> = {}): RepoTool {
+  return {
+    id: 'script:.:test',
+    name: 'test',
+    label: 'pnpm run test',
+    kind: 'unit',
+    argv: ['pnpm', 'run', 'test'],
+    workingDirectory: '.',
+    source: 'package.json',
+    evidence: 'vitest run',
+    runnable: true,
+    reason: null,
+    ...overrides,
+  };
+}
+
+/**
+ * A repository scan, parsed rather than cast, so a fixture that drifted from the
+ * contract fails here instead of making every assertion pass against a payload the
+ * API could never send.
+ */
+export function makeScan(overrides: Partial<RepoScan> = {}): RepoScan {
+  return RepoScanSchema.parse({
+    scannedAt: TEST_TIMESTAMP,
+    ecosystems: ['node'],
+    manifests: 2,
+    testFiles: 40,
+    sourceFiles: 100,
+    tools: [
+      makeTool(),
+      makeTool({
+        id: 'script:.:lint',
+        name: 'lint',
+        label: 'pnpm run lint',
+        kind: 'static-analysis',
+        argv: ['pnpm', 'run', 'lint'],
+        evidence: 'eslint .',
+      }),
+      makeTool({
+        id: 'script:.:dev',
+        name: 'dev',
+        label: 'pnpm run dev',
+        kind: 'dev',
+        argv: ['pnpm', 'run', 'dev'],
+        evidence: 'vite',
+        runnable: false,
+        reason: 'A long-running server or watcher; it never exits, so it cannot be a run.',
+      }),
+      makeTool({
+        id: 'script:apps/web:test:e2e',
+        name: 'test:e2e',
+        label: 'pnpm run test:e2e',
+        kind: 'e2e',
+        argv: ['pnpm', 'run', 'test:e2e'],
+        workingDirectory: 'apps/web',
+        source: 'apps/web/package.json',
+        evidence: 'playwright test',
+      }),
+    ],
+    reports: [
+      {
+        path: 'coverage/coverage-summary.json',
+        kind: 'coverage',
+        format: 'istanbul-summary',
+        headline: '91.5% of lines covered',
+        metrics: { lines: 91.5 },
+        status: 'good',
+      },
+      {
+        path: 'test-results/junit.xml',
+        kind: 'tests',
+        format: 'junit-xml',
+        headline: '10 tests, 2 failing, 0 skipped',
+        metrics: { tests: 10, failed: 2, passed: 8, skipped: 0 },
+        status: 'bad',
+      },
+      {
+        path: 'gitleaks.json',
+        kind: 'security',
+        format: 'gitleaks-json',
+        headline: '1 possible secrets',
+        metrics: { findings: 1 },
+        status: 'bad',
+      },
+    ],
+    detected: [
+      { id: 'vitest', name: 'Vitest', capability: 'unit', evidence: 'vitest in package.json' },
+    ],
+    capabilities: [
+      { capability: 'unit', covered: true, providers: ['Vitest', 'pnpm run test'], weight: 3 },
+      { capability: 'mutation', covered: false, providers: [], weight: 1 },
+      { capability: 'secrets', covered: false, providers: [], weight: 2 },
+    ],
+    maturity: 50,
+    toolbox: [
+      {
+        id: 'vitest',
+        name: 'Vitest',
+        capability: 'unit',
+        description: 'Fast unit tests.',
+        ecosystems: ['node'],
+        status: 'in-use',
+        priority: 'high',
+        reason: 'Found: vitest in package.json',
+        setup: 'pnpm add -D vitest',
+        docsUrl: 'https://vitest.dev/guide/',
+      },
+      {
+        id: 'stryker',
+        name: 'Stryker',
+        capability: 'mutation',
+        description: 'Mutation testing.',
+        ecosystems: ['node'],
+        status: 'recommended',
+        priority: 'low',
+        reason: 'Nothing in this repository covers mutation.',
+        setup: 'npm init stryker@latest',
+        docsUrl: 'https://stryker-mutator.io/docs/',
+      },
+      {
+        id: 'gitleaks',
+        name: 'Gitleaks',
+        capability: 'secrets',
+        description: 'Secret scanning.',
+        ecosystems: ['any'],
+        status: 'recommended',
+        priority: 'high',
+        reason: 'Nothing in this repository covers secrets.',
+        setup: 'gitleaks detect',
+        docsUrl: 'https://github.com/gitleaks/gitleaks',
+      },
+      {
+        id: 'jest',
+        name: 'Jest',
+        capability: 'unit',
+        description: 'Another unit runner.',
+        ecosystems: ['node'],
+        status: 'available',
+        priority: 'high',
+        reason: 'unit is already covered by another tool.',
+        setup: 'npm i -D jest',
+        docsUrl: 'https://jestjs.io/',
+      },
+    ],
+    ...overrides,
+  });
+}
+
+function trendWindow(overrides: Partial<TrendWindow> = {}): TrendWindow {
+  return {
+    from: '2026-09-11T00:00:00.000Z',
+    to: '2026-09-25T00:00:00.000Z',
+    runs: 10,
+    passRate: 80,
+    failedRuns: 2,
+    avgDurationMs: 4_000,
+    tests: 100,
+    testsFailed: 5,
+    flakyTests: 3,
+    ...overrides,
+  };
+}
+
+export function makeTrend(
+  overrides: {
+    days?: number;
+    current?: Partial<TrendWindow>;
+    previous?: Partial<TrendWindow>;
+  } = {},
+): AnalyticsTrend {
+  const days = overrides.days ?? 3;
+  return AnalyticsTrendSchema.parse({
+    days,
+    buckets: Array.from({ length: days }, (_, index) => ({
+      date: `2026-09-${String(20 + index).padStart(2, '0')}`,
+      runs: index + 1,
+      passed: index,
+      failed: 1,
+      other: 0,
+      passRate: index === 1 ? null : 50,
+      avgDurationMs: 1_000,
+      tests: 10,
+      testsFailed: 1,
+    })),
+    current: trendWindow({
+      passRate: 90,
+      runs: 12,
+      failedRuns: 1,
+      avgDurationMs: 3_000,
+      flakyTests: 1,
+      ...overrides.current,
+    }),
+    previous: trendWindow(overrides.previous),
+    truncated: false,
+  });
+}
+
+/** A fully-defaulted `QaClient` double, for the same reason `makeApi` is one. */
+export function makeQa(overrides: Partial<QaClient> = {}): QaClient {
+  const never = async (): Promise<never> => {
+    throw new Error('not stubbed');
+  };
+  return {
+    listProjects: vi.fn(async () => [TEST_PROJECT]),
+    getProject: vi.fn(never),
+    getScore: vi.fn(never),
+    getGaps: vi.fn(async () => ({ gaps: [], cappedBy: 'unit' })),
+    getHollow: vi.fn(never),
+    getFlaky: vi.fn(never),
+    getStructure: vi.fn(never),
+    askCopilot: vi.fn(never),
+    startRun: vi.fn(async () => ({ runId: 'run-new' })),
+    getScan: vi.fn(async () => makeScan()),
+    getTrend: vi.fn(async () => makeTrend()),
+    ...overrides,
+  };
 }

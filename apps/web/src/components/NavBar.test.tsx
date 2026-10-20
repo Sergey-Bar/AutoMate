@@ -84,7 +84,17 @@ describe('NavBar', () => {
     await waitFor(() => {
       expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
     });
-    expect(screen.getByText('Cockpit')).toBeInTheDocument();
+    for (const label of [
+      'Dashboard',
+      'Runs',
+      'Runner',
+      'Health',
+      'Toolbox',
+      'Analytics',
+      'Quarantine',
+    ]) {
+      expect(screen.getByRole('link', { name: label })).toBeInTheDocument();
+    }
   });
 
   /**

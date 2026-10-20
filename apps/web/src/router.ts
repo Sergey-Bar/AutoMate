@@ -5,6 +5,9 @@ import { Route as dashboardRoute } from './routes/dashboard.js';
 import { Route as analyticsRoute } from './routes/dashboard/analytics.js';
 import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
+import { Route as runnerRoute } from './routes/dashboard/runner.js';
+import { Route as healthRoute } from './routes/dashboard/health.js';
+import { Route as toolboxRoute } from './routes/dashboard/toolbox.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
@@ -12,6 +15,9 @@ import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/das
 const dashboardTree = dashboardRoute.addChildren([
   runsListRoute,
   runDetailRoute,
+  runnerRoute,
+  healthRoute,
+  toolboxRoute,
   analyticsRoute,
   quarantineRoute,
   scoreRoute,

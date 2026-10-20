@@ -86,7 +86,7 @@ describe('dashboard routes', () => {
     disarm.mockRestore();
   });
 
-  it('renders the cockpit at /dashboard and the launch form at /dashboard/runs', async () => {
+  it('renders the dashboard at /dashboard and the launch form at /dashboard/runs', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
@@ -101,15 +101,15 @@ describe('dashboard routes', () => {
     );
 
     render(<MemoryRouter initialEntries={['/dashboard']} />);
-    // The registry answered with no projects, so the cockpit's onboarding state is
-    // what a bare install renders. The screen is chosen here, not a sub-state: the
-    // cockpit has a report state too, and `Cockpit.test.tsx` is what covers it.
-    await waitFor(() => expect(screen.getByTestId('cockpit-onboarding')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument();
+    // The registry answered with no projects, so the dashboard's onboarding state is
+    // what a bare install renders. The dashboard has a report state too, and
+    // `Dashboard.test.tsx` is what covers it.
+    await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
     expect(screen.queryByTestId('home-page')).not.toBeInTheDocument();
     // **A home page that asks you to fill in a form before it tells you anything is a
-    // form.** The cockpit reports; the runs route asks for input. Both halves asserted,
-    // because moving the form without moving the evidence would have left the cockpit
+    // form.** The dashboard reports; the runs route asks for input. Both halves asserted,
+    // because moving the form without moving the evidence would have left the dashboard
     // with an empty right-hand column.
     expect(screen.queryByTestId('launch-run-form')).not.toBeInTheDocument();
     cleanup();
@@ -129,7 +129,7 @@ describe('dashboard routes', () => {
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
     expect(screen.getByTestId('launch-run-form')).toBeInTheDocument();
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('UNKNOWN');
-    expect(screen.queryByTestId('cockpit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 
   it('creates a canonical browser run with registered execution context', async () => {

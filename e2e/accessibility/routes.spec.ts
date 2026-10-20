@@ -279,7 +279,7 @@ test.describe('accessibility', () => {
 });
 
 /**
- * The other half of the G4 gate: a screenshot of the cockpit at the fill floor, reviewed as
+ * The other half of the G4 gate: a screenshot of the dashboard at the fill floor, reviewed as
  * a diff.
  *
  * **Why a screenshot at all, when `theme.test.ts` already measures the composite.** The
@@ -298,7 +298,7 @@ test.describe('accessibility', () => {
  * measured numerically. The screenshot is evidence for a person; the ratio is the gate.
  *
  * **The assertions before the screenshot are the part that matters.** A screenshot of an
- * empty cockpit is a green artefact showing nothing, which is the same failure shape as an
+ * empty dashboard is a green artefact showing nothing, which is the same failure shape as an
  * axe run over a blank `<main>`. So the queue has to be present and an `unmeasured` cell has
  * to be on screen before the shutter opens, and both are asserted by name.
  */
@@ -314,11 +314,11 @@ const GLASS_EVIDENCE_DIR = path.join(
 let seeded = false;
 
 /**
- * A registered project, plus three runs — two passing, one failing — so the cockpit's queue,
+ * A registered project, plus three runs — two passing, one failing — so the dashboard's queue,
  * limiter and matrix have something in them.
  *
- * **The project comes first because it is the cockpit's subject.** `Cockpit.tsx` reads
- * `listProjects()` and renders `cockpit-onboarding` — "No project is registered, so there is
+ * **The project comes first because it is the dashboard's subject.** `Dashboard.tsx` reads
+ * `listProjects()` and renders `onboarding` — "No project is registered, so there is
  * nothing to score yet" — when the list is empty. That screen is a legitimate state and the
  * axe sweep above measures it, but it shows neither a queue nor a matrix, so a screenshot
  * taken there would be evidence of nothing. Registering through `POST /api/v1/projects` is
@@ -342,7 +342,7 @@ let seeded = false;
  * Once per worker: the seed is shared by both themes, and `globalSetup` has already emptied
  * the run tables before any of them start.
  */
-async function seedCockpitRuns(request: APIRequestContext): Promise<void> {
+async function seedDashboardRuns(request: APIRequestContext): Promise<void> {
   if (seeded) return;
   seeded = true;
 
@@ -381,7 +381,7 @@ async function seedCockpitRuns(request: APIRequestContext): Promise<void> {
   } else {
     expect(
       registered.status(),
-      `the cockpit has no subject without a project, and this one could not be registered: ` +
+      `the dashboard has no subject without a project, and this one could not be registered: ` +
         `${String(registered.status())} ${await registered.text()}`,
     ).toBe(201);
   }
@@ -415,33 +415,33 @@ async function seedCockpitRuns(request: APIRequestContext): Promise<void> {
 
 test.describe('glass legibility evidence', () => {
   for (const theme of THEMES) {
-    test(`the cockpit reads at the fill floor in the ${theme} theme`, async ({
+    test(`the dashboard reads at the fill floor in the ${theme} theme`, async ({
       page,
       request,
       context,
     }) => {
       await authenticate(context, request);
-      await seedCockpitRuns(request);
+      await seedDashboardRuns(request);
       await useTheme(page, theme);
       await page.goto(`${WEB_BASE}/dashboard`);
 
-      await expect(page.getByTestId('cockpit-queue')).toBeVisible();
+      await expect(page.getByTestId('dashboard-queue')).toBeVisible();
       await expect(
         page.locator('[data-testid^="cell-"]', { hasText: 'unmeasured' }).first(),
-        'the cockpit shows no unmeasured cell, so the screenshot would not show the floor it ' +
+        'the dashboard shows no unmeasured cell, so the screenshot would not show the floor it ' +
           'exists to show',
       ).toBeVisible();
 
       mkdirSync(GLASS_EVIDENCE_DIR, { recursive: true });
       await page.screenshot({
-        path: path.join(GLASS_EVIDENCE_DIR, `cockpit-${theme}.png`),
+        path: path.join(GLASS_EVIDENCE_DIR, `dashboard-${theme}.png`),
         fullPage: true,
       });
 
       // The number the pixels are confirming, re-checked on the seeded screen rather than
-      // only in jsdom — a cockpit with data in it is not the cockpit the ratio was
+      // only in jsdom — a dashboard with data in it is not the dashboard the ratio was
       // measured on.
-      await expectNoSeriousOrCritical(page, `the seeded cockpit in the ${theme} theme`);
+      await expectNoSeriousOrCritical(page, `the seeded dashboard in the ${theme} theme`);
     });
   }
 });

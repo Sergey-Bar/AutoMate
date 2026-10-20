@@ -24,3 +24,24 @@ import { configure } from '@testing-library/react';
 export const ASYNC_UTIL_TIMEOUT_MS = 5_000;
 
 configure({ asyncUtilTimeout: ASYNC_UTIL_TIMEOUT_MS });
+
+/**
+ * jsdom has no `<dialog>` implementation: `showModal` is missing and `close` never fires
+ * the `close` event `Dialog` listens to. The runner's confirmation and the runs page's
+ * launch form are dialogs, so without these two the client suite would assert behaviour
+ * jsdom silently declined to run. Installed only where jsdom left a gap, so a future jsdom
+ * that implements `<dialog>` is used as-is.
+ */
+const dialogPrototype =
+  typeof HTMLDialogElement === 'undefined'
+    ? undefined
+    : (HTMLDialogElement.prototype as Partial<HTMLDialogElement>);
+if (dialogPrototype !== undefined && typeof dialogPrototype.showModal !== 'function') {
+  dialogPrototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.open = true;
+  };
+  dialogPrototype.close = function close(this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event('close'));
+  };
+}
