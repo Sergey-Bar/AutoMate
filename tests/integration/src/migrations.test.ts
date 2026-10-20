@@ -166,6 +166,7 @@ describe('migration graph', () => {
       '0022_tests_error_message',
       '0023_project_registry',
       '0024_project_quality_gate',
+      '0025_scan_snapshots',
     ]);
   });
 
