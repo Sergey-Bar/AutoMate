@@ -8,6 +8,8 @@ import { RoutingExecutionAdapter } from './execution-router.js';
 import { GenericSpawnAdapter } from './generic-spawn.js';
 import { HealthServer } from './health-server.js';
 import { RunnerService } from './runner-service.js';
+import { readStoredToken, writeStoredToken } from './token-store.js';
+import { whileUnreachable } from './wait-for-api.js';
 
 export interface ProcessFailure {
   service: string;
@@ -84,7 +86,9 @@ export async function main(env: Record<string, string | undefined> = process.env
 
 async function runRunner(env: Record<string, string | undefined>): Promise<void> {
   const config = parseRunnerConfig(env);
-  let token = config.credential ?? '';
+  // A restart presents the token it was last issued, because the API only lets a runner id be
+  // re-registered by whoever holds that runner's current credential (ledger RNR-1).
+  let token = config.credential ?? (await readStoredToken(config.spoolRoot, config.instanceId));
   let runnerId = config.instanceId;
   let client = new RunnerApiClient({
     baseUrl: config.apiUrl,
@@ -105,9 +109,16 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
     slots: Math.min(config.slots, config.maxConcurrentJobs),
   };
   if (!config.credential) {
-    const registration = await client.register(registrationRequest);
+    // The API may still be starting (pnpm dev:all, docker compose up), so a refused
+    // connection is waited out; an answer from it, including a refusal, is not.
+    const registration = await whileUnreachable(() => client.register(registrationRequest), {
+      timeoutMs: 120_000,
+      intervalMs: 1_000,
+      onWait: () => console.info(`automate-runner waiting for the API at ${config.apiUrl}`),
+    });
     runnerId = registration.runnerId;
     token = registration.token;
+    await writeStoredToken(config.spoolRoot, runnerId, token);
     client = new RunnerApiClient({
       baseUrl: config.apiUrl,
       runnerId,
@@ -188,11 +199,16 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
   const registrationRefresh = config.credential
     ? undefined
     : setInterval(() => {
-        void client.register(registrationRequest).catch((error: unknown) => {
-          console.error(
-            `automate-runner registration refresh failed (${error instanceof Error ? error.name : 'REGISTRATION_ERROR'})`,
-          );
-        });
+        void client
+          .register(registrationRequest)
+          .then((refreshed) =>
+            writeStoredToken(config.spoolRoot, refreshed.runnerId, refreshed.token),
+          )
+          .catch((error: unknown) => {
+            console.error(
+              `automate-runner registration refresh failed (${error instanceof Error ? error.name : 'REGISTRATION_ERROR'})`,
+            );
+          });
       }, 10 * 60_000);
   try {
     await service.run(lifecycle.signal);

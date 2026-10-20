@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "updated": "2026-10-19",
+  "note": "Data only. An entry names a package and the facts around it; it carries no command, script or URL to run. A licence is 'unverified' until an entry cites the licence file and the date it was read.",
+  "tools": [
+    {
+      "id": "vitest-coverage-v8",
+      "name": "Vitest coverage (V8 provider)",
+      "category": "coverage",
+      "purpose": "Adds code coverage to a project that already uses Vitest.",
+      "languages": ["javascript", "typescript"],
+      "appliesTo": { "testTool": "vitest" },
+      "rule": "missing-coverage-report",
+      "equivalentPlugins": ["vitest-coverage-v8", "vitest-coverage-istanbul"],
+      "install": { "kind": "npm-package", "package": "@vitest/coverage-v8", "dev": true },
+      "configurationChange": "none required to install; enabling coverage is done with the --coverage flag or the coverage.enabled setting",
+      "verify": "Run the tests with the --coverage flag, then scan again: a coverage report should appear in the folder the configuration names.",
+      "licence": {
+        "status": "verified",
+        "identifier": "MIT",
+        "source": "https://raw.githubusercontent.com/vitest-dev/vitest/main/LICENSE",
+        "verified": "2026-10-19",
+        "scope": "the Vitest repository licence file; the licence the npm package itself declares was not separately checked"
+      },
+      "requirements": [
+        "A project that already runs Vitest.",
+        "A JavaScript runtime built on V8, such as Node.js."
+      ],
+      "maintenance": "One more dev dependency to keep in step with the Vitest version.",
+      "limitations": [
+        "Does not work on environments that are not built on V8, according to the Vitest documentation.",
+        "The catalog does not pin a version; the newest published version is installed when you confirm."
+      ],
+      "alternatives": ["@vitest/coverage-istanbul, documented on the same page"],
+      "docs": [
+        {
+          "title": "Vitest: Coverage",
+          "url": "https://vitest.dev/guide/coverage.html",
+          "accessed": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": "jest-junit",
+      "name": "jest-junit",
+      "category": "reporting",
+      "purpose": "A Jest reporter that writes JUnit-compatible XML, which AUTOMATE (local) can read.",
+      "languages": ["javascript", "typescript"],
+      "appliesTo": { "testTool": "jest" },
+      "rule": "missing-junit-report",
+      "equivalentPlugins": ["jest-junit"],
+      "install": { "kind": "npm-package", "package": "jest-junit", "dev": true },
+      "configurationChange": "add \"jest-junit\" to the reporters list in the Jest configuration; AUTOMATE (local) does not edit that file for you",
+      "verify": "Run Jest, then scan again: a junit.xml should appear in the working directory unless the reporter is configured otherwise.",
+      "licence": {
+        "status": "verified",
+        "identifier": "Apache-2.0",
+        "source": "https://raw.githubusercontent.com/jest-community/jest-junit/master/LICENSE",
+        "verified": "2026-10-19",
+        "scope": "the jest-junit repository licence file; the licence the npm package itself declares was not separately checked"
+      },
+      "requirements": ["A project that already runs Jest."],
+      "maintenance": "One more dev dependency, plus a reporters entry in the Jest configuration.",
+      "limitations": [
+        "The catalog does not pin a version; the newest published version is installed when you confirm."
+      ],
+      "alternatives": [],
+      "docs": [
+        {
+          "title": "jest-junit README",
+          "url": "https://raw.githubusercontent.com/jest-community/jest-junit/master/README.md",
+          "accessed": "2026-10-19"
+        }
+      ]
+    },
+    {
+      "id": "pytest-cov",
+      "name": "pytest-cov",
+      "category": "coverage",
+      "purpose": "A pytest plugin for measuring code coverage.",
+      "languages": ["python"],
+      "appliesTo": { "testTool": "pytest" },
+      "rule": "missing-coverage-report",
+      "equivalentPlugins": ["pytest-cov"],
+      "install": { "kind": "pip-package", "package": "pytest-cov", "dev": true },
+      "configurationChange": "none required to install; coverage is enabled with the plugin's options when pytest is run",
+      "verify": "Run pytest with the plugin's coverage option and a report format, then scan again: a coverage report should appear.",
+      "licence": {
+        "status": "verified",
+        "identifier": "MIT",
+        "source": "https://raw.githubusercontent.com/pytest-dev/pytest-cov/master/LICENSE",
+        "verified": "2026-10-19",
+        "scope": "the pytest-cov repository licence file; the licence the PyPI package itself declares was not separately checked"
+      },
+      "requirements": ["A project that already runs pytest."],
+      "maintenance": "One more development dependency in the Python environment.",
+      "limitations": [
+        "Installs into whichever Python environment the python command resolves to, which may not be the project's own.",
+        "The catalog does not pin a version; the newest published version is installed when you confirm."
+      ],
+      "alternatives": [],
+      "docs": [
+        {
+          "title": "pytest-cov README",
+          "url": "https://raw.githubusercontent.com/pytest-dev/pytest-cov/master/README.rst",
+          "accessed": "2026-10-19"
+        }
+      ]
+    }
+  ]
+}

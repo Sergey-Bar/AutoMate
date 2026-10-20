@@ -157,7 +157,7 @@ services:
       RUNNER_INSTANCE_ID: ${RUNNER_INSTANCE_ID:-00000000-0000-4000-8000-000000000002}
       RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       RUNNER_SLOTS: '1'
-      RUNNER_ALLOWED_TARGET_URLS: 'http://web,http://api'
+      RUNNER_ALLOWED_TARGET_URLS: 'http://api,http://web'
       ARTIFACT_ROOT: /var/lib/automate/artifacts
     depends_on:
       api:

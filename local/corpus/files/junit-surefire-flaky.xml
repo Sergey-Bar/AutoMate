@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="OrderIT" tests="3" failures="1" errors="0" skipped="0" time="2.5">
+  <testcase classname="OrderIT" name="placesOrder" time="1.5">
+    <flakyFailure message="timeout" type="java.net.SocketTimeoutException"><![CDATA[java.net.SocketTimeoutException: Read timed out]]></flakyFailure>
+    <flakyFailure message="timeout again" type="java.net.SocketTimeoutException"/>
+  </testcase>
+  <testcase classname="OrderIT" name="cancelsOrder" time="0.9">
+    <failure message="always fails" type="java.lang.AssertionError">first attempt</failure>
+    <rerunFailure message="still fails" type="java.lang.AssertionError">second attempt</rerunFailure>
+    <rerunFailure message="still fails again" type="java.lang.AssertionError">third attempt</rerunFailure>
+  </testcase>
+  <testcase classname="OrderIT" name="listsOrders" time="0.1"/>
+</testsuite>

@@ -32,7 +32,7 @@ We will adopt a **modular monolith** architecture for the unified platform. This
 
 ### Target Architecture
 
-- **Backend**: Hono + Effect running on Node.js 24+.
+- **Backend**: Hono on Node.js 24+, with Effect confined to `apps/api/src/bootstrap` for process lifecycle.
 - **Database**: PostgreSQL with Drizzle ORM.
 - **Frontend**: React 19 + TanStack Router + Tailwind CSS 4.
 - **Package Boundaries**:

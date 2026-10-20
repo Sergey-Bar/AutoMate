@@ -583,3 +583,132 @@ describe('a swept lease releases the job it was holding', () => {
     );
   });
 });
+
+describe('a run whose tests arrived as events, not in the completion', () => {
+  /**
+   * The shape the shipped runner sends, and the defect it exposed in a live demo: per-test
+   * `test.started` / `test.completed` events, then a completion with `summary: null` and no
+   * `tests` list, because the results are already on the server. The store counted the
+   * completion's empty list, so a run with one passing test showed **Total 0, Passed 0**,
+   * and the "a pass that reported nothing" rule stored it as `interrupted`.
+   */
+  async function aRunReportedByEvents(
+    statuses: ReadonlyArray<'passed' | 'failed'>,
+  ): Promise<{ runId: string; jobId: string; leaseId: string; fencingToken: number }> {
+    const { runId, jobId } = await aRunWithAJob();
+    const runner = await enrol('events');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+    if (!claim) throw new Error('the job was not claimable');
+    const events = statuses.flatMap((status, index) => [
+      {
+        eventId: `started-${String(counter)}-${String(index)}`,
+        type: 'test.started',
+        sequence: index * 2 + 1,
+        payload: {
+          testId: `t-${String(index)}`,
+          title: `test ${String(index)}`,
+          file: 'a.spec.ts',
+        },
+      },
+      {
+        eventId: `completed-${String(counter)}-${String(index)}`,
+        type: 'test.completed',
+        sequence: index * 2 + 2,
+        payload: { testId: `t-${String(index)}`, status, durationMs: 100 },
+      },
+    ]);
+    const applied = await store.appendEvents(
+      jobId,
+      claim.leaseId,
+      claim.fencingToken,
+      events,
+      workspaceId,
+    );
+    expect(applied.every((result) => result.status === 'accepted')).toBe(true);
+    return { runId, jobId, leaseId: claim.leaseId, fencingToken: claim.fencingToken };
+  }
+
+  it('counts the tests the run recorded when the completion carries no summary', async () => {
+    const run = await aRunReportedByEvents(['passed', 'passed', 'failed']);
+
+    await store.completeJob(
+      run.jobId,
+      {
+        leaseId: run.leaseId,
+        fencingToken: run.fencingToken,
+        status: 'completed',
+        phase: 'complete',
+        outcome: 'failed',
+        summary: undefined,
+      },
+      workspaceId,
+    );
+
+    const stored = await store.getRun(run.runId, workspaceId);
+    expect(stored?.summary).toMatchObject({ total: 3, passed: 2, failed: 1 });
+  });
+
+  it('does not call a run with a recorded passing test "interrupted"', async () => {
+    const run = await aRunReportedByEvents(['passed']);
+
+    await store.completeJob(
+      run.jobId,
+      {
+        leaseId: run.leaseId,
+        fencingToken: run.fencingToken,
+        status: 'completed',
+        phase: 'complete',
+        outcome: 'passed',
+      },
+      workspaceId,
+    );
+
+    const stored = await store.getRun(run.runId, workspaceId);
+    expect(stored?.summary).toMatchObject({ total: 1, passed: 1, failed: 0 });
+    expect(stored?.outcome).toBe('passed');
+    expect(stored?.status, 'one recorded pass is evidence').toBe('passed');
+  });
+
+  it('still calls a pass with no tests at all "interrupted", because nothing was evidenced', async () => {
+    const { runId, jobId } = await aRunWithAJob();
+    const runner = await enrol('empty');
+    const claim = await store.claimJob(runner.id, ['browser'], ['ci'], clock, workspaceId);
+    if (!claim) throw new Error('the job was not claimable');
+
+    await store.completeJob(
+      jobId,
+      {
+        leaseId: claim.leaseId,
+        fencingToken: claim.fencingToken,
+        status: 'completed',
+        phase: 'complete',
+        outcome: 'passed',
+      },
+      workspaceId,
+    );
+
+    const stored = await store.getRun(runId, workspaceId);
+    expect(stored?.summary).toMatchObject({ total: 0 });
+    expect(stored?.status).toBe('interrupted');
+  });
+
+  it('prefers a coherent summary the runner did send', async () => {
+    const run = await aRunReportedByEvents(['passed']);
+
+    await store.completeJob(
+      run.jobId,
+      {
+        leaseId: run.leaseId,
+        fencingToken: run.fencingToken,
+        status: 'completed',
+        phase: 'complete',
+        outcome: 'passed',
+        summary: { total: 5, passed: 5, failed: 0, flaky: 0, skipped: 0, blocked: 0, unknown: 0 },
+      },
+      workspaceId,
+    );
+
+    const stored = await store.getRun(run.runId, workspaceId);
+    expect(stored?.summary).toMatchObject({ total: 5, passed: 5 });
+  });
+});

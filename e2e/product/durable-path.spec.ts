@@ -31,6 +31,8 @@
  * than by running the worker. What is proven is that the durable state a worker would
  * find is correct and that a stale holder is refused; what is not proven is that the
  * worker finds it. That gap is ledger **X-1** and it is deliberate, not an oversight here.
+ * The worker finding it, and the shipped runner then running the job, is proven by
+ * `full-loop.spec.ts` (ledger **RF-6e**).
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import {

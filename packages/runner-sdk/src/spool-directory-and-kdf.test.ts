@@ -7,6 +7,7 @@ import {
   EncryptedSpool,
   SpoolError,
   privateDirectoryProblem,
+  readOrCreateSpoolKey,
   type SpoolEntry,
 } from './spool.js';
 
@@ -370,5 +371,22 @@ describe('a torn append is repaired, not built upon', () => {
       tornTail: 'drop',
     });
     expect((await reopened.peek(10)).map((entry) => entry.id)).toEqual(['e1']);
+  });
+});
+
+describe('the spool key and the spool share one private directory', () => {
+  it('opens a spool in the directory the key was just created in', async () => {
+    // How the runner starts when no RUNNER_SPOOL_KEY is set, which is every compose and
+    // Docker install: `main.ts` calls `readOrCreateSpoolKey(<spool>/spool.key)`, then
+    // `DurableSpool.open({ directory: <spool> })`. The key helper used to create the
+    // directory with the umask (0755), and `open` then refused that same directory as
+    // "accessible beyond this account". On POSIX the runner could not start. Windows has
+    // no mode bits, which is why it only showed up on a Linux CI runner.
+    const spool = join(await directory(), 'spool');
+    const key = await readOrCreateSpoolKey(join(spool, 'spool.key'));
+
+    const opened = await DurableSpool.open({ directory: spool, key });
+    expect(opened).toBeInstanceOf(DurableSpool);
+    if (isPosix) expect((await stat(spool)).mode & 0o777).toBe(0o700);
   });
 });

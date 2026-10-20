@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Paths" tests="5" failures="0" errors="0" skipped="0">
+  <testcase classname="Paths" name="unc" file="\\server\share\a.test.js"/>
+  <testcase classname="Paths" name="traversal" file="../../outside/b.test.js"/>
+  <testcase classname="Paths" name="relative" file="src\ok.test.js"/>
+  <testcase classname="Paths" name="posix-absolute" file="/etc/hostname"/>
+  <testcase classname="Paths" name="other-drive" file="C:\other\c.test.js"/>
+</testsuite>

@@ -1,0 +1,2 @@
+this is a log file, not a test report
+line two

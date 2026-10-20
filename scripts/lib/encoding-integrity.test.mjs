@@ -152,6 +152,20 @@ test('the detector and this test contain no literal replacement character', () =
   }
 });
 
+/**
+ * Fixtures that are invalid UTF-8 **on purpose**: they exist to prove the readers refuse or
+ * flag an undecodable byte, so decoding them as UTF-8 yields U+FFFD by construction.
+ * An exemption is a decision, so it is a named list with a reason, and the test below
+ * fails if an entry stops being true (the file vanished, or became valid) - otherwise the
+ * list would rot into a way to hide a real defect.
+ *
+ * @type {Record<string, string>}
+ */
+const INTENTIONALLY_INVALID_UTF8 = {
+  'local/corpus/files/junit-bad-utf8.xml': 'a lone invalid byte inside a test name',
+  'local/corpus/files/junit-latin1.xml': 'an ISO-8859-1 document with the single byte 0xE9',
+};
+
 test('every tracked and untracked text file is valid UTF-8', () => {
   // The reason the module exists. `.github/workflows/unified-ci.yml` had eleven of
   // these committed across eight comments, and `apps/api/src/index.test.ts` had one,
@@ -190,7 +204,18 @@ test('every tracked and untracked text file is valid UTF-8', () => {
     }
     const buffer = readFileSync(full);
     if (!looksLikeText(buffer)) continue;
+    if (file in INTENTIONALLY_INVALID_UTF8) continue;
     problems.push(...encodingProblems(file, buffer.toString('utf8')));
+  }
+
+  // An exemption that no longer describes the tree is a hole, not a record.
+  for (const [file, reason] of Object.entries(INTENTIONALLY_INVALID_UTF8)) {
+    const full = path.join(REPO_ROOT, file);
+    assert.ok(existsSync(full), `${file} is exempt (${reason}) but no longer exists`);
+    assert.ok(
+      encodingProblems(file, readFileSync(full).toString('utf8')).length > 0,
+      `${file} is exempt (${reason}) but is valid UTF-8 now; remove the exemption`,
+    );
   }
 
   assert.deepEqual(

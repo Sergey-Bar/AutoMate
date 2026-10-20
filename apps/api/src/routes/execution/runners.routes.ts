@@ -50,19 +50,34 @@ export function registerRunnerRoutes(app: Hono, context: ExecutionRouteContext):
     // Re-registering an existing id used to silently rotate that runner's
     // token, so anyone holding the registration secret could impersonate any
     // runner. Rotation now requires the current token as proof of possession.
+    //
+    // The one exception is a runner whose token has *lapsed* (ledger RNR-1). A token lives 15
+    // minutes and the runner refreshes it while it is up, so a lapsed token means the runner has
+    // been down: it cannot present proof because there is no live credential left to prove with.
+    // Without this a runner that was off for longer than that, a host reboot for instance, could
+    // never register again under its own id. It narrows the impersonation risk rather than
+    // removing it: an id is only open to the registration secret while nothing holds it, a
+    // revoked runner is never let back in, and the old lease and fencing token still decide who
+    // may complete a job, which a new credential does not give anyone.
     const existing = await options.store.getRunner(runnerId);
     if (existing) {
-      if (parsed.rotationToken === undefined)
-        throw new DomainError(
-          'RUNNER_ID_TAKEN',
-          'Runner id is already registered; supply rotationToken to rotate its credential',
-        );
-      const presented = await options.store.authenticateRunner(parsed.rotationToken);
-      if (!presented || presented.id !== runnerId)
-        throw new DomainError(
-          'RUNNER_ROTATION_UNAUTHORIZED',
-          'rotationToken does not authenticate the runner being rotated',
-        );
+      const lapsed = Date.parse(existing.tokenExpiresAt) <= Date.now();
+      if (existing.health === 'revoked') {
+        throw new DomainError('RUNNER_ID_TAKEN', 'Runner id belongs to a revoked runner');
+      }
+      if (!lapsed) {
+        if (parsed.rotationToken === undefined)
+          throw new DomainError(
+            'RUNNER_ID_TAKEN',
+            'Runner id is already registered; supply rotationToken to rotate its credential',
+          );
+        const presented = await options.store.authenticateRunner(parsed.rotationToken);
+        if (!presented || presented.id !== runnerId)
+          throw new DomainError(
+            'RUNNER_ROTATION_UNAUTHORIZED',
+            'rotationToken does not authenticate the runner being rotated',
+          );
+      }
     }
     const token = createRunnerToken();
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();

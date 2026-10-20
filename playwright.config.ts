@@ -129,6 +129,10 @@ const DEDICATED_SPECS = [
   // budget is named here. It gets its own project below so `pnpm test:e2e` still runs
   // it, rather than the derivation quietly dropping it.
   'durable-path.spec.ts',
+  // The full-loop gate (ledger RF-6e): the shipped worker and runner against the API and
+  // PostgreSQL. It waits out a lease and drives a real browser, so it is a gate with its own
+  // project for the same reason `durable-path.spec.ts` is.
+  'full-loop.spec.ts',
   // The route-level axe gate, and the wave the glass work is sequenced behind
   // (`.kilo/plans/1791096500000-full-glassmorphism-plan.md` §3.4). It is 66 generated
   // tests — every manifest route in two themes plus four forced data states — and it is
@@ -202,7 +206,10 @@ export default defineConfig({
       // A developer running the suite locally gets the server the runner does, and the
       // migration is idempotent, so a second run applies nothing and says so.
       command: [
-        'pnpm --filter @automate/api... build',
+        // The worker and runner too: `full-loop.spec.ts` starts both from source, and the
+        // runner imports `@automate/runner-sdk`, which is not an API dependency and so is not
+        // built by `@automate/api...`. Locally an earlier `pnpm build` hid that; CI has none.
+        'pnpm --filter @automate/api... --filter @automate/worker... --filter @automate/runner... build',
         'pnpm db:migrate',
         'pnpm --filter @automate/api run dev',
       ].join(' && '),
@@ -249,6 +256,14 @@ export default defineConfig({
     },
   ],
   projects: [
+    {
+      // First on purpose: the queue is empty when it starts (`globalSetup` just emptied it),
+      // which is what lets a real runner be certain the only job it can claim is its own.
+      name: 'full-loop',
+      testMatch: '**/product/full-loop.spec.ts',
+      timeout: 240_000,
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       name: 'vertical-slice',
       testMatch: '**/integration/vertical-slice.spec.ts',
@@ -333,6 +348,7 @@ if (productSpecFiles.length === 0) {
 // job that executed no test — the failure this file has already had to fix twice.
 for (const [name, matched] of [
   ['durable-path', durablePathSpecFiles.length],
+  ['full-loop', specFiles.filter((file) => file.endsWith('full-loop.spec.ts')).length],
   ['vertical-slice', specFiles.filter((file) => file.includes('vertical-slice.spec.ts')).length],
   [
     'accessibility',

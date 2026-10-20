@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -83,7 +83,11 @@ const TREE_GLOBS = ['**/*.{ts,tsx,mts,cts,js,mjs,cjs,json,yaml,yml,md,css}'];
  * gate can be expected to have an opinion about, and a committed file always is.
  */
 function trackedFiles() {
-  return execSync('git ls-files', { cwd: repoRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  return execFileSync('git', ['ls-files'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)

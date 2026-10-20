@@ -8,6 +8,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "turbo run dev --filter=@automate/api --filter=@automate/unified-web",
+    "dev:all": "turbo run dev --filter=@automate/api --filter=@automate/unified-web --filter=@automate/worker --filter=@automate/runner",
     "format": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs,vue,html}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --write",
     "format:check": "prettier --no-error-on-unmatched-pattern \"**/*.{ts,tsx,mts,cts,js,mjs,cjs,vue,html}\" \"**/*.{json,yaml,yml,md,css}\" \".github/workflows/*.{yml,yaml}\" --check",
     "build": "turbo run build",
@@ -69,7 +70,8 @@
     "docs:capability-register": "node ./scripts/capability-register.mjs",
     "site:generate": "node ./scripts/build-site-pages.mjs",
     "site:doctor": "node ./scripts/site-doctor.mjs",
-    "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/docs-drift.test.mjs scripts/lib/ledger-json.test.mjs",
+    "docs:check": "node --test scripts/lib/docs-paths.test.mjs scripts/lib/docs-drift.test.mjs scripts/lib/ledger-json.test.mjs scripts/lib/blueprint-consistency.test.mjs scripts/lib/openapi-drift.test.mjs",
+    "openapi:generate": "node ./scripts/openapi.mjs --write",
     "docs:dead-exports": "node --test scripts/lib/dead-exports.test.mjs",
     "docs:capability-register:baseline": "node ./scripts/capability-register.mjs --update-baseline"
   },

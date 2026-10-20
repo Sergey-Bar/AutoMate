@@ -1,0 +1,1109 @@
+{
+  "node-junit": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 6,
+      "attempts": 6,
+      "passed": 2,
+      "failed": 3,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "adds two numbers",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "spikes/local-feasibility/corpus/generators/node-sample-suite.mjs"
+      },
+      {
+        "name": "fails on purpose",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "throws on purpose",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "is skipped",
+        "outcome": "skipped",
+        "attempts": 1
+      },
+      {
+        "name": "is a todo",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "top-level test with a parameter-like name [case=1]",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["skipped-and-failed"]
+  },
+  "node-junit-noroot": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 6,
+      "attempts": 6,
+      "passed": 2,
+      "failed": 3,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "adds two numbers",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": null
+      },
+      {
+        "name": "fails on purpose",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "throws on purpose",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "is skipped",
+        "outcome": "skipped",
+        "attempts": 1
+      },
+      {
+        "name": "is a todo",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "top-level test with a parameter-like name [case=1]",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["path-absolute", "skipped-and-failed"]
+  },
+  "node-lcov": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "complete",
+    "files": 2,
+    "lines": {
+      "found": 49,
+      "hit": 43,
+      "percent": 87.76
+    },
+    "functions": {
+      "found": 9,
+      "hit": 7,
+      "percent": 77.78
+    },
+    "branches": {
+      "found": 9,
+      "hit": 9,
+      "percent": 100
+    },
+    "warnings": []
+  },
+  "junit-basic": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 4,
+      "attempts": 4,
+      "passed": 1,
+      "failed": 1,
+      "errored": 1,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "addsItem",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "src/cart.test.js",
+        "durationMs": 12
+      },
+      {
+        "name": "removesItem",
+        "outcome": "failed",
+        "attempts": 1,
+        "durationMs": 20
+      },
+      {
+        "name": "totalsEmpty",
+        "outcome": "errored",
+        "attempts": 1,
+        "durationMs": 8
+      },
+      {
+        "name": "legacyPath",
+        "outcome": "skipped",
+        "attempts": 1,
+        "durationMs": 0
+      }
+    ],
+    "warnings": []
+  },
+  "junit-basic-copy": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 4,
+      "attempts": 4,
+      "passed": 1,
+      "failed": 1,
+      "errored": 1,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "addsItem",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "src/cart.test.js",
+        "durationMs": 12
+      },
+      {
+        "name": "removesItem",
+        "outcome": "failed",
+        "attempts": 1,
+        "durationMs": 20
+      },
+      {
+        "name": "totalsEmpty",
+        "outcome": "errored",
+        "attempts": 1,
+        "durationMs": 8
+      },
+      {
+        "name": "legacyPath",
+        "outcome": "skipped",
+        "attempts": 1,
+        "durationMs": 0
+      }
+    ],
+    "warnings": []
+  },
+  "junit-zero-tests": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "noTests",
+    "counts": {
+      "tests": 0,
+      "attempts": 0
+    },
+    "tests": [],
+    "warnings": []
+  },
+  "junit-surefire-flaky": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 7,
+      "passed": 2,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "placesOrder",
+        "outcome": "passed",
+        "attempts": 3,
+        "flakiness": "observed"
+      },
+      {
+        "name": "cancelsOrder",
+        "outcome": "failed",
+        "attempts": 3,
+        "flakiness": "unknown"
+      },
+      {
+        "name": "listsOrders",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "junit-rerun-only": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 1,
+      "attempts": 2,
+      "passed": 1
+    },
+    "tests": [
+      {
+        "name": "needsRerun",
+        "outcome": "passed",
+        "attempts": 2,
+        "flakiness": "observed"
+      }
+    ],
+    "warnings": []
+  },
+  "junit-duplicate-names": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 5,
+      "attempts": 5,
+      "passed": 4,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "adds",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "adds",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "adds",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "network",
+        "outcome": "failed",
+        "attempts": 1,
+        "flakiness": "unknown"
+      },
+      {
+        "name": "network",
+        "outcome": "passed",
+        "attempts": 1,
+        "flakiness": "unknown"
+      }
+    ],
+    "warnings": ["duplicate-identity"]
+  },
+  "junit-shard-1": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "a",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "src/a.test.js"
+      },
+      {
+        "name": "b",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "junit-shard-2": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "c",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "d",
+        "outcome": "skipped",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "junit-truncated": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "unknown",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 3,
+      "passed": 1,
+      "failed": 1,
+      "unknown": 1
+    },
+    "tests": [
+      {
+        "name": "first",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "second",
+        "outcome": "failed",
+        "attempts": 1
+      },
+      {
+        "name": "cutOff",
+        "outcome": "unknown",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["xml-truncated"]
+  },
+  "junit-undefined-entity": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "unknown",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "clean",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "dirty",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["entity-undefined"]
+  },
+  "not-a-report": {
+    "kind": "rejected",
+    "format": "unknown",
+    "rejection": "unrecognised-format",
+    "warnings": []
+  },
+  "junit-wrong-root": {
+    "kind": "rejected",
+    "format": "junit-xml",
+    "rejection": "not-junit",
+    "warnings": []
+  },
+  "xml-billion-laughs": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "unknown",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "laughs",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["doctype-ignored", "entity-undefined"]
+  },
+  "xml-external-entity": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "unknown",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "reads",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["doctype-ignored", "entity-undefined"]
+  },
+  "junit-unsafe-paths": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 5,
+      "attempts": 5,
+      "passed": 5
+    },
+    "tests": [
+      {
+        "name": "unc",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": null
+      },
+      {
+        "name": "traversal",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": null
+      },
+      {
+        "name": "relative",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "src/ok.test.js"
+      },
+      {
+        "name": "posix-absolute",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": null
+      },
+      {
+        "name": "other-drive",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": null
+      }
+    ],
+    "warnings": ["path-absolute", "path-unsafe"]
+  },
+  "junit-latin1": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "passed": 1
+    },
+    "tests": [
+      {
+        "name": "café",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "junit-bad-utf8": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "passed": 1
+    },
+    "tests": [
+      {
+        "name": "bad\ufffdbyte",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["invalid-encoding-bytes"]
+  },
+  "junit-time-garbage": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 5,
+      "attempts": 5,
+      "passed": 5
+    },
+    "tests": [
+      {
+        "name": "not-a-number",
+        "outcome": "passed",
+        "attempts": 1,
+        "durationMs": null
+      },
+      {
+        "name": "empty",
+        "outcome": "passed",
+        "attempts": 1,
+        "durationMs": null
+      },
+      {
+        "name": "missing",
+        "outcome": "passed",
+        "attempts": 1,
+        "durationMs": null
+      },
+      {
+        "name": "negative",
+        "outcome": "passed",
+        "attempts": 1,
+        "durationMs": null
+      },
+      {
+        "name": "fine",
+        "outcome": "passed",
+        "attempts": 1,
+        "durationMs": 1500
+      }
+    ],
+    "warnings": ["duration-invalid"]
+  },
+  "junit-declared-mismatch": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "one",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "two",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["declared-count-mismatch"]
+  },
+  "playwright-basic": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 3,
+      "passed": 1,
+      "failed": 1,
+      "skipped": 1
+    },
+    "tests": [
+      {
+        "name": "logs in",
+        "outcome": "passed",
+        "attempts": 1,
+        "project": "chromium",
+        "file": "tests/login.spec.ts"
+      },
+      {
+        "name": "rejects bad password",
+        "outcome": "failed",
+        "attempts": 1,
+        "project": "chromium"
+      },
+      {
+        "name": "is skipped",
+        "outcome": "skipped",
+        "attempts": 1,
+        "project": "chromium"
+      }
+    ],
+    "warnings": []
+  },
+  "playwright-retries": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 6,
+      "passed": 1,
+      "failed": 1,
+      "timedOut": 1
+    },
+    "tests": [
+      {
+        "name": "flaky one",
+        "outcome": "passed",
+        "attempts": 2,
+        "flakiness": "observed"
+      },
+      {
+        "name": "always fails",
+        "outcome": "failed",
+        "attempts": 3,
+        "flakiness": "unknown"
+      },
+      {
+        "name": "times out",
+        "outcome": "timedOut",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "playwright-projects": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "logs in",
+        "outcome": "passed",
+        "attempts": 1,
+        "project": "chromium"
+      },
+      {
+        "name": "logs in",
+        "outcome": "failed",
+        "attempts": 1,
+        "project": "firefox"
+      }
+    ],
+    "warnings": []
+  },
+  "playwright-zero": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "noTests",
+    "counts": {
+      "tests": 0,
+      "attempts": 0
+    },
+    "tests": [],
+    "warnings": []
+  },
+  "playwright-null-suite": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "unknown",
+    "runStatus": "unknown",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "passed": 1
+    },
+    "tests": [
+      {
+        "name": "works",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["null-entry"]
+  },
+  "playwright-unknown-status": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "unknown",
+    "runStatus": "unknown",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "unknown": 1
+    },
+    "tests": [
+      {
+        "name": "odd",
+        "outcome": "unknown",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["unknown-status"]
+  },
+  "playwright-malformed": {
+    "kind": "rejected",
+    "format": "playwright-json",
+    "rejection": "not-json",
+    "warnings": []
+  },
+  "playwright-setup-error": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "errored",
+    "counts": {
+      "tests": 0,
+      "attempts": 0
+    },
+    "tests": [],
+    "warnings": ["run-level-errors"]
+  },
+  "playwright-declared-mismatch": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "only failure",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": ["declared-count-mismatch"]
+  },
+  "pair-junit": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 3,
+      "passed": 2,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "adds to cart",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "tests/checkout.spec.ts"
+      },
+      {
+        "name": "pays",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "refunds",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "pair-playwright": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 3,
+      "passed": 2,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "adds to cart",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "tests/checkout.spec.ts",
+        "project": "chromium"
+      },
+      {
+        "name": "pays",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "refunds",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "pair-junit-other-commit": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 3,
+      "attempts": 3,
+      "passed": 2,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "adds to cart",
+        "outcome": "passed",
+        "attempts": 1,
+        "file": "tests/checkout.spec.ts"
+      },
+      {
+        "name": "pays",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "refunds",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "contradict-junit": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "passed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 2
+    },
+    "tests": [
+      {
+        "name": "adds to cart",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "pays",
+        "outcome": "passed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "contradict-playwright": {
+    "kind": "run",
+    "format": "playwright-json",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 2,
+      "attempts": 2,
+      "passed": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "adds to cart",
+        "outcome": "passed",
+        "attempts": 1
+      },
+      {
+        "name": "pays",
+        "outcome": "failed",
+        "attempts": 1
+      }
+    ],
+    "warnings": []
+  },
+  "lcov-basic": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "complete",
+    "files": 3,
+    "lines": {
+      "found": 3,
+      "hit": 2,
+      "percent": 66.67
+    },
+    "functions": {
+      "found": 1,
+      "hit": 1,
+      "percent": 100
+    },
+    "branches": null,
+    "warnings": ["metric-not-reported-by-all-files"],
+    "perFile": [
+      {
+        "path": "src/a.js",
+        "lines": {
+          "found": 2,
+          "hit": 1
+        },
+        "functions": {
+          "found": 1,
+          "hit": 1
+        },
+        "branches": null
+      },
+      {
+        "path": "src/empty.js",
+        "lines": {
+          "found": 0,
+          "hit": 0
+        },
+        "functions": null,
+        "branches": null
+      },
+      {
+        "path": "src/nobranch.js",
+        "lines": {
+          "found": 1,
+          "hit": 1
+        },
+        "functions": null,
+        "branches": null
+      }
+    ]
+  },
+  "lcov-empty-file": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "complete",
+    "files": 1,
+    "lines": {
+      "found": 0,
+      "hit": 0,
+      "percent": null
+    },
+    "functions": null,
+    "branches": null,
+    "warnings": [],
+    "perFile": [
+      {
+        "path": "src/empty.js",
+        "lines": {
+          "found": 0,
+          "hit": 0
+        },
+        "functions": null,
+        "branches": null
+      }
+    ]
+  },
+  "lcov-truncated": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "unknown",
+    "files": 2,
+    "lines": {
+      "found": 3,
+      "hit": 2,
+      "percent": 66.67
+    },
+    "functions": null,
+    "branches": null,
+    "warnings": ["lcov-bad-line", "lcov-truncated"]
+  },
+  "lcov-mismatch": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "complete",
+    "files": 1,
+    "lines": {
+      "found": 3,
+      "hit": 2,
+      "percent": 66.67
+    },
+    "functions": null,
+    "branches": null,
+    "warnings": ["lcov-count-mismatch"]
+  },
+  "lcov-unknown-tag": {
+    "kind": "coverage",
+    "format": "lcov",
+    "completeness": "unknown",
+    "files": 1,
+    "lines": {
+      "found": 1,
+      "hit": 1,
+      "percent": 100
+    },
+    "functions": null,
+    "branches": null,
+    "warnings": ["lcov-bad-line"]
+  },
+  "empty": {
+    "kind": "rejected",
+    "format": "unknown",
+    "rejection": "empty-input",
+    "warnings": []
+  },
+  "junit-oversized-message": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "complete",
+    "runStatus": "failed",
+    "counts": {
+      "tests": 1,
+      "attempts": 1,
+      "failed": 1
+    },
+    "tests": [
+      {
+        "name": "big",
+        "outcome": "failed",
+        "attempts": 1,
+        "messageLength": 8192
+      }
+    ],
+    "warnings": ["message-truncated"]
+  },
+  "junit-too-large": {
+    "kind": "rejected",
+    "format": "junit-xml",
+    "rejection": "too-large",
+    "warnings": []
+  },
+  "junit-too-deep": {
+    "kind": "rejected",
+    "format": "junit-xml",
+    "rejection": "too-deep",
+    "warnings": []
+  },
+  "junit-many-tests": {
+    "kind": "run",
+    "format": "junit-xml",
+    "completeness": "partial",
+    "runStatus": "unknown",
+    "counts": {
+      "tests": 100,
+      "attempts": 100,
+      "passed": 100
+    },
+    "tests": null,
+    "warnings": ["test-limit-reached"]
+  }
+}

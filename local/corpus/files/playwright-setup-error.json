@@ -1,0 +1,15 @@
+{
+  "config": {},
+  "suites": [],
+  "errors": [
+    {
+      "message": "global setup failed: connect ECONNREFUSED"
+    }
+  ],
+  "stats": {
+    "expected": 0,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0
+  }
+}

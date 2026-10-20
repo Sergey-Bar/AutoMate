@@ -107,47 +107,11 @@ peerDependencyRules:
 #
 # Review procedure: on or after the date, either confirm the advisory is fixed
 # upstream and drop the override, or move the date and say why it still applies.
+#
+# Reviewed 2026-10-20: six overrides past their date (browserslist, two brace-expansion, two
+# postcss/nanoid, and the ajv fast-uri pin) were removed after `pnpm audit` came back clean
+# without them; `vitepress>vite` was kept because it was not.
 overrides:
-  # GHSA-vfh2-g5qg-2w2x / CVE-2024-45590 (body-parser DoS) reaches us through
-  # ajv 8.20.0's fast-uri < 3.1.1. Reviewed 2026-09-29.
-  #
-  # Raised 3.1.6 -> 3.1.7 on 2026-09-29: two further high advisories landed against
-  # 3.1.6 itself — GHSA-qw65-cvwx-89v3 (authority injection via an unvalidated port
-  # in `serialize`) and GHSA-58mr-gqgx-xq4g (host confusion via an unclosed bracket
-  # in the URI authority). 3.1.7 is the first version fixed for both. An override
-  # pinned to the version that was current when it was written is the failure mode
-  # this file's own header warns about, so a review date that arrives is a trigger
-  # to re-check the advisory rather than to move the date.
-  'ajv@8.20.0>fast-uri': 3.1.7
-  # GHSA-7fh5-64p2-3v2j (browserslist ReDoS) in 4.28.2 and earlier. Reviewed
-  # 2026-06-30.
-  'browserslist@4.28.2': 4.28.7
-  # CVE-2025-5889 (brace-expansion ReDoS) in 1.x and 2.x, reached through
-  # minimatch 10.2.5. The 5.x line is the maintained rewrite. Reviewed
-  # 2026-06-30.
-  'minimatch@10.2.5>brace-expansion': 5.0.9
-  # CVE-2025-8914 (postcss line-return parsing error), GHSA-hwj9-h5mp-3pg3 and
-  # GHSA-7fp3-64rv-78g5 (postcss arbitrary code execution under non-default
-  # settings). 8.5.18 is the first fixed 8.x. Reviewed 2026-06-30.
-  'postcss@8.5.13': 8.5.18
-  # CVE-2024-55565 (nanoid predictable results when given a non-integer seed),
-  # reached through postcss. Reviewed 2026-06-30.
-  'postcss@8.5.18>nanoid': 3.3.18
-  # Two high-severity DoS advisories against brace-expansion, both reached through
-  # minimatch (and so through ESLint's own config resolution and
-  # typescript-eslint's): uncontrolled recursion on nested brace groups, and the same
-  # in `parseCommaParts`. Fixed in 5.0.10 and 5.0.11; the tree resolved 5.0.9.
-  #
-  # Parent-scoped rather than a bare `brace-expansion@>=4 <5.0.11`, because
-  # minimatch@10.2.5 depends on `brace-expansion@5.0.9` *exactly*, and a version-range
-  # override does not apply to a child pinned to one version. Scoping to minimatch is
-  # also what keeps eslint's minimatch@3 — which wants the v1 line and is unaffected
-  # by either advisory — on `brace-expansion@1.1.21`.
-  #
-  # An override rather than a bump because `brace-expansion` is transitive and nothing
-  # here declares it; a direct bump would mean depending on a package the code does
-  # not import. Reviewed 2026-09-30.
-  'minimatch@>=10.0.0 <11>brace-expansion': 5.0.12
   # GHSA-fx2h-pf6j-xcff (vite `server.fs.deny` bypass on Windows alternate paths,
   # fixed in 6.4.3) reached through `vitepress`, which pins vite 5. VitePress is a
   # build-time-only dependency of the documentation site, but it runs a dev server
@@ -161,8 +125,32 @@ overrides:
   # future breakage is caught by a gate rather than discovered in production. But
   # the combination is unsupported upstream, and the honest fix is a VitePress that
   # takes a patched vite, not a permanent override. Revisit when 2.x stabilises.
-  # Reviewed 2026-09-29.
+  # Reviewed 2026-10-20: still needed. With the override removed, `pnpm audit` reports three
+  # vite advisories (the `server.fs.deny` bypass, path traversal in optimized deps, and a
+  # launch-editor NTLMv2 disclosure), so this was tested rather than assumed.
   'vitepress>vite': ^6.4.3
+  # Added by `pnpm audit --fix` on 2026-10-20, one entry per advisory it reported. Drop each when
+  # its parent takes the fix.
+  #
+  # GHSA-jp82-f5mq-hwhp (seroval, critical) reached through @tanstack/router-core. Reviewed 2026-10-20.
+  seroval@<=1.6.2: ^1.6.3
+  # GHSA-68fv-2mgg-jv7q (source-map-js, high). Reviewed 2026-10-20.
+  source-map-js@>=1.0.0 <1.2.2: ^1.2.2
+  # hono, moderate, several advisories fixed by 4.13.7 (the API's @hono/node-server). Reviewed 2026-10-20.
+  hono@<4.13.7: ^4.13.7
+  # @hono/node-server, moderate, fixed in 1.19.15. Reviewed 2026-10-20.
+  '@hono/node-server@<1.19.15': ^1.19.15
+  # esbuild, moderate and low, through drizzle-kit and vitest. Reviewed 2026-10-20.
+  esbuild@<=0.24.2: ^0.25.0
+  esbuild@>=0.27.3 <0.28.1: ^0.28.1
+  # postcss, moderate, through vite. Reviewed 2026-10-20.
+  postcss@<=8.5.22: ^8.5.23
+  # uuid, moderate, through storybook. Reviewed 2026-10-20.
+  uuid@<11.1.1: ^11.1.1
+  # fast-uri, moderate (GHSA-hrr3-gc8f-f4qj), through ajv, which commitlint and shared-contracts
+  # use. This range override replaced the `ajv@8.20.0>fast-uri` pin, which was removed once it
+  # covered the same path. Reviewed 2026-10-20.
+  fast-uri@>=3.0.0 <3.1.8: ^3.1.8
 
 catalog:
   '@eslint/js': ^10.0.1
@@ -177,7 +165,7 @@ catalog:
   '@types/pg': ^8.15.6
   '@types/react': ^19.2.14
   '@types/react-dom': ^19.2.3
-  '@vitest/coverage-v8': ^4.1.5
+  '@vitest/coverage-v8': ^4.1.11
   drizzle-kit: ^0.31.9
   drizzle-orm: ^0.45.2
   eslint: ^10.12.0
@@ -191,5 +179,5 @@ catalog:
   typescript: ^6.0.3
   typescript-eslint: ^8.71.0
   vite: ^6.4.3
-  vitest: ^4.1.5
+  vitest: ^4.1.11
   zod: ^4.4.3

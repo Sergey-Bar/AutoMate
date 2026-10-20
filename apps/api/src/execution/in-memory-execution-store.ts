@@ -3,6 +3,12 @@ import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
 import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
+import {
+  completionOutcome,
+  completionPhase,
+  completionStatus,
+  jobStateFor,
+} from './execution-derivations.js';
 import { countTests, resolveSummary } from './summary.js';
 import { BoundedMap, COMPLETION_HASH_CAPACITY } from './bounded-map.js';
 import { normalizeEventLimit, pageRuns } from './run-paging.js';
@@ -718,43 +724,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
     const run = this.runs.get(job.runId);
     if (!run) return null;
     const timestamp = iso(this.now());
-    const status = (completion.status ?? completion.outcome ?? 'unknown').toLowerCase();
-    const requestedPhase = completion.phase;
-    const phase: RunPhase =
-      requestedPhase === 'completed'
-        ? 'complete'
-        : (requestedPhase ??
-          (status === 'cancelled'
-            ? 'cancelled'
-            : status === 'timed_out' || status === 'timed-out'
-              ? 'timed_out'
-              : status === 'runner_lost'
-                ? 'runner_lost'
-                : status === 'infra_failed'
-                  ? 'infra_failed'
-                  : status === 'config_failed'
-                    ? 'config_failed'
-                    : 'complete'));
-    // The runner's own vocabulary, mapped onto the canonical outcome set. This is
-    // the only authority the payload has: it can name a pass, not invent an
-    // outcome, and it cannot pair an outcome with a phase that forbids one.
-    const claimed =
-      completion.outcome ??
-      (status === 'passed' || status === 'succeeded' || status === 'success'
-        ? 'passed'
-        : status === 'failed' || status === 'failure'
-          ? 'failed'
-          : status === 'cancelled'
-            ? 'cancelled'
-            : status === 'timed_out' || status === 'timed-out'
-              ? 'timed_out'
-              : status === 'runner_lost'
-                ? 'runner_lost'
-                : status === 'infra_failed'
-                  ? 'infra_failed'
-                  : status === 'config_failed'
-                    ? 'config_failed'
-                    : 'unknown');
+    // The same functions the PostgreSQL store uses (`execution-derivations.ts`), so the two cannot
+    // derive one completion differently. The runner's own vocabulary is mapped onto the canonical
+    // outcome set: the payload can name a pass, not invent an outcome, and it cannot pair an
+    // outcome with a phase that forbids one.
+    const status = completionStatus(completion);
+    const phase = completionPhase(status, completion.phase);
+    const claimed = completionOutcome(status, completion.outcome);
     const derived = deriveRunState(phase, claimed);
     if (completion.tests) run.tests = clone(completion.tests);
     run.summary = resolveSummary(clone(completion.summary), run.tests);
@@ -768,12 +744,8 @@ export class InMemoryExecutionStore implements ExecutionStore {
         completion.error === null
           ? null
           : { code: completion.error.code ?? 'EXECUTION_ERROR', message: completion.error.message };
-    job.state =
-      status === 'cancelled'
-        ? 'cancelled'
-        : status === 'failed' || status === 'failure'
-          ? 'failed'
-          : 'completed';
+    job.state = jobStateFor(status);
+
     job.updatedAt = timestamp;
     job.heartbeatAt = timestamp;
     job.leaseExpiresAt = null;

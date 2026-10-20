@@ -1,0 +1,46 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "login.spec.ts",
+      "file": "tests/login.spec.ts",
+      "specs": [
+        {
+          "title": "logs in",
+          "ok": false,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "duration": 900,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            },
+            {
+              "projectName": "firefox",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 950,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "expected": 1,
+    "unexpected": 1,
+    "skipped": 0,
+    "flaky": 0
+  }
+}

@@ -123,6 +123,45 @@ export class DrizzleInstallationKeyStore {
   }
 
   /**
+   * The installation's key, made to match the one the operator configured.
+   *
+   * `ensureBootstrap` answers "is there a key, and if not create one", and then returns the
+   * stored hash forever. That made the first boot's key permanent: an operator who set a new
+   * `AUTOMATE_API_KEY` and restarted, as the rotation guide says, found login refusing the new
+   * key and still accepting the old one. Here the configuration is the authority: a usable
+   * stored key with a different hash is replaced in place, so the old key stops working the
+   * moment the API restarts with the new one.
+   *
+   * It keeps every refusal `ensureBootstrap` has. A revoked or expired key is not replaced: a
+   * revocation is a deliberate operator act, and a configuration change on the next boot must
+   * not quietly undo it. The `UPDATE` is conditioned on `revoked_at IS NULL`, so a revocation
+   * that lands between the read and the write wins.
+   */
+  async ensureConfigured(input: {
+    installationId: string;
+    keyHash: string;
+    displayPrefix: string;
+  }): Promise<string> {
+    const stored = await this.ensureBootstrap(input);
+    if (stored === input.keyHash) return stored;
+    const updated = await this.db
+      .update(installationKeys)
+      .set({ keyHash: input.keyHash, displayPrefix: input.displayPrefix })
+      .where(
+        and(
+          eq(installationKeys.installationId, input.installationId),
+          eq(installationKeys.keyHash, stored),
+          isNull(installationKeys.revokedAt),
+        ),
+      )
+      .returning({ keyHash: installationKeys.keyHash });
+    if (updated[0] !== undefined) return updated[0].keyHash;
+    // Revoked between the read and the write, or replaced by another replica that won the same
+    // race with the same configuration. Read again rather than guessing which.
+    return this.ensureBootstrap(input);
+  }
+
+  /**
    * The installation's usable bootstrap key, or `null` when it has none.
    *
    * "Usable" is defined once, here, and used by both the read and the write: not

@@ -12,7 +12,7 @@ You are the **Database Engineer** for the Automate platform. You own `packages/d
 
 - DO NOT hand-edit generated migration files — change the schema, then generate migrations.
 - DO NOT make destructive changes (drop column/table, type narrowing) without an explicit migration plan and confirmation.
-- DO NOT embed business logic in the DB layer — that belongs in Effect services.
+- DO NOT embed business logic in the DB layer — that belongs in the API's services.
 - ALWAYS keep schema types strict and consistent with `shared-contracts`.
 - ALWAYS consider indexes and relations for query paths you introduce.
 

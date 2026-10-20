@@ -34,7 +34,7 @@ This is a **pnpm workspace monorepo** containing the unified Automate platform.
 
 | Directory     | Product                 | Stack                                           |
 | ------------- | ----------------------- | ----------------------------------------------- |
-| `apps/api`    | Unified API             | Hono v4, Effect, Drizzle ORM, PostgreSQL 16     |
+| `apps/api`    | Unified API             | Hono v4, Drizzle ORM, PostgreSQL 16             |
 | `apps/web`    | Unified Web             | React 19, Vite, TanStack Router, Tailwind CSS 4 |
 | `apps/runner` | Execution boundary      | Node, rootless process control                  |
 | `apps/worker` | Lease and recovery loop | Node, worker resilience                         |
@@ -95,6 +95,7 @@ pnpm quality:baseline     # The nightly aggregate the numbers in docs/quality/ c
 pnpm oci:build            # Container images
 pnpm oci:verify           # Verifies the built images
 pnpm docs:capability-register  # Regenerates the capability register
+pnpm openapi:generate     # Regenerates docs/openapi.json (build first). Drift is a failing test in docs:check and in shared-contracts
 ```
 
 `test:render` runs in **two phases, and the phase is derived from the data rather
@@ -294,23 +295,25 @@ pnpm db:check      # drizzle-kit check — journal and schema agree
 
 ### The findings that are waiting on a measurement, not on code
 
-Three rows in the ledger cannot be closed from a development host, and the reason
+Two rows in the ledger cannot be closed from a development host, and the reason
 is the same in each: the harness is complete and the _evidence_ is missing. They are
 listed here because a reader finding them in the ledger would otherwise re-derive
 why they are open.
 
-| Row        | What is built                                                                                                                                          | What is missing                                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **RF-5**   | `pnpm migrate:rehearse` — dump, restore onto a clean instance, migrate **the copy**, re-open every sealed row through the product's own `vault-crypto` | One run against a real installation. CI has no second database, so a rehearsal there proves `pg_dump` is installed                                                             |
-| **RF-9**   | `performance/thresholds.json` with a cross-check against the k6 scenario, so a changed threshold and an unchanged record each fail the gate            | Observed numbers. `recorded: false`, so the gate protects drift from a baseline nobody measured                                                                                |
-| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks                                                                 | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
+| Row        | What is built                                                                                                                               | What is missing                                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **RF-9**   | `performance/thresholds.json` with a cross-check against the k6 scenario, so a changed threshold and an unchanged record each fail the gate | Observed numbers. `recorded: false`, so the gate protects drift from a baseline nobody measured                                                                                |
+| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks                                                      | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
 
-None of these is closable by writing more code, and none should be closed on the
-strength of its harness. The blocker is evidence, not scope — and for **RF-5** that
-distinction has already been settled against the record: the tenancy wave (W7) landed
-in five migrations, and the rehearsal it was gated on has still never been run, so the
-row is an `open` Blocker and `pnpm findings:check` says so. That rule is now
-`docs/quality/wave-gates.json` rather than a sentence, which is the only reason it
+Neither is closable by writing more code, and neither should be closed on the strength
+of its harness. The blocker is evidence, not scope.
+
+**RF-5 was on this list and is not any more.** The tenancy wave (W7) landed in five
+migrations before the rehearsal it was gated on had run, so the row went back to an
+`open` Blocker and `pnpm findings:check` said so. The rehearsal then ran on 2026-10-04
+against two PostgreSQL 16.4 instances, and the row is `fixed` with the date, the
+installation and the row count in its `resolution`. That rule lives in
+`docs/quality/wave-gates.json` rather than in a sentence, which is the only reason it
 survived as long as it did.
 
 ---
@@ -324,7 +327,7 @@ survived as long as it did.
   command/            Three commands: /gate, /close, /boundary
   plans/              The one planning system; the only one tracked in git
 apps/
-  api/               Hono v4 API + Effect services (:3000)
+  api/               Hono v4 API (:3000); Effect only in src/bootstrap
   web/               React 19 + TanStack Router + Tailwind CSS 4 (:5173)
   runner/            Rootless execution boundary
   worker/            Lease, readiness, and recovery loop
@@ -388,9 +391,14 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - **Constants**: `UPPER_SNAKE_CASE` for true constants (e.g., `FLAG_DEFAULTS`, `PASS`).
 - **Test files**: colocated with source as `*.test.ts` / `*.test.tsx`.
 
-### Server Patterns (Hono / Effect)
+### Server Patterns (Hono)
 
-- Use Effect for dependency injection and error handling in services.
+- Services are plain TypeScript: dependencies are passed in through a factory or constructor
+  (the composition root is `src/index.ts`), and failures are `DomainError`s that the one error
+  boundary renders.
+- **Effect is used in `apps/api/src/bootstrap` only** (process lifecycle: ordered, failure-tolerant
+  shutdown). Do not introduce it into routes or services; ledger DEP-1 records why the earlier
+  instruction to do so was removed.
 - Request validation via Zod schemas defined in `shared-contracts`.
 - Return structured JSON responses with appropriate HTTP status codes.
 - One error boundary for the app (`src/errors/boundary.ts`); every response carries a

@@ -1,11 +1,12 @@
 FROM node:24.21.0-alpine
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+# pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
+# same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
+# repository moved to 11) and was a second place to keep in step.
+RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile \
-  && pnpm --filter @automate/config build \
-  && pnpm --filter @automate/db build \
-  && pnpm --filter @automate/worker build
+  && pnpm --filter "@automate/worker..." build
 ENV NODE_ENV=production
 # Same reason as `api.Dockerfile`: a root-owned `/app` plus `USER node` means the
 # mounted artifact volume cannot be written.

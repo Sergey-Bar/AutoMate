@@ -826,6 +826,14 @@ function derivePorts(read) {
   for (const match of e2eConfig.matchAll(/https?:\/\/(?:localhost|127\.0\.0\.1):(\d{2,5})/g)) {
     ports.add(match[1] ?? '');
   }
+  // The worker and the runner each serve /health and /ready on a default of their own, declared
+  // in their config schemas. A document describing the local stack names them, and they are as
+  // real as the API's.
+  for (const source of [read('apps/worker/src/config.ts'), read('apps/runner/src/config.ts')]) {
+    for (const match of source.matchAll(/healthPort:[^;]*?\.default\((\d{2,5})\)/g)) {
+      ports.add(match[1] ?? '');
+    }
+  }
   // `127.0.0.1:55432:5432` — the host port a document may name, and the container
   // port a `DATABASE_URL` inside the compose network uses. Both are real.
   for (const match of compose.matchAll(/:(\d{2,5}):(\d{2,5})\b/g)) {

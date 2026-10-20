@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="Time" tests="5">
+  <testcase classname="Time" name="not-a-number" time="abc"/>
+  <testcase classname="Time" name="empty" time=""/>
+  <testcase classname="Time" name="missing"/>
+  <testcase classname="Time" name="negative" time="-1"/>
+  <testcase classname="Time" name="fine" time="1.5"/>
+</testsuite>

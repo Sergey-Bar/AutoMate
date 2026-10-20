@@ -1,0 +1,72 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "checkout.spec.ts",
+      "file": "tests/checkout.spec.ts",
+      "specs": [
+        {
+          "title": "adds to cart",
+          "ok": true,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "duration": 400,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "pays",
+          "ok": true,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "expected",
+              "results": [
+                {
+                  "status": "passed",
+                  "duration": 900,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "refunds",
+          "ok": false,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 700,
+                  "startTime": "2026-10-18T10:00:00.000Z",
+                  "error": {
+                    "message": "refund missing"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "expected": 2,
+    "unexpected": 1,
+    "skipped": 0,
+    "flaky": 0
+  }
+}

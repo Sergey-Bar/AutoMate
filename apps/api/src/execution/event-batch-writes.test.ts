@@ -53,13 +53,15 @@ describe('the run row is written once per batch, not once per event', () => {
   });
 
   it('collects the final sequence and state for one write after the loop', () => {
-    // The replacement has to remember the *last* value per run, so the accumulator
-    // is what makes the fix legible rather than a mystery `set`.
-    expect(completeJobLoop()).toMatch(/eventSequenceByRun\.set/);
-    expect(completeJobLoop()).toMatch(/derivedStateByRun\.set/);
+    // The replacement has to remember the *last* value, so the accumulator is what
+    // makes the fix legible rather than a mystery write. `eventRunState(...) ?? derivedState`
+    // is "last phase-bearing event wins": an event that asks for no phase leaves the
+    // earlier one standing.
+    expect(completeJobLoop()).toMatch(/lastSequence = input\.sequence/);
+    expect(completeJobLoop()).toMatch(/derivedState = eventRunState\(input\) \?\? derivedState/);
   });
 
-  it('writes the row once per run after the loop, with the last values', () => {
+  it('writes the row once, after the loop and before the outbox append, with the last values', () => {
     // The positive half, so the two negative assertions above cannot both pass
     // against a file where the update was simply deleted.
     //
@@ -67,9 +69,22 @@ describe('the run row is written once per batch, not once per event', () => {
     // started at that index, which is downstream of the write it was looking for.
     const marker = source.indexOf('await this.appendOutboxBatch(tx, outboxBatch);');
     expect(marker, 'the outbox append is still where it was').toBeGreaterThan(-1);
-    const loopEnd = source.indexOf('for (const [runId, sequence] of eventSequenceByRun)');
-    expect(loopEnd, 'the single write follows the loop').toBeGreaterThan(-1);
-    expect(loopEnd).toBeLessThan(marker);
-    expect(source.slice(loopEnd, marker)).toMatch(/phase: derived\.phase/);
+    const call = 'await this.applyBatchToRun(tx, job.runId, lastSequence, derivedState);';
+    const callAt = source.indexOf(call);
+    expect(callAt, 'the single write follows the loop').toBeGreaterThan(-1);
+    expect(callAt).toBeLessThan(marker);
+    expect(source.indexOf(call, callAt + 1), 'and there is only one call').toBe(-1);
+    expect(callAt, 'and it is outside the loop').toBeGreaterThan(
+      source.indexOf(completeJobLoop()) + completeJobLoop().length,
+    );
+  });
+
+  it('is one UPDATE of the run carrying the sequence and the derived state', () => {
+    const open = source.indexOf('private async applyBatchToRun(');
+    expect(open, 'the write has a home').toBeGreaterThan(-1);
+    const body = source.slice(open, source.indexOf('\n  }\n', open));
+    expect(body.match(/\.update\(runs\)/g)).toHaveLength(1);
+    expect(body).toMatch(/eventSequence: sequence/);
+    expect(body).toMatch(/phase: derived\.phase/);
   });
 });

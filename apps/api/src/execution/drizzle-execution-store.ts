@@ -34,7 +34,19 @@ import {
   BoundedMap,
   COMPLETION_HASH_CAPACITY,
 } from './bounded-map.js';
-import { deriveRunState, isRequestablePhase, isTerminalPhase } from './phase-outcome.js';
+import { deriveRunState, isTerminalPhase } from './phase-outcome.js';
+import {
+  browserGateStatus,
+  completionOutcome,
+  completionPhase,
+  completionStatus,
+  eventRunState,
+  jobStateFor,
+  leaseIsLive,
+  planEventBatch,
+  refuseBatch,
+  runStatusFor,
+} from './execution-derivations.js';
 import { resolveSummary } from './summary.js';
 import { decodeRunCursor, normalizeEventLimit, normalizeRunLimit } from './run-paging.js';
 import type {
@@ -73,6 +85,9 @@ import type {
 type AnyPgDb =
   | PgDatabase<PgQueryResultHKT, Record<string, unknown>>
   | PgDatabase<PgliteQueryResultHKT, Record<string, unknown>>;
+
+/** The transaction handle AnyPgDb.transaction passes to its callback. */
+type ExecutionTransaction = Parameters<Parameters<AnyPgDb['transaction']>[0]>[0];
 
 type DbRow = Record<string, unknown>;
 
@@ -1156,20 +1171,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
         job.leaseId !== leaseId ||
         job.fencingToken !== fencingToken
       )
-        return inputs.map((event) => ({
-          eventId: event.eventId,
-          sequence: event.sequence,
-          status: 'conflict' as const,
-          reason: 'stale_lease',
-        }));
+        return refuseBatch(inputs, 'stale_lease');
+
       const runRow = (await tx.select().from(runs).where(eq(runs.id, job.runId)).limit(1))[0];
-      if (!runRow)
-        return inputs.map((event) => ({
-          eventId: event.eventId,
-          sequence: event.sequence,
-          status: 'conflict' as const,
-          reason: 'run_not_found',
-        }));
+      if (!runRow) return refuseBatch(inputs, 'run_not_found');
+
       // Scoped to the batch's own event keys.
       //
       // This used to read every event for the run, so the cost of appending grew
@@ -1197,8 +1203,6 @@ export class DrizzleExecutionStore implements ExecutionStore {
             inArray(runEvents.eventKey, batchKeys.length > 0 ? oneEventBatch(batchKeys) : ['']),
           )
       ).map((row) => rowValue(row));
-      const byId = new Map(existing.map((event) => [stringValue(event['eventKey']), event]));
-      let sequence = numberValue(runRow['eventSequence']) + 1;
       // Its own question now, answered by `run_events_terminal_idx` — a partial
       // index holding only the rows it can match. Reading the answer out of the
       // dedupe map above would have been free but wrong: that map is scoped to
@@ -1211,56 +1215,19 @@ export class DrizzleExecutionStore implements ExecutionStore {
           .where(and(eq(runEvents.runId, job.runId), eq(runEvents.type, 'run.completed')))
           .limit(1)
       ).length;
-      let terminal = alreadyTerminal > 0;
-      const prepared: Array<{
-        input: ExecutionEventInput;
-        hash: string;
-        eventKey: string;
-        duplicate: boolean;
-      }> = [];
-      for (const input of inputs) {
-        const hash = eventDigest(input);
-        const eventKey = `${job.runId}:${input.eventId}`;
-        const previous = byId.get(eventKey);
-        if (previous) {
-          if (stringValue(previous['hash']) !== hash)
-            return [
-              {
-                eventId: input.eventId,
-                sequence: input.sequence,
-                status: 'conflict',
-                reason: 'event_hash_mismatch',
-                hash,
-              },
-            ];
-          prepared.push({ input, hash, eventKey, duplicate: true });
-          continue;
-        }
-        if (input.sequence !== sequence)
-          return [
-            {
-              eventId: input.eventId,
-              sequence: input.sequence,
-              status: 'conflict',
-              reason: terminal ? 'terminal_event' : 'sequence_gap',
-              hash,
-            },
-          ];
-        if (terminal)
-          return [
-            {
-              eventId: input.eventId,
-              sequence: input.sequence,
-              status: 'conflict',
-              reason: 'terminal_event',
-              hash,
-            },
-          ];
-        prepared.push({ input, hash, eventKey, duplicate: false });
-        byId.set(eventKey, { hash });
-        sequence += 1;
-        if (input.type === 'run.completed' || input.payload?.['terminal'] === true) terminal = true;
-      }
+      // What is allowed is decided by `planEventBatch`, which touches no database.
+      const plan = planEventBatch({
+        inputs,
+        runId: job.runId,
+        storedHashes: new Map(
+          existing.map((event) => [stringValue(event['eventKey']), stringValue(event['hash'])]),
+        ),
+        nextSequence: numberValue(runRow['eventSequence']) + 1,
+        alreadyTerminal: alreadyTerminal > 0,
+        hashOf: eventDigest,
+      });
+      if (plan.kind === 'conflict') return plan.results;
+      const prepared = plan.events;
       const results: EventApplyResult[] = [];
       const outboxBatch: OutboxAppend[] = [];
       // One run row per batch, written once after the loop.
@@ -1276,23 +1243,22 @@ export class DrizzleExecutionStore implements ExecutionStore {
       // terminal phase is followed by a non-terminal one, which nulls the
       // timestamps, because the accumulator takes the last *phase-bearing* item
       // rather than the last item.
-      const eventSequenceByRun = new Map<string, number>();
-      const derivedStateByRun = new Map<string, ReturnType<typeof deriveRunState>>();
+      let lastSequence: number | undefined;
+      let derivedState: ReturnType<typeof deriveRunState> | undefined;
       for (const item of prepared) {
+        const { input } = item;
         if (item.duplicate) {
           results.push({
-            eventId: item.input.eventId,
-            sequence: item.input.sequence,
+            eventId: input.eventId,
+            sequence: input.sequence,
             status: 'duplicate',
             hash: item.hash,
           });
           continue;
         }
-        const input = item.input;
-        const eventId = input.eventId;
         const occurredAt = input.occurredAt ? new Date(input.occurredAt) : nowDate(this.options);
         await tx.insert(runEvents).values({
-          eventId,
+          eventId: input.eventId,
           runId: job.runId,
           workspaceId: eventWorkspaceId,
           jobId,
@@ -1322,7 +1288,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           payload: {
             runId: job.runId,
             jobId,
-            eventId,
+            eventId: input.eventId,
             sequence: input.sequence,
             type: input.type,
             occurredAt: occurredAt.toISOString(),
@@ -1331,73 +1297,85 @@ export class DrizzleExecutionStore implements ExecutionStore {
             payload: input.payload ?? {},
           },
         });
-        eventSequenceByRun.set(job.runId, input.sequence);
-        const payload = input.payload ?? {};
-        const requestedPhase = input.type === 'run.completed' ? 'complete' : payload['phase'];
-        if (isRequestablePhase(requestedPhase)) {
-          // `phase` and `outcome` are derived together from the phase, never
-          // taken independently from the payload. Writing them separately made
-          // the CHECK unreachable by a client choice, rolled the transaction
-          // back, and surfaced as a 500 for a merely malformed request.
-          derivedStateByRun.set(job.runId, deriveRunState(requestedPhase, payload['outcome']));
-        }
-        if (input.type === 'test.started' || input.type === 'test.completed') {
-          const testId = stringValue(payload['testId'], eventId);
-          const testStatus =
-            input.type === 'test.started'
-              ? 'running'
-              : dbTestStatus(
-                  String(payload['status'] ?? 'unknown') as ExecutionTestResult['status'],
-                );
-          const testDuration = numberValue(payload['durationMs'], 0) || null;
-          await tx
-            .insert(tests)
-            .values({
-              id: testId,
-              runId: job.runId,
-              title: stringValue(payload['title'], testId),
-              file: stringValue(payload['file'], ''),
-              status: testStatus,
-              durationMs: testDuration,
-              retryCount: 0,
-            })
-            .onConflictDoUpdate({
-              target: [tests.id, tests.runId],
-              set: {
-                title: stringValue(payload['title'], testId),
-                status: testStatus,
-                durationMs: testDuration,
-              },
-            });
-        }
+        lastSequence = input.sequence;
+        derivedState = eventRunState(input) ?? derivedState;
+        await this.upsertTestFromEvent(tx, job.runId, input);
       }
-      for (const [runId, sequence] of eventSequenceByRun) {
-        const derived = derivedStateByRun.get(runId);
-        await tx
-          .update(runs)
-          .set({
-            eventSequence: sequence,
-            ...(derived
-              ? {
-                  phase: derived.phase,
-                  outcome: derived.outcome,
-                  status: derived.status,
-                  // Nulled rather than omitted, so a non-terminal phase after a
-                  // terminal one still clears the timestamps — the same row state
-                  // the sequential writes produced.
-                  completedAt: derived.terminal ? nowDate(this.options) : null,
-                  finishedAt: derived.terminal ? nowDate(this.options) : null,
-                }
-              : {}),
-            updatedAt: nowDate(this.options),
-          })
-          .where(eq(runs.id, runId));
+      if (lastSequence !== undefined) {
+        await this.applyBatchToRun(tx, job.runId, lastSequence, derivedState);
       }
       await this.appendOutboxBatch(tx, outboxBatch);
       return results;
     });
   }
 
+  /**
+   * The one `runs` write of an event batch: the sequence reached, and the state the last
+   * phase-bearing event asked for (none when no event in the batch did).
+   */
+  private async applyBatchToRun(
+    tx: ExecutionTransaction,
+    runId: string,
+    sequence: number,
+    derived: ReturnType<typeof deriveRunState> | undefined,
+  ): Promise<void> {
+    await tx
+      .update(runs)
+      .set({
+        eventSequence: sequence,
+        ...(derived
+          ? {
+              phase: derived.phase,
+              outcome: derived.outcome,
+              status: derived.status,
+              // Nulled rather than omitted, so a non-terminal phase after a
+              // terminal one still clears the timestamps — the same row state
+              // the sequential writes produced.
+              completedAt: derived.terminal ? nowDate(this.options) : null,
+              finishedAt: derived.terminal ? nowDate(this.options) : null,
+            }
+          : {}),
+        updatedAt: nowDate(this.options),
+      })
+      .where(eq(runs.id, runId));
+  }
+  /**
+   * `test.started` and `test.completed` events keep the `tests` row in step with the stream, so a
+   * run's test list is readable while it is still running. Other event types write nothing here.
+   */
+  private async upsertTestFromEvent(
+    tx: ExecutionTransaction,
+    runId: string,
+    input: ExecutionEventInput,
+  ): Promise<void> {
+    if (input.type !== 'test.started' && input.type !== 'test.completed') return;
+    const payload = input.payload ?? {};
+    const testId = stringValue(payload['testId'], input.eventId);
+    const testStatus =
+      input.type === 'test.started'
+        ? 'running'
+        : dbTestStatus(String(payload['status'] ?? 'unknown') as ExecutionTestResult['status']);
+    const testDuration = numberValue(payload['durationMs'], 0) || null;
+    await tx
+      .insert(tests)
+      .values({
+        id: testId,
+        runId,
+        title: stringValue(payload['title'], testId),
+        file: stringValue(payload['file'], ''),
+        status: testStatus,
+        durationMs: testDuration,
+        retryCount: 0,
+      })
+      .onConflictDoUpdate({
+        target: [tests.id, tests.runId],
+        set: {
+          title: stringValue(payload['title'], testId),
+          status: testStatus,
+          durationMs: testDuration,
+        },
+      });
+  }
   async listEvents(
     workspaceId: string,
     runId: string,
@@ -1487,52 +1465,13 @@ export class DrizzleExecutionStore implements ExecutionStore {
       // deliberately *not* run — otherwise reaping nulls `leaseId` and the line above
       // refuses the write, which would make this assertion pass if it were deleted.
       //
-      // `mapJob` hands back an ISO string, not a `Date` — the shape a JSON caller sees
-      // and the one `getJob` returns — so this compares parsed time rather than calling
-      // `getTime()`, which is a `TypeError` here rather than a wrong answer.
-      const leaseExpiresAt = job.leaseExpiresAt === null ? null : Date.parse(job.leaseExpiresAt);
-      if (
-        leaseExpiresAt === null ||
-        Number.isNaN(leaseExpiresAt) ||
-        leaseExpiresAt <= nowDate(this.options).getTime()
-      )
-        return null;
+      // Compared as parsed time: `mapJob` hands back an ISO string, not a `Date`.
+      if (!leaseIsLive(job.leaseExpiresAt, nowDate(this.options).getTime())) return null;
 
       const timestamp = nowDate(this.options);
-      const status = (completion.status ?? completion.outcome ?? 'unknown').toLowerCase();
-      const rawPhase = completion.phase;
-      const phase: RunPhase =
-        rawPhase === 'completed'
-          ? 'complete'
-          : (rawPhase ??
-            (status === 'cancelled'
-              ? 'cancelled'
-              : status === 'timed_out'
-                ? 'timed_out'
-                : status === 'runner_lost'
-                  ? 'runner_lost'
-                  : status === 'infra_failed'
-                    ? 'infra_failed'
-                    : status === 'config_failed'
-                      ? 'config_failed'
-                      : 'complete'));
-      const outcome =
-        completion.outcome ??
-        (status === 'passed' || status === 'succeeded'
-          ? 'passed'
-          : status === 'failed'
-            ? 'failed'
-            : status === 'cancelled'
-              ? 'cancelled'
-              : status === 'timed_out'
-                ? 'timed_out'
-                : status === 'runner_lost'
-                  ? 'runner_lost'
-                  : status === 'infra_failed'
-                    ? 'infra_failed'
-                    : status === 'config_failed'
-                      ? 'config_failed'
-                      : 'unknown');
+      const status = completionStatus(completion);
+      const phase = completionPhase(status, completion.phase);
+      const outcome = completionOutcome(status, completion.outcome);
       // Derived after the tests and summary are written, so a run that reports
       // nothing cannot land as a green run. The phase and the outcome are decided
       // together — writing them independently is what made
@@ -1588,8 +1527,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       await tx
         .update(executionJobs)
         .set({
-          state:
-            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
+          state: jobStateFor(status),
           completionHash,
           completedAt: timestamp,
           updatedAt: timestamp,
@@ -1598,27 +1536,26 @@ export class DrizzleExecutionStore implements ExecutionStore {
           errorMessage: completion.error?.message ?? null,
         })
         .where(eq(executionJobs.id, jobId));
-      const summaryTotal = completion.summary?.total ?? completion.tests?.length ?? 0;
-      const summaryPassed = completion.summary?.passed ?? 0;
-      const summaryFailed = completion.summary?.failed ?? 0;
-      const summaryFlaky = completion.summary?.flaky ?? 0;
+      // **The tests the run recorded, when the completion lists none.** The shipped runner
+      // reports each test as a `test.*` event while it runs and then completes with
+      // `summary: null` and no `tests`, because the results are already here. Counting only
+      // the completion's list made such a run read Total 0 / Passed 0 beside a passing test,
+      // and stored it as `interrupted` for having "reported nothing". Read inside this
+      // transaction, so the events and the completion are one snapshot.
+      const recordedTests =
+        completion.tests && completion.tests.length > 0
+          ? completion.tests
+          : (await tx.select().from(tests).where(eq(tests.runId, job.runId))).map((row) =>
+              mapTest(rowValue(row)),
+            );
       // A run with no tests, a zero total and no recorded pass has produced no
-      // evidence, so `passed` is not available to it. `interrupted` is the
-      // existing "finished without a determinate outcome" value — using it keeps
-      // the status vocabulary at four members and needs no migration.
-      const runStatus =
-        derived.outcome === 'passed' &&
-        summaryTotal === 0 &&
-        summaryPassed === 0 &&
-        summaryFailed === 0 &&
-        summaryFlaky === 0
-          ? 'interrupted'
-          : derived.status;
+      // evidence, so `passed` is not available to it (see `runStatusFor`).
+      const runStatus = runStatusFor(derived, { ...completion, tests: recordedTests });
       // A runner's own summary is accepted only if it accounts for its own total;
       // one that does not add up is an unverifiable claim about evidence, so the
       // run's own tests are counted instead. `resolveSummary` is shared with the
       // in-memory store so the two cannot derive the same run differently.
-      const summary = resolveSummary(completion.summary, completion.tests ?? []);
+      const summary = resolveSummary(completion.summary ?? undefined, recordedTests);
       await tx
         .update(runs)
         .set({
@@ -1652,8 +1589,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           jobId,
           phase,
           outcome,
-          status:
-            status === 'cancelled' ? 'cancelled' : status === 'failed' ? 'failed' : 'completed',
+          status: jobStateFor(status),
           summary: completion.summary ?? null,
           error: completion.error ?? null,
         },
@@ -1672,16 +1608,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         createGateEvaluation({
           run,
           policy,
-          domainStatuses: {
-            browser:
-              run.outcome === 'passed'
-                ? 'passed'
-                : run.outcome === 'failed'
-                  ? 'failed'
-                  : run.outcome === 'partial'
-                    ? 'warning'
-                    : 'unknown',
-          },
+          domainStatuses: { browser: browserGateStatus(run.outcome) },
         }),
       );
     }
@@ -2012,27 +1939,12 @@ export class DrizzleExecutionStore implements ExecutionStore {
         createGateEvaluation({
           run: mapped,
           policy,
-          domainStatuses: {
-            browser:
-              mapped.outcome === 'passed'
-                ? 'passed'
-                : mapped.outcome === 'failed'
-                  ? 'failed'
-                  : mapped.outcome === 'partial'
-                    ? 'warning'
-                    : 'unknown',
-          },
+          domainStatuses: { browser: browserGateStatus(mapped.outcome) },
         }),
       );
     }
-    const browser: DomainStatus =
-      mapped?.outcome === 'passed'
-        ? 'passed'
-        : mapped?.outcome === 'failed'
-          ? 'failed'
-          : mapped?.outcome === 'partial'
-            ? 'warning'
-            : 'unknown';
+    const browser: DomainStatus = browserGateStatus(mapped?.outcome);
+
     return {
       releaseId,
       decision: gate?.decision ?? 'unknown',

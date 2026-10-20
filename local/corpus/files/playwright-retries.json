@@ -1,0 +1,84 @@
+{
+  "config": {},
+  "suites": [
+    {
+      "title": "retry.spec.ts",
+      "file": "tests/retry.spec.ts",
+      "specs": [
+        {
+          "title": "flaky one",
+          "ok": true,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "flaky",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 500,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                },
+                {
+                  "status": "passed",
+                  "duration": 450,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "always fails",
+          "ok": false,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "failed",
+                  "duration": 500,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                },
+                {
+                  "status": "failed",
+                  "duration": 510,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                },
+                {
+                  "status": "failed",
+                  "duration": 505,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "times out",
+          "ok": false,
+          "tests": [
+            {
+              "projectName": "chromium",
+              "status": "unexpected",
+              "results": [
+                {
+                  "status": "timedOut",
+                  "duration": 30000,
+                  "startTime": "2026-10-18T10:00:00.000Z"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "expected": 0,
+    "unexpected": 2,
+    "skipped": 0,
+    "flaky": 1
+  }
+}

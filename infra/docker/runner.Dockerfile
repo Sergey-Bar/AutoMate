@@ -1,13 +1,13 @@
 FROM node:24.21.0-bookworm-slim
 WORKDIR /app
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+# pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
+# same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
+# repository moved to 11) and was a second place to keep in step.
+RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile \
-  && pnpm --filter @automate/config build \
-  && pnpm --filter @automate/shared-contracts build \
-  && pnpm --filter @automate/runner-sdk build \
-  && pnpm --filter @automate/runner build \
+  && pnpm --filter "@automate/runner..." build \
   && pnpm --filter @automate/runner exec playwright install --with-deps chromium firefox webkit \
   && mkdir -p /var/lib/automate/artifacts \
   && chown -R node:node /app /var/lib/automate /ms-playwright

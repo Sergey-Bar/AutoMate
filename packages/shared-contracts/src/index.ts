@@ -11,3 +11,4 @@
  * See README.md for the JSON Schema / AJV compatibility strategy.
  */
 export * from './schemas/index.js';
+export { buildComponentSchemas } from './openapi.js';

@@ -50,6 +50,7 @@ import type { RealtimeBus } from './realtime/realtime-bus.js';
 import { DurableRealtimeBus } from './realtime/durable-realtime-bus.js';
 import { DrizzleRealtimeFeed } from './infrastructure/drizzle-realtime-feed.js';
 import { startOutboxRetentionSweep } from './infrastructure/outbox-retention.js';
+import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap/lifecycle.js';
 // T18: dashboard module — runs detail, tests listing, analytics, quarantine, quality gates
 import { createDashboardModule } from './modules/dashboard/index.js';
 import {
@@ -304,7 +305,7 @@ function mountLegacyProcessLocalRoutes(): void {
 // Durable outbox-backed realtime in production; process-local events otherwise.
 const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
-if (realtimeFeed) startOutboxRetentionSweep(realtimeFeed);
+const retentionSweep = realtimeFeed ? startOutboxRetentionSweep(realtimeFeed) : undefined;
 let realtimeBus: RealtimeBus;
 /** The durable bus, when one was constructed — the readiness probe needs its own view. */
 let durableRealtimeBus: DurableRealtimeBus | undefined;
@@ -350,7 +351,7 @@ if (
 }
 
 const installationKeyHash = databaseResources
-  ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureBootstrap({
+  ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureConfigured({
       installationId,
       keyHash: hashCredential(authCookieSecret, installationKey),
       displayPrefix: bootstrapDisplayPrefix(runtimeConfig),
@@ -619,13 +620,41 @@ app.route(
 mountReportingRoutes();
 mountLegacyProcessLocalRoutes();
 
+/**
+ * How long a stopping API lets requests finish before it cuts off what is left (event streams
+ * never finish on their own), and the whole budget before it gives up and exits non-zero. The
+ * budget is under the 10 s a container runtime allows by default before it sends SIGKILL.
+ */
+const SHUTDOWN_DRAIN_MS = 5_000;
+const SHUTDOWN_BUDGET_MS = 8_000;
+
 export { app, executionStore };
 
 if (runtimeConfig.nodeEnv !== 'test') {
   const { serve } = await import('@hono/node-server');
   // Startup policy already ran above, before any composition; the server only
   // starts once that gate has passed.
-  serve({ fetch: app.fetch, port: runtimeConfig.port, hostname: runtimeConfig.host }, (info) => {
-    console.info(`automate-api listening on http://${runtimeConfig.host}:${info.port}`);
+  const server = serve(
+    { fetch: app.fetch, port: runtimeConfig.port, hostname: runtimeConfig.host },
+    (info) => {
+      console.info(`automate-api listening on http://${runtimeConfig.host}:${info.port}`);
+    },
+  );
+  // Closed in the reverse of this order: the server stops taking requests, then the sweep stops,
+  // and the pool goes last so nothing is mid-query when its connections are taken away.
+  const lifecycle = new Lifecycle((name, error) => {
+    logger.error('failed to close during shutdown', {
+      resource: name,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+  if (databaseResources) lifecycle.add('database pool', () => databaseResources.close());
+  if (retentionSweep) lifecycle.add('outbox retention sweep', () => retentionSweep.stop());
+  lifecycle.add('http server', () => closeHttpServer(server, SHUTDOWN_DRAIN_MS));
+  installShutdownHandlers(lifecycle, {
+    process,
+    exit: (code) => process.exit(code),
+    log: (message) => logger.info(message),
+    graceMs: SHUTDOWN_BUDGET_MS,
   });
 }

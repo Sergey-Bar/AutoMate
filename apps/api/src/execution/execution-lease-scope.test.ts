@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
 import { createExecutionRoutes } from '../routes/execution.js';
 import { InMemoryExecutionStore } from './in-memory-execution-store.js';
@@ -406,6 +406,92 @@ describe('write-path store methods honour the workspace scope', () => {
     expect(evaluation.runId).toBe(runIdA);
     expect((await store.getRunGate('workspace-a', runIdA))?.runId).toBe(runIdA);
     expect(await store.getRunGate('workspace-b', runIdA)).toBeNull();
+  });
+});
+
+describe('a runner whose credential has lapsed (ledger RNR-1)', () => {
+  const SIXTEEN_MINUTES = 16 * 60_000;
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const reregister = (
+    app: ReturnType<typeof build>,
+    extra: Record<string, unknown> = {},
+  ): Promise<Response> =>
+    Promise.resolve(
+      app.request('/api/v1/runners/register', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-runner-registration-secret': REGISTRATION_SECRET,
+        },
+        body: JSON.stringify({
+          runnerId: 'runner-1',
+          name: 'runner-1',
+          version: '1.0.0',
+          os: 'linux',
+          arch: 'x64',
+          capabilities: ['playwright'],
+          labels: ['reference'],
+          slots: 2,
+          ...extra,
+        }),
+      }),
+    );
+
+  it('can come back with the registration secret alone once its token has expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const store = new InMemoryExecutionStore();
+    const app = build(store, 'workspace-1');
+    const first = await registerRunner(app, 'runner-1');
+    vi.setSystemTime(Date.now() + SIXTEEN_MINUTES);
+    expect(await store.authenticateRunner(first.token), 'the old token has lapsed').toBeNull();
+
+    const response = await reregister(app);
+
+    expect(response.status).toBe(201);
+    const second = (await response.json()) as { token: string };
+    expect((await store.authenticateRunner(second.token))?.id).toBe('runner-1');
+  });
+
+  it('can come back presenting the token it had, even though that token has expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const store = new InMemoryExecutionStore();
+    const app = build(store, 'workspace-1');
+    const first = await registerRunner(app, 'runner-1');
+    vi.setSystemTime(Date.now() + SIXTEEN_MINUTES);
+
+    expect((await reregister(app, { rotationToken: first.token })).status).toBe(201);
+  });
+
+  it('is still refused while its token is live, so the secret alone never takes over a running runner', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const app = build(new InMemoryExecutionStore(), 'workspace-1');
+    await registerRunner(app, 'runner-1');
+    vi.setSystemTime(Date.now() + 14 * 60_000);
+
+    const response = await reregister(app);
+
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
+      'RUNNER_ID_TAKEN',
+    );
+  });
+
+  it('is never let back in once revoked, however long ago its token expired', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const store = new InMemoryExecutionStore();
+    const app = build(store, 'workspace-1');
+    await registerRunner(app, 'runner-1');
+    const live = await store.getRunner('runner-1');
+    vi.setSystemTime(Date.now() + SIXTEEN_MINUTES);
+    vi.spyOn(store, 'getRunner').mockResolvedValue(
+      live ? { ...live, health: 'revoked' as const } : null,
+    );
+
+    expect((await reregister(app)).status).toBe(409);
   });
 });
 

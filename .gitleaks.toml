@@ -28,7 +28,7 @@
 #
 # A finding that is not one of the documented placeholders is a real one.
 #
-# One commit is still listed below, and it is the only one. `3f52254` is an **ancestor
+# Two commits are listed below. `3f52254` is an **ancestor
 # of `main`**, so a history rewrite correctly refused to touch it: filter-repo cannot
 # rewrite a commit that a shared ref depends on. It carries two committed credential
 # literals in `apps/api/src/index-production-composition.test.ts:12,13`, from before
@@ -52,10 +52,25 @@ useDefault = true
 [allowlist]
 description = "Repository-owned fixtures, example files, and the migration directory."
 
-# One commit. See the block comment above for why this one survived the scrub and what
-# removing it would cost. Narrower than a path: the file it touches is still scanned on
-# every other commit, including the current tip.
-commits = ["3f522546f46247a55e5f3f703339b8e5a9e44a3b"]
+# Two commits, each narrower than a path: the files they touch are still scanned on every
+# other commit, including the current tip.
+#
+# `3f52254`: see the block comment above for why it survived the scrub and what removing
+# it would cost.
+#
+# `f0be6c6` is the only commit on `archive/closing-2026-10-13`, pushed 2026-10-13, and is
+# **not** on `main`. It is not a credential: `generic-api-key` matched 26 lowercase
+# characters of prose shaped `word/word/word` after the phrase "auth references" in a
+# planning table (`.kilo/plans/1790347164040-…-plan.md:311`). It is listed because CI
+# checks out every branch (`fetch-depth: 0`) and `gitleaks detect` reads every ref, so
+# from that push on, every pull request's security job failed on a commit no pull request
+# could change. Scoping the scan to `HEAD` would also have fixed that, and was not done:
+# it changes what the gate covers for every future branch, where this changes it for one
+# reviewed commit. Reviewed 2026-10-20.
+commits = [
+  "3f522546f46247a55e5f3f703339b8e5a9e44a3b",
+  "f0be6c690cad8ec2d47e5bb6e0194c0efeefd5d1",
+]
 
 
 
