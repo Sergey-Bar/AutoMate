@@ -120,6 +120,25 @@ describe('a command is read out of a job spec, and validated before it spawns', 
     expect(command?.argv).toEqual(['pnpm', 'test']);
     expect(command?.workingDirectory).toBe('services/api');
     expect(command?.artifactGlobs).toEqual(['reports/*.xml']);
+    // A suite is held to the artifact rule unless the server said otherwise.
+    expect(command?.evidence).toBe('artifact');
+  });
+
+  it('reads the exit-code evidence mode, and nothing else, out of the spec', () => {
+    expect(
+      readGenericCommand({ command: { argv: ['x'], repository: '/srv/repos/shop' } })?.repository,
+    ).toBe('/srv/repos/shop');
+    expect(readGenericCommand({ command: { argv: ['x'], repository: 7 } })).not.toHaveProperty(
+      'repository',
+    );
+    expect(
+      readGenericCommand({ command: { argv: ['pnpm', 'run', 'lint'], evidence: 'exit-code' } })
+        ?.evidence,
+    ).toBe('exit-code');
+    expect(
+      readGenericCommand({ command: { argv: ['pnpm', 'run', 'lint'], evidence: 'shell' } })
+        ?.evidence,
+    ).toBe('artifact');
   });
 
   it('returns nothing for a spec with no command, which is the Playwright case', () => {

@@ -50,4 +50,20 @@ export {
   TrendingUp,
   /** `StatCard` trend down. Replaces `↓`. */
   TrendingDown,
+  /** Runs a tool. The runner page's one primary action. */
+  Play,
+  /** Pager: the previous page. */
+  ChevronLeft,
+  /** Pager: the next page. */
+  ChevronRight,
+  /** Re-reads the repository rather than serving the cached scan. */
+  RefreshCw,
+  /** A capability the repository covers. */
+  Check,
+  /** A capability the repository does not cover. */
+  X,
+  /** A link that leaves the product: a tool's documentation. */
+  ExternalLink,
+  /** The filter field on the runner and toolbox pages. */
+  Search,
 } from 'lucide-react';

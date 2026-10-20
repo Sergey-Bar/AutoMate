@@ -40,9 +40,13 @@ describe('route manifest', () => {
     expect(visibleRoutes.map((route) => route.path)).toEqual([
       '/dashboard',
       '/dashboard/runs',
+      '/dashboard/runner',
+      '/dashboard/health',
+      '/dashboard/toolbox',
       '/dashboard/analytics',
       '/dashboard/quarantine',
     ]);
+    expect(visibleRoutes[0]?.label).toBe('Dashboard');
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
   });
 

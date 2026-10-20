@@ -14,6 +14,7 @@ import {
   type ProcessSpawner,
 } from './execution.js';
 import { artifactKind } from './artifact-kind.js';
+import { WINDOWS_ENV_ALLOWLIST, resolveSpawn } from './windows-command.js';
 
 /**
  * The one recorded spawn. Exported so a test can assert the *shape* of the spawn
@@ -42,6 +43,15 @@ export interface GenericCommand {
   /** Repo-relative. Resolved against `repoRoot`; `..` is refused. */
   workingDirectory: string;
   /**
+   * The registered repository this command belongs to, as an absolute path.
+   *
+   * **Inside `repoRoot` or refused.** `repoRoot` stays the boundary: a runner configured
+   * with `RUNNER_REPO_ROOT=/srv/repos` runs a project registered at `/srv/repos/shop` and
+   * refuses one at `/etc`. Absent, the command runs in `repoRoot` itself, which is the
+   * single-project install this adapter was first written for.
+   */
+  repository?: string;
+  /**
    * Repo-relative globs whose matches are evidence.
    *
    * Declared by the caller, never inferred from what the command happened to
@@ -57,6 +67,18 @@ export interface GenericCommand {
    * install and never in the repository.
    */
   env?: Readonly<Record<string, string>>;
+  /**
+   * What decides the verdict.
+   *
+   * `artifact` (the default) is the rule for a test suite: a clean exit that wrote no
+   * declared artifact asserted nothing, so it is `infra_failed`. `exit-code` is the
+   * rule for a tool that is not a suite — a linter, a type checker, a secret scan —
+   * whose whole answer *is* its exit status and which writes no result file to ingest.
+   * Holding a linter to the artifact rule would report every clean lint as an
+   * infrastructure failure. The mode is chosen by the server from where the command
+   * came from, never by the caller.
+   */
+  evidence?: 'artifact' | 'exit-code';
 }
 
 export interface GenericSpawnOptions {
@@ -68,6 +90,10 @@ export interface GenericSpawnOptions {
   /** The runner's own environment, which is the *candidate* set, not the child's. */
   environment?: NodeJS.ProcessEnv;
   spawnProcess?: ProcessSpawner;
+  /** The host platform, injectable so the Windows path is testable on any host. */
+  platform?: NodeJS.Platform;
+  /** File existence, for resolving a command against `PATH` on Windows. */
+  fileExists?: (path: string) => boolean;
   terminateProcess?: (child: ChildProcessWithoutNullStreams) => Promise<void>;
 }
 
@@ -125,22 +151,36 @@ export class GenericSpawnAdapter implements ExecutionProvider {
     if (!Number.isInteger(context.deadlineMs) || context.deadlineMs < 1) {
       throw new RunnerConfigurationError('Execution timeout must be a positive integer');
     }
-    const cwd = this.resolveInside(this.repoRoot, spec.workingDirectory);
+    const repository =
+      spec.repository === undefined
+        ? this.repoRoot
+        : this.resolveInside(this.repoRoot, spec.repository);
+    const cwd = this.resolveInside(repository, spec.workingDirectory);
+    // Resolved before the workspace exists, so a refusal leaves nothing behind.
+    const launch = resolveSpawn(
+      spec.argv[0] as string,
+      spec.argv.slice(1),
+      this.environment,
+      this.options.platform,
+      this.options.fileExists,
+    );
 
     const workspacePath = await this.prepareWorkspace(context.jobId);
     const redactions = [...new Set([...this.redactions, ...(context.redactions ?? [])])];
 
-    const child = this.spawnProcess(spec.argv[0] as string, spec.argv.slice(1), {
+    const child = this.spawnProcess(launch.command, launch.args, {
       cwd,
       env: this.childEnvironment(spec, redactions),
       // `shell: false` is repeated rather than inherited so that this file, read
       // alone, states the property. `defaultSpawn` sets it too; the Playwright
       // adapter sets it too; three settings of one flag is the redundancy that
-      // makes a later edit to one of them harmless.
+      // makes a later edit to one of them harmless. The one exception — a Windows
+      // batch shim under `cmd.exe` — is explained, and fenced, in `windows-command.ts`.
       shell: false,
       stdio: 'pipe',
       detached: process.platform !== 'win32',
       windowsHide: true,
+      windowsVerbatimArguments: launch.verbatim,
     });
 
     const logs = collectLogs(child, this.options.logMaxBytes);
@@ -156,7 +196,10 @@ export class GenericSpawnAdapter implements ExecutionProvider {
       workspacePath,
     );
     const artifacts = [...declared, ...logArtifacts];
-    const status = statusFor(timedOut, context.signal.aborted, child.exitCode, declared.length);
+    const status =
+      spec.evidence === 'exit-code'
+        ? exitCodeStatus(timedOut, context.signal.aborted, child.exitCode)
+        : statusFor(timedOut, context.signal.aborted, child.exitCode, declared.length);
     return {
       status,
       resultPath: declared[0]?.path ?? '',
@@ -168,7 +211,10 @@ export class GenericSpawnAdapter implements ExecutionProvider {
         status === 'infra_failed'
           ? {
               code: 'RUNNER_INFRA_FAILED',
-              message: this.infraMessage(child, declared.length),
+              message:
+                spec.evidence === 'exit-code'
+                  ? `Command exited with ${String(child.exitCode)}: it did not run, or was killed.`
+                  : this.infraMessage(child, declared.length),
             }
           : undefined,
     };
@@ -201,7 +247,9 @@ export class GenericSpawnAdapter implements ExecutionProvider {
    */
   private childEnvironment(spec: GenericCommand, redactions: readonly string[]): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = {};
-    for (const key of DEFAULT_ENV_ALLOWLIST) {
+    const platformAllowlist =
+      (this.options.platform ?? process.platform) === 'win32' ? WINDOWS_ENV_ALLOWLIST : [];
+    for (const key of [...DEFAULT_ENV_ALLOWLIST, ...platformAllowlist]) {
       const value = this.environment[key];
       if (value !== undefined) env[key] = value;
     }
@@ -275,7 +323,9 @@ export class GenericSpawnAdapter implements ExecutionProvider {
   ): Promise<{ declared: ExecutionArtifact[]; logs: ExecutionArtifact[] }> {
     const matchers = globs.map((glob) => globToRegExp(glob));
     const declared: ExecutionArtifact[] = [];
-    for (const file of await collectFiles(this.repoRoot)) {
+    // Only the working directory is walked — every match has to be inside it anyway — and
+    // nothing is walked when nothing was declared, which is every exit-code tool.
+    for (const file of globs.length === 0 ? [] : await collectFiles(cwd)) {
       const inside = relative(cwd, file);
       if (inside.startsWith('..') || isAbsolute(inside)) continue;
       const name = inside.split(sep).join('/');
@@ -438,6 +488,26 @@ const IGNORED_DIRECTORIES = new Set([
   'vendor',
   'coverage',
 ]);
+
+/**
+ * The verdict for a tool whose answer is its exit status.
+ *
+ * Any ordinary non-zero exit is the tool saying "no" — `tsc` exits 2 on a type error and
+ * that is a failed check, not a broken environment. 126 and above mean the shell could
+ * not execute it or a signal killed it, which is the environment's fault and is reported
+ * as such rather than charged to the code.
+ */
+function exitCodeStatus(
+  timedOut: boolean,
+  aborted: boolean,
+  exitCode: number | null | undefined,
+): ExecutionStatus {
+  if (timedOut) return 'timed_out';
+  if (aborted) return 'cancelled';
+  if (exitCode === 0) return 'passed';
+  if (typeof exitCode === 'number' && exitCode > 0 && exitCode < 126) return 'failed';
+  return 'infra_failed';
+}
 
 function statusFor(
   timedOut: boolean,

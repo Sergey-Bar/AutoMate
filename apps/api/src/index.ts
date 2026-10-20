@@ -24,6 +24,7 @@ import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
+import { createAnalyticsTrendRoutes } from './execution/trend.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createChatRoutes } from './routes/chat.js';
 import { aiGatewayOrUnconfigured, resolveAiGateway } from './observability/ai-gateway.js';
@@ -36,7 +37,8 @@ import type { ExecutionStore } from './execution/types.js';
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
 import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
-import { fileSystemView } from '@automate/projects';
+import { DEFAULT_IGNORED, fileSystemView } from '@automate/projects';
+import { createRepoScanner } from './services/repo-scan-service.js';
 import { createProjectsRoutes } from './routes/projects.js';
 import {
   discoverProjectAtBoot,
@@ -539,6 +541,13 @@ app.route(
   }),
 );
 app.route('/', createAgentRoutes());
+app.route(
+  '/',
+  createAnalyticsTrendRoutes({
+    store: executionStore,
+    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+  }),
+);
 app.route('/', createChatRoutes({ gateway: aiGateway }));
 
 /**
@@ -564,16 +573,41 @@ if (databaseResources !== undefined) {
     '/',
     createProjectsRoutes({
       ...registry,
-      // The command's argv is **not** resolved here. `run.start` already checked
-      // the id against the stored profile, and resolving it again at this depth
-      // would be a second place where an executable could enter the system —
-      // which is precisely what `no-second-authority` is about.
+      // `.github` and `.husky` are walked for the scan only: they are where CI and the
+      // commit gates are declared, and the detector has no use for either.
+      scanner: createRepoScanner({
+        viewFor: (repoPath) => fileSystemView(repoPath, DEFAULT_IGNORED, ['.github', '.husky']),
+      }),
+      // The argv arrives **already resolved** by `run.start` against the profile or
+      // the scan, and is written into the job as-is. It used to be dropped here — the
+      // job carried only `commandId`, the runner reads `configuration.command`, and so
+      // every project run was a Playwright job with no project: a run that could not
+      // execute the command the operator chose.
       startRun: async (input) => {
         const created = await executionStore.create(
           {
             projectId: input.projectId,
-            timeoutMs: input.timeoutMs,
-            configuration: { commandId: input.commandId },
+            timeoutMs: input.timeoutMs ?? 30 * 60_000,
+            source: 'web',
+            framework: input.command.evidence === 'artifact' ? 'detected' : 'tool',
+            testType: 'tool',
+            suite: input.command.label,
+            // **No `labels`.** A job's labels are routing constraints — a runner claims it
+            // only if it carries every one — so the tool id there made the job unclaimable.
+            // The id is kept in `configuration.commandId`, which is what history reads.
+            configuration: {
+              commandId: input.commandId,
+              command: {
+                argv: input.command.argv,
+                workingDirectory: input.command.workingDirectory,
+                ...(input.command.repository === undefined
+                  ? {}
+                  : { repository: input.command.repository }),
+                artifactGlobs: input.command.artifactGlobs,
+                env: input.command.env,
+                evidence: input.command.evidence,
+              },
+            },
           },
           input.idempotencyKey,
           runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,

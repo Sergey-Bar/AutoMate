@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { QaScoreSchema, type QaScore } from '@automate/shared-contracts';
 import { QaApiError, createQaClient } from './qa-client.js';
 import { QaGapsResponseSchema } from './qa.js';
+import { makeScan, makeTrend } from '../test-utils.js';
 
 /**
  * The command center's data layer.
@@ -353,5 +354,31 @@ describe('the gap queue keeps the order the server chose', () => {
     // Same clause as the score. A gap list with no capping row cannot say whether
     // the reader is looking at everything.
     expect(QaGapsResponseSchema.safeParse({ gaps: gaps.gaps }).success).toBe(false);
+  });
+});
+
+describe('the scan and the trend', () => {
+  it('asks for a fresh scan only when told to, and parses it against the contract', async () => {
+    const { calls, impl } = respondWith(makeScan());
+    const client = createQaClient('', impl);
+    await expect(client.getScan('p 1')).resolves.toMatchObject({ maturity: 50 });
+    await client.getScan('p 1', true);
+    expect(calls).toEqual(['/api/v1/projects/p%201/scan', '/api/v1/projects/p%201/scan?fresh=1']);
+  });
+
+  it('asks for a whole number of days, and refuses a trend that breaks the contract', async () => {
+    const { calls, impl } = respondWith(makeTrend());
+    await createQaClient('', impl).getTrend(14.7);
+    expect(calls).toEqual(['/api/v1/dashboard/analytics/trend?days=14']);
+    const broken = respondWith({ days: 1, buckets: [] });
+    await expect(createQaClient('', broken.impl).getTrend(1)).rejects.toThrow(QaApiError);
+  });
+
+  it('reads a body that is not JSON as an HTTP status, not a parse error', async () => {
+    const impl = (async () =>
+      new Response('<html>proxy</html>', { status: 502 })) as unknown as typeof fetch;
+    await expect(createQaClient('', impl).getScan('p')).rejects.toMatchObject({
+      detail: 'HTTP 502',
+    });
   });
 });

@@ -20,6 +20,18 @@ export { CopilotAnswerSchema, QaScoreSchema, ScoreCellSchema, StructuralFindingS
 export type { QaScore };
 export { CopilotQuestionSchema } from '@automate/shared-contracts';
 export type { CopilotAnswer } from '@automate/shared-contracts';
+export { AnalyticsTrendSchema, RepoScanSchema } from '@automate/shared-contracts';
+export type {
+  AnalyticsTrend,
+  CapabilityCoverage,
+  QaCapability,
+  RepoReport,
+  RepoScan,
+  RepoTool,
+  ToolboxEntry,
+  TrendBucket,
+  TrendWindow,
+} from '@automate/shared-contracts';
 
 /**
  * The gap queue, as the web client sees it.

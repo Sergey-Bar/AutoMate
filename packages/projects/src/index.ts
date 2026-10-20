@@ -16,6 +16,7 @@ export {
 } from './profile.js';
 export { mergeConfig, profileFromDetection } from './config.js';
 export { DETECTOR_VERSION, detectProject, type DetectResult } from './detect/index.js';
+export { scanRepository } from './scan/index.js';
 export {
   DEFAULT_IGNORED,
   fileSystemView,

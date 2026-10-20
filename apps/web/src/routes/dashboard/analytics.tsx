@@ -2,8 +2,30 @@ import React from 'react';
 import { createRoute } from '@tanstack/react-router';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useAnalytics } from '../../hooks/useDashboard.js';
-import { EmptyState, StatCard } from '@automate/ui';
+import { useResource } from '../../hooks/useResource.js';
+import {
+  EmptyState,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@automate/ui';
 import type { ApiClient } from '../../lib/api.js';
+import { createQaClient, type QaClient } from '../../lib/qa-client.js';
+import type { AnalyticsTrend } from '../../lib/qa.js';
+import { formatDuration, formatPercent, orDash, shortDate } from '../../lib/insights.js';
+import {
+  Kpi,
+  PageFrame,
+  PageHeader,
+  Paged,
+  Panel,
+  Quiet,
+  Segmented,
+} from '../../components/kit.js';
+import { TrendChart } from '../../components/TrendChart.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -11,14 +33,33 @@ export const Route = createRoute({
   component: () => <AnalyticsPage />,
 });
 
-export function AnalyticsPage({ api }: { api?: ApiClient }) {
+const WINDOWS = [
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' },
+  { value: '90', label: '90 days' },
+] as const;
+type WindowValue = (typeof WINDOWS)[number]['value'];
+
+/**
+ * Analytics: the install's all-time figures, then the chosen window day by day.
+ *
+ * Two sources, and they are kept apart on screen because they answer different
+ * questions. `analytics/summary` is every run the reporter recorded since the install
+ * began; the trend is the execution store over a window. Mixing them in one row would
+ * put an all-time pass rate beside a seven-day one with nothing to say which is which.
+ */
+export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
   const { data, isLoading, error } = useAnalytics(api);
+  const client = React.useMemo(() => qa ?? createQaClient(), [qa]);
+  const [days, setDays] = React.useState<WindowValue>('30');
+  const trend = useResource<AnalyticsTrend>(() => client.getTrend(Number(days)), [client, days]);
 
   if (isLoading) {
     return (
-      <div data-testid="analytics-loading" className="p-8">
-        Loading analytics...
-      </div>
+      <PageFrame data-testid="analytics-loading">
+        <PageHeader title="Analytics" />
+        <Quiet>Loading analytics...</Quiet>
+      </PageFrame>
     );
   }
 
@@ -42,37 +83,91 @@ export function AnalyticsPage({ api }: { api?: ApiClient }) {
     );
   }
 
+  const window = trend.status === 'ready' ? trend.value.current : null;
   return (
-    <div data-testid="analytics-page" className="p-8">
-      <h1 className="mb-4 text-balance text-3xl font-bold text-text-primary">Analytics Summary</h1>
-      {/*
-        `StatCard`, which is what these three were by hand — a title and a figure — and which
-        the screen was not using. The cost of hand-rolling it was that these figures carried
-        **no `tabular-nums`**: three numbers on the one screen whose entire content is three
-        numbers, none of them in the face the design language sets for a value a person
-        compares. That is the DESIGN-4 defect, and using the primitive is the whole fix.
-      */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard title="Total Runs" value={data.totalRuns} data-testid="stat-total-runs" />
-        <StatCard title="Pass Rate" value={`${data.passRate}%`} data-testid="stat-pass-rate" />
-        <StatCard
-          title="Avg Duration"
-          /*
-            `not measured`, not `N/A`.
-            *
-            A missing measurement is a state rather than a value, and `N/A` is a value-shaped
-            placeholder: two capitals and a slash, indistinguishable from an abbreviation a
-            reader has to decode. `PERF-1` is an open row precisely because some of this
-            repository's numbers have never been recorded, and the one screen that reports a
-            recorded average is the wrong place to imply one. The word is the same one the
-            Cockpit's unmeasured cells and the documentation site's evidence chain use, so one
-            phrase means one thing across the product — which is the rule the primitive's own
-            `unmeasured` prop exists to enforce.
-            */
-          value={data.avgDurationMs === null ? 'not measured' : `${data.avgDurationMs}ms`}
-          data-testid="stat-avg-duration"
+    <PageFrame data-testid="analytics-page">
+      <PageHeader
+        title="Analytics"
+        subtitle="All-time figures, then the chosen window day by day"
+        actions={<Segmented label="Window" options={WINDOWS} value={days} onChange={setDays} />}
+      />
+      <section aria-label="Run figures" className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-6">
+        <Kpi data-testid="stat-total-runs" label="Runs, all time" value={String(data.totalRuns)} />
+        <Kpi
+          data-testid="stat-pass-rate"
+          label="Pass rate, all time"
+          value={String(data.passRate)}
+          unit="%"
         />
+        <Kpi
+          data-testid="stat-avg-duration"
+          label="Avg duration, all time"
+          /*
+            `not measured`, not `N/A`: a missing measurement is a state rather than a value,
+            and the word is the one the dashboard's unmeasured cells use, so one phrase means
+            one thing across the product.
+          */
+          value={data.avgDurationMs === null ? 'not measured' : formatDuration(data.avgDurationMs)}
+        />
+        <Kpi
+          data-testid="stat-window-runs"
+          label={`Runs, ${days} days`}
+          value={window === null ? '—' : String(window.runs)}
+        />
+        <Kpi
+          data-testid="stat-window-pass-rate"
+          label={`Pass rate, ${days} days`}
+          value={orDash(window?.passRate ?? null, (value) => value.toFixed(1))}
+          unit="%"
+        />
+        <Kpi
+          data-testid="stat-window-failed"
+          label={`Failed tests, ${days} days`}
+          value={window === null ? '—' : String(window.testsFailed)}
+          footer={window === null ? undefined : `of ${String(window.tests)} executed`}
+        />
+      </section>
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Panel title={`Pass rate and volume · ${days} days`}>
+          {trend.status === 'ready' ? (
+            <TrendChart buckets={trend.value.buckets} data-testid="analytics-trend" />
+          ) : (
+            <Quiet data-testid="analytics-trend-state">
+              {trend.status === 'error' ? trend.message : 'Reading run history…'}
+            </Quiet>
+          )}
+        </Panel>
+        <Panel title="By day" data-testid="analytics-days">
+          {trend.status === 'ready' ? (
+            <Paged items={trend.value.buckets.slice().reverse()} reservedPx={460} label="day">
+              {(page) => (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Day</TableHead>
+                      <TableHead className="text-right">Runs</TableHead>
+                      <TableHead className="text-right">Pass rate</TableHead>
+                      <TableHead className="text-right">Failed tests</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {page.map((bucket) => (
+                      <TableRow key={bucket.date}>
+                        <TableCell>{shortDate(bucket.date)}</TableCell>
+                        <TableCell numeric>{bucket.runs}</TableCell>
+                        <TableCell numeric>{orDash(bucket.passRate, formatPercent)}</TableCell>
+                        <TableCell numeric>{bucket.testsFailed}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Paged>
+          ) : (
+            <Quiet>Waiting for run history…</Quiet>
+          )}
+        </Panel>
       </div>
-    </div>
+    </PageFrame>
   );
 }

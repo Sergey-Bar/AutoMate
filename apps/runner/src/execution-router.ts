@@ -64,8 +64,12 @@ export function readGenericCommand(
     argv,
     workingDirectory:
       typeof record['workingDirectory'] === 'string' ? record['workingDirectory'] : '.',
+    ...(typeof record['repository'] === 'string' && record['repository'].length > 0
+      ? { repository: record['repository'] }
+      : {}),
     artifactGlobs: readGlobs(record),
     env: resolveDeclaredEnvironment(record['env']),
+    evidence: record['evidence'] === 'exit-code' ? 'exit-code' : 'artifact',
   };
 }
 

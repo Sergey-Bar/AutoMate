@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { createRoute } from '@tanstack/react-router';
-import { Badge, Button, Card, EmptyState } from '@automate/ui';
+import { Badge, Button, EmptyState } from '@automate/ui';
 import type { RunPhase } from '@automate/shared-contracts';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useRunDetail } from '../../hooks/useDashboard.js';
 import { isRunActive } from '../../hooks/useRuns.js';
 import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
 import { formatDate as formatDateWithFallback } from '../../lib/format.js';
+import { formatDuration } from '../../lib/insights.js';
+import { PageFrame, Panel } from '../../components/kit.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -268,21 +270,24 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
   };
 
   return (
-    <div data-testid="run-detail-page" className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <PageFrame data-testid="run-detail-page">
+      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
           <a
             href="/dashboard/runs"
             className="rounded-sm text-sm text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             ← Runs
           </a>
-          <h1 className="mt-2 text-2xl font-bold">Run detail</h1>
-          <div data-testid="run-id" className="mt-1 break-all font-mono text-sm text-fg-muted">
-            {run.id}
+          <h1 className="mt-1 text-3xl font-light tracking-tight">Run detail</h1>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
+            {run.suite ? <span className="truncate font-mono text-fg">{run.suite}</span> : null}
+            <span data-testid="run-id" className="truncate font-mono">
+              {run.id}
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>
           <Badge data-testid="run-phase" variant={isRunActive(run) ? 'default' : 'outline'}>
             {run.phase}
@@ -290,77 +295,113 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
           <Badge data-testid="run-status" variant={outcomeTone(run.outcome)}>
             {(run.outcome ?? 'PENDING').toUpperCase()}
           </Badge>
+          {isRunActive(run) ? (
+            <Button
+              data-testid="cancel-run"
+              variant="destructive"
+              disabled={isActing}
+              onClick={() => void performCancel()}
+              className="min-h-11"
+            >
+              Cancel run
+            </Button>
+          ) : null}
+          {!isRunActive(run) && run.outcome !== 'passed' ? (
+            <Button
+              data-testid="retry-run"
+              variant="secondary"
+              disabled={isActing}
+              onClick={() => void performRetry()}
+              className="min-h-11"
+            >
+              Retry run
+            </Button>
+          ) : null}
         </div>
+      </header>
+      {actionError || retryTarget ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm">
+          {actionError ? (
+            <p role="alert" className="max-w-measure text-danger">
+              {actionError.message}
+            </p>
+          ) : null}
+          {retryTarget ? (
+            <a
+              data-testid="retry-run-link"
+              href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
+              className="rounded-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              Open retried run {retryTarget}
+            </a>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3">
+        <PhaseTimeline phase={run.phase} />
       </div>
 
-      <Card className="p-5">
-        <PhaseTimeline phase={run.phase} />
-      </Card>
+      <section
+        aria-label="Execution summary"
+        className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4"
+      >
+        <Figure label="Total" testId="run-total" value={String(run.summary.total)} />
+        <Figure
+          label="Passed"
+          testId="run-passed"
+          value={String(run.summary.passed)}
+          tone="text-success"
+        />
+        <Figure
+          label="Failed"
+          testId="run-failed"
+          value={String(run.summary.failed)}
+          tone="text-danger"
+        />
+        <Figure
+          label="Duration"
+          testId="run-duration"
+          value={
+            run.summary.durationMs == null ? 'UNKNOWN' : formatDuration(run.summary.durationMs)
+          }
+        />
+      </section>
+      {run.error ? (
+        <div
+          data-testid="run-error-context"
+          className="shrink-0 rounded-xl border border-danger px-4 py-2 text-sm"
+        >
+          <span className="font-semibold text-danger">{run.error.code}</span>{' '}
+          <span>{run.error.message}</span>
+        </div>
+      ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-        <div className="space-y-6">
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Execution summary</h2>
-            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <div>
-                <div className="text-xs text-fg-muted">Total</div>
-                <div data-testid="run-total">{run.summary.total}</div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Passed</div>
-                <div data-testid="run-passed" className="text-success">
-                  {run.summary.passed}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Failed</div>
-                <div data-testid="run-failed" className="text-danger">
-                  {run.summary.failed}
-                </div>
-              </div>
-              <div>
-                <div className="text-xs text-fg-muted">Duration</div>
-                <div data-testid="run-duration">
-                  {run.summary.durationMs == null ? 'UNKNOWN' : `${run.summary.durationMs}ms`}
-                </div>
-              </div>
-            </div>
-            {run.error ? (
-              <div
-                data-testid="run-error-context"
-                className="mt-5 rounded-md border border-danger p-4 text-sm"
-              >
-                <div className="font-semibold text-danger">{run.error.code}</div>
-                <div>{run.error.message}</div>
-              </div>
-            ) : null}
-          </Card>
+      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
+        <Panel title="Test attempts">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <TestEvidence tests={run.tests} />
+          </div>
+        </Panel>
 
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Test attempts</h2>
-            <div className="mt-4">
-              <TestEvidence tests={run.tests} />
-            </div>
-          </Card>
-
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Artifacts</h2>
+        <div className="flex min-h-0 flex-col gap-3">
+          <Panel title="Artifacts" className="min-h-0 flex-1">
             {evidenceError ? (
-              <p className="mt-3 text-sm text-warning max-w-measure text-pretty">
+              <p className="max-w-measure text-pretty text-sm text-warning">
                 Some artifact metadata could not be refreshed.
               </p>
             ) : null}
             {artifacts.length > 0 ? (
-              <ul className="mt-4 divide-y divide-border-default">
+              <ul className="min-h-0 flex-1 divide-y divide-border-default overflow-y-auto">
                 {artifacts.map((artifact) => (
-                  <li key={artifact.id} className="py-3">
+                  <li key={artifact.id} className="py-2">
                     <a
                       href={getArtifactUrl(artifact.id)}
                       className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                     >
                       {artifact.name ?? artifact.kind}
                     </a>
-                    <div className="mt-1 text-xs text-fg-muted">
+                    <div className="mt-0.5 truncate text-xs text-fg-muted">
                       {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
                       {artifact.checksum.slice(0, 12)}...
                     </div>
@@ -368,89 +409,64 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 ))}
               </ul>
             ) : (
-              <p className="mt-4 text-sm text-fg-muted max-w-measure text-pretty">
+              <p className="max-w-measure text-pretty text-sm text-fg-muted">
                 No persisted artifacts have been reported.
               </p>
             )}
-          </Card>
-
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Live event timeline</h2>
+          </Panel>
+          <Panel title="Live event timeline" className="min-h-0 flex-1">
             {events.length > 0 ? (
-              <ol className="mt-4 space-y-3">
+              <ol className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
                 {events.map((event) => (
                   <li
                     key={event.eventId}
-                    className="rounded-md border border-border-default bg-surface-sunken p-3 text-sm"
+                    className="flex justify-between gap-3 rounded-md bg-surface-sunken px-3 py-1.5 text-sm"
                   >
-                    <div className="flex justify-between gap-3">
-                      <span className="font-medium">{event.type}</span>
-                      <span className="text-xs text-fg-muted">#{event.sequence}</span>
-                    </div>
-                    <div className="mt-1 text-xs text-fg-muted">{formatDate(event.occurredAt)}</div>
+                    <span className="truncate font-medium">{event.type}</span>
+                    <span className="shrink-0 text-xs text-fg-muted">
+                      #{event.sequence} · {formatDate(event.occurredAt)}
+                    </span>
                   </li>
                 ))}
               </ol>
             ) : (
-              <p className="mt-4 text-sm text-fg-muted max-w-measure text-pretty">
+              <p className="max-w-measure text-pretty text-sm text-fg-muted">
                 No events have been observed in this browser session. Run state above is the
                 authoritative API snapshot.
               </p>
             )}
-          </Card>
+          </Panel>
         </div>
 
-        <aside className="space-y-6">
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Run context</h2>
-            <dl className="mt-4 space-y-3 text-sm">
-              <div>
-                <dt className="text-xs text-fg-muted">Project</dt>
-                <dd data-testid="run-project">{run.projectId ?? 'UNKNOWN'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Environment</dt>
-                <dd>{run.environmentId ?? 'UNKNOWN'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Release</dt>
-                <dd>{run.releaseId ?? 'UNKNOWN'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Branch / Commit</dt>
-                <dd>
-                  {run.branch ?? 'UNKNOWN'} / {run.commit ?? 'UNKNOWN'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Framework</dt>
-                <dd>{run.framework ?? 'UNKNOWN'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Runner</dt>
-                <dd>{run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Created</dt>
-                <dd>{formatDate(run.createdAt)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Started</dt>
-                <dd>{formatDate(run.startedAt)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-fg-muted">Finished</dt>
-                <dd>{formatDate(run.finishedAt)}</dd>
-              </div>
+        <div className="flex min-h-0 flex-col gap-3">
+          <Panel title="Run context" className="min-h-0 flex-1">
+            <dl className="grid min-h-0 grid-cols-2 gap-x-3 gap-y-2 overflow-y-auto text-sm">
+              <ContextItem
+                label="Project"
+                testId="run-project"
+                value={run.projectId ?? 'UNKNOWN'}
+              />
+              <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
+              <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
+              <ContextItem
+                label="Branch / Commit"
+                value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
+              />
+              <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
+              <ContextItem
+                label="Runner"
+                value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'}
+              />
+              <ContextItem label="Created" value={formatDate(run.createdAt)} />
+              <ContextItem label="Started" value={formatDate(run.startedAt)} />
+              <ContextItem label="Finished" value={formatDate(run.finishedAt)} />
             </dl>
-          </Card>
-
-          <Card className="p-6" data-testid="run-gate">
-            <h2 className="text-lg font-semibold">Quality gate</h2>
+          </Panel>
+          <Panel title="Quality gate" data-testid="run-gate">
             {gate ? (
               <>
                 <Badge
-                  className="mt-3"
+                  className="self-start"
                   variant={
                     gate.status === 'passed'
                       ? 'success'
@@ -461,91 +477,86 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 >
                   {gate.status.toUpperCase()}
                 </Badge>
-                <ul className="mt-4 space-y-2 text-sm">
+                <ul className="mt-2 space-y-1 text-sm">
                   {gate.reasons.map((reason, index) => (
                     <li key={`${reason}-${index}`}>{reason}</li>
                   ))}
                 </ul>
                 {gate.evidenceRefs.length > 0 ? (
-                  <p className="mt-4 text-xs text-fg-muted max-w-measure text-pretty">
+                  <p className="mt-2 max-w-measure truncate text-xs text-fg-muted">
                     Evidence: {gate.evidenceRefs.join(', ')}
                   </p>
                 ) : null}
               </>
             ) : (
-              <p className="mt-3 text-sm text-fg-muted max-w-measure text-pretty">
+              <p className="max-w-measure text-pretty text-sm text-fg-muted">
                 UNKNOWN — no persisted gate evaluation is available.
               </p>
             )}
-          </Card>
-
+          </Panel>
           {readiness ? (
-            <Card className="p-6" data-testid="run-readiness">
-              <h2 className="text-lg font-semibold">Release readiness</h2>
-              <Badge
-                className="mt-3"
-                variant={
-                  readiness.decision === 'ready'
-                    ? 'success'
-                    : readiness.decision === 'blocked'
-                      ? 'danger'
-                      : 'warning'
-                }
-              >
-                {readiness.decision.toUpperCase()}
-              </Badge>
-              <div className="mt-4 space-y-2 text-sm">
+            <Panel
+              title="Release readiness"
+              data-testid="run-readiness"
+              action={
+                <Badge
+                  variant={
+                    readiness.decision === 'ready'
+                      ? 'success'
+                      : readiness.decision === 'blocked'
+                        ? 'danger'
+                        : 'warning'
+                  }
+                >
+                  {readiness.decision.toUpperCase()}
+                </Badge>
+              }
+            >
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 {Object.entries(readiness.domains).map(([domain, status]) => (
-                  <div key={domain} className="flex justify-between gap-3">
+                  <div key={domain} className="flex justify-between gap-2">
                     <span className="capitalize">{domain}</span>
                     <span>{status.toUpperCase()}</span>
                   </div>
                 ))}
               </div>
-            </Card>
+            </Panel>
           ) : null}
-
-          <Card className="p-6">
-            <h2 className="text-lg font-semibold">Actions</h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {isRunActive(run) ? (
-                <Button
-                  data-testid="cancel-run"
-                  variant="destructive"
-                  disabled={isActing}
-                  onClick={() => void performCancel()}
-                >
-                  Cancel run
-                </Button>
-              ) : null}
-              {!isRunActive(run) && run.outcome !== 'passed' ? (
-                <Button
-                  data-testid="retry-run"
-                  variant="secondary"
-                  disabled={isActing}
-                  onClick={() => void performRetry()}
-                >
-                  Retry run
-                </Button>
-              ) : null}
-            </div>
-            {actionError ? (
-              <p role="alert" className="mt-3 text-sm text-danger">
-                {actionError.message}
-              </p>
-            ) : null}
-            {retryTarget ? (
-              <a
-                data-testid="retry-run-link"
-                href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
-                className="mt-3 block rounded-sm text-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                Open retried run {retryTarget}
-              </a>
-            ) : null}
-          </Card>
-        </aside>
+        </div>
       </div>
+    </PageFrame>
+  );
+}
+
+/** One summary figure, with the test id on the value itself so its text is exactly the number. */
+function Figure({
+  label,
+  value,
+  testId,
+  tone,
+}: {
+  label: string;
+  value: string;
+  testId: string;
+  tone?: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
+      <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">{label}</div>
+      <div data-testid={testId} className={`mt-1 tabular-nums text-3xl font-light ${tone ?? ''}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ContextItem({ label, value, testId }: { label: string; value: string; testId?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-fg-muted">{label}</dt>
+      <dd data-testid={testId} className="m-0 truncate" title={value}>
+        {value}
+      </dd>
     </div>
   );
 }

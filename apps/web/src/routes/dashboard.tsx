@@ -1,11 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { createRoute, Link, Outlet, useRouterState } from '@tanstack/react-router';
-import { Badge, Button, Card } from '@automate/ui';
+import { Badge, Button } from '@automate/ui';
 import { Route as rootRoute } from './__root.js';
 import type { CreateRunRequest, DomainReadinessStatus } from '@automate/shared-contracts';
 import { useReleaseReadiness } from '../hooks/useDashboard.js';
 import { isRunActive } from '../hooks/useRuns.js';
-import { Cockpit } from '../components/Cockpit.js';
+import { Dashboard } from '../components/Dashboard.js';
+import { Panel, Quiet } from '../components/kit.js';
 import { createQaClient } from '../lib/qa-client.js';
 import { defaultApiClient, type ApiClient, type Run } from '../lib/api.js';
 import { formatDate } from '../lib/format.js';
@@ -126,10 +127,10 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
     'mt-1 w-full rounded-md border border-border-default bg-surface px-3 py-2 text-sm outline-none focus:border-accent';
 
   return (
-    <Card className="p-6">
+    <div>
       <div>
         <h2 className="text-lg font-semibold">Launch browser run</h2>
-        <p className="mt-1 text-sm text-fg-muted">
+        <p className="mt-1 max-w-measure text-sm text-fg-muted">
           Project, environment, and release IDs must already be registered with the execution
           service.
         </p>
@@ -237,10 +238,16 @@ export function LaunchRunForm({ api, onCreated }: { api: ApiClient; onCreated: (
           </a>
         </p>
       ) : null}
-    </Card>
+    </div>
   );
 }
 
+/**
+ * Release readiness, compact: one row per domain, the decision in the panel header.
+ *
+ * Rows rather than the tile grid it used to be, because seven tiles at three per row was a
+ * third of the runs page on its own and the redesign's runs page fits the viewport.
+ */
 export function ReleaseReadinessCard({
   releaseId,
   api,
@@ -252,24 +259,19 @@ export function ReleaseReadinessCard({
 
   if (isLoading) {
     return (
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold">Release readiness</h2>
-        <p className="mt-3 text-sm text-fg-muted">Loading persisted gate evidence...</p>
-      </Card>
+      <Panel title="Release readiness">
+        <Quiet>Loading persisted gate evidence…</Quiet>
+      </Panel>
     );
   }
 
   const domains = Object.entries(data?.domains ?? DEFAULT_DOMAIN_STATUS);
 
   return (
-    <Card className="p-6" data-testid="release-readiness">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Release readiness</h2>
-          <p className="mt-1 text-sm text-fg-muted">
-            {releaseId ? `Release ${releaseId}` : 'No release selected'}
-          </p>
-        </div>
+    <Panel
+      title="Release readiness"
+      data-testid="release-readiness"
+      action={
         <Badge
           variant={
             data?.decision === 'ready'
@@ -281,65 +283,65 @@ export function ReleaseReadinessCard({
         >
           {(data?.decision ?? 'unknown').toUpperCase()}
         </Badge>
-      </div>
+      }
+    >
+      <p className="max-w-measure truncate text-xs text-fg-muted">
+        {releaseId ? `Release ${releaseId}` : 'No release selected'}
+      </p>
       {error ? (
-        <p className="mt-3 text-sm text-danger">Readiness could not be loaded: {error.message}</p>
+        <p className="mt-1 max-w-measure text-xs text-danger">
+          Readiness could not be loaded: {error.message}
+        </p>
       ) : null}
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
         {domains.map(([domain, status]) => {
           const reason = data ? undefined : DEFAULT_DOMAIN_REASONS[domain];
           return (
-            <div key={domain} className="rounded-md border border-border-default p-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium capitalize">{domain}</span>
-                <Badge variant={readinessTone(status)}>{status.toUpperCase()}</Badge>
-              </div>
-              {reason ? <p className="mt-2 text-xs text-fg-muted">{reason}</p> : null}
-            </div>
+            <li key={domain} className="flex min-w-0 flex-col" title={reason}>
+              <span className="text-xs capitalize text-fg-muted">{domain}</span>
+              <Badge variant={readinessTone(status)} className="self-start">
+                {status.toUpperCase()}
+              </Badge>
+            </li>
           );
         })}
-      </div>
-    </Card>
+      </ul>
+    </Panel>
   );
 }
 
 export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
-  // **Nothing, not an empty state.** This card now sits on the runs page beside the
-  // full run table, which renders its own empty state. Two "there is nothing here"
-  // panels on one screen is noise that reads as two separate failures, and the older
-  // panel said "No canonical runs exist" while the newer one said "No execution
-  // evidence" — the same fact in two words.
+  // **Nothing, not an empty state.** This panel sits beside the full run table, which
+  // renders its own empty state. Two "there is nothing here" panels on one screen is noise
+  // that reads as two separate failures.
   if (runs.length === 0) return null;
 
   return (
-    <Card className="overflow-hidden">
-      <div className="flex items-center justify-between border-b border-border-default p-4">
-        <h2 className="font-semibold">Recent executions</h2>
-        <span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>
-      </div>
+    <Panel
+      title="Recent executions"
+      action={<span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>}
+    >
       <div className="divide-y divide-border-default">
-        {runs.slice(0, 5).map((run) => (
+        {runs.slice(0, 3).map((run) => (
           <Link
             key={run.id}
             to="/dashboard/runs/$runId"
             params={{ runId: run.id }}
             data-testid={`run-item-${run.id}`}
-            className="flex items-center justify-between gap-4 p-4 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            className="flex items-center justify-between gap-3 rounded-md py-2 no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             <div className="min-w-0">
-              <div className="truncate font-mono text-sm">{run.id}</div>
-              <div className="mt-1 text-xs text-fg-muted">
+              <div className="truncate font-mono text-xs">{run.suite ?? run.id}</div>
+              <div className="truncate text-xs text-fg-muted">
                 {run.projectId ?? 'UNKNOWN PROJECT'} · {formatRequiredDate(run.createdAt)}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
               <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>
               {/*
-               * `role="status"` is a polite live region, so a screen-reader user
-               * hears "run-42 passed" the moment the status flips. Without it the
-               * badge silently changes colour and text under a user who is
-               * watching something else, and the only sign a run finished is a
-               * change they were not told about.
+               * `role="status"` is a polite live region, so a screen-reader user hears
+               * "run-42 passed" the moment the status flips. Without it the badge silently
+               * changes colour and text under a user who is watching something else.
                */}
               <Badge
                 role="status"
@@ -359,32 +361,21 @@ export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
           </Link>
         ))}
       </div>
-    </Card>
+    </Panel>
   );
 }
 
 /**
  * The dashboard layout, and the only component on the `/dashboard` path.
  *
- * ## What it does, and what it deliberately does not
+ * `/dashboard` is the dashboard: open the install and read the whole QA picture of the
+ * repository. Every other screen is a child route rendered through the outlet.
  *
- * `/dashboard` is the cockpit: open the install, see what is blocking you. A home
- * page that asks you to fill in a form before it tells you anything is a form, so
- * the launch form moved to `/dashboard/runs` and this layout either renders the
- * cockpit or renders the child route.
- *
- * **It calls no hook that opens a resource.** That is the whole of ledger W-5, which
- * stayed open here for a year: `useRuns` used to be called here *before* the
- * `if (!isExactDashboard) return <Outlet />` guard, so every child route ran a second
- * copy of it — a second armed five-second poller and a second list fetch that nothing
- * rendered, because a hook cannot be called conditionally and the early return came
- * too late. The shared `EventSource` was fixed separately; the duplicate poller was
- * not, and it was left open because landing the fix without its covering test would
- * have cost a line against `apps/web`'s deliberately raised floor.
- *
- * `useRouterState` is a subscription, not a resource: it holds no socket and arms no
- * timer, so reading the path here costs nothing. The test that says so is
- * `dashboard.test.tsx` ? "arms one run poller on the runs route, not one per level".
+ * **It calls no hook that opens a resource.** `useRuns` used to be called here *before*
+ * the exact-path guard, so every child route ran a second armed poller and a second list
+ * fetch that nothing rendered (ledger W-5). `useRouterState` is a subscription, not a
+ * resource: it holds no socket and arms no timer. The test that says so is
+ * `dashboard.test.tsx` › "arms one run poller on the runs route, not one per level".
  */
 function DashboardLayout() {
   const isExactDashboard = useRouterState({
@@ -392,8 +383,8 @@ function DashboardLayout() {
   });
 
   return (
-    <div data-testid="dashboard-page" className="space-y-6">
-      {isExactDashboard ? <Cockpit qa={createQaClient()} api={defaultApiClient} /> : <Outlet />}
+    <div data-testid="dashboard-page" className="h-full min-h-0">
+      {isExactDashboard ? <Dashboard qa={createQaClient()} api={defaultApiClient} /> : <Outlet />}
     </div>
   );
 }

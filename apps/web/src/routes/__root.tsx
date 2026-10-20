@@ -1,7 +1,6 @@
 import React from 'react';
 import { Outlet, createRootRoute, redirect } from '@tanstack/react-router';
 import { NavBar } from '../components/NavBar.js';
-import { Sidebar } from '../components/Sidebar.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 import { GlobalCommandPalette } from '../components/GlobalCommandPalette.js';
 
@@ -28,16 +27,21 @@ export const Route = createRootRoute({
 });
 
 function RootComponent() {
+  /*
+   * **The viewport is the page.** `h-dvh` and `overflow-hidden` on the frame, and each
+   * screen is laid out into what is left — `PageFrame` fills it and panels page their
+   * lists — so a screen is composed to fit rather than scrolled through. `main` keeps
+   * `overflow-y-auto` as a floor rather than a feature: below the `lg` breakpoint the
+   * panels stack and reflow is what WCAG 1.4.10 requires, and clipping content that did
+   * not fit would hide it rather than show it.
+   */
   return (
     <ThemeProvider>
-      <div className="flex min-h-screen flex-col bg-surface text-fg">
+      <div className="flex h-dvh flex-col overflow-hidden bg-surface text-fg">
         <NavBar />
-        <div className="flex min-h-0 flex-1">
-          <Sidebar />
-          <main className="min-w-0 flex-1 overflow-auto p-4 sm:p-6">
-            <Outlet />
-          </main>
-        </div>
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:px-6">
+          <Outlet />
+        </main>
       </div>
       <GlobalCommandPalette />
     </ThemeProvider>

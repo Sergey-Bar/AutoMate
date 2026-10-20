@@ -14,7 +14,6 @@ import { expectNoBlockingAxeViolations } from './test-axe.js';
 import { RunExplorer } from './components/dashboard/RunExplorer.js';
 import { EmptyState, Alert, AlertDescription, AlertTitle, Skeleton } from '@automate/ui';
 import { RunList } from './components/RunList.js';
-import { Sidebar } from './components/Sidebar.js';
 import { ThemeToggle } from './components/ThemeToggle.js';
 import { NavBar } from './components/NavBar.js';
 import { ThemeProvider } from './theme/ThemeProvider.js';
@@ -59,12 +58,6 @@ describe('axe sweep over the client components', () => {
       </ThemeProvider>,
     );
     await waitFor(() => expect(screen.getByTestId('nav-bar')).toBeInTheDocument());
-    await expectNoBlockingAxeViolations(container);
-  });
-
-  it('reports no violations for the sidebar', async () => {
-    const { container } = renderRouted(<Sidebar />);
-    await waitFor(() => expect(screen.getByTestId('sidebar')).toBeInTheDocument());
     await expectNoBlockingAxeViolations(container);
   });
 
@@ -161,7 +154,7 @@ describe('NavBar keyboard operation', () => {
       '/dashboard',
     );
     await waitFor(() => expect(screen.getByTestId('nav-bar')).toBeInTheDocument());
-    expect(screen.getByRole('link', { name: 'Cockpit' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('link', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
   });
 
   /**
@@ -342,7 +335,6 @@ const CHROME: ReadonlyArray<readonly [name: string, mount: () => HTMLElement]> =
         </ThemeProvider>,
       ).container,
   ],
-  ['Sidebar', () => renderRouted(<Sidebar />).container],
   [
     'the run detail screen',
     () =>

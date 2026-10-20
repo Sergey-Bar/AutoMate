@@ -73,6 +73,9 @@ function harness(
     workspaceRoot: workspace,
     artifactMaxBytes: 1024 * 1024,
     logMaxBytes: 64 * 1024,
+    // Pinned, so these assertions about argv are the same on a Windows host as on CI;
+    // the Windows resolution has its own cases in `windows-command.test.ts`.
+    platform: 'linux',
     spawnProcess: (command, args, options) => {
       calls.push({ command, args: [...args], options });
       const fake = new FakeChild();
@@ -347,6 +350,120 @@ describe('stdout is evidence, never a result', () => {
     } finally {
       await cleanup();
     }
+  });
+
+  describe('a tool whose answer is its exit status', () => {
+    it('runs in the registered checkout inside the root, and refuses one outside it', async () => {
+      const { repo, workspace, cleanup } = await scaffold();
+      try {
+        await mkdir(path.join(repo, 'shop', 'web'), { recursive: true });
+        const { adapter, calls, finish } = harness(repo, workspace);
+        const running = adapter.execute(
+          context({
+            command: {
+              ...command(['pnpm', 'run', 'lint']),
+              workingDirectory: 'web',
+              repository: path.join(repo, 'shop'),
+              evidence: 'exit-code',
+            },
+          }),
+        );
+        void finish(0);
+        expect((await running).status).toBe('passed');
+        expect(calls[0]?.options.cwd).toBe(path.join(repo, 'shop', 'web'));
+
+        await expect(
+          adapter.execute(
+            context({
+              command: {
+                ...command(['pnpm']),
+                repository: path.dirname(repo),
+                evidence: 'exit-code',
+              },
+            }),
+          ),
+        ).rejects.toThrow(/outside the registered repository/u);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('runs a Windows batch shim under cmd.exe, with the Windows start-up variables', async () => {
+      const { repo, workspace, cleanup } = await scaffold();
+      try {
+        const { adapter, calls, finish } = harness(repo, workspace, {
+          platform: 'win32',
+          environment: {
+            PATH: 'C:\\tools',
+            PATHEXT: '.EXE;.CMD',
+            ComSpec: 'C:\\Windows\\cmd.exe',
+            SystemRoot: 'C:\\Windows',
+            SECRET_TOKEN: 'never-forwarded',
+          },
+          fileExists: (candidate) => candidate === 'C:\\tools\\pnpm.CMD',
+        });
+        const running = adapter.execute(
+          context({ command: { ...command(['pnpm', 'run', 'lint']), evidence: 'exit-code' } }),
+        );
+        void finish(0);
+        expect((await running).status).toBe('passed');
+        expect(calls[0]?.command).toBe('C:\\Windows\\cmd.exe');
+        expect(calls[0]?.args).toEqual(['/d', '/s', '/c', '""C:\\tools\\pnpm.CMD" run lint"']);
+        expect(calls[0]?.options.windowsVerbatimArguments).toBe(true);
+        expect(calls[0]?.options.env).toMatchObject({
+          SystemRoot: 'C:\\Windows',
+          PATH: 'C:\\tools',
+        });
+        expect(calls[0]?.options.env).not.toHaveProperty('SECRET_TOKEN');
+      } finally {
+        await cleanup();
+      }
+    });
+    const tool = (argv: readonly string[]) => ({
+      ...command(argv),
+      evidence: 'exit-code' as const,
+    });
+
+    it.each([
+      [0, 'passed'],
+      [1, 'failed'],
+      // `tsc` exits 2 on a type error. That is the check saying no, not a broken host.
+      [2, 'failed'],
+      [127, 'infra_failed'],
+      [null, 'infra_failed'],
+    ])('exit %s is %s, with no artifact required', async (code, expected) => {
+      const { repo, workspace, cleanup } = await scaffold();
+      try {
+        const { adapter, finish } = harness(repo, workspace);
+        const running = adapter.execute(context({ command: tool(['pnpm', 'run', 'lint']) }));
+        void finish(code);
+        const result = await running;
+        expect(result.status).toBe(expected);
+        if (expected === 'infra_failed') {
+          expect(result.error?.message).toMatch(/did not run, or was killed/u);
+        } else {
+          expect(result.error).toBeUndefined();
+        }
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('still reports a cancellation as cancelled', async () => {
+      const { repo, workspace, cleanup } = await scaffold();
+      try {
+        const controller = new AbortController();
+        const { adapter, finish } = harness(repo, workspace);
+        const running = adapter.execute(
+          context({ command: tool(['pnpm', 'run', 'lint']), signal: controller.signal }),
+        );
+        controller.abort();
+        void finish(null);
+        expect((await running).status).toBe('cancelled');
+      } finally {
+        await cleanup();
+      }
+    });
   });
 });
 

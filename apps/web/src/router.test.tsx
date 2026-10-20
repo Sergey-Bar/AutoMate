@@ -50,7 +50,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('the root route owns the redirect to the cockpit', () => {
+describe('the root route owns the redirect to the dashboard', () => {
   // This is the shape that made the render above cost 15 seconds instead of 1.5.
   //
   // The redirect was a rendered `<Navigate>` on a child route declared with
@@ -86,24 +86,24 @@ describe('the root route owns the redirect to the cockpit', () => {
 });
 
 describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
-  it('activates the dashboard route and renders the cockpit', async () => {
+  it('activates the dashboard route and renders the dashboard', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      () => expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument(),
       { timeout: RENDER_TIMEOUT_MS },
     );
     expect(screen.getByTestId('dashboard-page')).toBeInTheDocument();
   });
 
-  it('redirects the root route to the cockpit instead of a placeholder home', async () => {
+  it('redirects the root route to the dashboard instead of a placeholder home', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/']} />);
     // The heading, not a sub-state testid: the cockpit has two states — a report and
-    // an onboarding screen — and both are named `Automate`, so this assertion holds
+    // an onboarding screen — and both are named `Dashboard`, so this assertion holds
     // whichever one a bare install is in.
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      () => expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument(),
       { timeout: RENDER_TIMEOUT_MS },
     );
   });
@@ -123,11 +123,11 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(container.querySelectorAll('[data-testid="dashboard-page"]')).toHaveLength(1);
   });
 
-  it('navigates from the cockpit to the runs list in one click', async () => {
+  it('navigates from the dashboard to the runs list in one click', async () => {
     mockAuthenticatedApi();
     render(<MemoryRouter initialEntries={['/dashboard']} />);
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Automate' })).toBeInTheDocument(),
+      () => expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument(),
       {
         timeout: RENDER_TIMEOUT_MS,
       },
@@ -148,6 +148,6 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument(), {
       timeout: RENDER_TIMEOUT_MS,
     });
-    expect(screen.queryByTestId('cockpit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('onboarding')).not.toBeInTheDocument();
   });
 });

@@ -1,7 +1,10 @@
 export const routeManifest = [
-  { id: 'command-center', path: '/dashboard', label: 'Cockpit', visible: true },
+  { id: 'dashboard', path: '/dashboard', label: 'Dashboard', visible: true },
   { id: 'runs', path: '/dashboard/runs', label: 'Runs', visible: true },
   { id: 'run-detail', path: '/dashboard/runs/:runId', label: 'Run Detail', visible: false },
+  { id: 'runner', path: '/dashboard/runner', label: 'Runner', visible: true },
+  { id: 'health', path: '/dashboard/health', label: 'Health', visible: true },
+  { id: 'toolbox', path: '/dashboard/toolbox', label: 'Toolbox', visible: true },
   { id: 'analytics', path: '/dashboard/analytics', label: 'Analytics', visible: true },
   { id: 'quarantine', path: '/dashboard/quarantine', label: 'Quarantine', visible: true },
   { id: 'score', path: '/dashboard/score/:projectId', label: 'Health Score', visible: false },

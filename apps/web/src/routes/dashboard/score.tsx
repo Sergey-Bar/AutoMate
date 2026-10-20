@@ -1,13 +1,8 @@
 import React from 'react';
 import { createRoute } from '@tanstack/react-router';
 import {
-  Card,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   EmptyState,
   Skeleton,
-  StatCard,
   Table,
   TableBody,
   TableCell,
@@ -19,6 +14,7 @@ import { Route as dashboardRoute } from '../dashboard.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
 import type { QaScore } from '../../lib/qa.js';
 import { useResource } from '../../hooks/useResource.js';
+import { Kpi, PageFrame, PageHeader, Panel } from '../../components/kit.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -63,37 +59,39 @@ export function ScorePage({
   const resource = useResource<QaScore>(() => api.getScore(projectId), [api, projectId]);
   if (resource.status === 'loading') return <Skeleton />;
   if (resource.status === 'error') {
-    return <EmptyState title="Could not load the score" description={resource.message} />;
+    return (
+      <PageFrame>
+        <PageHeader title="Health score" />
+        <EmptyState title="Could not load the score" description={resource.message} />
+      </PageFrame>
+    );
   }
 
   const score = resource.value;
   const capping = cappingCell(score);
   return (
-    <section aria-label="Health score">
-      <StatCard title="Health score" value={`${score.total.toFixed(1)}/100`} />
-      {/* The limiter, on the same screen as the number it explains. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>What is capping this score</CardTitle>
-          <CardDescription>{capping.reason}</CardDescription>
-        </CardHeader>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Row</TableHead>
-              <TableHead>Value</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableRow>
-              <TableCell>{capping.row}</TableCell>
-              <TableCell numeric>{capping.value.toFixed(2)}</TableCell>
-            </TableRow>
-          </TableBody>
-        </Table>
-      </Card>
+    <PageFrame aria-label="Health score">
+      <PageHeader title="Health score" subtitle={`Read at ${score.at}`} />
+      <section aria-label="Score figures" className="grid shrink-0 gap-3 md:grid-cols-3">
+        <Kpi
+          label="Health score"
+          value={`${score.total.toFixed(1)}/100`}
+          footer="weighted geometric mean"
+        />
+        {/* The limiter, on the same screen as the number it explains. */}
+        <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-accent bg-surface-raised px-4 py-3 md:col-span-2">
+          <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">
+            What is capping this score
+          </div>
+          <div className="mt-1 flex items-baseline gap-3">
+            <span className="font-mono text-2xl">{capping.row}</span>
+            <span className="tabular-nums text-2xl text-danger">{capping.value.toFixed(2)}</span>
+          </div>
+          <p className="mt-1 max-w-measure text-pretty text-xs text-fg-muted">{capping.reason}</p>
+        </div>
+      </section>
       <Matrix score={score} />
-    </section>
+    </PageFrame>
   );
 }
 
@@ -125,13 +123,10 @@ function Matrix({ score }: { score: QaScore }): React.ReactElement {
   const categories = [...new Set(score.cells.map((cell) => cell.category))];
   const surfaces = ['backend', 'frontend', 'platform'] as const;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Matrix</CardTitle>
-        <CardDescription>
-          Every cell carries its own components, so no number here is unexplained.
-        </CardDescription>
-      </CardHeader>
+    <Panel title="Matrix" className="flex-1">
+      <p className="mb-2 max-w-measure text-pretty text-xs text-fg-muted">
+        Every cell carries its own components, so no number here is unexplained.
+      </p>
       <Table>
         <TableHeader>
           <TableRow>
@@ -150,14 +145,16 @@ function Matrix({ score }: { score: QaScore }): React.ReactElement {
                   (candidate) => candidate.category === category && candidate.surface === surface,
                 );
                 return (
-                  <TableCell key={surface}>{cell === undefined ? '—' : formatCell(cell)}</TableCell>
+                  <TableCell key={surface} numeric>
+                    {cell === undefined ? '—' : formatCell(cell)}
+                  </TableCell>
                 );
               })}
             </TableRow>
           ))}
         </TableBody>
       </Table>
-    </Card>
+    </Panel>
   );
 }
 
