@@ -89,7 +89,7 @@ export function Panel({
     <section
       aria-labelledby={id}
       className={cn(
-        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-3 sm:p-4',
+        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-3 shadow-elevation-1 sm:p-4',
         className,
       )}
       {...props}
@@ -156,6 +156,7 @@ export function Kpi({
   footer,
   tone,
   spark,
+  hero = false,
   ...props
 }: Omit<React.HTMLAttributes<HTMLDivElement>, 'children'> & {
   label: string;
@@ -165,10 +166,19 @@ export function Kpi({
   tone?: string;
   /** A small trend drawn beside the figure, from wide screens up. */
   spark?: React.ReactNode;
+  /**
+   * The one figure a screen leads with: a lighter, larger numeral and a lifted card. One per
+   * screen at most — two heroes is no hero.
+   */
+  hero?: boolean;
 }): React.ReactElement {
   return (
     <div
-      className="flex min-w-0 flex-col justify-between rounded-2xl border border-border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3"
+      className={cn(
+        'flex min-w-0 flex-col justify-between rounded-2xl border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3',
+        hero ? 'border-border-strong shadow-elevation-2' : 'border-border shadow-elevation-1',
+      )}
+      data-hero={hero ? '' : undefined}
       {...props}
     >
       <div
@@ -180,7 +190,12 @@ export function Kpi({
       <div className="mt-0.5 flex items-end justify-between gap-2 sm:mt-1">
         <div className={cn('flex min-w-0 items-baseline gap-1', tone)}>
           <span
-            className="truncate tabular-nums text-2xl font-light tracking-tight sm:text-3xl xl:text-4xl"
+            className={cn(
+              'truncate tabular-nums tracking-tight',
+              hero
+                ? 'text-3xl font-extralight sm:text-4xl xl:text-5xl'
+                : 'text-2xl font-light sm:text-3xl xl:text-4xl',
+            )}
             title={unit === undefined ? value : `${value} ${unit}`}
           >
             {value}
@@ -344,7 +359,11 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
 }): React.ReactElement {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-full bg-surface-muted p-1">
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex rounded-full border border-border bg-surface-muted p-1"
+    >
       {options.map((option) => (
         <button
           key={option.value}
@@ -352,8 +371,10 @@ export function Segmented<T extends string>({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'min-h-11 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
-            option.value === value ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg',
+            'min-h-11 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+            option.value === value
+              ? 'bg-surface-raised text-fg shadow-elevation-1'
+              : 'text-fg-muted hover:text-fg',
           )}
         >
           {option.label}

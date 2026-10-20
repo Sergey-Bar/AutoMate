@@ -8,8 +8,11 @@ import { formatDuration, formatPercent, orDash, shortDate } from '../lib/insight
  *
  * ## What a reader gets at a glance, and what on hover
  *
- * Each day's bar is split into **passed, failed and other** — the colour carries the
- * verdict, so a red stripe is visible before any number is read. The pass-rate line rides
+ * Each day's bar is split into **passed, failed, flaky and other** — the colour carries the
+ * verdict, so a failing stripe is visible before any number is read. The colours are the
+ * chart palette (`--automate-chart-*`), which `theme.test.ts` measures at 3:1 on every plane
+ * and apart from each other under a deuteranopia simulation; they used to be the status
+ * colours at three opacities, which is what made "passed" and "other" one blur. The pass-rate line rides
  * on top with a point on every day that had a verdict. Pointing at a day draws a guide and
  * a readout with that day's runs, verdicts, pass rate and duration; the same figures are a
  * visually hidden table for a screen reader, because a polyline is not readable aloud.
@@ -31,10 +34,12 @@ const WIDTH = 100;
 const HEIGHT = 40;
 const GRID = [100, 75, 50, 25, 0] as const;
 
-const SEGMENTS = [
-  { key: 'passed', label: 'Passed', tone: 'text-success', opacity: 0.55 },
-  { key: 'failed', label: 'Failed', tone: 'text-danger', opacity: 0.85 },
-  { key: 'other', label: 'Other', tone: 'text-fg-muted', opacity: 0.35 },
+/** Bottom to top: the verdicts first, so the stack reads from "good" upward to "unknown". */
+export const SEGMENTS = [
+  { key: 'passed', label: 'Passed', tone: 'text-chart-pass', opacity: 0.9 },
+  { key: 'failed', label: 'Failed', tone: 'text-chart-fail', opacity: 0.95 },
+  { key: 'flaky', label: 'Flaky', tone: 'text-chart-flaky', opacity: 0.95 },
+  { key: 'other', label: 'Other', tone: 'text-chart-skipped', opacity: 0.7 },
 ] as const;
 
 /** At most `count` evenly spaced indices, always including the first and the last. */
@@ -53,6 +58,9 @@ export function TrendChart({
   'data-testid'?: string;
 }): React.ReactElement {
   const [active, setActive] = React.useState<number | null>(null);
+  // The gradient needs a document-unique id; `useId`'s punctuation is stripped so `url(#…)`
+  // resolves in every engine.
+  const areaId = `trend-area-${React.useId().replace(/[^a-zA-Z0-9]/gu, '')}`;
   const maxRuns = Math.max(1, ...buckets.map((bucket) => bucket.runs));
   const step = WIDTH / Math.max(1, buckets.length);
   const segments = lineSegments(buckets, step);
@@ -101,7 +109,7 @@ export function TrendChart({
             preserveAspectRatio="none"
             className="absolute inset-0 h-full w-full"
           >
-            <g className="text-border">
+            <g className="text-chart-grid">
               {GRID.map((value) => {
                 const y = HEIGHT - (value / 100) * HEIGHT;
                 return (
@@ -156,7 +164,23 @@ export function TrendChart({
                 </g>
               );
             })}
-            <g className="text-accent">
+            <defs>
+              <linearGradient id={areaId} x1="0" y1="0" x2="0" y2="1" className="text-chart-line">
+                <stop offset="0%" stopColor="currentColor" stopOpacity={0.28} />
+                <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            {/* The area under the line: the shape of the window at a glance, behind the line. */}
+            {segments.map((points) => (
+              <polygon
+                key={`area-${points}`}
+                data-testid="trend-area"
+                points={areaPoints(points)}
+                fill={`url(#${areaId})`}
+                pointerEvents="none"
+              />
+            ))}
+            <g className="text-chart-line">
               {segments.map((points) => (
                 <polyline
                   key={points}
@@ -222,6 +246,8 @@ export function TrendChart({
                 <dd className="m-0 text-right">{hovered.passed}</dd>
                 <dt className="text-danger">Failed</dt>
                 <dd className="m-0 text-right">{hovered.failed}</dd>
+                <dt className="text-fg-muted">Flaky</dt>
+                <dd className="m-0 text-right">{hovered.flaky}</dd>
                 <dt className="text-fg-muted">Pass rate</dt>
                 <dd className="m-0 text-right">{orDash(hovered.passRate, formatPercent)}</dd>
                 <dt className="text-fg-muted">Avg time</dt>
@@ -268,7 +294,7 @@ export function TrendChart({
       </div>
       <figcaption className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted">
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="inline-block h-0.5 w-4 rounded-full bg-accent" />
+          <span aria-hidden="true" className="inline-block h-0.5 w-4 rounded-full bg-chart-line" />
           Pass rate
         </span>
         {SEGMENTS.map((segment) => (
@@ -299,6 +325,7 @@ export function TrendChart({
               <th scope="col">Runs</th>
               <th scope="col">Passed</th>
               <th scope="col">Failed</th>
+              <th scope="col">Flaky</th>
               <th scope="col">Pass rate</th>
             </tr>
           </thead>
@@ -309,6 +336,7 @@ export function TrendChart({
                 <td>{bucket.runs}</td>
                 <td>{bucket.passed}</td>
                 <td>{bucket.failed}</td>
+                <td>{bucket.flaky}</td>
                 <td>{orDash(bucket.passRate, formatPercent)}</td>
               </tr>
             ))}
@@ -317,6 +345,14 @@ export function TrendChart({
       </div>
     </figure>
   );
+}
+
+/** The line closed down to the axis, for the soft area beneath it. */
+export function areaPoints(points: string): string {
+  const pairs = points.split(' ');
+  const first = pairs[0]?.split(',')[0] ?? '0';
+  const last = pairs.at(-1)?.split(',')[0] ?? '0';
+  return `${first},${String(HEIGHT)} ${points} ${last},${String(HEIGHT)}`;
 }
 
 /** One polyline per unbroken run of days that had a verdict. */

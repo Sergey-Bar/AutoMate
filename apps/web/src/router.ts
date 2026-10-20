@@ -3,6 +3,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import { Route as rootRoute } from './routes/__root.js';
 import { Route as dashboardRoute } from './routes/dashboard.js';
 import { Route as analyticsRoute } from './routes/dashboard/analytics.js';
+import { Route as insightsRoute } from './routes/dashboard/insights.js';
 import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
 import { Route as runnerRoute } from './routes/dashboard/runner.js';
@@ -13,6 +14,7 @@ import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
 
 const dashboardTree = dashboardRoute.addChildren([
+  insightsRoute,
   runsListRoute,
   runDetailRoute,
   runnerRoute,

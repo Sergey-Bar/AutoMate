@@ -1,7 +1,7 @@
 /// <reference types="vitest/globals" />
 import React from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { TrendChart, lineSegments, tickIndices } from './TrendChart';
+import { SEGMENTS, TrendChart, areaPoints, lineSegments, tickIndices } from './TrendChart';
 import type { TrendBucket } from '../lib/qa';
 
 function bucket(date: string, runs: number, passRate: number | null): TrendBucket {
@@ -10,6 +10,7 @@ function bucket(date: string, runs: number, passRate: number | null): TrendBucke
     runs,
     passed: 0,
     failed: 0,
+    flaky: 0,
     other: 0,
     passRate,
     avgDurationMs: null,
@@ -128,5 +129,46 @@ describe('the trend chart', () => {
     hit.getBoundingClientRect = () => ({ left: 0, width: 0 }) as DOMRect;
     point(hit, 'pointermove', 10);
     expect(screen.queryByTestId('trend-tooltip')).not.toBeInTheDocument();
+  });
+});
+
+describe('the trend chart palette', () => {
+  it('draws flaky runs as their own segment, in their own colour, and reads them out', () => {
+    render(
+      <TrendChart
+        buckets={[{ ...bucket('2026-10-01', 4, 50), passed: 1, failed: 1, flaky: 1, other: 1 }]}
+      />,
+    );
+    const [bar] = screen.getAllByTestId('trend-bar');
+    const flaky = within(bar as HTMLElement).getByTestId('trend-flaky');
+    expect(flaky).toHaveClass('text-chart-flaky');
+    // Every segment is a chart token, never a status colour at an opacity.
+    for (const segment of SEGMENTS) expect(segment.tone).toMatch(/^text-chart-/u);
+    const hit = screen.getByTestId('trend-hit');
+    hit.getBoundingClientRect = () => ({ left: 0, width: 100 }) as DOMRect;
+    fireEvent(hit, new MouseEvent('pointermove', { bubbles: true, clientX: 10 }));
+    expect(screen.getByTestId('trend-tooltip')).toHaveTextContent('Flaky1');
+    expect(screen.getByRole('table', { name: 'Daily runs and pass rate' })).toHaveTextContent(
+      'Flaky',
+    );
+  });
+
+  it('names one legend entry per segment, plus the line', () => {
+    const { container } = render(<TrendChart buckets={[bucket('2026-10-01', 1, 100)]} />);
+    const legend = container.querySelector('figcaption');
+    expect(legend?.textContent).toBe(
+      ['Pass rate', ...SEGMENTS.map((segment) => `${segment.label} runs`)].join(''),
+    );
+  });
+
+  it('fills the area under each line segment from a gradient it defines', () => {
+    const { container } = render(
+      <TrendChart buckets={[bucket('2026-10-01', 1, 100), bucket('2026-10-02', 1, 50)]} />,
+    );
+    const [area] = screen.getAllByTestId('trend-area');
+    const gradient = container.querySelector('linearGradient');
+    expect(gradient?.id).toMatch(/^trend-area-[a-zA-Z0-9]+$/u);
+    expect(area).toHaveAttribute('fill', `url(#${gradient?.id ?? ''})`);
+    expect(areaPoints('25.00,0.00 75.00,20.00')).toBe('25.00,40 25.00,0.00 75.00,20.00 75.00,40');
   });
 });

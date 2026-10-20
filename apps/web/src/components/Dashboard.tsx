@@ -17,8 +17,10 @@ import type { QaClient } from '../lib/qa-client.js';
 import type {
   AnalyticsTrend,
   QaGapsResponse,
+  QaInsights,
   QaScore,
   RegisteredProject,
+  ReleaseReadinessCard,
   RepoReport,
   RepoScan,
 } from '../lib/qa.js';
@@ -34,6 +36,7 @@ import {
   useFitCount,
 } from './kit.js';
 import { ProjectGate } from './ProjectGate.js';
+import { ReadinessStrip } from './Readiness.js';
 import { Responsive } from './responsive.js';
 import { TrendChart } from './TrendChart.js';
 
@@ -111,6 +114,16 @@ function DashboardBody({
     [api, qa, project.id],
   );
   const trend = useResource<AnalyticsTrend>(() => qa.getTrend(Number(days)), [qa, days]);
+  // Their own resources, so a readiness or insights read that fails names itself in the strip
+  // and leaves the rest of the screen as it was.
+  const readiness = useResource<ReleaseReadinessCard>(
+    () => qa.getReadiness(project.id, 7),
+    [qa, project.id],
+  );
+  const insights = useResource<QaInsights>(
+    () => qa.getInsights(Number(days), project.id),
+    [qa, days, project.id],
+  );
 
   return (
     <PageFrame data-testid="dashboard">
@@ -132,6 +145,11 @@ function DashboardBody({
             />
           </>
         }
+      />
+      <ReadinessStrip
+        readiness={readiness.status === 'ready' ? readiness.value : null}
+        failure={readiness.status === 'error' ? readiness.message : null}
+        digest={insights.status === 'ready' ? insights.value.digest : []}
       />
       {snapshot.status === 'ready' ? (
         <DashboardGrid
@@ -312,7 +330,10 @@ function Figures({
   const score = snapshot.score.value;
   const scan = snapshot.scan.value;
   const current = trend?.current ?? null;
-  const covered = scan?.capabilities.filter((entry) => entry.covered).length ?? 0;
+  // Weighted capabilities only: mobile and test management are optional, and counting them
+  // would tell a web service it is missing a device lab.
+  const counted = scan?.capabilities.filter((entry) => entry.weight > 0) ?? [];
+  const covered = counted.filter((entry) => entry.covered).length;
   return (
     <section
       aria-label="Key figures"
@@ -336,21 +357,21 @@ function Figures({
         value={orDash(current?.passRate ?? null, (value) => value.toFixed(1))}
         unit="%"
         footer={deltaFooter(find('passRate'))}
-        spark={spark(trend, 'passRate', 'Pass rate by day', 'text-accent')}
+        spark={spark(trend, 'passRate', 'Pass rate by day', 'text-chart-line')}
       />
       <Kpi
         data-testid="kpi-runs"
         label="Runs"
         value={current === null ? '—' : String(current.runs)}
         footer={deltaFooter(find('runs'))}
-        spark={spark(trend, 'runs', 'Runs by day', 'text-fg-muted')}
+        spark={spark(trend, 'runs', 'Runs by day', 'text-chart-1')}
       />
       <Kpi
         data-testid="kpi-duration"
         label="Avg duration"
         value={orDash(current?.avgDurationMs ?? null, formatDuration)}
         footer={deltaFooter(find('avgDurationMs'))}
-        spark={spark(trend, 'avgDurationMs', 'Average duration by day', 'text-fg-muted')}
+        spark={spark(trend, 'avgDurationMs', 'Average duration by day', 'text-chart-2')}
       />
       <Kpi
         data-testid="kpi-flaky"
@@ -370,7 +391,7 @@ function Figures({
         footer={
           scan === null
             ? 'repository unscanned'
-            : `${String(covered)} of ${String(scan.capabilities.length)} capabilities`
+            : `${String(covered)} of ${String(counted.length)} capabilities`
         }
       />
     </section>

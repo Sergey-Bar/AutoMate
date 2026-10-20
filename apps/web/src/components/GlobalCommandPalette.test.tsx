@@ -134,8 +134,8 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     await screen.findByRole('combobox');
     await user.keyboard('{ArrowDown}{Enter}');
 
-    // Index 0 is "Go to Dashboard"; ArrowDown moves to index 1.
-    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/runs' });
+    // Index 0 is "Go to Dashboard"; ArrowDown moves to index 1, the next destination.
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/insights' });
   });
 
   it('dismisses on Escape and returns focus to the element that opened it', async () => {

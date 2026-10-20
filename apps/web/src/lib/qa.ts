@@ -20,9 +20,26 @@ export { CopilotAnswerSchema, QaScoreSchema, ScoreCellSchema, StructuralFindingS
 export type { QaScore };
 export { CopilotQuestionSchema } from '@automate/shared-contracts';
 export type { CopilotAnswer } from '@automate/shared-contracts';
-export { AnalyticsTrendSchema, RepoScanSchema } from '@automate/shared-contracts';
+export {
+  AnalyticsTrendSchema,
+  ProjectHistorySchema,
+  QaInsightsSchema,
+  ReleaseReadinessCardSchema,
+  RepoScanSchema,
+} from '@automate/shared-contracts';
 export type {
   AnalyticsTrend,
+  DigestItem,
+  FlakyTest,
+  HeatmapRow,
+  Mttr,
+  ProjectHistory,
+  QaInsights,
+  ReadinessReason,
+  ReleaseReadinessCard,
+  ScanSnapshot,
+  SlowTest,
+  ToolPricing,
   CapabilityCoverage,
   QaCapability,
   RepoReport,

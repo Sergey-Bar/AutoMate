@@ -39,6 +39,7 @@ describe('route manifest', () => {
   it('exposes only registered navigation targets', () => {
     expect(visibleRoutes.map((route) => route.path)).toEqual([
       '/dashboard',
+      '/dashboard/insights',
       '/dashboard/runs',
       '/dashboard/runner',
       '/dashboard/health',
