@@ -178,6 +178,7 @@
     "DEP-3": "open",
     "DEP-4": "open",
     "DEP-5": "open",
-    "RNR-1": "fixed"
+    "RNR-1": "fixed",
+    "UX-DIALOG-1": "fixed"
   }
 }
