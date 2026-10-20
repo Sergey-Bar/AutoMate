@@ -7,7 +7,7 @@
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",
   "scripts": {
-    "dev": "tsx src/main.ts",
+    "dev": "tsx --env-file-if-exists=../../.env src/main.ts",
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",

@@ -129,6 +129,10 @@ const DEDICATED_SPECS = [
   // budget is named here. It gets its own project below so `pnpm test:e2e` still runs
   // it, rather than the derivation quietly dropping it.
   'durable-path.spec.ts',
+  // The full-loop gate (ledger RF-6e): the shipped worker and runner against the API and
+  // PostgreSQL. It waits out a lease and drives a real browser, so it is a gate with its own
+  // project for the same reason `durable-path.spec.ts` is.
+  'full-loop.spec.ts',
   // The route-level axe gate, and the wave the glass work is sequenced behind
   // (`.kilo/plans/1791096500000-full-glassmorphism-plan.md` §3.4). It is 66 generated
   // tests — every manifest route in two themes plus four forced data states — and it is
@@ -250,6 +254,14 @@ export default defineConfig({
   ],
   projects: [
     {
+      // First on purpose: the queue is empty when it starts (`globalSetup` just emptied it),
+      // which is what lets a real runner be certain the only job it can claim is its own.
+      name: 'full-loop',
+      testMatch: '**/product/full-loop.spec.ts',
+      timeout: 240_000,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
       name: 'vertical-slice',
       testMatch: '**/integration/vertical-slice.spec.ts',
       use: { ...devices['Desktop Chrome'] },
@@ -333,6 +345,7 @@ if (productSpecFiles.length === 0) {
 // job that executed no test — the failure this file has already had to fix twice.
 for (const [name, matched] of [
   ['durable-path', durablePathSpecFiles.length],
+  ['full-loop', specFiles.filter((file) => file.endsWith('full-loop.spec.ts')).length],
   ['vertical-slice', specFiles.filter((file) => file.includes('vertical-slice.spec.ts')).length],
   [
     'accessibility',

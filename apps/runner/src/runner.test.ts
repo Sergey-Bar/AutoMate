@@ -18,6 +18,20 @@ describe('runner configuration', () => {
     ).toThrow();
   });
 
+  it('names each runner after its instance unless told otherwise', () => {
+    // `runners` is unique on (workspace_id, name), so a default name shared by every runner
+    // made the second runner on an installation fail to register with an opaque 23505
+    // DUPLICATE, whatever its instance id.
+    const base = { AUTOMATE_API_URL: 'http://localhost:3000', RUNNER_CREDENTIAL: 'token' };
+    const first = parseRunnerConfig({ ...base, RUNNER_INSTANCE_ID: 'runner-1' });
+    const second = parseRunnerConfig({ ...base, RUNNER_INSTANCE_ID: 'runner-2' });
+    expect(first.name).toBe('automate-playwright-runner-runner-1');
+    expect(second.name).not.toBe(first.name);
+    expect(
+      parseRunnerConfig({ ...base, RUNNER_INSTANCE_ID: 'runner-1', RUNNER_NAME: 'ci-east-1' }).name,
+    ).toBe('ci-east-1');
+  });
+
   it('normalizes only explicit URL origins and list allowlists', () => {
     const config = parseRunnerConfig({
       AUTOMATE_API_URL: 'http://localhost:3000/',

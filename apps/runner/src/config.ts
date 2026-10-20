@@ -38,7 +38,7 @@ const RunnerConfigSchema = z
       .url()
       .transform((value) => value.replace(/\/$/u, '')),
     instanceId: z.string().min(1),
-    name: z.string().min(1).default('automate-playwright-runner'),
+    name: z.string().min(1).optional(),
     version: z.string().min(1).default('1.0.0'),
     registrationSecret: z.string().min(1).optional(),
     credential: z.string().min(1).optional(),
@@ -96,7 +96,14 @@ const RunnerConfigSchema = z
         message: 'Runner project and URL allowlists cannot be empty',
       });
     }
-  });
+  })
+  // The default name carries the instance id. `runners` is unique on (workspace_id, name), so
+  // one name shared by every runner made the second runner on an installation fail to register
+  // with an opaque 23505 DUPLICATE, whatever its instance id.
+  .transform((value) => ({
+    ...value,
+    name: value.name ?? `automate-playwright-runner-${value.instanceId}`,
+  }));
 
 export type RunnerConfig = z.infer<typeof RunnerConfigSchema>;
 
