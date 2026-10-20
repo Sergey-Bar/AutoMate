@@ -97,4 +97,20 @@ export {
   Star,
   /** Runs a finished command again. */
   RotateCcw,
+  /** The four capabilities the expanded toolbox added: mobile, API, DAST, test management. */
+  Smartphone,
+  Webhook,
+  Radar,
+  ClipboardList,
+  /** The insights page: activity, duration, branches, the flaky leaderboard and the digest. */
+  Activity,
+  Timer,
+  GitBranch,
+  Flame,
+  Sparkles,
+  /** The readiness verdicts: go, caution, unknown, no-go. */
+  CircleCheck,
+  CircleAlert,
+  CircleHelp,
+  OctagonX,
 } from 'lucide-react';

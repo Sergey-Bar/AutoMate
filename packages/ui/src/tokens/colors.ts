@@ -150,6 +150,25 @@ export const semanticColorTokens = {
    * value fails 4.5:1 in one of them. `Button` and `Badge` both use it.
    */
   'on-fill': '--automate-on-fill',
+  /*
+   * The chart palette: four run states and a line, then a six-step categorical series.
+   * Its own roles rather than the status colours at three opacities, because a chart is
+   * read by comparing marks to each other and the status colours were tuned to be read as
+   * text on a tint. `theme.test.ts` measures each mark against every plane step and every
+   * pair under a deuteranopia simulation.
+   */
+  'chart-pass': '--automate-chart-pass',
+  'chart-fail': '--automate-chart-fail',
+  'chart-flaky': '--automate-chart-flaky',
+  'chart-skipped': '--automate-chart-skipped',
+  'chart-line': '--automate-chart-line',
+  'chart-grid': '--automate-chart-grid',
+  'chart-1': '--automate-chart-1',
+  'chart-2': '--automate-chart-2',
+  'chart-3': '--automate-chart-3',
+  'chart-4': '--automate-chart-4',
+  'chart-5': '--automate-chart-5',
+  'chart-6': '--automate-chart-6',
 } as const satisfies Record<string, string>;
 
 /** Colour names Tailwind resolves without a theme entry. */

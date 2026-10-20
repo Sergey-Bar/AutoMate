@@ -55,6 +55,33 @@ on the base or heavy on the top one — so the scale exists to say _which_ plane
 surface is painted on. The fourth entry is not a fifth level of the plane: it is the same
 plane, seen through something.
 
+### The light plane, re-ordered
+
+The light theme used to read as one flat sheet: the page (`#f1f1f4`) and the panel on it
+(`#fbfbfd`) measured 1.08:1 apart, and the raised step was _darker_ than the base. The
+page is now a cool `#e9ebf0` under white panels — at least 1.15:1, asserted in
+`theme.test.ts` — the decorative edge is `#dcdfe6` (visible on white, still under the 3:1
+that would outline every box), and the three elevation steps are re-declared for light
+only, as low-alpha cool shadows. On a near-black page a 32% black shadow is the only
+separation between planes; on white the same shadow is a smudge.
+
+### The chart palette
+
+Charts have their own roles — `chart-pass`, `chart-fail`, `chart-flaky`, `chart-skipped`,
+`chart-line`, `chart-grid` and a six-step series `chart-1…6` — derived from Okabe and
+Ito's colour-universal palette and tuned per theme. They replaced the status colours at
+three opacities, which is what made "passed" and "other" one blur. `theme.test.ts` holds
+three claims about them: every mark is at least 3:1 on every plane step (WCAG 1.4.11),
+every pair of run states is at least 0.12 OKLab ΔE apart normally and 0.06 under a
+deuteranopia simulation, and the gridline stays a guide (between 1.05:1 and 3:1).
+
+### Every dialog has three ways out
+
+A close button in the header, a click on the backdrop, and Escape. Escape alone was the
+toolbox's defect (`UX-DIALOG-1`): a phone has no Escape key. Focus opens on the title, not
+the first button, so no action is armed before the dialog has been read; a form marks its
+first field `data-autofocus` instead.
+
 ## The accent
 
 `--automate-accent` is `#3d9bff` in dark and `#1466b5` in light. Measured, it is

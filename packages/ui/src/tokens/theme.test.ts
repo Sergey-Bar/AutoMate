@@ -1757,3 +1757,152 @@ describe('the page wash stays out of the evidence regions', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * The chart palette, measured rather than chosen by eye.
+ *
+ * Three claims, each a different way a chart fails a reader:
+ *
+ *  - **Every mark is visible.** 3:1 against every plane step a chart can sit on (WCAG
+ *    1.4.11, graphical objects), in both themes.
+ *  - **The run states are told apart by colour alone,** with normal vision and under a
+ *    deuteranopia simulation — the most common deficiency, and the one that merges a
+ *    green "passed" into a red "failed". The distance is OKLab ΔE, which is
+ *    perceptually uniform where a hex distance is not.
+ *  - **Adjacent categorical steps are as distinct as the run states,** because a series is
+ *    read by matching a line to its legend swatch.
+ */
+describe('the chart palette', () => {
+  const PLANE = [
+    '--automate-surface-sunken',
+    '--automate-surface',
+    '--automate-surface-raised',
+    '--automate-surface-muted',
+  ];
+  const STATES = [
+    '--automate-chart-pass',
+    '--automate-chart-fail',
+    '--automate-chart-flaky',
+    '--automate-chart-skipped',
+  ];
+  const SERIES = [1, 2, 3, 4, 5, 6].map((step) => `--automate-chart-${String(step)}`);
+
+  /** Viénot, Brettel and Mollon's (1999) deuteranopia projection, in linear sRGB. */
+  function deuteranopia([r, g, b]: [number, number, number]): [number, number, number] {
+    return [0.29275 * r + 0.70725 * g, 0.29275 * r + 0.70725 * g, -0.02234 * r + 0.02234 * g + b];
+  }
+
+  function oklab([r, g, b]: [number, number, number]): [number, number, number] {
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [
+      0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+      1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+      0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+    ];
+  }
+
+  function deltaE(left: string, right: string, simulate: boolean): number {
+    const convert = (hex: string) => {
+      const linear = linearChannels(hex);
+      return oklab(simulate ? deuteranopia(linear) : linear);
+    };
+    const [a, b] = [convert(left), convert(right)];
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  }
+
+  it.each(BOTH_SELECTORS)(
+    'draws every mark at 3:1 or more on every plane step, in %s',
+    (selector) => {
+      for (const token of [...STATES, '--automate-chart-line', ...SERIES]) {
+        for (const plane of PLANE) {
+          expectAtLeast(
+            contrastRatio(variableValue(selector, token), variableValue(selector, plane)),
+            3,
+            `${token} on ${plane} in ${selector}`,
+          );
+        }
+      }
+    },
+  );
+
+  it.each(BOTH_SELECTORS)(
+    'keeps the gridline quiet — a guide, never a mark — in %s',
+    (selector) => {
+      const grid = variableValue(selector, '--automate-chart-grid');
+      const ratio = contrastRatio(grid, variableValue(selector, '--automate-surface-raised'));
+      expect(ratio, `the grid on the panel in ${selector}`).toBeGreaterThan(1.05);
+      expect(ratio, `the grid on the panel in ${selector}`).toBeLessThan(3);
+    },
+  );
+
+  it.each(BOTH_SELECTORS)(
+    'tells every pair of run states apart, with and without deuteranopia, in %s',
+    (selector) => {
+      for (const [index, left] of STATES.entries()) {
+        for (const right of STATES.slice(index + 1)) {
+          const [a, b] = [variableValue(selector, left), variableValue(selector, right)];
+          expect(deltaE(a, b, false), `${left} vs ${right} in ${selector}`).toBeGreaterThan(0.12);
+          expect(
+            deltaE(a, b, true),
+            `${left} vs ${right} under deuteranopia in ${selector}`,
+          ).toBeGreaterThan(0.06);
+        }
+      }
+    },
+  );
+
+  it.each(BOTH_SELECTORS)(
+    'keeps every pair of series steps apart, with and without deuteranopia, in %s',
+    (selector) => {
+      for (const [index, left] of SERIES.entries()) {
+        for (const right of SERIES.slice(index + 1)) {
+          const [a, b] = [variableValue(selector, left), variableValue(selector, right)];
+          expect(deltaE(a, b, false), `${left} vs ${right} in ${selector}`).toBeGreaterThan(0.1);
+          expect(
+            deltaE(a, b, true),
+            `${left} vs ${right} under deuteranopia in ${selector}`,
+          ).toBeGreaterThan(0.04);
+        }
+      }
+    },
+  );
+});
+
+/**
+ * The light plane has visible depth.
+ *
+ * The page and the panel on it measured 1.08:1 apart (`#f1f1f4` behind `#fbfbfd`), which
+ * is a difference most displays round away — so the light theme read as one flat sheet with
+ * hairlines on it. The panel now sits on a cooler page, and the decorative edge is visible
+ * on white while staying below the 3:1 that would make it a mid-grey line round every box.
+ */
+describe('the light plane has depth', () => {
+  it('separates the panel from the page by at least 1.15:1', () => {
+    const ratio = contrastRatio(
+      variableValue(LIGHT_SELECTOR, '--automate-surface-raised'),
+      variableValue(LIGHT_SELECTOR, '--automate-surface-sunken'),
+    );
+    expect(ratio).toBeGreaterThanOrEqual(1.15);
+  });
+
+  it('draws the decorative edge visibly on white, and still below 3:1', () => {
+    const ratio = contrastRatio(
+      variableValue(LIGHT_SELECTOR, '--automate-border'),
+      variableValue(LIGHT_SELECTOR, '--automate-surface'),
+    );
+    expect(ratio).toBeGreaterThanOrEqual(1.3);
+    expect(ratio).toBeLessThan(3);
+  });
+
+  it('softens the three elevation steps for the white plane, and only there', () => {
+    const light = themeBlock(LIGHT_SELECTOR);
+    for (const step of [1, 2, 3]) {
+      expect(light, `--shadow-elevation-${String(step)} in the light block`).toMatch(
+        new RegExp(`--shadow-elevation-${String(step)}\\s*:`),
+      );
+    }
+    expect(themeBlock(DARK_SELECTOR)).not.toMatch(/--shadow-elevation-/);
+  });
+});

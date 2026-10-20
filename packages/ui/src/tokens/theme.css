@@ -83,6 +83,30 @@
   --color-on-fill: var(--automate-on-fill);
 
   /*
+   * The chart palette (Okabe–Ito, tuned per theme).
+   *
+   * Charts used to borrow the status colours at three opacities, so "passed" and "other"
+   * were the same green and grey at different strengths and blurred into one another — in
+   * light mode especially, where a 35% grey on white is barely a mark. The chart has its own
+   * roles now: four run states and a line, plus a six-step categorical series for anything
+   * that is a list of things rather than a verdict. They derive from Okabe and Ito's
+   * colour-universal palette, chosen because its members stay apart under the common
+   * colour-vision deficiencies; `theme.test.ts` measures that rather than trusting it.
+   */
+  --color-chart-pass: var(--automate-chart-pass);
+  --color-chart-fail: var(--automate-chart-fail);
+  --color-chart-flaky: var(--automate-chart-flaky);
+  --color-chart-skipped: var(--automate-chart-skipped);
+  --color-chart-line: var(--automate-chart-line);
+  --color-chart-grid: var(--automate-chart-grid);
+  --color-chart-1: var(--automate-chart-1);
+  --color-chart-2: var(--automate-chart-2);
+  --color-chart-3: var(--automate-chart-3);
+  --color-chart-4: var(--automate-chart-4);
+  --color-chart-5: var(--automate-chart-5);
+  --color-chart-6: var(--automate-chart-6);
+
+  /*
    * The alpha dimension, as exactly one utility per token.
    *
    * `bg-glass` is the translucent fill and the two `backdrop-*` entries are the effect.
@@ -383,6 +407,19 @@
    * it measures 3.42:1.
    */
   --automate-on-fill: #0b0b0c;
+  /* Okabe–Ito, lifted for a near-black plane: every mark is at least 3:1 on every step. */
+  --automate-chart-pass: #3cc59a;
+  --automate-chart-fail: #f0784a;
+  --automate-chart-flaky: #d98ac4;
+  --automate-chart-skipped: #8d919b;
+  --automate-chart-line: #5ab4f0;
+  --automate-chart-grid: #26262b;
+  --automate-chart-1: #5aa9e6;
+  --automate-chart-2: #f2b33d;
+  --automate-chart-3: #3cc59a;
+  --automate-chart-4: #f0784a;
+  --automate-chart-5: #d98ac4;
+  --automate-chart-6: #ece05a;
   color-scheme: dark;
 
   /*
@@ -427,15 +464,15 @@
 [data-theme='light'] {
   /* The plane, inverted: elevation moves towards white rather than away from
      black, so a raised surface in light mode is the *nearest* to the page. */
-  --automate-surface-sunken: #f1f1f4;
+  --automate-surface-sunken: #e9ebf0;
   --automate-surface: #ffffff;
-  --automate-surface-raised: #fbfbfd;
-  --automate-surface-muted: #f4f4f5;
-  --automate-fg: #09090b;
-  --automate-fg-muted: #6b6b74;
-  --automate-border: #e4e4e7;
+  --automate-surface-raised: #fdfdfe;
+  --automate-surface-muted: #f2f3f7;
+  --automate-fg: #0b0d12;
+  --automate-fg-muted: #5b5e68;
+  --automate-border: #dcdfe6;
   /* 3:1 has to be measured against the *darkest* plane step, not the base. */
-  --automate-border-strong: #898990;
+  --automate-border-strong: #7a7e88;
   /*
    * The 800 step of the accent ramp, not the 500. The dark theme can afford
    * `#3D9BFF` on a near-black plane because the contrast is enormous; the same
@@ -457,6 +494,27 @@
   /* The dark steel, one step down: `#7C8DA6` is 2.53:1 on white. */
   --automate-info: #4d5f79;
   --automate-on-fill: #ffffff;
+  /* Okabe–Ito, deepened for white: every mark is at least 3:1 on every step. */
+  --automate-chart-pass: #00875a;
+  --automate-chart-fail: #c4450a;
+  --automate-chart-flaky: #8a2f78;
+  --automate-chart-skipped: #80848e;
+  --automate-chart-line: #005fb0;
+  --automate-chart-grid: #e3e6ec;
+  --automate-chart-1: #005fb0;
+  --automate-chart-2: #a36800;
+  --automate-chart-3: #00875a;
+  --automate-chart-4: #8e2a12;
+  --automate-chart-5: #a8458c;
+  --automate-chart-6: #1a8fc2;
+  /*
+   * Elevation, softened for a white plane. The literal steps in `@theme` are tuned for a
+   * near-black page, where a 32% black shadow is the only thing that separates two
+   * planes; on white the same shadow is a smudge. A cool, low-alpha pair reads as a lift.
+   */
+  --shadow-elevation-1: 0 1px 2px rgb(16 24 40 / 0.06), 0 1px 3px rgb(16 24 40 / 0.08);
+  --shadow-elevation-2: 0 4px 12px -2px rgb(16 24 40 / 0.1), 0 2px 4px -2px rgb(16 24 40 / 0.06);
+  --shadow-elevation-3: 0 20px 48px -12px rgb(16 24 40 / 0.22), 0 6px 16px -6px rgb(16 24 40 / 0.1);
   color-scheme: light;
 }
 
@@ -513,13 +571,13 @@
   }
 
   [data-theme='light'] {
-    --automate-surface-sunken: #f1f1f4;
+    --automate-surface-sunken: #e9ebf0;
     --automate-surface: #ffffff;
-    --automate-surface-raised: #fbfbfd;
-    --automate-surface-muted: #f4f4f5;
-    /* 3.08:1 on `--automate-surface-sunken`, the darkest step, which is the
+    --automate-surface-raised: #fdfdfe;
+    --automate-surface-muted: #f2f3f7;
+    /* At least 3:1 on `--automate-surface-sunken`, the darkest step, which is the
        binding constraint in this theme. */
-    --automate-border: #898990;
+    --automate-border: #848791;
     --automate-border-strong: #6b6b72;
     /* The same three, for the reason above. Restated per theme because the block is. */
     --automate-glass-fill: var(--automate-surface);
