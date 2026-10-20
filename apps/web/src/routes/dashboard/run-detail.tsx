@@ -9,6 +9,7 @@ import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/ap
 import { formatDate as formatDateWithFallback } from '../../lib/format.js';
 import { formatDuration } from '../../lib/insights.js';
 import { PageFrame, PageHeader, Panel } from '../../components/kit.js';
+import { Responsive } from '../../components/responsive.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -286,6 +287,223 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     }
   };
 
+  const summary = (
+    <>
+      <div className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3">
+        <PhaseTimeline phase={run.phase} />
+      </div>
+
+      <section aria-label="Execution summary" className="grid shrink-0 grid-cols-4 gap-2 sm:gap-3">
+        <Figure label="Total" testId="run-total" value={String(run.summary.total)} />
+        <Figure
+          label="Passed"
+          testId="run-passed"
+          value={String(run.summary.passed)}
+          tone="text-success"
+        />
+        <Figure
+          label="Failed"
+          testId="run-failed"
+          value={String(run.summary.failed)}
+          tone="text-danger"
+        />
+        <Figure
+          label="Duration"
+          testId="run-duration"
+          value={
+            run.summary.durationMs == null ? 'UNKNOWN' : formatDuration(run.summary.durationMs)
+          }
+        />
+      </section>
+      <section
+        aria-label="Run context"
+        className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3"
+      >
+        <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 xl:grid-cols-9">
+          <ContextItem label="Project" testId="run-project" value={run.projectId ?? 'UNKNOWN'} />
+          <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
+          <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
+          <ContextItem
+            label="Branch / Commit"
+            value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
+          />
+          <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
+          <ContextItem label="Runner" value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'} />
+          <ContextItem label="Created" value={formatDate(run.createdAt)} />
+          <ContextItem label="Started" value={formatDate(run.startedAt)} />
+          <ContextItem label="Finished" value={formatDate(run.finishedAt)} />
+        </dl>
+      </section>
+      {run.error ? (
+        <div
+          data-testid="run-error-context"
+          className="shrink-0 rounded-xl border border-danger px-4 py-2 text-sm"
+        >
+          <span className="font-semibold text-danger">{run.error.code}</span>{' '}
+          <span>{run.error.message}</span>
+        </div>
+      ) : null}
+    </>
+  );
+  const tests = (
+    <>
+      <Panel title="Test attempts" className="flex-1">
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label="Test attempt list"
+          className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        >
+          <TestEvidence tests={run.tests} />
+        </div>
+      </Panel>
+    </>
+  );
+  const artifactPanel = (
+    <>
+      <Panel title="Artifacts" className="min-h-0 flex-1">
+        {evidenceError ? (
+          <p className="max-w-measure text-pretty text-sm text-warning">
+            Some artifact metadata could not be refreshed.
+          </p>
+        ) : null}
+        {artifacts.length > 0 ? (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Artifact list"
+            className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            <ul className="divide-y divide-border-default">
+              {artifacts.map((artifact) => (
+                <li key={artifact.id} className="py-2">
+                  <a
+                    href={getArtifactUrl(artifact.id)}
+                    className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                  >
+                    {artifact.name ?? artifact.kind}
+                  </a>
+                  <div className="mt-0.5 truncate text-xs text-fg-muted">
+                    {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
+                    {artifact.checksum.slice(0, 12)}...
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="max-w-measure text-pretty text-sm text-fg-muted">
+            No persisted artifacts have been reported.
+          </p>
+        )}
+      </Panel>
+    </>
+  );
+  const eventPanel = (
+    <>
+      <Panel title="Live event timeline" className="min-h-0 flex-1">
+        {events.length > 0 ? (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Event list"
+            className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            <ol className="space-y-1.5">
+              {events.map((event) => (
+                <li
+                  key={event.eventId}
+                  className="flex justify-between gap-3 rounded-md bg-surface-sunken px-3 py-1.5 text-sm"
+                >
+                  <span className="truncate font-medium">{event.type}</span>
+                  <span className="shrink-0 text-xs text-fg-muted">
+                    #{event.sequence} · {formatDate(event.occurredAt)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : (
+          <p className="max-w-measure text-pretty text-sm text-fg-muted">
+            No events have been observed in this browser session. Run state above is the
+            authoritative API snapshot.
+          </p>
+        )}
+      </Panel>
+    </>
+  );
+  const gatePanel = (
+    <>
+      <Panel title="Quality gate" data-testid="run-gate" className="min-h-0 flex-1">
+        {gate ? (
+          <>
+            <Badge
+              className="self-start"
+              variant={
+                gate.status === 'passed'
+                  ? 'success'
+                  : gate.status === 'failed'
+                    ? 'danger'
+                    : 'warning'
+              }
+            >
+              {gate.status.toUpperCase()}
+            </Badge>
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Gate reasons"
+              className="mt-2 min-h-0 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              <ul className="space-y-1 break-words text-sm">
+                {gate.reasons.map((reason, index) => (
+                  <li key={`${reason}-${index}`}>{reason}</li>
+                ))}
+              </ul>
+            </div>
+            {gate.evidenceRefs.length > 0 ? (
+              <p className="mt-2 max-w-measure truncate text-xs text-fg-muted">
+                Evidence: {gate.evidenceRefs.join(', ')}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <p className="max-w-measure text-pretty text-sm text-fg-muted">
+            UNKNOWN — no persisted gate evaluation is available.
+          </p>
+        )}
+      </Panel>
+      {readiness ? (
+        <Panel
+          title="Release readiness"
+          data-testid="run-readiness"
+          action={
+            <Badge
+              variant={
+                readiness.decision === 'ready'
+                  ? 'success'
+                  : readiness.decision === 'blocked'
+                    ? 'danger'
+                    : 'warning'
+              }
+            >
+              {readiness.decision.toUpperCase()}
+            </Badge>
+          }
+        >
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+            {Object.entries(readiness.domains).map(([domain, status]) => (
+              <div key={domain} className="flex justify-between gap-2">
+                <span className="capitalize">{domain}</span>
+                <span>{status.toUpperCase()}</span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
+    </>
+  );
+
   return (
     <PageFrame data-testid="run-detail-page">
       <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
@@ -355,214 +573,37 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
         </div>
       ) : null}
 
-      <div className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3">
-        <PhaseTimeline phase={run.phase} />
-      </div>
-
-      <section
-        aria-label="Execution summary"
-        className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-4"
-      >
-        <Figure label="Total" testId="run-total" value={String(run.summary.total)} />
-        <Figure
-          label="Passed"
-          testId="run-passed"
-          value={String(run.summary.passed)}
-          tone="text-success"
-        />
-        <Figure
-          label="Failed"
-          testId="run-failed"
-          value={String(run.summary.failed)}
-          tone="text-danger"
-        />
-        <Figure
-          label="Duration"
-          testId="run-duration"
-          value={
-            run.summary.durationMs == null ? 'UNKNOWN' : formatDuration(run.summary.durationMs)
-          }
-        />
-      </section>
-      <section
-        aria-label="Run context"
-        className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3"
-      >
-        <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 xl:grid-cols-9">
-          <ContextItem label="Project" testId="run-project" value={run.projectId ?? 'UNKNOWN'} />
-          <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
-          <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
-          <ContextItem
-            label="Branch / Commit"
-            value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
-          />
-          <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
-          <ContextItem label="Runner" value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'} />
-          <ContextItem label="Created" value={formatDate(run.createdAt)} />
-          <ContextItem label="Started" value={formatDate(run.startedAt)} />
-          <ContextItem label="Finished" value={formatDate(run.finishedAt)} />
-        </dl>
-      </section>
-      {run.error ? (
-        <div
-          data-testid="run-error-context"
-          className="shrink-0 rounded-xl border border-danger px-4 py-2 text-sm"
-        >
-          <span className="font-semibold text-danger">{run.error.code}</span>{' '}
-          <span>{run.error.message}</span>
-        </div>
-      ) : null}
-
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
-        <Panel title="Test attempts">
-          <div
-            tabIndex={0}
-            role="region"
-            aria-label="Test attempt list"
-            className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-          >
-            <TestEvidence tests={run.tests} />
-          </div>
-        </Panel>
-
-        <div className="flex min-h-0 flex-col gap-3">
-          <Panel title="Artifacts" className="min-h-0 flex-1">
-            {evidenceError ? (
-              <p className="max-w-measure text-pretty text-sm text-warning">
-                Some artifact metadata could not be refreshed.
-              </p>
-            ) : null}
-            {artifacts.length > 0 ? (
-              <div
-                tabIndex={0}
-                role="region"
-                aria-label="Artifact list"
-                className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                <ul className="divide-y divide-border-default">
-                  {artifacts.map((artifact) => (
-                    <li key={artifact.id} className="py-2">
-                      <a
-                        href={getArtifactUrl(artifact.id)}
-                        className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-                      >
-                        {artifact.name ?? artifact.kind}
-                      </a>
-                      <div className="mt-0.5 truncate text-xs text-fg-muted">
-                        {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
-                        {artifact.checksum.slice(0, 12)}...
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+      <Responsive
+        label="Run sections"
+        desktop={
+          <>
+            {summary}
+            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
+              {tests}
+              <div className="flex min-h-0 flex-col gap-3">
+                {artifactPanel}
+                {eventPanel}
               </div>
-            ) : (
-              <p className="max-w-measure text-pretty text-sm text-fg-muted">
-                No persisted artifacts have been reported.
-              </p>
-            )}
-          </Panel>
-          <Panel title="Live event timeline" className="min-h-0 flex-1">
-            {events.length > 0 ? (
-              <div
-                tabIndex={0}
-                role="region"
-                aria-label="Event list"
-                className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                <ol className="space-y-1.5">
-                  {events.map((event) => (
-                    <li
-                      key={event.eventId}
-                      className="flex justify-between gap-3 rounded-md bg-surface-sunken px-3 py-1.5 text-sm"
-                    >
-                      <span className="truncate font-medium">{event.type}</span>
-                      <span className="shrink-0 text-xs text-fg-muted">
-                        #{event.sequence} · {formatDate(event.occurredAt)}
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            ) : (
-              <p className="max-w-measure text-pretty text-sm text-fg-muted">
-                No events have been observed in this browser session. Run state above is the
-                authoritative API snapshot.
-              </p>
-            )}
-          </Panel>
-        </div>
-
-        <div className="flex min-h-0 flex-col gap-3">
-          <Panel title="Quality gate" data-testid="run-gate" className="min-h-0 flex-1">
-            {gate ? (
-              <>
-                <Badge
-                  className="self-start"
-                  variant={
-                    gate.status === 'passed'
-                      ? 'success'
-                      : gate.status === 'failed'
-                        ? 'danger'
-                        : 'warning'
-                  }
-                >
-                  {gate.status.toUpperCase()}
-                </Badge>
-                <div
-                  tabIndex={0}
-                  role="region"
-                  aria-label="Gate reasons"
-                  className="mt-2 min-h-0 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-                >
-                  <ul className="space-y-1 break-words text-sm">
-                    {gate.reasons.map((reason, index) => (
-                      <li key={`${reason}-${index}`}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-                {gate.evidenceRefs.length > 0 ? (
-                  <p className="mt-2 max-w-measure truncate text-xs text-fg-muted">
-                    Evidence: {gate.evidenceRefs.join(', ')}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="max-w-measure text-pretty text-sm text-fg-muted">
-                UNKNOWN — no persisted gate evaluation is available.
-              </p>
-            )}
-          </Panel>
-          {readiness ? (
-            <Panel
-              title="Release readiness"
-              data-testid="run-readiness"
-              action={
-                <Badge
-                  variant={
-                    readiness.decision === 'ready'
-                      ? 'success'
-                      : readiness.decision === 'blocked'
-                        ? 'danger'
-                        : 'warning'
-                  }
-                >
-                  {readiness.decision.toUpperCase()}
-                </Badge>
-              }
-            >
-              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                {Object.entries(readiness.domains).map(([domain, status]) => (
-                  <div key={domain} className="flex justify-between gap-2">
-                    <span className="capitalize">{domain}</span>
-                    <span>{status.toUpperCase()}</span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          ) : null}
-        </div>
-      </div>
+              <div className="flex min-h-0 flex-col gap-3">{gatePanel}</div>
+            </div>
+          </>
+        }
+        panels={[
+          {
+            id: 'summary',
+            label: 'Summary',
+            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{summary}</div>,
+          },
+          { id: 'tests', label: 'Tests', node: tests },
+          { id: 'artifacts', label: 'Artifacts', node: artifactPanel },
+          { id: 'events', label: 'Events', node: eventPanel },
+          {
+            id: 'gate',
+            label: 'Gate',
+            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{gatePanel}</div>,
+          },
+        ]}
+      />
     </PageFrame>
   );
 }
@@ -580,11 +621,18 @@ function Figure({
   tone?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">{label}</div>
+    <div className="min-w-0 rounded-2xl border border-border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3">
+      <div
+        className="truncate text-[0.6875rem] font-medium uppercase tracking-widest text-fg-muted sm:text-xs"
+        title={label}
+      >
+        {label}
+      </div>
+      {/* A word ("UNKNOWN") steps down a size on a phone, so four figures share one row. */}
       <div
         data-testid={testId}
-        className={`mt-1 break-words tabular-nums text-2xl font-light sm:text-3xl ${tone ?? ''}`}
+        title={value}
+        className={`mt-1 truncate tabular-nums font-light sm:text-3xl ${value.length > 5 ? 'text-base' : 'text-xl'} ${tone ?? ''}`}
       >
         {value}
       </div>

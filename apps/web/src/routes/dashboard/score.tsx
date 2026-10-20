@@ -83,22 +83,32 @@ export function ScorePage({
   return (
     <PageFrame aria-label="Health score">
       <PageHeader title="Health score" subtitle={`Read at ${score.at}`} />
-      <section aria-label="Score figures" className="grid shrink-0 gap-3 md:grid-cols-3">
+      <section
+        aria-label="Score figures"
+        className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] gap-3 sm:grid-cols-3"
+      >
         <Kpi
           label="Health score"
           value={`${score.total.toFixed(1)}/100`}
           footer="weighted geometric mean"
         />
         {/* The limiter, on the same screen as the number it explains. */}
-        <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-accent bg-surface-raised px-4 py-3 md:col-span-2">
+        <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-accent bg-surface-raised px-4 py-3 sm:col-span-2">
           <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">
-            What is capping this score
+            <span className="sm:hidden">Capped by</span>
+            <span className="hidden sm:inline">What is capping this score</span>
           </div>
-          <div className="mt-1 flex items-baseline gap-3">
-            <span className="font-mono text-2xl">{capping.row}</span>
-            <span className="tabular-nums text-2xl text-danger">{capping.value.toFixed(2)}</span>
+          <div className="mt-1 flex min-w-0 flex-wrap items-baseline gap-x-3">
+            <span className="truncate font-mono text-xl sm:text-2xl" title={capping.row}>
+              {capping.row}
+            </span>
+            <span className="tabular-nums text-xl text-danger sm:text-2xl">
+              {capping.value.toFixed(2)}
+            </span>
           </div>
-          <p className="mt-1 max-w-measure text-pretty text-xs text-fg-muted">{capping.reason}</p>
+          <p className="mt-1 hidden max-w-measure text-pretty text-xs text-fg-muted sm:block">
+            {capping.reason}
+          </p>
         </div>
       </section>
       <Matrix score={score} />
@@ -157,7 +167,7 @@ function Matrix({ score }: { score: QaScore }): React.ReactElement {
                 );
                 return (
                   <TableCell key={surface} numeric>
-                    {cell === undefined ? '—' : formatCell(cell)}
+                    {cell === undefined ? '—' : <CellFigure text={formatCell(cell)} />}
                   </TableCell>
                 );
               })}
@@ -166,6 +176,24 @@ function Matrix({ score }: { score: QaScore }): React.ReactElement {
         </TableBody>
       </Table>
     </Panel>
+  );
+}
+
+/**
+ * A cell's score, with its components beside it where there is room.
+ *
+ * The breakdown is the same string `formatCell` returns, split rather than re-derived; on
+ * a narrow screen it is hidden visually and kept in the cell's title, so the 6×3 matrix
+ * fits a phone without dropping the explanation.
+ */
+function CellFigure({ text }: { text: string }): React.ReactElement {
+  const split = text.indexOf(' (');
+  if (split < 0) return <>{text}</>;
+  return (
+    <span title={text}>
+      {text.slice(0, split)}
+      <span className="hidden text-fg-muted lg:inline">{text.slice(split)}</span>
+    </span>
   );
 }
 

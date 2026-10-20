@@ -1,5 +1,14 @@
 import React from 'react';
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Minus, cn } from '@automate/ui';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Minus,
+  cn,
+} from '@automate/ui';
 import type { Verdict } from '../lib/insights.js';
 
 /**
@@ -26,14 +35,10 @@ export function PageFrame({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
-  // Fitted to the viewport from `xl` up, where every screen is laid out to fit. Below it
-  // the panels stack and the page reflows, because squeezing a three-column screen into
-  // 1024px overlaps its text rather than fitting it.
+  // Fitted to the viewport at every width. Wide screens lay their panels out side by side;
+  // narrow ones show the same panels as tabs (`Responsive`), so no width needs a scroll.
   return (
-    <div
-      className={cn('flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0', className)}
-      {...props}
-    >
+    <div className={cn('flex h-full min-h-0 flex-col gap-3 sm:gap-4', className)} {...props}>
       {children}
     </div>
   );
@@ -50,11 +55,16 @@ export function PageHeader({
   actions?: React.ReactNode;
 }): React.ReactElement {
   return (
-    <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
+    <header className="flex shrink-0 flex-wrap items-end justify-between gap-x-3 gap-y-2">
       <div className="min-w-0">
-        <h1 className="text-3xl font-light tracking-tight">{title}</h1>
+        <h1 className="text-2xl font-light tracking-tight sm:text-3xl">{title}</h1>
         {subtitle === undefined ? null : (
-          <div className="mt-1 max-w-measure text-sm text-fg-muted sm:truncate">{subtitle}</div>
+          <div
+            className="mt-0.5 max-w-measure truncate text-sm text-fg-muted"
+            title={typeof subtitle === 'string' ? subtitle : undefined}
+          >
+            {subtitle}
+          </div>
         )}
       </div>
       {actions === undefined ? null : (
@@ -79,7 +89,7 @@ export function Panel({
     <section
       aria-labelledby={id}
       className={cn(
-        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-4',
+        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-3 sm:p-4',
         className,
       )}
       {...props}
@@ -133,13 +143,19 @@ export function Delta({
   );
 }
 
-/** One figure: a label, a large value, and the sentence or delta beneath it. */
+/**
+ * One figure: a label, a large value, an optional sparkline, and the delta beneath it.
+ *
+ * Compact on a phone — a smaller figure and one line of footer — so six of them sit in two
+ * rows above the fold rather than three.
+ */
 export function Kpi({
   label,
   value,
   unit,
   footer,
   tone,
+  spark,
   ...props
 }: Omit<React.HTMLAttributes<HTMLDivElement>, 'children'> & {
   label: string;
@@ -147,22 +163,55 @@ export function Kpi({
   unit?: string;
   footer?: React.ReactNode;
   tone?: string;
+  /** A small trend drawn beside the figure, from wide screens up. */
+  spark?: React.ReactNode;
 }): React.ReactElement {
   return (
     <div
-      className="flex min-w-0 flex-col justify-between rounded-2xl border border-border bg-surface-raised px-4 py-3"
+      className="flex min-w-0 flex-col justify-between rounded-2xl border border-border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3"
       {...props}
     >
-      <div className="text-xs font-medium uppercase tracking-widest text-fg-muted sm:truncate">
+      <div
+        className="truncate text-[0.6875rem] font-medium uppercase tracking-widest text-fg-muted sm:text-xs"
+        title={label}
+      >
         {label}
       </div>
-      <div className={cn('mt-1 flex items-baseline gap-1', tone)}>
-        <span className="tabular-nums text-4xl font-light tracking-tight">{value}</span>
-        {unit === undefined ? null : <span className="text-sm text-fg-muted">{unit}</span>}
+      <div className="mt-0.5 flex items-end justify-between gap-2 sm:mt-1">
+        <div className={cn('flex min-w-0 items-baseline gap-1', tone)}>
+          <span
+            className="truncate tabular-nums text-2xl font-light tracking-tight sm:text-3xl xl:text-4xl"
+            title={unit === undefined ? value : `${value} ${unit}`}
+          >
+            {value}
+          </span>
+          {unit === undefined ? null : <span className="text-sm text-fg-muted">{unit}</span>}
+        </div>
+        {spark === undefined ? null : <div className="hidden shrink-0 2xl:block">{spark}</div>}
       </div>
-      <div className="mt-1 min-h-4 text-xs text-fg-muted sm:truncate">{footer}</div>
+      {/*
+        The footer is a node (a delta, a sentence), so its tooltip is read from what it
+        rendered: a narrow tile truncates it, and the title is how the rest stays readable.
+      */}
+      <div
+        ref={(element) => titleFromText(element)}
+        className="mt-0.5 min-h-4 truncate text-xs text-fg-muted sm:mt-1"
+      >
+        {footer}
+      </div>
     </div>
   );
+}
+
+/**
+ * Sets an element's `title` to its own text, for a box that may truncate a node. A fresh
+ * callback each render, so React re-runs it whenever the footer re-renders.
+ */
+function titleFromText(element: HTMLElement | null): void {
+  if (element === null) return;
+  const text = element.textContent.trim();
+  if (text.length > 0) element.title = text;
+  else element.removeAttribute('title');
 }
 
 /**
@@ -189,31 +238,33 @@ export function useViewportRows(reservedPx: number, rowPx: number, min = 4): num
 /**
  * How many rows of `rowPx` fit in the element `ref` points at, kept current as it resizes.
  *
- * For a list inside a panel whose height comes from a grid, where the window height says
- * little about the panel's. Without `ResizeObserver` (jsdom) it answers `fallback`.
+ * For a list inside a panel whose height comes from the layout, where the window height
+ * says little about the panel's. Every page is fitted at every width now, so the panel's
+ * height is always the layout's and never the list's own. `offsetPx` is the part of the
+ * box that is not rows — a table head. Without `ResizeObserver` (jsdom) it answers
+ * `fallback`.
  */
 export function useFitCount(
-  ref: React.RefObject<HTMLElement | null>,
   rowPx: number,
   fallback: number,
-): number {
+  offsetPx = 0,
+): [number, (element: HTMLElement | null) => void] {
+  // A callback ref rather than a ref object, so a list that mounts after a loading state is
+  // measured when it appears rather than never.
+  const [element, setElement] = React.useState<HTMLElement | null>(null);
   const [count, setCount] = React.useState(fallback);
   React.useEffect(() => {
-    const element = ref.current;
     if (element === null || typeof ResizeObserver === 'undefined') return;
     const measure = () => {
-      // Only where the layout fixes the panel's height. Below `xl` the panel is as tall as
-      // its content, so measuring it would shrink the list a row at a time down to one.
-      const fitted = window.matchMedia?.('(min-width: 1280px)').matches ?? false;
-      const height = element.clientHeight;
-      setCount(fitted && height > 0 ? Math.max(1, Math.floor(height / rowPx)) : fallback);
+      const height = element.clientHeight - offsetPx;
+      setCount(height > 0 ? Math.max(1, Math.floor(height / rowPx)) : fallback);
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [ref, rowPx, fallback]);
-  return count;
+  }, [element, rowPx, fallback, offsetPx]);
+  return [count, setElement];
 }
 
 export interface Pager<T> {
@@ -293,7 +344,7 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
 }): React.ReactElement {
   return (
-    <div role="group" aria-label={label} className="flex rounded-full bg-surface-muted p-1">
+    <div role="group" aria-label={label} className="inline-flex rounded-full bg-surface-muted p-1">
       {options.map((option) => (
         <button
           key={option.value}
@@ -301,7 +352,7 @@ export function Segmented<T extends string>({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'min-h-11 rounded-full px-4 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+            'min-h-11 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
             option.value === value ? 'bg-surface-raised text-fg' : 'text-fg-muted hover:text-fg',
           )}
         >
@@ -349,21 +400,57 @@ export function Paged<T>({
   items,
   reservedPx,
   rowPx = 52,
+  headerPx = 44,
   label,
   children,
 }: {
   items: readonly T[];
-  /** Height everything else on the page takes, so the rows fill only what is left. */
+  /** Used only where the box cannot be measured, to estimate the rows from the window. */
   reservedPx: number;
   rowPx?: number;
+  /** The part of the box that is not rows: a table head. */
+  headerPx?: number;
   label: string;
   children: (page: T[]) => React.ReactNode;
 }): React.ReactElement {
-  const pager = usePager(items, useViewportRows(reservedPx, rowPx));
+  const estimate = useViewportRows(reservedPx, rowPx);
+  const [size, box] = useFitCount(rowPx, estimate, headerPx);
+  const pager = usePager(items, size);
   return (
     <>
-      <div className="min-h-0 flex-1 xl:overflow-hidden">{children(pager.items)}</div>
+      <div ref={box} className="min-h-0 flex-1 overflow-hidden">
+        {children(pager.items)}
+      </div>
       <PagerControls pager={pager} label={label} />
     </>
+  );
+}
+
+/** Copies text, and says so for two seconds where the reader is looking. */
+export function CopyButton({ text, label }: { text: string; label: string }): React.ReactElement {
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      aria-label={copied ? `Copied ${label}` : `Copy ${label}`}
+      title={copied ? 'Copied' : `Copy: ${text}`}
+      onClick={() => void copy()}
+      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+    >
+      {copied ? (
+        <Check size={14} aria-hidden="true" className="text-success" />
+      ) : (
+        <Copy size={14} aria-hidden="true" />
+      )}
+    </button>
   );
 }

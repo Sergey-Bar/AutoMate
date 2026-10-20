@@ -23,13 +23,14 @@ import {
   Panel,
   PagerControls,
   usePager,
-  useViewportRows,
+  useFitCount,
 } from '../../components/kit.js';
 import { isRunActive, useRuns } from '../../hooks/useRuns.js';
 import { defaultApiClient, type ApiClient, type Run } from '../../lib/api.js';
 import { formatDate } from '../../lib/format.js';
 import { formatDuration } from '../../lib/insights.js';
 import { runDetailPath } from '../../route-manifest.js';
+import { Responsive } from '../../components/responsive.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -64,8 +65,9 @@ function outcomeVariant(
 export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
   const { runs, isLoading, error, isLive, refresh } = useRuns(api);
   const [launching, setLaunching] = React.useState(false);
-  // Header, totals, panel title, table head and pager take about 440px; a row is ~56px.
-  const pager = usePager(runs, useViewportRows(440, 56));
+  // The table measures its own panel: a row is ~56px under a ~44px head.
+  const [size, tableBox] = useFitCount(56, 8, 44);
+  const pager = usePager(runs, size);
   const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
 
   if (isLoading) {
@@ -96,6 +98,89 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
   const failed = runs.filter((run) => run.outcome === 'failed').length;
   const active = runs.filter(isRunActive).length;
 
+  const table = (
+    <>
+      {runs.length === 0 ? (
+        <EmptyState
+          headingLevel={2}
+          data-testid="runs-list-empty"
+          title="No execution evidence"
+          description="Start a tool from the Runner, launch a browser run, or let the dashboard show what is blocking you."
+          action={
+            <a
+              href="/dashboard/runner"
+              className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              Open the runner
+            </a>
+          }
+        />
+      ) : (
+        <Panel title="All runs" data-testid="runs-table">
+          <div ref={tableBox} className="min-h-0 flex-1 overflow-hidden">
+            <Table aria-label="Runs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Run</TableHead>
+                  <TableHead className="hidden lg:table-cell">Project</TableHead>
+                  <TableHead className="hidden md:table-cell">Phase</TableHead>
+                  <TableHead>Outcome</TableHead>
+                  <TableHead className="hidden md:table-cell">Created</TableHead>
+                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
+                  <TableHead>Tests</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pager.items.map((run) => (
+                  <TableRow key={run.id} data-testid={`run-row-${run.id}`}>
+                    <TableCell>
+                      <a
+                        href={runDetailPath(run.id)}
+                        className="inline-flex min-h-6 items-center rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                      >
+                        {run.suite ?? run.id.slice(0, 8)}
+                      </a>
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      {run.projectId ?? 'UNKNOWN'}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        data-testid={`run-outcome-${run.id}`}
+                        variant={outcomeVariant(run.outcome)}
+                      >
+                        {run.outcome ?? 'PENDING'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {formatDate(run.createdAt, 'Not started')}
+                    </TableCell>
+                    <TableCell numeric className="hidden sm:table-cell">
+                      {run.summary.durationMs != null
+                        ? formatDuration(run.summary.durationMs)
+                        : 'UNKNOWN'}
+                    </TableCell>
+                    <TableCell numeric>
+                      {run.summary.total > 0
+                        ? `${run.summary.passed}/${run.summary.total}`
+                        : 'No tests reported'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <PagerControls pager={pager} label="run" />
+        </Panel>
+      )}
+    </>
+  );
+  const readiness = <ReleaseReadinessCard releaseId={latestReleaseId} api={api} />;
+  const recent = <RecentRuns runs={runs} isLive={isLive} />;
+
   return (
     <PageFrame data-testid="runs-list-page">
       <PageHeader
@@ -115,7 +200,7 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
           </Button>
         }
       />
-      <section aria-label="Run totals" className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-4">
+      <section aria-label="Run totals" className="grid shrink-0 grid-cols-4 gap-2 sm:gap-3">
         <Kpi data-testid="stat-total" label="Total runs" value={String(runs.length)} />
         <Kpi data-testid="stat-passed" label="Passed" value={String(passed)} tone="text-success" />
         <Kpi
@@ -126,86 +211,23 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
         />
         <Kpi data-testid="stat-running" label="Active" value={String(active)} />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_20rem]">
-        {runs.length === 0 ? (
-          <EmptyState
-            headingLevel={2}
-            data-testid="runs-list-empty"
-            title="No execution evidence"
-            description="Start a tool from the Runner, launch a browser run, or let the dashboard show what is blocking you."
-            action={
-              <a
-                href="/dashboard/runner"
-                className="rounded-md bg-primary px-4 py-2 text-sm text-on-fill no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                Open the runner
-              </a>
-            }
-          />
-        ) : (
-          <Panel title="All runs" data-testid="runs-table">
-            <div className="min-h-0 flex-1 xl:overflow-hidden">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Run</TableHead>
-                    <TableHead>Project</TableHead>
-                    <TableHead>Phase</TableHead>
-                    <TableHead>Outcome</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Duration</TableHead>
-                    <TableHead>Tests</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pager.items.map((run) => (
-                    <TableRow key={run.id} data-testid={`run-row-${run.id}`}>
-                      <TableCell>
-                        <a
-                          href={runDetailPath(run.id)}
-                          className="inline-flex min-h-6 items-center rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-                        >
-                          {run.suite ?? run.id.slice(0, 8)}
-                        </a>
-                      </TableCell>
-                      <TableCell>{run.projectId ?? 'UNKNOWN'}</TableCell>
-                      <TableCell>
-                        <Badge variant={isRunActive(run) ? 'default' : 'outline'}>
-                          {run.phase}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          data-testid={`run-outcome-${run.id}`}
-                          variant={outcomeVariant(run.outcome)}
-                        >
-                          {run.outcome ?? 'PENDING'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{formatDate(run.createdAt, 'Not started')}</TableCell>
-                      <TableCell numeric>
-                        {run.summary.durationMs != null
-                          ? formatDuration(run.summary.durationMs)
-                          : 'UNKNOWN'}
-                      </TableCell>
-                      <TableCell numeric>
-                        {run.summary.total > 0
-                          ? `${run.summary.passed}/${run.summary.total}`
-                          : 'No tests reported'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+      <Responsive
+        label="Runs sections"
+        desktop={
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_20rem] gap-3">
+            {table}
+            <div className="flex min-h-0 flex-col gap-3">
+              {readiness}
+              {recent}
             </div>
-            <PagerControls pager={pager} label="run" />
-          </Panel>
-        )}
-        <div className="flex min-h-0 flex-col gap-3">
-          <ReleaseReadinessCard releaseId={latestReleaseId} api={api} />
-          <RecentRuns runs={runs} isLive={isLive} />
-        </div>
-      </div>
+          </div>
+        }
+        panels={[
+          { id: 'runs', label: 'Runs', node: table },
+          { id: 'readiness', label: 'Readiness', node: readiness },
+          ...(runs.length === 0 ? [] : [{ id: 'recent', label: 'Recent', node: recent }]),
+        ]}
+      />
       <Dialog
         open={launching}
         onOpenChange={setLaunching}

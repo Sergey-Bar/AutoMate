@@ -122,4 +122,39 @@ describe('NavBar', () => {
       expect(screen.getByTestId('nav-bar')).toBeInTheDocument();
     });
   });
+
+  /**
+   * Below `lg` the destinations live behind one button, so the bar stays one row tall.
+   * The button names the page you are on, the menu closes on Escape, and on a navigation.
+   */
+  it('folds the destinations behind a menu that names the current page', async () => {
+    render(<RouterProvider router={makeRouter('/dashboard/runner')} />);
+    const toggle = await screen.findByTestId('nav-menu-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveTextContent('Runner');
+    expect(toggle).toHaveTextContent(', open the menu');
+    expect(screen.queryByTestId('nav-menu')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const menu = screen.getByTestId('nav-menu');
+    expect(toggle).toHaveAttribute('aria-controls', menu.id);
+    expect(menu.querySelectorAll('a')).toHaveLength(screen.getAllByRole('link').length / 2);
+    expect(menu.querySelector('[aria-current="page"]')).toHaveTextContent('Runner');
+
+    fireEvent.keyDown(window, { key: 'Enter' });
+    expect(screen.getByTestId('nav-menu')).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('nav-menu')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('nav-menu')).not.toBeInTheDocument();
+
+    fireEvent.click(toggle);
+    const runs = screen.getByTestId('nav-menu').querySelector('a[href="/dashboard/runs"]');
+    expect(runs).not.toBeNull();
+    fireEvent.click(runs as HTMLAnchorElement);
+    await waitFor(() => expect(screen.queryByTestId('nav-menu')).not.toBeInTheDocument());
+  });
 });

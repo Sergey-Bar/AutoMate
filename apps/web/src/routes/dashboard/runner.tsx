@@ -11,19 +11,23 @@ import {
   DialogTitle,
   Play,
   RefreshCw,
+  RotateCcw,
   Search,
+  Star,
   cn,
 } from '@automate/ui';
 import { Route as dashboardRoute } from '../dashboard.js';
 import {
+  CopyButton,
   PageFrame,
   PageHeader,
   Panel,
   PagerControls,
   Quiet,
+  useFitCount,
   usePager,
-  useViewportRows,
 } from '../../components/kit.js';
+import { KindIcon, Responsive } from '../../components/responsive.js';
 import { ProjectGate } from '../../components/ProjectGate.js';
 import { useResource } from '../../hooks/useResource.js';
 import { isRunActive, useRuns } from '../../hooks/useRuns.js';
@@ -155,6 +159,45 @@ function RunnerBody({
   );
 }
 
+/**
+ * Pinned tools, kept in this browser: the handful of commands a QA engineer runs ten times a
+ * day sit at the top of every group rather than wherever the manifest put them.
+ */
+const PIN_KEY = 'automate-pinned-tools';
+
+function readPins(): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(PIN_KEY) ?? '[]');
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export function usePins(): [Set<string>, (id: string) => void] {
+  const [pins, setPins] = React.useState(readPins);
+  const toggle = React.useCallback((id: string) => {
+    setPins((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(PIN_KEY, JSON.stringify([...next]));
+      } catch {
+        // A storage that refuses writes keeps the pin for this page only.
+      }
+      return next;
+    });
+  }, []);
+  return [pins, toggle];
+}
+
+/** The tool a finished run executed, read from the id the server stored on the job. */
+export function toolForRun(run: Run, tools: readonly RepoTool[]): RepoTool | undefined {
+  const id = (run.configuration as { commandId?: unknown } | undefined)?.commandId;
+  return typeof id === 'string' ? tools.find((tool) => tool.id === id && tool.runnable) : undefined;
+}
+
 function RunnerGrid({
   tools,
   runs,
@@ -164,48 +207,74 @@ function RunnerGrid({
   runs: Run[];
   onRun: (tool: RepoTool) => void;
 }): React.ReactElement {
-  const [group, setGroup] = React.useState<GroupId>('all');
+  const [group, setGroup] = React.useState<GroupId | 'pinned'>('all');
   const [query, setQuery] = React.useState('');
+  const [pins, togglePin] = usePins();
   const needle = query.trim().toLowerCase();
-  const visible = tools.filter(
-    (tool) =>
-      inGroup(tool, group) &&
-      (needle.length === 0 ||
-        tool.label.toLowerCase().includes(needle) ||
-        tool.workingDirectory.toLowerCase().includes(needle)),
+  const visible = tools
+    .filter(
+      (tool) =>
+        (group === 'pinned' ? pins.has(tool.id) : inGroup(tool, group)) &&
+        (needle.length === 0 ||
+          tool.label.toLowerCase().includes(needle) ||
+          tool.workingDirectory.toLowerCase().includes(needle)),
+    )
+    // Pinned first, then the scan's own order.
+    .sort((left, right) => Number(pins.has(right.id)) - Number(pins.has(left.id)));
+  const [size, listRef] = useFitCount(58, 7);
+  const pager = usePager(visible, size);
+  const groups = [
+    ...(pins.size > 0 ? [{ id: 'pinned' as const, label: 'Pinned', count: pins.size }] : []),
+    ...TOOL_GROUPS.map((candidate) => ({
+      id: candidate.id,
+      label: candidate.label,
+      count: tools.filter((tool) => inGroup(tool, candidate.id)).length,
+    })),
+  ];
+
+  const groupList = (
+    <ul className="space-y-1">
+      {groups.map((candidate) => (
+        <li key={candidate.id}>
+          <button
+            type="button"
+            data-testid={`group-${candidate.id}`}
+            aria-pressed={group === candidate.id}
+            onClick={() => setGroup(candidate.id)}
+            className={cn(
+              'flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+              group === candidate.id ? 'bg-surface-muted text-fg' : 'text-fg-muted hover:text-fg',
+            )}
+          >
+            {candidate.label}
+            <span className="tabular-nums text-xs">{candidate.count}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
-  // Header, notice, panel title, filter and pager: about 340px above and below the rows.
-  const pager = usePager(visible, useViewportRows(340, 57));
-  return (
-    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[13rem_minmax(0,1fr)_19rem]">
-      <Panel title="Groups">
-        <ul className="space-y-1">
-          {TOOL_GROUPS.map((candidate) => {
-            const count = tools.filter((tool) => inGroup(tool, candidate.id)).length;
-            return (
-              <li key={candidate.id}>
-                <button
-                  type="button"
-                  data-testid={`group-${candidate.id}`}
-                  aria-pressed={group === candidate.id}
-                  onClick={() => setGroup(candidate.id)}
-                  className={cn(
-                    'flex min-h-11 w-full items-center justify-between rounded-lg px-3 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
-                    group === candidate.id
-                      ? 'bg-surface-muted text-fg'
-                      : 'text-fg-muted hover:text-fg',
-                  )}
-                >
-                  {candidate.label}
-                  <span className="tabular-nums text-xs">{count}</span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </Panel>
-      <Panel title="Tools" data-testid="runner-tools">
-        <label className="relative mb-2 block shrink-0">
+
+  const toolsPanel = (narrow: boolean) => (
+    <Panel title="Tools" data-testid="runner-tools" className="flex-1">
+      <div className="mb-2 flex shrink-0 gap-2">
+        {narrow ? (
+          <label className="shrink-0">
+            <span className="sr-only">Group</span>
+            <select
+              data-testid="runner-group-select"
+              value={group}
+              onChange={(event) => setGroup(event.target.value as GroupId | 'pinned')}
+              className="min-h-11 rounded-lg border border-border bg-surface px-2 text-sm text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              {groups.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {`${candidate.label} (${String(candidate.count)})`}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <label className="relative block min-w-0 flex-1">
           <span className="sr-only">Filter tools</span>
           <Search
             size={14}
@@ -221,43 +290,94 @@ function RunnerGrid({
             className="min-h-11 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-sm outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           />
         </label>
+      </div>
+      <div ref={listRef} className="min-h-0 flex-1 overflow-hidden">
         {pager.items.length === 0 ? (
-          <Quiet>No tool matches.</Quiet>
+          <Quiet>{group === 'pinned' ? 'Nothing pinned yet.' : 'No tool matches.'}</Quiet>
         ) : (
-          <ul className="min-h-0 flex-1 divide-y divide-border">
+          <ul className="divide-y divide-border">
             {pager.items.map((tool) => (
-              <ToolRow key={tool.id} tool={tool} onRun={onRun} />
+              <ToolRow
+                key={tool.id}
+                tool={tool}
+                onRun={onRun}
+                pinned={pins.has(tool.id)}
+                onPin={() => togglePin(tool.id)}
+              />
             ))}
           </ul>
         )}
-        <PagerControls pager={pager} label="tool" />
-      </Panel>
-      <Activity runs={runs} />
-    </div>
+      </div>
+      <PagerControls pager={pager} label="tool" />
+    </Panel>
+  );
+
+  const activity = <Activity runs={runs} tools={tools} onRun={onRun} />;
+  return (
+    <Responsive
+      label="Runner sections"
+      desktop={
+        <div className="grid min-h-0 flex-1 grid-cols-[13rem_minmax(0,1fr)_19rem] gap-3">
+          <Panel title="Groups">{groupList}</Panel>
+          {toolsPanel(false)}
+          {activity}
+        </div>
+      }
+      panels={[
+        { id: 'tools', label: 'Tools', node: toolsPanel(true) },
+        { id: 'activity', label: 'Activity', node: activity },
+      ]}
+    />
   );
 }
 
 function ToolRow({
   tool,
   onRun,
+  pinned,
+  onPin,
 }: {
   tool: RepoTool;
   onRun: (tool: RepoTool) => void;
+  pinned: boolean;
+  onPin: () => void;
 }): React.ReactElement {
   return (
-    <li data-testid={`tool-${tool.id}`} className="flex items-center gap-3 py-1.5">
+    <li data-testid={`tool-${tool.id}`} className="flex items-center gap-2 py-1 sm:gap-3">
+      <span
+        aria-hidden="true"
+        className="hidden h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-surface-muted text-fg-muted sm:inline-flex"
+      >
+        <KindIcon kind={tool.kind} />
+      </span>
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-sm" title={tool.name}>
             {tool.name}
           </span>
-          <Badge variant="outline">{tool.kind}</Badge>
+          <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">
+            {tool.kind}
+          </Badge>
         </div>
         <div className="truncate text-xs text-fg-muted" title={tool.evidence}>
           {tool.workingDirectory === '.' ? 'root' : tool.workingDirectory} ·{' '}
           {tool.runnable ? tool.evidence : tool.reason}
         </div>
       </div>
+      <button
+        type="button"
+        data-testid={`pin-${tool.id}`}
+        aria-pressed={pinned}
+        aria-label={pinned ? `Unpin ${tool.name}` : `Pin ${tool.name}`}
+        onClick={onPin}
+        className={cn(
+          'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+          pinned ? 'text-warning' : 'text-fg-muted',
+        )}
+      >
+        <Star size={14} aria-hidden="true" fill={pinned ? 'currentColor' : 'none'} />
+      </button>
+      <CopyButton text={tool.label} label={tool.label} />
       <Button
         size="sm"
         variant={tool.runnable ? 'outline' : 'ghost'}
@@ -268,7 +388,7 @@ function ToolRow({
         className="min-h-11 min-w-11"
       >
         <Play size={12} aria-hidden="true" />
-        Run
+        <span className="hidden sm:inline">Run</span>
       </Button>
     </li>
   );
@@ -284,12 +404,27 @@ function outcomeTone(run: Run): 'success' | 'danger' | 'secondary' | 'default' {
   return 'secondary';
 }
 
-/** The latest runs, live: the stream pushes each phase, so a run started here is watched here. */
-function Activity({ runs }: { runs: Run[] }): React.ReactElement {
+/**
+ * The latest runs, live, with one press to run any of them again.
+ *
+ * "Run again" re-opens the same confirmation as the list, for the tool the server recorded
+ * on the job — never a replay of an argv from the browser.
+ */
+function Activity({
+  runs,
+  tools,
+  onRun,
+}: {
+  runs: Run[];
+  tools: readonly RepoTool[];
+  onRun: (tool: RepoTool) => void;
+}): React.ReactElement {
+  const [shown, listRef] = useFitCount(52, 7);
   return (
     <Panel
       title="Activity"
       data-testid="runner-activity"
+      className="flex-1"
       action={
         <Link
           to="/dashboard/runs"
@@ -299,25 +434,46 @@ function Activity({ runs }: { runs: Run[] }): React.ReactElement {
         </Link>
       }
     >
-      {runs.length === 0 ? (
-        <Quiet>No runs yet. Start one from the list.</Quiet>
-      ) : (
-        <ul className="space-y-2">
-          {runs.slice(0, 7).map((run) => (
-            <li key={run.id} data-testid={`activity-${run.id}`} className="flex items-center gap-2">
-              <a
-                href={runDetailPath(run.id)}
-                className="flex min-h-11 min-w-0 flex-1 items-center truncate rounded-sm text-sm no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                {run.suite ?? run.id.slice(0, 8)}
-              </a>
-              <Badge role="status" aria-live="polite" variant={outcomeTone(run)}>
-                {(run.outcome ?? run.phase).replace('_', ' ')}
-              </Badge>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div ref={listRef} className="min-h-0 flex-1 overflow-hidden">
+        {runs.length === 0 ? (
+          <Quiet>No runs yet. Start one from the list.</Quiet>
+        ) : (
+          <ul className="space-y-1">
+            {runs.slice(0, shown).map((run) => {
+              const again = toolForRun(run, tools);
+              return (
+                <li
+                  key={run.id}
+                  data-testid={`activity-${run.id}`}
+                  className="flex items-center gap-1"
+                >
+                  <a
+                    href={runDetailPath(run.id)}
+                    className="flex min-h-11 min-w-0 flex-1 items-center truncate rounded-sm text-sm no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                  >
+                    {run.suite ?? run.id.slice(0, 8)}
+                  </a>
+                  <Badge role="status" aria-live="polite" variant={outcomeTone(run)}>
+                    {(run.outcome ?? run.phase).replace('_', ' ')}
+                  </Badge>
+                  {again === undefined ? null : (
+                    <button
+                      type="button"
+                      data-testid={`again-${run.id}`}
+                      aria-label={`Run ${again.label} again`}
+                      title="Run again"
+                      onClick={() => onRun(again)}
+                      className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-fg-muted hover:bg-surface-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                    >
+                      <RotateCcw size={14} aria-hidden="true" />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </Panel>
   );
 }

@@ -406,7 +406,7 @@ describe('what the dashboard refuses to draw (GLASS-3, DESIGN-4, DESIGN-5)', () 
     // The control arm: a sweep that found no figures would pass by reading nothing.
     expect(figures.length).toBeGreaterThan(20);
     const offenders = figures
-      .filter((element) => element.closest('.tabular-nums, table.sr-only') === null)
+      .filter((element) => element.closest('.tabular-nums, .sr-only') === null)
       .map(
         (element) =>
           `<${element.tagName.toLowerCase()} class="${element.className}">${element.textContent ?? ''}`,
