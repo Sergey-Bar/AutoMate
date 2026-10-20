@@ -1536,14 +1536,26 @@ export class DrizzleExecutionStore implements ExecutionStore {
           errorMessage: completion.error?.message ?? null,
         })
         .where(eq(executionJobs.id, jobId));
+      // **The tests the run recorded, when the completion lists none.** The shipped runner
+      // reports each test as a `test.*` event while it runs and then completes with
+      // `summary: null` and no `tests`, because the results are already here. Counting only
+      // the completion's list made such a run read Total 0 / Passed 0 beside a passing test,
+      // and stored it as `interrupted` for having "reported nothing". Read inside this
+      // transaction, so the events and the completion are one snapshot.
+      const recordedTests =
+        completion.tests && completion.tests.length > 0
+          ? completion.tests
+          : (await tx.select().from(tests).where(eq(tests.runId, job.runId))).map((row) =>
+              mapTest(rowValue(row)),
+            );
       // A run with no tests, a zero total and no recorded pass has produced no
       // evidence, so `passed` is not available to it (see `runStatusFor`).
-      const runStatus = runStatusFor(derived, completion);
+      const runStatus = runStatusFor(derived, { ...completion, tests: recordedTests });
       // A runner's own summary is accepted only if it accounts for its own total;
       // one that does not add up is an unverifiable claim about evidence, so the
       // run's own tests are counted instead. `resolveSummary` is shared with the
       // in-memory store so the two cannot derive the same run differently.
-      const summary = resolveSummary(completion.summary, completion.tests ?? []);
+      const summary = resolveSummary(completion.summary ?? undefined, recordedTests);
       await tx
         .update(runs)
         .set({
