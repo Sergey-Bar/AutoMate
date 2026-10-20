@@ -178,6 +178,43 @@ export const projects = pgTable(
   ],
 );
 
+// Source: scan_snapshots table — added in 0025.
+//
+// One reading of a project per hour: mean line coverage, the health score, maturity and
+// the flaky-test count, so the dashboard can say what changed rather than only what is.
+//
+// **A history, not a fourth blocking number.** `projects.ts` refuses a stored score for a
+// good reason — a cached total that disagrees with the live derivation is two answers to
+// one question. This table is never read to *decide* anything: the score, the gate and
+// the readiness verdict are all computed live, and a snapshot is only ever drawn as a past
+// point on a line. Readings are written on scan, at most one per `(workspace, project,
+// hour)`, which the unique index enforces rather than the writer remembering to.
+export const scanSnapshots = pgTable(
+  'scan_snapshots',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    projectId: uuid('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    hour: timestamp('hour', { withTimezone: true }).notNull(),
+    takenAt: timestamp('taken_at', { withTimezone: true }).notNull().defaultNow(),
+    coverage: real('coverage'),
+    healthScore: real('health_score'),
+    maturity: real('maturity').notNull(),
+    flakyTests: integer('flaky_tests').notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.projectId, table.hour] }),
+    index('scan_snapshots_project_taken_idx').on(table.workspaceId, table.projectId, table.takenAt),
+    check(
+      'scan_snapshots_range_check',
+      sql`(${table.coverage} is null or ${table.coverage} between 0 and 100) and (${table.healthScore} is null or ${table.healthScore} between 0 and 100) and ${table.maturity} between 0 and 100 and ${table.flakyTests} >= 0`,
+    ),
+  ],
+);
+
 // ─── runs ──────────────────────────────────────────────────────────────────
 // Source: runs table — core run record
 export const runs = pgTable(

@@ -1,4 +1,5 @@
-import type { QaCapability } from '@automate/shared-contracts';
+import type { QaCapability, ToolPricing } from '@automate/shared-contracts';
+import { MORE_TOOLS } from './catalog-more.js';
 
 /**
  * The QA toolbox: every tool the product knows how to recognise and recommend.
@@ -16,6 +17,10 @@ import type { QaCapability } from '@automate/shared-contracts';
 export interface CatalogTool {
   id: string;
   name: string;
+  /** The adoption tier. Never a price: see `ToolPricingSchema`. */
+  pricing: ToolPricing;
+  /** The vendor's pricing or product page. Required for `paid`, by the catalogue test. */
+  vendorUrl?: string;
   capability: QaCapability;
   ecosystems: readonly string[];
   description: string;
@@ -33,10 +38,17 @@ const NODE = ['node'] as const;
 const PYTHON = ['python'] as const;
 const ANY = ['any'] as const;
 
-export const TOOL_CATALOG: readonly CatalogTool[] = [
+/**
+ * The tools the product shipped with first. `catalog-more.ts` holds the expansion — JVM,
+ * .NET, Go, Ruby and PHP runners, mobile and device clouds, API tooling, DAST, test
+ * management, and the commercial platforms — and `TOOL_CATALOG` is the two in that order,
+ * so the first preferred tool per capability is still the one recommended.
+ */
+const CORE_TOOLS: readonly CatalogTool[] = [
   {
     id: 'vitest',
     name: 'Vitest',
+    pricing: 'free',
     capability: 'unit',
     ecosystems: NODE,
     description: 'Fast unit and component tests with native TypeScript and ESM.',
@@ -49,6 +61,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'jest',
     name: 'Jest',
+    pricing: 'free',
     capability: 'unit',
     ecosystems: NODE,
     description: 'The long-standing JavaScript test runner with snapshot support.',
@@ -60,6 +73,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'pytest',
     name: 'pytest',
+    pricing: 'free',
     capability: 'unit',
     ecosystems: PYTHON,
     description: 'The standard Python test runner, with fixtures and plugins.',
@@ -72,6 +86,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'testing-library',
     name: 'Testing Library',
+    pricing: 'free',
     capability: 'integration',
     ecosystems: NODE,
     description: 'Component tests that query the DOM the way a user does.',
@@ -83,6 +98,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'testcontainers',
     name: 'Testcontainers',
+    pricing: 'free',
     capability: 'integration',
     ecosystems: ANY,
     description: 'Integration tests against real databases and brokers in throwaway containers.',
@@ -93,6 +109,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'playwright',
     name: 'Playwright',
+    pricing: 'free',
     capability: 'e2e',
     ecosystems: ANY,
     description: 'Cross-browser end-to-end tests with tracing, retries and parallelism.',
@@ -105,6 +122,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'cypress',
     name: 'Cypress',
+    pricing: 'free',
     capability: 'e2e',
     ecosystems: NODE,
     description: 'Browser end-to-end tests with a time-travel debugger.',
@@ -116,6 +134,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'v8-coverage',
     name: 'V8 / Istanbul coverage',
+    pricing: 'free',
     capability: 'coverage',
     ecosystems: NODE,
     description: 'Line, branch and function coverage with a ratchet so it only goes up.',
@@ -128,6 +147,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'coverage-py',
     name: 'coverage.py',
+    pricing: 'free',
     capability: 'coverage',
     ecosystems: PYTHON,
     description: 'Python coverage measurement, with pytest-cov for the runner integration.',
@@ -140,6 +160,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'eslint',
     name: 'ESLint',
+    pricing: 'free',
     capability: 'static-analysis',
     ecosystems: NODE,
     description: 'Finds bugs and enforces conventions in JavaScript and TypeScript.',
@@ -152,6 +173,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'ruff',
     name: 'Ruff',
+    pricing: 'free',
     capability: 'static-analysis',
     ecosystems: PYTHON,
     description: 'An extremely fast Python linter covering hundreds of rules.',
@@ -164,6 +186,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'jscpd',
     name: 'jscpd',
+    pricing: 'free',
     capability: 'static-analysis',
     ecosystems: ANY,
     description: 'Copy-paste detection across more than 150 languages.',
@@ -175,6 +198,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'typescript',
     name: 'TypeScript strict',
+    pricing: 'free',
     capability: 'types',
     ecosystems: NODE,
     description: 'Static types; `tsc --noEmit` as a gate catches whole classes of defect.',
@@ -187,18 +211,20 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'mypy',
     name: 'mypy',
+    pricing: 'free',
     capability: 'types',
     ecosystems: PYTHON,
     description: 'Static type checking for Python.',
     setup: 'pip install mypy',
     docsUrl: 'https://mypy.readthedocs.io/',
-    dependencies: ['mypy', 'pyright'],
+    dependencies: ['mypy'],
     files: [/(^|\/)mypy\.ini$/u],
     preferred: true,
   },
   {
     id: 'prettier',
     name: 'Prettier',
+    pricing: 'free',
     capability: 'formatting',
     ecosystems: NODE,
     description: 'One formatting style, so review is about behaviour rather than whitespace.',
@@ -213,6 +239,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'black',
     name: 'Black',
+    pricing: 'free',
     capability: 'formatting',
     ecosystems: PYTHON,
     description: 'The uncompromising Python formatter.',
@@ -224,6 +251,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'semgrep',
     name: 'Semgrep',
+    pricing: 'freemium',
     capability: 'sast',
     ecosystems: ANY,
     description: 'Static application security testing with readable, pattern-based rules.',
@@ -235,6 +263,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'codeql',
     name: 'CodeQL',
+    pricing: 'freemium',
     capability: 'sast',
     ecosystems: ANY,
     description: 'GitHub’s semantic code analysis for security vulnerabilities.',
@@ -245,6 +274,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'bandit',
     name: 'Bandit',
+    pricing: 'free',
     capability: 'sast',
     ecosystems: PYTHON,
     description: 'Finds common security issues in Python code.',
@@ -255,6 +285,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'gitleaks',
     name: 'Gitleaks',
+    pricing: 'free',
     capability: 'secrets',
     ecosystems: ANY,
     description: 'Scans the tree and the history for committed secrets.',
@@ -266,6 +297,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'dependabot',
     name: 'Dependabot',
+    pricing: 'free',
     capability: 'dependencies',
     ecosystems: ANY,
     description: 'Automatic pull requests for vulnerable and outdated dependencies.',
@@ -277,6 +309,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'renovate',
     name: 'Renovate',
+    pricing: 'free',
     capability: 'dependencies',
     ecosystems: ANY,
     description: 'Configurable dependency update automation across many platforms.',
@@ -287,6 +320,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'pip-audit',
     name: 'pip-audit',
+    pricing: 'free',
     capability: 'dependencies',
     ecosystems: PYTHON,
     description: 'Audits Python dependencies against known vulnerabilities.',
@@ -297,6 +331,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'k6',
     name: 'Grafana k6',
+    pricing: 'free',
     capability: 'performance',
     ecosystems: ANY,
     description: 'Load tests written in JavaScript, with pass/fail thresholds.',
@@ -309,6 +344,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'lighthouse-ci',
     name: 'Lighthouse CI',
+    pricing: 'free',
     capability: 'performance',
     ecosystems: NODE,
     description: 'Web-vitals and page-weight budgets checked on every pull request.',
@@ -320,6 +356,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'locust',
     name: 'Locust',
+    pricing: 'free',
     capability: 'performance',
     ecosystems: PYTHON,
     description: 'Python load testing with user behaviour written as code.',
@@ -331,6 +368,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'axe',
     name: 'axe-core',
+    pricing: 'free',
     capability: 'accessibility',
     ecosystems: ANY,
     description: 'Automated WCAG checks inside unit and end-to-end tests.',
@@ -342,6 +380,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'pa11y',
     name: 'Pa11y',
+    pricing: 'free',
     capability: 'accessibility',
     ecosystems: NODE,
     description: 'Accessibility checks over a list of URLs, ready for CI.',
@@ -353,6 +392,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'stryker',
     name: 'Stryker',
+    pricing: 'free',
     capability: 'mutation',
     ecosystems: NODE,
     description: 'Mutation testing: proves the tests fail when the code is wrong.',
@@ -365,6 +405,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'mutmut',
     name: 'mutmut',
+    pricing: 'free',
     capability: 'mutation',
     ecosystems: PYTHON,
     description: 'Mutation testing for Python.',
@@ -376,6 +417,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'pact',
     name: 'Pact',
+    pricing: 'free',
     capability: 'contract',
     ecosystems: ANY,
     description: 'Consumer-driven contract tests between services.',
@@ -387,6 +429,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'schemathesis',
     name: 'Schemathesis',
+    pricing: 'free',
     capability: 'contract',
     ecosystems: ANY,
     description: 'Property-based API tests generated from an OpenAPI document.',
@@ -397,6 +440,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'storybook',
     name: 'Storybook',
+    pricing: 'free',
     capability: 'visual',
     ecosystems: NODE,
     description: 'Component workshop; pairs with visual regression services.',
@@ -408,6 +452,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'playwright-snapshots',
     name: 'Playwright screenshots',
+    pricing: 'free',
     capability: 'visual',
     ecosystems: ANY,
     description: 'Pixel comparison with `toHaveScreenshot`, inside the e2e suite you already have.',
@@ -419,6 +464,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'github-actions',
     name: 'GitHub Actions',
+    pricing: 'freemium',
     capability: 'ci',
     ecosystems: ANY,
     description: 'Runs every gate on every pull request, so a regression cannot merge.',
@@ -430,6 +476,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'gitlab-ci',
     name: 'GitLab CI',
+    pricing: 'freemium',
     capability: 'ci',
     ecosystems: ANY,
     description: 'GitLab’s built-in pipelines.',
@@ -440,6 +487,7 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
   {
     id: 'husky',
     name: 'Husky',
+    pricing: 'free',
     capability: 'ci',
     ecosystems: NODE,
     description: 'Git hooks, so the cheapest checks run before a commit exists.',
@@ -449,3 +497,5 @@ export const TOOL_CATALOG: readonly CatalogTool[] = [
     files: [/^\.husky\/[^/]+$/u],
   },
 ];
+
+export const TOOL_CATALOG: readonly CatalogTool[] = [...CORE_TOOLS, ...MORE_TOOLS];

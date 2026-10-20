@@ -1,12 +1,16 @@
 import {
+  createContext,
   forwardRef,
   useCallback,
+  useContext,
   useEffect,
+  useMemo,
   useRef,
   type DialogHTMLAttributes,
   type HTMLAttributes,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { X } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 
 /**
@@ -26,11 +30,46 @@ function tabbableWithin(container: HTMLElement): HTMLElement[] {
   );
 }
 
+/**
+ * Where focus goes when the dialog opens.
+ *
+ * **The title, not the first button.** Focusing the first tabbable element put focus on
+ * Copy in the toolbox's tool dialog and on Run in the runner's confirmation: an action was
+ * armed before the reader had read what it acted on, and Enter performed it. A caller that
+ * *does* want a control first — a form's first field — marks it `data-autofocus`.
+ */
+function initialFocus(dialog: HTMLDialogElement): HTMLElement {
+  const chosen =
+    dialog.querySelector<HTMLElement>('[data-autofocus]') ??
+    dialog.querySelector<HTMLElement>('[data-dialog-title]') ??
+    // A dialog whose content brings its own heading (a form with an `h2`) is read from
+    // that heading too, made focusable by script only so it never becomes a Tab stop.
+    dialog.querySelector<HTMLElement>('h1, h2, h3');
+  if (chosen === null) return tabbableWithin(dialog)[0] ?? dialog;
+  if (!chosen.hasAttribute('tabindex') && !chosen.matches(FOCUSABLE)) chosen.tabIndex = -1;
+  return chosen;
+}
+
+/** Lets the header's close button close the dialog it sits in, without a prop chain. */
+const DialogCloseContext = createContext<(() => void) | null>(null);
+
 export interface DialogProps extends DialogHTMLAttributes<HTMLDialogElement> {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
 
+/**
+ * A modal dialog that can always be left.
+ *
+ * ## Three ways out, and every dialog has all three
+ *
+ * The close button in the header, a click on the backdrop, and Escape. Escape alone was a
+ * trap: on a phone there is no Escape key, and a mouse user had nothing to click. The
+ * toolbox's tool dialog shipped exactly that way (ledger `UX-DIALOG-1`).
+ *
+ * The backdrop counts only when the press **started** on it as well as ended there, so
+ * selecting text in the dialog and releasing the mouse past its edge does not close it.
+ */
 export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
   ({ className, open, onOpenChange, children, ...props }, ref) => {
     const internalRef = useRef<HTMLDialogElement>(null);
@@ -75,14 +114,42 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
         returnFocusTo.current =
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
         dialog.showModal();
-        const [first] = tabbableWithin(dialog);
-        (first ?? dialog).focus();
+        initialFocus(dialog).focus();
       } else if (!open && dialog.open) {
         dialog.close();
       }
 
       return () => dialog.removeEventListener('close', handleClose);
     }, [open, onOpenChange]);
+
+    /*
+     * Backdrop dismissal. Listeners rather than JSX handlers because a `<dialog>` is not an
+     * interactive element to jsx-a11y, and the keyboard equivalent — Escape — is native.
+     */
+    useEffect(() => {
+      const dialog = internalRef.current;
+      if (!dialog) return;
+      let pressedOnBackdrop = false;
+      const onPointerDown = (event: Event) => {
+        pressedOnBackdrop = event.target === dialog;
+      };
+      const onClick = (event: Event) => {
+        const fromBackdrop = event.target === dialog && pressedOnBackdrop;
+        pressedOnBackdrop = false;
+        if (fromBackdrop && dialog.open) dialog.close();
+      };
+      dialog.addEventListener('pointerdown', onPointerDown);
+      dialog.addEventListener('click', onClick);
+      return () => {
+        dialog.removeEventListener('pointerdown', onPointerDown);
+        dialog.removeEventListener('click', onClick);
+      };
+    }, []);
+
+    const close = useCallback(() => {
+      const dialog = internalRef.current;
+      if (dialog?.open) dialog.close();
+    }, []);
 
     /**
      * Contain Tab inside the dialog.
@@ -92,6 +159,10 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
      * runs — so the trap that the real UI depends on would be the one part with
      * no test coverage. Wrapping it explicitly means the behaviour under test is
      * the behaviour that ships.
+     *
+     * Focus can sit on something that is not a Tab stop — the title, on open — so the
+     * position is found in the list rather than compared with its ends: from outside the
+     * list, forwards is the first control and backwards is the last.
      */
     const handleKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDialogElement>) => {
       if (event.key !== 'Tab') return;
@@ -105,15 +176,20 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
       }
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || active === dialog)) {
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      if (index === -1) {
+        event.preventDefault();
+        (event.shiftKey ? last : first)?.focus();
+      } else if (event.shiftKey && index === 0) {
         event.preventDefault();
         last?.focus();
-      } else if (!event.shiftKey && active === last) {
+      } else if (!event.shiftKey && index === focusable.length - 1) {
         event.preventDefault();
         first?.focus();
       }
     }, []);
+
+    const context = useMemo(() => close, [close]);
 
     return (
       <dialog
@@ -129,7 +205,10 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
            * direction to whoever read it next, which is how a drawer, a dialog, a popover
            * and a palette all ended up on whatever the first one used.
            */
-          'backdrop:bg-surface/50 open:animate-automate-slide-in p-0 rounded-lg shadow-elevation-3 border border-border bg-surface text-fg max-w-lg w-full',
+          // `m-auto` because preflight zeroes a dialog's margin, which pinned a tall dialog to the
+          // top-left corner on a phone and left no backdrop to tap. The height cap keeps a
+          // margin of backdrop on every side, and the dialog scrolls inside it instead.
+          'backdrop:bg-surface/50 open:animate-automate-slide-in m-auto max-h-[calc(100dvh-2rem)] overflow-y-auto p-0 rounded-2xl shadow-elevation-3 border border-border bg-surface-raised text-fg max-w-lg w-[calc(100%-2rem)]',
           className,
         )}
         onKeyDown={handleKeyDown}
@@ -141,25 +220,72 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
         aria-modal="true"
         tabIndex={-1}
       >
-        {children}
+        <DialogCloseContext.Provider value={context}>{children}</DialogCloseContext.Provider>
       </dialog>
     );
   },
 );
 Dialog.displayName = 'Dialog';
 
+/**
+ * The visible way out: a 44px icon button, top right.
+ *
+ * Renders nothing outside a `Dialog`, because a close button that closes nothing is worse
+ * than none.
+ */
+export function DialogClose({
+  label = 'Close',
+  className,
+}: {
+  label?: string;
+  className?: string;
+}) {
+  const close = useContext(DialogCloseContext);
+  if (close === null) return null;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={close}
+      className={cn(
+        'absolute right-2 top-2 inline-flex h-11 w-11 items-center justify-center rounded-full text-fg-muted transition-colors hover:bg-surface-muted hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+        className,
+      )}
+    >
+      <X size={18} aria-hidden="true" />
+    </button>
+  );
+}
+
 export const DialogContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => <div ref={ref} className={cn('p-6', className)} {...props} />,
 );
 DialogContent.displayName = 'DialogContent';
 
-export const DialogHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
+export interface DialogHeaderProps extends HTMLAttributes<HTMLDivElement> {
+  /** The close button is on by default; a dialog that must be answered can turn it off. */
+  showClose?: boolean;
+  closeLabel?: string;
+}
+
+export const DialogHeader = forwardRef<HTMLDivElement, DialogHeaderProps>(
+  ({ className, showClose = true, closeLabel, children, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex flex-col space-y-1.5 text-center sm:text-left mb-4', className)}
+      className={cn(
+        'flex flex-col space-y-1.5 text-left mb-4',
+        // Room for the close button, so a long title never runs under it.
+        showClose && 'pr-10',
+        className,
+      )}
       {...props}
-    />
+    >
+      {children}
+      {showClose ? (
+        <DialogClose {...(closeLabel === undefined ? {} : { label: closeLabel })} />
+      ) : null}
+    </div>
   ),
 );
 DialogHeader.displayName = 'DialogHeader';
@@ -168,7 +294,13 @@ export const DialogTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHea
   ({ className, children, ...props }, ref) => (
     <h2
       ref={ref}
-      className={cn('text-lg font-semibold leading-snug tracking-tight text-balance', className)}
+      // Focusable by script only, so it can take focus on open without becoming a Tab stop.
+      tabIndex={-1}
+      data-dialog-title=""
+      className={cn(
+        'text-lg font-semibold leading-snug tracking-tight text-balance outline-none',
+        className,
+      )}
       {...props}
     >
       {children}
@@ -189,10 +321,7 @@ export const DialogFooter = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivEle
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn(
-        'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 mt-6',
-        className,
-      )}
+      className={cn('flex flex-col-reverse gap-2 sm:flex-row sm:justify-end mt-6', className)}
       {...props}
     />
   ),

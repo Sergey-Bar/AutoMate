@@ -29,6 +29,13 @@ export const QA_CAPABILITIES = [
   'contract',
   'visual',
   'ci',
+  // Added with the expanded toolbox. `mobile` and `test-management` weigh nothing toward
+  // maturity (see `CAPABILITY_WEIGHTS`): a web service with no device lab is not a less
+  // mature QA practice, and a test-management system is a team choice rather than a gap.
+  'api',
+  'mobile',
+  'dast',
+  'test-management',
 ] as const;
 export const QaCapabilitySchema = z.enum(QA_CAPABILITIES);
 export type QaCapability = z.infer<typeof QaCapabilitySchema>;
@@ -105,6 +112,18 @@ export const DetectedToolSchema = z.object({
 });
 export type DetectedTool = z.infer<typeof DetectedToolSchema>;
 
+/**
+ * What a tool costs to adopt, as a tier and never as a price.
+ *
+ * `free` is free or open source with no paid tier needed for real use; `freemium` has a
+ * usable free tier and a paid one; `paid` needs a licence or a subscription. Prices change
+ * monthly and differ by seat and region, so the product records the tier and links to the
+ * vendor's own page for the rest.
+ */
+export const TOOL_PRICING = ['free', 'freemium', 'paid'] as const;
+export const ToolPricingSchema = z.enum(TOOL_PRICING);
+export type ToolPricing = z.infer<typeof ToolPricingSchema>;
+
 export const ToolboxEntrySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -118,6 +137,9 @@ export const ToolboxEntrySchema = z.object({
   /** A setup command, shown as text and never executed by the product. */
   setup: z.string().min(1),
   docsUrl: z.string().url(),
+  pricing: ToolPricingSchema,
+  /** The vendor's pricing or product page; required for a `paid` tool. */
+  vendorUrl: z.string().url().optional(),
 });
 export type ToolboxEntry = z.infer<typeof ToolboxEntrySchema>;
 

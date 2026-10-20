@@ -62,14 +62,14 @@ export const TOOL_GROUPS = [
   {
     id: 'tests',
     label: 'Tests',
-    kinds: ['unit', 'integration', 'e2e', 'contract', 'visual', 'mutation'],
+    kinds: ['unit', 'integration', 'e2e', 'api', 'mobile', 'contract', 'visual', 'mutation'],
   },
   {
     id: 'quality',
     label: 'Quality',
-    kinds: ['coverage', 'static-analysis', 'types', 'formatting', 'ci'],
+    kinds: ['coverage', 'static-analysis', 'types', 'formatting', 'ci', 'test-management'],
   },
-  { id: 'security', label: 'Security', kinds: ['sast', 'secrets', 'dependencies'] },
+  { id: 'security', label: 'Security', kinds: ['sast', 'dast', 'secrets', 'dependencies'] },
   { id: 'experience', label: 'Perf & a11y', kinds: ['performance', 'accessibility'] },
   { id: 'build', label: 'Build & data', kinds: ['build', 'database', 'docs'] },
   { id: 'other', label: 'Other', kinds: ['dev', 'other'] },

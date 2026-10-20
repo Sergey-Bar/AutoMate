@@ -38,6 +38,15 @@ export const CAPABILITY_WEIGHTS: Readonly<Record<QaCapability, number>> = {
   contract: 1,
   visual: 1,
   ci: 2,
+  api: 1.5,
+  dast: 1,
+  /*
+   * Zero, and therefore never recommended: a web service without a device lab is not a
+   * less mature practice, and a test-management system is a team's choice of process. Both
+   * still show what the scan found, and both stay out of the maturity number.
+   */
+  mobile: 0,
+  'test-management': 0,
 };
 
 const ECOSYSTEM_MARKERS: ReadonlyArray<readonly [RegExp, string]> = [
@@ -49,6 +58,7 @@ const ECOSYSTEM_MARKERS: ReadonlyArray<readonly [RegExp, string]> = [
   [/\.(csproj|fsproj|sln)$/u, 'dotnet'],
   [/(^|\/)Gemfile$/u, 'ruby'],
   [/(^|\/)composer\.json$/u, 'php'],
+  [/(^|\/)Package\.swift$|\.xcodeproj\//u, 'swift'],
 ];
 
 const TEST_FILE =
@@ -102,17 +112,63 @@ async function collectDependencies(
     if (!found.has(key)) found.set(key, source);
   };
   for (const path of paths) {
-    if (/(^|\/)package\.json$/u.test(path)) {
-      const manifest = readJson(await read(path));
-      for (const group of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-        for (const name of Object.keys(objectField(manifest, group) ?? {})) add(name, path);
-      }
-    } else if (/(^|\/)(requirements[^/]*\.txt|pyproject\.toml)$/u.test(path)) {
-      for (const name of pythonRequirements(await read(path))) add(name, path);
-    }
+    const reader = MANIFEST_READERS.find(([pattern]) => pattern.test(path))?.[1];
+    if (reader !== undefined) for (const name of reader(await read(path))) add(name, path);
   }
   return found;
 }
+
+/** The dependency names a `package.json` declares, in every dependency group. */
+function packageDependencies(text: string | null): string[] {
+  const manifest = readJson(text);
+  return ['dependencies', 'devDependencies', 'optionalDependencies'].flatMap((group) =>
+    Object.keys(objectField(manifest, group) ?? {}),
+  );
+}
+
+/** Every capture of group 1 of `pattern` in `text`. */
+function captures(text: string | null, pattern: RegExp): string[] {
+  if (text === null) return [];
+  return [...text.matchAll(pattern)].flatMap((match) => (match[1] === undefined ? [] : [match[1]]));
+}
+
+/**
+ * Dependency names from every manifest the scan reads: npm, Python, and the JVM, .NET, Ruby
+ * and PHP manifests read as text.
+ *
+ * **Names, not a build.** A Maven artifactId, a Gradle `group:artifact` coordinate or
+ * plugin id, a NuGet `PackageReference`, a `gem`, a Composer package. Resolving a
+ * build file properly needs the build tool; the scan only needs to know that
+ * `junit-jupiter` is named, which a regular expression answers without executing
+ * anything the repository wrote.
+ */
+const MANIFEST_READERS: ReadonlyArray<readonly [RegExp, (text: string | null) => string[]]> = [
+  [/(^|\/)package\.json$/u, packageDependencies],
+  [/(^|\/)(requirements[^/]*\.txt|pyproject\.toml)$/u, pythonRequirements],
+  [/(^|\/)pom\.xml$/u, (text) => captures(text, /<artifactId>\s*([\w.-]+)\s*<\/artifactId>/gu)],
+  [
+    /(^|\/)build\.gradle(\.kts)?$/u,
+    (text) => [
+      ...captures(text, /["'][\w.-]+:([\w.-]+)[:"']/gu),
+      ...captures(text, /\bid\s*\(?\s*["']([\w.-]+)["']/gu),
+      ...captures(text, /^\s*([a-z][\w-]*)\s*$/gmu).filter((name) => GRADLE_CORE_PLUGINS.has(name)),
+    ],
+  ],
+  [/\.(csproj|fsproj)$/u, (text) => captures(text, /<PackageReference\s+Include="([\w.-]+)"/gu)],
+  [/(^|\/)Gemfile$/u, (text) => captures(text, /^\s*gem\s+["']([\w-]+)["']/gmu)],
+  [
+    /(^|\/)composer\.json$/u,
+    (text) => {
+      const manifest = readJson(text);
+      return ['require', 'require-dev'].flatMap((group) =>
+        Object.keys(objectField(manifest, group) ?? {}),
+      );
+    },
+  ],
+];
+
+/** Gradle's own plugins, applied by bare name inside a `plugins { }` block. */
+const GRADLE_CORE_PLUGINS = new Set(['jacoco', 'checkstyle', 'pmd']);
 
 /** Leading requirement names in a requirements file or quoted in a `pyproject.toml`. */
 function pythonRequirements(text: string | null): string[] {
@@ -193,7 +249,7 @@ function priorityFor(capability: QaCapability): ToolboxEntry['priority'] {
 /**
  * Every catalogue tool that fits the repository, with what to do about it.
  *
- * **One recommendation per missing capability.** Recommending all three load-testing
+ * **One recommendation per missing capability, and only a free or freemium one.** Recommending all three load-testing
  * tools for a repository with none says "pick one" without saying which, and the point
  * of a recommendation is to have picked. The others are listed as `available`.
  */
@@ -224,6 +280,10 @@ function shouldRecommend(
   return (
     evidence === undefined &&
     tool.preferred === true &&
+    // A recommendation is adoptable today: never a paid tool, and never a capability the
+    // maturity number does not count.
+    tool.pricing !== 'paid' &&
+    CAPABILITY_WEIGHTS[tool.capability] > 0 &&
     uncovered.has(tool.capability) &&
     !recommended.has(tool.capability)
   );
@@ -246,6 +306,8 @@ function entryFor(
     reason: reasonFor(tool.capability, evidence, recommend, uncovered),
     setup: tool.setup,
     docsUrl: tool.docsUrl,
+    pricing: tool.pricing,
+    ...(tool.vendorUrl === undefined ? {} : { vendorUrl: tool.vendorUrl }),
   };
 }
 

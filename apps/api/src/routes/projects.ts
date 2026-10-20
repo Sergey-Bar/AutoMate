@@ -15,6 +15,19 @@ import {
   type ResolvedCommand,
 } from '../services/repo-scan-service.js';
 import { diffScores } from '@automate/projects';
+import { evaluateReadiness } from '@automate/reporting';
+import type { ProjectHistory } from '@automate/shared-contracts';
+import { DEFAULT_QUALITY_POLICY } from '../execution/quality-gate.js';
+import { belongsTo } from '../execution/insights.js';
+import { readSince, startOfDay } from '../execution/trend.js';
+import type { ExecutionRun, ExecutionStore } from '../execution/types.js';
+import {
+  hasSnapshotFor,
+  meanCoverage,
+  passRateThreshold,
+  readHistory,
+  recordSnapshot,
+} from '../services/scan-history-service.js';
 import {
   ensureWorkspace,
   getProject,
@@ -62,6 +75,31 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
   }) => Promise<{ runId: string; jobId: string; phase: string }>;
   /** The repository scan. Defaults to one over `viewFor`. */
   scanner?: RepoScanner;
+  /**
+   * What the readiness card reads beyond the registry: the run history and the count of
+   * quarantined tests awaiting a decision. Absent, the readiness route is not mounted —
+   * an install with no run store has no readiness to report.
+   */
+  reliability?: {
+    store: ExecutionStore;
+    openQuarantine: () => Promise<number>;
+    now?: () => Date;
+  };
+}
+
+const DAY_MS = 86_400_000;
+const WINDOWS = [7, 14, 30, 90] as const;
+
+function windowDays(value: string | undefined, fallback: number): number {
+  const requested = Number(value ?? String(fallback));
+  return (WINDOWS as readonly number[]).includes(requested) ? requested : fallback;
+}
+
+/** A percentage of runs with a verdict, so a cancelled run neither passes nor fails. */
+function verdictRate(runs: readonly ExecutionRun[]): number | null {
+  const passed = runs.filter((run) => run.outcome === 'passed').length;
+  const failed = runs.filter((run) => run.outcome === 'failed').length;
+  return passed + failed === 0 ? null : Math.round((passed / (passed + failed)) * 1000) / 10;
 }
 
 const RegisterProjectBodySchema = z.object({
@@ -216,8 +254,93 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   app.get('/api/v1/projects/:id/scan', async (context) => {
     const project = await getProject(options, context.req.param('id'));
     const fresh = context.req.query('fresh') === '1';
-    return context.json(await scanner.scan(project.id, project.repoPath, { fresh }));
+    const scan = await scanner.scan(project.id, project.repoPath, { fresh });
+    // One reading an hour for the history lines. Checked first, because the health score
+    // is a derivation over the run history and the scan is the dashboard's first request.
+    const now = options.reliability?.now?.() ?? new Date();
+    if (!(await hasSnapshotFor(options, project.id, now))) {
+      const score_ = await qaScore(options, project.id, now.toISOString());
+      await recordSnapshot(
+        options,
+        project.id,
+        {
+          coverage: meanCoverage(scan),
+          healthScore: Math.round(score_.total * 10) / 10,
+          maturity: scan.maturity,
+          flakyTests: new Set(score_.cells.flatMap((cell) => cell.inputs.flakyFingerprints)).size,
+        },
+        now,
+      );
+    }
+    return context.json(scan);
   });
+
+  /**
+   * Coverage, health score, maturity and flaky tests over time, one point per recorded hour.
+   *
+   * `collectingSince` is the first reading ever taken, so a two-day-old install can say
+   * "collecting since Tuesday" instead of drawing a line from one point.
+   */
+  app.get('/api/v1/projects/:id/history', async (context) => {
+    const project = await getProject(options, context.req.param('id'));
+    const days = windowDays(context.req.query('days'), 30);
+    const now = options.reliability?.now?.() ?? new Date();
+    const since = new Date(startOfDay(now).getTime() - (days - 1) * DAY_MS);
+    const history = await readHistory(options, project.id, since);
+    const body: ProjectHistory = { projectId: project.id, days, ...history };
+    return context.json(body);
+  });
+
+  if (options.reliability !== undefined) {
+    const reliability = options.reliability;
+    /**
+     * Release readiness: go, caution or no-go, with every reason and its evidence.
+     *
+     * The route gathers; `evaluateReadiness` in `@automate/reporting` decides. The flaky
+     * allowance is the gate policy's own `maxFlakyRate` and the pass-rate threshold is the
+     * project's gate row, so the card can never disagree with the gate about a number.
+     */
+    app.get('/api/v1/projects/:id/readiness', async (context) => {
+      const project = await getProject(options, context.req.param('id'));
+      const days = windowDays(context.req.query('days'), 7);
+      const now = reliability.now?.() ?? new Date();
+      const since = startOfDay(now).getTime() - (days - 1) * DAY_MS;
+      const { runs } = await readSince(reliability.store, options.workspaceId, since);
+      const mine = runs.filter((run) => belongsTo(run, project.id));
+      const gated = mine.find((run) => run.policyEvaluation !== null);
+      const tests = mine.reduce((sum, run) => sum + run.summary.total, 0);
+      const flaky = mine.reduce((sum, run) => sum + run.summary.flaky, 0);
+      const history = await readHistory(options, project.id, new Date(since));
+      const readings = history.points
+        .map((point) => point.coverage)
+        .filter((value): value is number => value !== null);
+      const latest = readings.at(-1) ?? null;
+      const first = readings[0];
+      return context.json(
+        evaluateReadiness({
+          projectId: project.id,
+          evaluatedAt: now.toISOString(),
+          runs: mine.length,
+          gate:
+            gated?.policyEvaluation === null || gated === undefined
+              ? null
+              : { status: gated.policyEvaluation.status, runId: gated.id },
+          passRate: verdictRate(mine),
+          passRateThreshold: await passRateThreshold(options, project.id),
+          flakyRate: tests === 0 ? null : Math.round((flaky / tests) * 1000) / 10,
+          maxFlakyRate: DEFAULT_QUALITY_POLICY.maxFlakyRate,
+          coverage: {
+            current: latest,
+            delta:
+              latest === null || first === undefined || readings.length < 2
+                ? null
+                : Math.round((latest - first) * 10) / 10,
+          },
+          openQuarantine: await reliability.openQuarantine(),
+        }),
+      );
+    });
+  }
 
   app.post('/api/v1/runs/:runId/stop', async (context) => {
     const parsed = RunStopBodySchema.safeParse(await readJson(context));

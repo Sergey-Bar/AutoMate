@@ -62,6 +62,39 @@ const STATUS_FILTERS = [
 ] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number]['value'];
 
+/**
+ * The adoption tier, as the reader filters by it. Four options rather than "free or paid",
+ * because freemium is both: a usable free tier and a paid one, and folding it into either
+ * side would misstate what adopting it costs.
+ */
+const PRICING_FILTERS = [
+  { value: 'all', label: 'Any price' },
+  { value: 'free', label: 'Free' },
+  { value: 'freemium', label: 'Freemium' },
+  { value: 'paid', label: 'Paid' },
+] as const;
+type PricingFilter = (typeof PRICING_FILTERS)[number]['value'];
+
+export const PRICING = {
+  free: { label: 'Free', className: 'border-success text-success' },
+  freemium: { label: 'Freemium', className: 'border-accent text-accent' },
+  paid: { label: 'Paid', className: 'border-border-strong text-fg-muted' },
+} as const;
+
+function PricingBadge({ pricing }: { pricing: ToolboxEntry['pricing'] }): React.ReactElement {
+  return (
+    <span
+      data-testid="pricing-badge"
+      className={cn(
+        'inline-flex rounded-full border px-1.5 text-[0.6875rem] font-medium leading-4',
+        PRICING[pricing].className,
+      )}
+    >
+      {PRICING[pricing].label}
+    </span>
+  );
+}
+
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 const STATUS_ORDER = { recommended: 0, 'in-use': 1, available: 2 } as const;
 
@@ -149,10 +182,12 @@ function ToolboxCatalogue({
 }): React.ReactElement {
   const recommended = entries.filter((entry) => entry.status === 'recommended').length;
   const inUse = entries.filter((entry) => entry.status === 'in-use').length;
+  const free = entries.filter((entry) => entry.pricing === 'free').length;
   // The launcher opens on every tool: recommended ones sort first and wear a ring, so the
   // grid reads as a full kit with the next pick at its head rather than one lonely tile.
   const [status, setStatus] = React.useState<StatusFilter>('all');
   const [capability, setCapability] = React.useState('all');
+  const [pricing, setPricing] = React.useState<PricingFilter>('all');
   const [query, setQuery] = React.useState('');
   const [selected, select] = React.useState<ToolboxEntry | null>(null);
   const [size, gridRef] = useTileCount(24);
@@ -161,6 +196,7 @@ function ToolboxCatalogue({
     (entry) =>
       (status === 'all' || entry.status === status) &&
       (capability === 'all' || entry.capability === capability) &&
+      (pricing === 'all' || entry.pricing === pricing) &&
       (needle.length === 0 ||
         entry.name.toLowerCase().includes(needle) ||
         entry.description.toLowerCase().includes(needle)),
@@ -171,7 +207,7 @@ function ToolboxCatalogue({
     <PageFrame data-testid="toolbox-page">
       <PageHeader
         title="Toolbox"
-        subtitle={`${String(recommended)} recommended for ${project.name} · ${String(inUse)} already in use · ${String(entries.length)} that fit its stack`}
+        subtitle={`${String(recommended)} recommended for ${project.name} · ${String(inUse)} already in use · ${String(entries.length)} that fit its stack · ${String(free)} free`}
         actions={
           <>
             {switcher}
@@ -179,8 +215,8 @@ function ToolboxCatalogue({
           </>
         }
       />
-      <div className="flex shrink-0 items-center gap-2">
-        <label className="relative block min-w-0 flex-1">
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <label className="relative block min-w-0 basis-full sm:basis-auto sm:flex-1">
           <span className="sr-only">Search the toolbox</span>
           <Search
             size={14}
@@ -209,6 +245,29 @@ function ToolboxCatalogue({
             {capabilities.map((entry) => (
               <option key={entry} value={entry}>
                 {CAPABILITY_LABELS[entry]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="hidden lg:block">
+          <Segmented
+            label="Price"
+            options={PRICING_FILTERS}
+            value={pricing}
+            onChange={setPricing}
+          />
+        </div>
+        <label className="lg:hidden">
+          <span className="sr-only">Price</span>
+          <select
+            data-testid="toolbox-pricing"
+            value={pricing}
+            onChange={(event) => setPricing(event.target.value as PricingFilter)}
+            className="min-h-11 rounded-lg border border-border bg-surface-raised px-3 text-sm text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            {PRICING_FILTERS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -275,15 +334,15 @@ function ToolTile({
         type="button"
         onClick={onOpen}
         title={`${entry.name} — ${CAPABILITY_LABELS[entry.capability]}`}
-        className="group flex h-28 w-full flex-col items-center justify-center gap-2 rounded-2xl px-2 text-center transition-colors hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        className="group flex h-28 w-full flex-col items-center justify-center gap-1.5 rounded-2xl px-2 text-center transition-colors hover:bg-surface-raised focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
       >
         <span
           className={cn(
-            'relative flex h-14 w-14 items-center justify-center rounded-2xl border bg-surface-raised text-fg transition-transform group-hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-y-0',
+            'relative flex h-12 w-12 items-center justify-center rounded-2xl border bg-surface-raised text-fg shadow-elevation-1 transition-transform group-hover:-translate-y-0.5 motion-reduce:transition-none motion-reduce:group-hover:translate-y-0',
             entry.status === 'recommended' ? 'border-warning' : 'border-border',
           )}
         >
-          <KindIcon kind={entry.capability} size={24} />
+          <KindIcon kind={entry.capability} size={22} />
           {dot === null ? null : (
             <span
               aria-hidden="true"
@@ -295,7 +354,8 @@ function ToolTile({
           )}
         </span>
         <span className="block w-full truncate text-sm">{entry.name}</span>
-        <span className="sr-only">, {STATUS_WORD[entry.status]}</span>
+        <span className="sr-only">, {STATUS_WORD[entry.status]}, </span>
+        <PricingBadge pricing={entry.pricing} />
       </button>
     </li>
   );
@@ -340,6 +400,25 @@ function ToolDialog({
             <DialogDescription>{entry.description}</DialogDescription>
           </DialogHeader>
           <p className="mt-3 max-w-measure text-sm text-fg-muted">{entry.reason}</p>
+          <div className="mt-3 flex items-center gap-2 text-sm">
+            <PricingBadge pricing={entry.pricing} />
+            {entry.vendorUrl === undefined ? (
+              <span className="text-xs text-fg-muted">
+                {entry.pricing === 'free' ? 'No paid plan needed' : null}
+              </span>
+            ) : (
+              <a
+                href={entry.vendorUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`${entry.name} pricing (opens in a new tab)`}
+                className="inline-flex min-h-11 items-center gap-1 rounded-sm text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+              >
+                Plans and pricing
+                <ExternalLink size={12} aria-hidden="true" />
+              </a>
+            )}
+          </div>
           <div className="mt-4 flex items-center gap-2">
             <code className="min-w-0 flex-1 break-all rounded-md bg-surface-muted px-2 py-1.5 font-mono text-xs">
               {entry.setup}

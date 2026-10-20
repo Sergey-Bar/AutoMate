@@ -216,6 +216,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
                 <input
                   id="quarantine-test-title"
                   data-testid="input-test-title"
+                  data-autofocus
                   type="text"
                   required
                   className={INPUT}

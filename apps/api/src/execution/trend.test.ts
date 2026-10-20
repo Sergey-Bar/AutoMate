@@ -51,9 +51,28 @@ describe('buildTrend', () => {
     expect(trend.buckets.map((bucket) => bucket.date)).toEqual(['2026-10-19', '2026-10-20']);
     expect(trend.buckets[1]).toMatchObject({ runs: 2, passed: 1, failed: 1, passRate: 50 });
     // A cancelled run has no verdict, so the day has no pass rate rather than 0%.
-    expect(trend.buckets[0]).toMatchObject({ runs: 1, other: 1, passRate: null });
+    expect(trend.buckets[0]).toMatchObject({ runs: 1, other: 1, flaky: 0, passRate: null });
     expect(trend.current).toMatchObject({ runs: 3, passRate: 50, failedRuns: 1, flakyTests: 3 });
     expect(trend.previous).toMatchObject({ runs: 1, passRate: 0, failedRuns: 1 });
+  });
+
+  it('counts a partial run with a flaky test as flaky, apart from passed, failed and other', () => {
+    const clean = { ...run('x', 'partial').summary, flaky: 0 };
+    const trend = buildTrend(
+      [
+        run('2026-10-20T09:00:00.000Z', 'partial'),
+        run('2026-10-20T09:10:00.000Z', 'partial', { summary: clean }),
+        // A cancelled run is cancelled, whatever its tests did before it stopped.
+        run('2026-10-20T09:20:00.000Z', 'cancelled'),
+        run('2026-10-20T09:30:00.000Z', 'passed'),
+      ],
+      NOW,
+      1,
+      false,
+    );
+    const [day] = trend.buckets;
+    expect(day).toMatchObject({ runs: 4, passed: 1, failed: 0, flaky: 1, other: 2 });
+    expect((day?.passed ?? 0) + (day?.failed ?? 0) + (day?.flaky ?? 0) + (day?.other ?? 0)).toBe(4);
   });
 
   it('falls back to the run timestamps when the summary has no duration', () => {

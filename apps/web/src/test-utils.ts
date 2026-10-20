@@ -4,9 +4,15 @@ import type { ApiClient, QuarantineEntry, Run } from './lib/api.js';
 import type { QaClient } from './lib/qa-client.js';
 import {
   AnalyticsTrendSchema,
+  ProjectHistorySchema,
+  QaInsightsSchema,
+  ReleaseReadinessCardSchema,
   RepoScanSchema,
   type AnalyticsTrend,
+  type ProjectHistory,
+  type QaInsights,
   type RegisteredProject,
+  type ReleaseReadinessCard,
   type RepoScan,
   type RepoTool,
   type TrendWindow,
@@ -299,6 +305,7 @@ export function makeScan(overrides: Partial<RepoScan> = {}): RepoScan {
         reason: 'Found: vitest in package.json',
         setup: 'pnpm add -D vitest',
         docsUrl: 'https://vitest.dev/guide/',
+        pricing: 'free',
       },
       {
         id: 'stryker',
@@ -311,6 +318,7 @@ export function makeScan(overrides: Partial<RepoScan> = {}): RepoScan {
         reason: 'Nothing in this repository covers mutation.',
         setup: 'npm init stryker@latest',
         docsUrl: 'https://stryker-mutator.io/docs/',
+        pricing: 'free',
       },
       {
         id: 'gitleaks',
@@ -323,6 +331,7 @@ export function makeScan(overrides: Partial<RepoScan> = {}): RepoScan {
         reason: 'Nothing in this repository covers secrets.',
         setup: 'gitleaks detect',
         docsUrl: 'https://github.com/gitleaks/gitleaks',
+        pricing: 'free',
       },
       {
         id: 'jest',
@@ -335,6 +344,7 @@ export function makeScan(overrides: Partial<RepoScan> = {}): RepoScan {
         reason: 'unit is already covered by another tool.',
         setup: 'npm i -D jest',
         docsUrl: 'https://jestjs.io/',
+        pricing: 'free',
       },
     ],
     ...overrides,
@@ -371,6 +381,7 @@ export function makeTrend(
       runs: index + 1,
       passed: index,
       failed: 1,
+      flaky: 0,
       other: 0,
       passRate: index === 1 ? null : 50,
       avgDurationMs: 1_000,
@@ -407,6 +418,158 @@ export function makeQa(overrides: Partial<QaClient> = {}): QaClient {
     startRun: vi.fn(async () => ({ runId: 'run-new' })),
     getScan: vi.fn(async () => makeScan()),
     getTrend: vi.fn(async () => makeTrend()),
+    getInsights: vi.fn(async () => makeInsights()),
+    getHistory: vi.fn(async () => makeHistory()),
+    getReadiness: vi.fn(async () => makeReadiness()),
     ...overrides,
   };
+}
+
+/** Seven days of insights over a small but complete history: every panel has something. */
+export function makeInsights(overrides: Partial<QaInsights> = {}): QaInsights {
+  const dates = Array.from({ length: 7 }, (_, index) => `2026-09-${String(20 + index)}`);
+  return QaInsightsSchema.parse({
+    days: 7,
+    from: '2026-09-20T00:00:00.000Z',
+    to: '2026-09-27T00:00:00.000Z',
+    dates,
+    runs: 12,
+    flakyLeaderboard: [
+      {
+        key: 'e2e/login.spec.ts › logs in',
+        title: 'logs in',
+        file: 'e2e/login.spec.ts',
+        runs: 6,
+        flaky: 1,
+        flips: 2,
+        score: 0.5,
+        lastSeen: '2026-09-26T10:00:00.000Z',
+      },
+      {
+        key: 'e2e/cart.spec.ts › adds to cart',
+        title: 'adds to cart',
+        file: 'e2e/cart.spec.ts',
+        runs: 8,
+        flaky: 0,
+        flips: 1,
+        score: 0.125,
+        lastSeen: '2026-09-25T10:00:00.000Z',
+      },
+    ],
+    slowestTests: [
+      {
+        key: 'e2e/report.spec.ts › exports a report',
+        title: 'exports a report',
+        file: 'e2e/report.spec.ts',
+        samples: 5,
+        p50Ms: 4_200,
+        p95Ms: 9_800,
+        previousP50Ms: 3_000,
+        changePct: 40,
+        daily: [3_900, null, 4_100, 4_200, 4_400, null, 4_600],
+      },
+      {
+        key: 'unit/a.test.ts › parses',
+        title: 'parses',
+        file: null,
+        samples: 1,
+        p50Ms: 120,
+        p95Ms: 120,
+        previousP50Ms: null,
+        changePct: null,
+        daily: [null, null, null, null, null, null, 120],
+      },
+    ],
+    failureHeatmap: [
+      {
+        suite: 'e2e',
+        cells: dates.map((_, index) => ({ runs: 2, failed: index % 3 === 0 ? 2 : index % 2 })),
+        failed: 6,
+      },
+      { suite: 'unit', cells: dates.map(() => ({ runs: 1, failed: 0 })), failed: 0 },
+    ],
+    mttr: {
+      overall: {
+        recoveries: 3,
+        medianMs: 5_400_000,
+        p90Ms: 9_000_000,
+        openSince: '2026-09-26T08:00:00.000Z',
+      },
+      suites: [
+        {
+          suite: 'e2e',
+          recoveries: 0,
+          medianMs: null,
+          p90Ms: null,
+          openSince: '2026-09-26T08:00:00.000Z',
+        },
+        { suite: 'unit', recoveries: 3, medianMs: 5_400_000, p90Ms: 9_000_000, openSince: null },
+      ],
+    },
+    passRateByBranch: [
+      { branch: 'main', runs: 9, passed: 8, failed: 1, passRate: 88.9 },
+      { branch: 'feature/cart', runs: 3, passed: 1, failed: 2, passRate: 33.3 },
+    ],
+    digest: [
+      { kind: 'new-flaky', tone: 'bad', text: '1 new flaky test' },
+      { kind: 'pass-rate', tone: 'good', text: 'Pass rate +4.0 pts' },
+    ],
+    truncated: false,
+    ...overrides,
+  });
+}
+
+export function makeHistory(overrides: Partial<ProjectHistory> = {}): ProjectHistory {
+  return ProjectHistorySchema.parse({
+    projectId: TEST_PROJECT.id,
+    days: 30,
+    points: [
+      {
+        at: '2026-09-20T10:00:00.000Z',
+        coverage: 88.1,
+        healthScore: 61,
+        maturity: 70,
+        flakyTests: 3,
+      },
+      {
+        at: '2026-09-23T10:00:00.000Z',
+        coverage: 89.4,
+        healthScore: 64,
+        maturity: 72,
+        flakyTests: 2,
+      },
+      {
+        at: '2026-09-26T10:00:00.000Z',
+        coverage: 90.3,
+        healthScore: 66.5,
+        maturity: 75,
+        flakyTests: 1,
+      },
+    ],
+    collectingSince: '2026-09-20T10:00:00.000Z',
+    ...overrides,
+  });
+}
+
+export function makeReadiness(overrides: Partial<ReleaseReadinessCard> = {}): ReleaseReadinessCard {
+  return ReleaseReadinessCardSchema.parse({
+    projectId: TEST_PROJECT.id,
+    verdict: 'caution',
+    reasons: [
+      {
+        code: 'flaky',
+        level: 'caution',
+        message: '2% of tests were flaky; the gate allows 0%',
+        evidence: 'flaky results',
+      },
+      {
+        code: 'gate',
+        level: 'go',
+        message: 'The latest quality gate passed',
+        evidence: 'run run-1',
+      },
+    ],
+    evaluatedAt: '2026-09-26T10:00:00.000Z',
+    ...overrides,
+  });
 }

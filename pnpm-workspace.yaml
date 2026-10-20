@@ -128,7 +128,9 @@ overrides:
   # Reviewed 2026-10-20: still needed. With the override removed, `pnpm audit` reports three
   # vite advisories (the `server.fs.deny` bypass, path traversal in optimized deps, and a
   # launch-editor NTLMv2 disclosure), so this was tested rather than assumed.
-  'vitepress>vite': ^6.4.3
+  # Raised to 6.4.4 on 2026-10-20 for GHSA-587h-7wmj-h5pm (launch-editor existence-check
+  # bypass on Windows, high), with the catalog entry below.
+  'vitepress>vite': ^6.4.4
   # Added by `pnpm audit --fix` on 2026-10-20, one entry per advisory it reported. Drop each when
   # its parent takes the fix.
   #
@@ -178,6 +180,6 @@ catalog:
   tailwindcss: ^4.3.3
   typescript: ^6.0.3
   typescript-eslint: ^8.71.0
-  vite: ^6.4.3
+  vite: ^6.4.4
   vitest: ^4.1.11
   zod: ^4.4.3

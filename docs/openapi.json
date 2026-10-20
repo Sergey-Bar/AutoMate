@@ -129,6 +129,14 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/dashboard/insights": {
+      "get": {
+        "operationId": "getApiV1DashboardInsights",
+        "tags": ["dashboard"],
+        "x-source": "apps/api/src/execution/insights.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/dashboard/quality-gates": {
       "get": {
         "operationId": "getApiV1DashboardQualityGates",
@@ -390,6 +398,17 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/projects/{id}/history": {
+      "get": {
+        "operationId": "getApiV1ProjectsIdHistory",
+        "tags": ["projects"],
+        "x-source": "apps/api/src/routes/projects.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/projects/{id}/qa/flaky": {
       "get": {
         "operationId": "getApiV1ProjectsIdQaFlaky",
@@ -448,6 +467,17 @@
     "/api/v1/projects/{id}/qa/structure": {
       "get": {
         "operationId": "getApiV1ProjectsIdQaStructure",
+        "tags": ["projects"],
+        "x-source": "apps/api/src/routes/projects.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/projects/{id}/readiness": {
+      "get": {
+        "operationId": "getApiV1ProjectsIdReadiness",
         "tags": ["projects"],
         "x-source": "apps/api/src/routes/projects.ts",
         "parameters": [
@@ -939,6 +969,7 @@
                 "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "other": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "passRate": {
                   "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
@@ -954,6 +985,7 @@
                 "runs",
                 "passed",
                 "failed",
+                "flaky",
                 "other",
                 "passRate",
                 "avgDurationMs",
@@ -1261,6 +1293,20 @@
           "maxAttempts",
           "requiredCapabilities"
         ],
+        "additionalProperties": false
+      },
+      "BranchPassRateSchema": {
+        "type": "object",
+        "properties": {
+          "branch": { "type": "string", "minLength": 1 },
+          "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "passRate": {
+            "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+          }
+        },
+        "required": ["branch", "runs", "passed", "failed", "passRate"],
         "additionalProperties": false
       },
       "CanonicalAttemptSchema": {
@@ -2918,7 +2964,11 @@
               "mutation",
               "contract",
               "visual",
-              "ci"
+              "ci",
+              "api",
+              "mobile",
+              "dast",
+              "test-management"
             ]
           },
           "covered": { "type": "boolean" },
@@ -3559,7 +3609,11 @@
               "mutation",
               "contract",
               "visual",
-              "ci"
+              "ci",
+              "api",
+              "mobile",
+              "dast",
+              "test-management"
             ]
           },
           "evidence": { "type": "string", "minLength": 1 }
@@ -3568,6 +3622,19 @@
         "additionalProperties": false
       },
       "Digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+      "DigestItemSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": ["new-flaky", "newly-slow", "new-failure", "pass-rate", "coverage", "runs"]
+          },
+          "tone": { "type": "string", "enum": ["good", "bad", "neutral"] },
+          "text": { "type": "string", "minLength": 1 }
+        },
+        "required": ["kind", "tone", "text"],
+        "additionalProperties": false
+      },
       "DomainReadinessStatusSchema": {
         "type": "string",
         "enum": ["passed", "failed", "warning", "unknown", "not_configured", "not_implemented"]
@@ -3648,6 +3715,21 @@
           }
         },
         "required": ["eventId", "sequence", "type", "occurredAt", "payload"],
+        "additionalProperties": false
+      },
+      "FlakyTestSchema": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "runs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "flips": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "lastSeen": { "type": "string", "minLength": 1 }
+        },
+        "required": ["key", "title", "file", "runs", "flaky", "flips", "score", "lastSeen"],
         "additionalProperties": false
       },
       "GapSchema": {
@@ -3840,6 +3922,27 @@
       "GateStatusSchema": {
         "type": "string",
         "enum": ["passed", "failed", "warning", "unknown", "not_evaluated"]
+      },
+      "HeatmapRowSchema": {
+        "type": "object",
+        "properties": {
+          "suite": { "type": "string", "minLength": 1 },
+          "cells": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["runs", "failed"],
+              "additionalProperties": false
+            }
+          },
+          "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["suite", "cells", "failed"],
+        "additionalProperties": false
       },
       "InstallationSessionSchema": {
         "type": "object",
@@ -4961,6 +5064,18 @@
         "required": ["runId", "sequence"],
         "additionalProperties": false
       },
+      "MttrSchema": {
+        "type": "object",
+        "properties": {
+          "suite": { "type": "string", "minLength": 1 },
+          "recoveries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "medianMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+          "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+          "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["suite", "recoveries", "medianMs", "p90Ms", "openSince"],
+        "additionalProperties": false
+      },
       "NormalizedRunSchema": {
         "type": "object",
         "properties": {
@@ -5490,6 +5605,35 @@
         "required": ["readAloud", "plainTotal", "citedCells"],
         "additionalProperties": false
       },
+      "ProjectHistorySchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "minLength": 1 },
+          "days": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "points": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": { "type": "string", "minLength": 1 },
+                "coverage": {
+                  "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+                },
+                "healthScore": {
+                  "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+                },
+                "maturity": { "type": "number", "minimum": 0, "maximum": 100 },
+                "flakyTests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["at", "coverage", "healthScore", "maturity", "flakyTests"],
+              "additionalProperties": false
+            }
+          },
+          "collectingSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+        },
+        "required": ["projectId", "days", "points", "collectingSince"],
+        "additionalProperties": false
+      },
       "PyramidShapeSchema": {
         "type": "object",
         "properties": {
@@ -5552,8 +5696,192 @@
           "mutation",
           "contract",
           "visual",
-          "ci"
+          "ci",
+          "api",
+          "mobile",
+          "dast",
+          "test-management"
         ]
+      },
+      "QaInsightsSchema": {
+        "type": "object",
+        "properties": {
+          "days": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "dates": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" }
+          },
+          "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "flakyLeaderboard": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "title": { "type": "string", "minLength": 1 },
+                "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "runs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "flips": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "score": { "type": "number", "minimum": 0, "maximum": 1 },
+                "lastSeen": { "type": "string", "minLength": 1 }
+              },
+              "required": ["key", "title", "file", "runs", "flaky", "flips", "score", "lastSeen"],
+              "additionalProperties": false
+            }
+          },
+          "slowestTests": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": { "type": "string", "minLength": 1 },
+                "title": { "type": "string", "minLength": 1 },
+                "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "samples": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+                "p50Ms": { "type": "number", "minimum": 0 },
+                "p95Ms": { "type": "number", "minimum": 0 },
+                "previousP50Ms": {
+                  "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                },
+                "changePct": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                "daily": {
+                  "type": "array",
+                  "items": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] }
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "file",
+                "samples",
+                "p50Ms",
+                "p95Ms",
+                "previousP50Ms",
+                "changePct",
+                "daily"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "failureHeatmap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "suite": { "type": "string", "minLength": 1 },
+                "cells": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                      "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+                    },
+                    "required": ["runs", "failed"],
+                    "additionalProperties": false
+                  }
+                },
+                "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": ["suite", "cells", "failed"],
+              "additionalProperties": false
+            }
+          },
+          "mttr": {
+            "type": "object",
+            "properties": {
+              "overall": {
+                "type": "object",
+                "properties": {
+                  "recoveries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                  "medianMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+                  "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+                  "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                },
+                "required": ["recoveries", "medianMs", "p90Ms", "openSince"],
+                "additionalProperties": false
+              },
+              "suites": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "suite": { "type": "string", "minLength": 1 },
+                    "recoveries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                    "medianMs": {
+                      "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                    },
+                    "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+                    "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  },
+                  "required": ["suite", "recoveries", "medianMs", "p90Ms", "openSince"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["overall", "suites"],
+            "additionalProperties": false
+          },
+          "passRateByBranch": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "branch": { "type": "string", "minLength": 1 },
+                "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "passRate": {
+                  "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+                }
+              },
+              "required": ["branch", "runs", "passed", "failed", "passRate"],
+              "additionalProperties": false
+            }
+          },
+          "digest": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "new-flaky",
+                    "newly-slow",
+                    "new-failure",
+                    "pass-rate",
+                    "coverage",
+                    "runs"
+                  ]
+                },
+                "tone": { "type": "string", "enum": ["good", "bad", "neutral"] },
+                "text": { "type": "string", "minLength": 1 }
+              },
+              "required": ["kind", "tone", "text"],
+              "additionalProperties": false
+            }
+          },
+          "truncated": { "type": "boolean" }
+        },
+        "required": [
+          "days",
+          "from",
+          "to",
+          "dates",
+          "runs",
+          "flakyLeaderboard",
+          "slowestTests",
+          "failureHeatmap",
+          "mttr",
+          "passRateByBranch",
+          "digest",
+          "truncated"
+        ],
+        "additionalProperties": false
       },
       "QaScoreCategorySchema": {
         "type": "string",
@@ -6023,6 +6351,21 @@
         ],
         "additionalProperties": false
       },
+      "ReadinessReasonSchema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": ["gate", "pass-rate", "flaky", "coverage", "quarantine", "activity"]
+          },
+          "level": { "type": "string", "enum": ["go", "caution", "no-go", "unknown"] },
+          "message": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 }
+        },
+        "required": ["code", "level", "message", "evidence"],
+        "additionalProperties": false
+      },
+      "ReadinessVerdictSchema": { "type": "string", "enum": ["go", "caution", "no-go"] },
       "RealtimeEventSchema": {
         "type": "object",
         "properties": {
@@ -6036,6 +6379,34 @@
       "ReleaseDecisionSchema": {
         "type": "string",
         "enum": ["ready", "ready_with_warnings", "blocked", "unknown"]
+      },
+      "ReleaseReadinessCardSchema": {
+        "type": "object",
+        "properties": {
+          "projectId": { "type": "string", "minLength": 1 },
+          "verdict": { "type": "string", "enum": ["go", "caution", "no-go"] },
+          "reasons": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "enum": ["gate", "pass-rate", "flaky", "coverage", "quarantine", "activity"]
+                },
+                "level": { "type": "string", "enum": ["go", "caution", "no-go", "unknown"] },
+                "message": { "type": "string", "minLength": 1 },
+                "evidence": { "type": "string", "minLength": 1 }
+              },
+              "required": ["code", "level", "message", "evidence"],
+              "additionalProperties": false
+            }
+          },
+          "evaluatedAt": { "type": "string", "minLength": 1 }
+        },
+        "required": ["projectId", "verdict", "reasons", "evaluatedAt"],
+        "additionalProperties": false
       },
       "ReleaseReadinessSchema": {
         "type": "object",
@@ -6240,6 +6611,10 @@
                     "contract",
                     "visual",
                     "ci",
+                    "api",
+                    "mobile",
+                    "dast",
+                    "test-management",
                     "build",
                     "database",
                     "docs",
@@ -6321,7 +6696,11 @@
                     "mutation",
                     "contract",
                     "visual",
-                    "ci"
+                    "ci",
+                    "api",
+                    "mobile",
+                    "dast",
+                    "test-management"
                   ]
                 },
                 "evidence": { "type": "string", "minLength": 1 }
@@ -6353,7 +6732,11 @@
                     "mutation",
                     "contract",
                     "visual",
-                    "ci"
+                    "ci",
+                    "api",
+                    "mobile",
+                    "dast",
+                    "test-management"
                   ]
                 },
                 "covered": { "type": "boolean" },
@@ -6390,7 +6773,11 @@
                     "mutation",
                     "contract",
                     "visual",
-                    "ci"
+                    "ci",
+                    "api",
+                    "mobile",
+                    "dast",
+                    "test-management"
                   ]
                 },
                 "description": { "type": "string", "minLength": 1 },
@@ -6403,7 +6790,9 @@
                 "priority": { "type": "string", "enum": ["high", "medium", "low"] },
                 "reason": { "type": "string", "minLength": 1 },
                 "setup": { "type": "string", "minLength": 1 },
-                "docsUrl": { "type": "string", "format": "uri" }
+                "docsUrl": { "type": "string", "format": "uri" },
+                "pricing": { "type": "string", "enum": ["free", "freemium", "paid"] },
+                "vendorUrl": { "type": "string", "format": "uri" }
               },
               "required": [
                 "id",
@@ -6415,7 +6804,8 @@
                 "priority",
                 "reason",
                 "setup",
-                "docsUrl"
+                "docsUrl",
+                "pricing"
               ],
               "additionalProperties": false
             }
@@ -6461,6 +6851,10 @@
               "contract",
               "visual",
               "ci",
+              "api",
+              "mobile",
+              "dast",
+              "test-management",
               "build",
               "database",
               "docs",
@@ -7991,6 +8385,22 @@
         "required": ["runnerId", "instanceId", "protocolVersion", "capabilities", "activeJobIds"],
         "additionalProperties": false
       },
+      "ScanSnapshotSchema": {
+        "type": "object",
+        "properties": {
+          "at": { "type": "string", "minLength": 1 },
+          "coverage": {
+            "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+          },
+          "healthScore": {
+            "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+          },
+          "maturity": { "type": "number", "minimum": 0, "maximum": 100 },
+          "flakyTests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": ["at", "coverage", "healthScore", "maturity", "flakyTests"],
+        "additionalProperties": false
+      },
       "ScheduleSchema": {
         "type": "object",
         "properties": {
@@ -8244,6 +8654,35 @@
           "createdAt": { "type": "string" }
         },
         "required": ["serviceId", "serviceName", "keyHash", "permissions", "createdAt"],
+        "additionalProperties": false
+      },
+      "SlowTestSchema": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "samples": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "p50Ms": { "type": "number", "minimum": 0 },
+          "p95Ms": { "type": "number", "minimum": 0 },
+          "previousP50Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+          "changePct": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+          "daily": {
+            "type": "array",
+            "items": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] }
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "file",
+          "samples",
+          "p50Ms",
+          "p95Ms",
+          "previousP50Ms",
+          "changePct",
+          "daily"
+        ],
         "additionalProperties": false
       },
       "StateSchema": {
@@ -8622,6 +9061,10 @@
           "contract",
           "visual",
           "ci",
+          "api",
+          "mobile",
+          "dast",
+          "test-management",
           "build",
           "database",
           "docs",
@@ -8629,6 +9072,7 @@
           "other"
         ]
       },
+      "ToolPricingSchema": { "type": "string", "enum": ["free", "freemium", "paid"] },
       "ToolResultSchema": {
         "type": "object",
         "properties": {
@@ -8663,7 +9107,11 @@
               "mutation",
               "contract",
               "visual",
-              "ci"
+              "ci",
+              "api",
+              "mobile",
+              "dast",
+              "test-management"
             ]
           },
           "description": { "type": "string", "minLength": 1 },
@@ -8676,7 +9124,9 @@
           "priority": { "type": "string", "enum": ["high", "medium", "low"] },
           "reason": { "type": "string", "minLength": 1 },
           "setup": { "type": "string", "minLength": 1 },
-          "docsUrl": { "type": "string", "format": "uri" }
+          "docsUrl": { "type": "string", "format": "uri" },
+          "pricing": { "type": "string", "enum": ["free", "freemium", "paid"] },
+          "vendorUrl": { "type": "string", "format": "uri" }
         },
         "required": [
           "id",
@@ -8688,7 +9138,8 @@
           "priority",
           "reason",
           "setup",
-          "docsUrl"
+          "docsUrl",
+          "pricing"
         ],
         "additionalProperties": false
       },
@@ -8699,6 +9150,7 @@
           "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "other": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "passRate": {
             "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
@@ -8712,6 +9164,7 @@
           "runs",
           "passed",
           "failed",
+          "flaky",
           "other",
           "passRate",
           "avgDurationMs",

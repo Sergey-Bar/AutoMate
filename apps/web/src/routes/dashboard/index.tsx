@@ -4,6 +4,7 @@ import {
   Badge,
   Button,
   Dialog,
+  DialogClose,
   DialogContent,
   EmptyState,
   Skeleton,
@@ -235,17 +236,13 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
         className="max-w-2xl"
       >
         <DialogContent>
+          <DialogClose label="Close" />
           <LaunchRunForm
             api={api}
             onCreated={() => {
               void refresh();
             }}
           />
-          <div className="mt-4 flex justify-end">
-            <Button variant="outline" onClick={() => setLaunching(false)} className="min-h-11">
-              Close
-            </Button>
-          </div>
         </DialogContent>
       </Dialog>
     </PageFrame>

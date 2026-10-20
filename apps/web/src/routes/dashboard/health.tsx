@@ -52,6 +52,10 @@ export const CAPABILITY_LABELS: Record<CapabilityCoverage['capability'], string>
   contract: 'Contract',
   visual: 'Visual regression',
   ci: 'CI gates',
+  api: 'API testing',
+  mobile: 'Mobile',
+  dast: 'DAST',
+  'test-management': 'Test management',
 };
 
 export function HealthPage({ qa }: { qa: QaClient }): React.ReactElement {
@@ -110,7 +114,9 @@ function HealthBody({
 }
 
 function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
-  const covered = scan.capabilities.filter((entry) => entry.covered).length;
+  // Mobile and test management weigh nothing toward maturity, so they do not count as missing.
+  const counted = scan.capabilities.filter((entry) => entry.weight > 0);
+  const covered = counted.filter((entry) => entry.covered).length;
   const ratio = scan.sourceFiles === 0 ? null : scan.testFiles / scan.sourceFiles;
   const [size, reportBox] = useFitCount(48, 6);
   const reports = usePager(scan.reports, size);
@@ -132,8 +138,8 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
         <Kpi
           label="Capabilities"
           value={String(covered)}
-          unit={`/ ${String(scan.capabilities.length)}`}
-          footer={`${String(scan.capabilities.length - covered)} missing`}
+          unit={`/ ${String(counted.length)}`}
+          footer={`${String(counted.length - covered)} missing`}
         />
         <Kpi
           label="Test files"
@@ -180,41 +186,54 @@ function Capabilities({ scan }: { scan: RepoScan }): React.ReactElement {
             Sixteen tiles that share the panel's height, so the grid fits whatever height
             the layout gives it: four rows on a wide screen, eight on a phone.
           */}
-      <ul className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
-        {scan.capabilities.map((entry) => (
-          <li
-            key={entry.capability}
-            data-testid={`capability-${entry.capability}`}
-            data-covered={entry.covered}
-            className={cn(
-              'flex min-h-0 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-2.5 py-1.5 sm:gap-1 sm:p-3',
-              entry.covered ? 'border-border' : 'border-dashed border-warning',
-            )}
-          >
-            <span className="flex min-w-0 items-center gap-1.5 text-sm">
-              <KindIcon
-                kind={entry.capability}
-                size={14}
-                className={cn('shrink-0', entry.covered ? 'text-success' : 'text-warning')}
-              />
-              <span className="truncate" title={CAPABILITY_LABELS[entry.capability]}>
-                {CAPABILITY_LABELS[entry.capability]}
-              </span>
-              {entry.covered ? (
-                <Check size={12} aria-hidden="true" className="ml-auto shrink-0 text-success" />
-              ) : (
-                <X size={12} aria-hidden="true" className="ml-auto shrink-0 text-warning" />
+      <ul className="grid min-h-0 flex-1 auto-rows-fr grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 xl:grid-cols-5">
+        {scan.capabilities.map((entry) => {
+          // An optional capability the repository does not have is neither a gap nor a pass.
+          const optional = !entry.covered && entry.weight === 0;
+          return (
+            <li
+              key={entry.capability}
+              data-testid={`capability-${entry.capability}`}
+              data-covered={entry.covered}
+              className={cn(
+                'flex min-h-0 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-2.5 py-1.5 sm:gap-1 sm:p-3',
+                entry.covered || optional ? 'border-border' : 'border-dashed border-warning',
               )}
-              <span className="sr-only">{entry.covered ? ', covered' : ', missing'}</span>
-            </span>
-            <span
-              className="hidden truncate text-xs text-fg-muted sm:block"
-              title={entry.providers.join(', ')}
             >
-              {entry.covered ? entry.providers.slice(0, 2).join(', ') : 'Nothing covers this yet'}
-            </span>
-          </li>
-        ))}
+              <span className="flex min-w-0 items-center gap-1.5 text-xs sm:text-sm">
+                <KindIcon
+                  kind={entry.capability}
+                  size={14}
+                  className={cn(
+                    'shrink-0',
+                    entry.covered ? 'text-success' : optional ? 'text-fg-muted' : 'text-warning',
+                  )}
+                />
+                <span className="truncate" title={CAPABILITY_LABELS[entry.capability]}>
+                  {CAPABILITY_LABELS[entry.capability]}
+                </span>
+                {entry.covered ? (
+                  <Check size={12} aria-hidden="true" className="ml-auto shrink-0 text-success" />
+                ) : optional ? null : (
+                  <X size={12} aria-hidden="true" className="ml-auto shrink-0 text-warning" />
+                )}
+                <span className="sr-only">
+                  {entry.covered ? ', covered' : optional ? ', optional' : ', missing'}
+                </span>
+              </span>
+              <span
+                className="hidden truncate text-xs text-fg-muted sm:block"
+                title={entry.providers.join(', ')}
+              >
+                {entry.covered
+                  ? entry.providers.slice(0, 2).join(', ')
+                  : optional
+                    ? 'Optional for this stack'
+                    : 'Nothing covers this yet'}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </Panel>
   );

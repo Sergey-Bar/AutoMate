@@ -4246,6 +4246,30 @@
           "asserts": "Retries until the API answers, treats a timeout like a refusal and reports the wait, gives up with the last connection error at the deadline, and does not retry a `RunnerApiError`."
         }
       ]
+    },
+    {
+      "id": "UX-DIALOG-1",
+      "title": "A dialog could only be left with Escape, so the toolbox tool dialog trapped mouse and touch users",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "",
+      "summary": "Reported by the user: clicking a tool in the toolbox opened a dialog that took focus and could not be closed. Confirmed by reading `packages/ui/src/components/Dialog/Dialog.tsx`: the shared `Dialog` rendered no close control and ignored a click on its backdrop, so the native Escape was the only way out. A phone has no Escape key and a mouse had nothing to press. On open it also focused the first tabbable element, which in the toolbox dialog was Copy and in the runner's confirmation was Run, so Enter acted before the reader had read the dialog.",
+      "evidence": [
+        {
+          "path": "packages/ui/src/components/Dialog/Dialog.test.tsx",
+          "asserts": "`Dialog can always be dismissed` closes from the visible close button and returns focus to the trigger, closes on a backdrop click and not on a content click or a press that started in the content, honours `data-autofocus`, and the focus suite asserts the title (not the first button) takes focus on open. Eight of these failed against the unfixed component."
+        },
+        {
+          "path": "packages/ui/src/components/Dialog/Dialog.tsx",
+          "asserts": "`DialogHeader` renders `DialogClose` by default, a pointerdown-and-click pair on the `<dialog>` element itself closes it, and `initialFocus` prefers `[data-autofocus]`, then the title, then the first control."
+        },
+        {
+          "path": "e2e/product/dialog-dismissal.spec.ts",
+          "asserts": "In a real browser at 1440 and 390 px, the runs launcher and the quarantine form each close from the close button (focus back on the trigger), from a click on the backdrop and from Escape. The 390 px backdrop case also caught a second defect: preflight zeroed the dialog margin, so a tall dialog sat in the top-left corner with no backdrop to tap; `m-auto` and a viewport height cap fixed it."
+        }
+      ],
+      "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
     }
   ]
 }

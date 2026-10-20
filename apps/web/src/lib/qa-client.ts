@@ -3,22 +3,28 @@ import {
   AnalyticsTrendSchema,
   CopilotAnswerSchema,
   ProjectDetailResponseSchema,
+  ProjectHistorySchema,
   ProjectListResponseSchema,
   QaFlakyResponseSchema,
+  QaInsightsSchema,
   QaGapsResponseSchema,
   QaHollowResponseSchema,
   QaScoreSchema,
   QaStructureResponseSchema,
+  ReleaseReadinessCardSchema,
   RepoScanSchema,
   type AnalyticsTrend,
   type CopilotAnswer,
   type ProjectDetailResponse,
+  type ProjectHistory,
   type QaFlakyResponse,
   type QaGapsResponse,
   type QaHollowResponse,
+  type QaInsights,
   type QaScore,
   type QaStructureResponse,
   type RegisteredProject,
+  type ReleaseReadinessCard,
   type RepoScan,
 } from './qa.js';
 
@@ -51,6 +57,12 @@ export interface QaClient {
   getScan(projectId: string, fresh?: boolean): Promise<RepoScan>;
   /** Run history as a daily series, with the window before it for comparison. */
   getTrend(days: number): Promise<AnalyticsTrend>;
+  /** Flaky tests, slow tests, the failure heatmap, MTTR and branches, plus the digest. */
+  getInsights(days: number, projectId?: string): Promise<QaInsights>;
+  /** Coverage and health readings over time, one an hour at most. */
+  getHistory(projectId: string, days: number): Promise<ProjectHistory>;
+  /** Go, caution or no-go, with every reason. */
+  getReadiness(projectId: string, days?: number): Promise<ReleaseReadinessCard>;
   startRun(
     projectId: string,
     commandId: string,
@@ -130,6 +142,21 @@ export function createQaClient(baseUrl = '', fetchImpl: typeof fetch = fetch): Q
       get(
         `/api/v1/dashboard/analytics/trend?days=${String(Math.trunc(days))}`,
         AnalyticsTrendSchema,
+      ),
+    getInsights: (days, projectId) =>
+      get(
+        `/api/v1/dashboard/insights?days=${String(Math.trunc(days))}${projectId === undefined ? '' : `&projectId=${encodeURIComponent(projectId)}`}`,
+        QaInsightsSchema,
+      ),
+    getHistory: (projectId, days) =>
+      get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/history?days=${String(Math.trunc(days))}`,
+        ProjectHistorySchema,
+      ),
+    getReadiness: (projectId, days = 7) =>
+      get(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/readiness?days=${String(Math.trunc(days))}`,
+        ReleaseReadinessCardSchema,
       ),
     // **A command id, never an executable.** The body has no field that could carry
     // an argv, so the client cannot start a command the profile does not declare.

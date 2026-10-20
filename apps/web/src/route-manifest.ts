@@ -1,5 +1,6 @@
 export const routeManifest = [
   { id: 'dashboard', path: '/dashboard', label: 'Dashboard', visible: true },
+  { id: 'insights', path: '/dashboard/insights', label: 'Insights', visible: true },
   { id: 'runs', path: '/dashboard/runs', label: 'Runs', visible: true },
   { id: 'run-detail', path: '/dashboard/runs/:runId', label: 'Run Detail', visible: false },
   { id: 'runner', path: '/dashboard/runner', label: 'Runner', visible: true },
