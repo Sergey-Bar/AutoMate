@@ -42,7 +42,7 @@ export function createAnalyticsTrendRoutes(options: {
   return app;
 }
 
-async function readSince(
+export async function readSince(
   store: ExecutionStore,
   workspaceId: string,
   since: number,
@@ -62,11 +62,11 @@ async function readSince(
   }
 }
 
-function startOfDay(date: Date): Date {
+export function startOfDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function dayKey(time: number): string {
+export function dayKey(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
@@ -84,7 +84,7 @@ function average(values: number[]): number | null {
 }
 
 /** A share of runs with a verdict, so a cancelled run neither passes nor fails. */
-function passRate(passed: number, failed: number): number | null {
+export function passRate(passed: number, failed: number): number | null {
   const verdicts = passed + failed;
   return verdicts === 0 ? null : Math.round((passed / verdicts) * 1000) / 10;
 }
@@ -123,12 +123,16 @@ export function buildTrend(
 function bucket(date: string, runs: readonly ExecutionRun[]): TrendBucket {
   const passed = runs.filter((run) => run.outcome === 'passed').length;
   const failed = runs.filter((run) => run.outcome === 'failed').length;
+  // A run without a verdict *because* a test flipped: the product maps a flaky run to
+  // `partial`, so this is carved out of what used to be `other` and the four still sum.
+  const flaky = runs.filter((run) => run.outcome === 'partial' && run.summary.flaky > 0).length;
   return {
     date,
     runs: runs.length,
     passed,
     failed,
-    other: runs.length - passed - failed,
+    flaky,
+    other: runs.length - passed - failed - flaky,
     passRate: passRate(passed, failed),
     avgDurationMs: average(runs.map(durationOf).filter((value): value is number => value !== null)),
     tests: runs.reduce((sum, run) => sum + run.summary.total, 0),

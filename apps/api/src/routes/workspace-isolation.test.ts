@@ -78,6 +78,12 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // The run trend reads the execution store with the composition root's workspace, and
   // `trend.test.ts` proves a run in another workspace is not counted.
   { family: 'analytics trend', files: ['execution/trend.ts'] },
+  // The reliability insights page through the same reader as the trend; `insights.test.ts`
+  // proves a run in another workspace is not counted.
+  { family: 'reliability insights', files: ['execution/insights.ts'] },
+  // The coverage and health history. Every query filters on `workspace_id` before the
+  // project, and `projects.test.ts` proves a second workspace reads nothing back.
+  { family: 'scan history', files: ['services/scan-history-service.ts'] },
   // Below the route layer: the stores and services the families above delegate
   // to. They take a `workspaceId` on every method precisely so the routes cannot
   // forget it, and the second test in this file scans their `where` clauses.

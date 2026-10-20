@@ -25,6 +25,7 @@ import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
 import { createAnalyticsTrendRoutes } from './execution/trend.js';
+import { createInsightsRoutes } from './execution/insights.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createChatRoutes } from './routes/chat.js';
 import { aiGatewayOrUnconfigured, resolveAiGateway } from './observability/ai-gateway.js';
@@ -548,6 +549,13 @@ app.route(
     workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
   }),
 );
+app.route(
+  '/',
+  createInsightsRoutes({
+    store: executionStore,
+    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+  }),
+);
 app.route('/', createChatRoutes({ gateway: aiGateway }));
 
 /**
@@ -617,6 +625,15 @@ if (databaseResources !== undefined) {
           jobId: created.job.id,
           phase: created.run.phase,
         };
+      },
+      // The readiness card's inputs beyond the registry: the run history, and the
+      // quarantined tests still waiting for a person to decide.
+      reliability: {
+        store: executionStore,
+        openQuarantine: async () =>
+          ((await dashboardStores.quarantineStore?.list()) ?? []).filter(
+            (entry) => entry.status === 'pending',
+          ).length,
       },
     }),
   );

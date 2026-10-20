@@ -9,11 +9,15 @@ import { Hono } from 'hono';
 import * as schema from '@automate/db';
 import { createErrorBoundary } from '../errors/boundary.js';
 import { createProjectsRoutes } from './projects.js';
+import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.js';
+import { readHistory } from '../services/scan-history-service.js';
 import { literalView } from '@automate/projects';
 import type { RepositoryView } from '@automate/projects';
 import {
   CopilotAnswerSchema,
+  ProjectHistorySchema,
   QaScoreSchema,
+  ReleaseReadinessCardSchema,
   RepoScanSchema,
   ScoreDeltaSchema,
 } from '@automate/shared-contracts';
@@ -891,6 +895,174 @@ describe('every remaining endpoint of the group is reachable and validated', () 
       );
       expect(response.status).toBe(404);
       expect(started).toEqual([]);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+/**
+ * The history behind the trend lines, and the readiness card.
+ *
+ * Over the real migration graph, because the claims are about the primary key (one reading
+ * per hour) and the workspace column (a project id from another workspace finds nothing),
+ * neither of which a mock could fail.
+ */
+describe('history and readiness', () => {
+  const REPORTED: Readonly<Record<string, string>> = {
+    ...NODE_REPO,
+    'coverage/lcov.info': 'SF:a.ts\nLF:10\nLH:8\nend_of_record\n',
+  };
+
+  function withReliability(
+    db: ReturnType<typeof drizzle<typeof schema>>,
+    options: {
+      workspaceId?: string;
+      now: () => Date;
+      store?: InMemoryExecutionStore;
+      openQuarantine?: number;
+    },
+  ) {
+    return mounted(
+      createProjectsRoutes({
+        db: db as never,
+        workspaceId: options.workspaceId ?? 'ws-1',
+        viewFor: () => literalView(REPORTED),
+        // A scanner with no cache, so two scans in one test read the view twice.
+        startRun: async () => ({ runId: 'run-1', jobId: 'job-1', phase: 'queued' }),
+        reliability: {
+          store: options.store ?? new InMemoryExecutionStore(),
+          openQuarantine: async () => options.openQuarantine ?? 0,
+          now: options.now,
+        },
+      }),
+    );
+  }
+
+  async function register(app: ReturnType<typeof withReliability>): Promise<string> {
+    const response = await post(app, '/api/v1/projects', {
+      name: 'Service',
+      slug: 'svc',
+      repoPath: '/repos/svc',
+    });
+    return ((await response.json()) as { project: { id: string } }).project.id;
+  }
+
+  it('records one reading an hour on scan, and serves it as history', async () => {
+    const { client, db } = await migrated();
+    try {
+      let now = new Date('2026-10-20T10:05:00.000Z');
+      const app = withReliability(db, { now: () => now });
+      const id = await register(app);
+      const empty = ProjectHistorySchema.parse(
+        await (await app.request(`/api/v1/projects/${id}/history`)).json(),
+      );
+      expect(empty).toEqual({ projectId: id, days: 30, points: [], collectingSince: null });
+
+      expect((await app.request(`/api/v1/projects/${id}/scan`)).status).toBe(200);
+      now = new Date('2026-10-20T10:40:00.000Z');
+      await app.request(`/api/v1/projects/${id}/scan?fresh=1`);
+      now = new Date('2026-10-20T11:01:00.000Z');
+      await app.request(`/api/v1/projects/${id}/scan?fresh=1`);
+
+      const history = ProjectHistorySchema.parse(
+        await (await app.request(`/api/v1/projects/${id}/history?days=7`)).json(),
+      );
+      // Three scans across two hours are two readings.
+      expect(history.points.map((point) => point.at)).toEqual([
+        '2026-10-20T10:05:00.000Z',
+        '2026-10-20T11:01:00.000Z',
+      ]);
+      expect(history.points[0]).toMatchObject({ coverage: 80, flakyTests: 0 });
+      expect(history.collectingSince).toBe('2026-10-20T10:05:00.000Z');
+      expect(history.days).toBe(7);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('never serves one workspace’s history to another', async () => {
+    const { client, db } = await migrated();
+    try {
+      const now = () => new Date('2026-10-20T10:05:00.000Z');
+      const mine = withReliability(db, { now });
+      const id = await register(mine);
+      await mine.request(`/api/v1/projects/${id}/scan`);
+
+      const theirs = withReliability(db, { now, workspaceId: 'ws-2' });
+      expect((await theirs.request(`/api/v1/projects/${id}/history`)).status).toBe(404);
+      expect((await theirs.request(`/api/v1/projects/${id}/readiness`)).status).toBe(404);
+      // And below the route: the read itself is scoped, not only the project lookup.
+      const leaked = await readHistory(
+        { db: db as never, workspaceId: 'ws-2' },
+        id,
+        new Date('2026-01-01T00:00:00.000Z'),
+      );
+      expect(leaked).toEqual({ points: [], collectingSince: null });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('cascades a project’s history away with the project', async () => {
+    const { client, db } = await migrated();
+    try {
+      const app = withReliability(db, { now: () => new Date('2026-10-20T10:05:00.000Z') });
+      const id = await register(app);
+      await app.request(`/api/v1/projects/${id}/scan`);
+      await db.delete(schema.projects).where(eq(schema.projects.id, id));
+      expect(await db.select().from(schema.scanSnapshots)).toEqual([]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('answers readiness with every reason, and never a silent go on an empty install', async () => {
+    const { client, db } = await migrated();
+    try {
+      const app = withReliability(db, {
+        now: () => new Date('2026-10-20T10:05:00.000Z'),
+        openQuarantine: 2,
+      });
+      const id = await register(app);
+      const card = ReleaseReadinessCardSchema.parse(
+        await (await app.request(`/api/v1/projects/${id}/readiness`)).json(),
+      );
+      expect(card.verdict).toBe('caution');
+      const levels = Object.fromEntries(card.reasons.map((reason) => [reason.code, reason.level]));
+      expect(levels).toMatchObject({
+        gate: 'unknown',
+        activity: 'unknown',
+        coverage: 'unknown',
+        quarantine: 'caution',
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('reads the project’s runs and its coverage readings into the card', async () => {
+    const { client, db } = await migrated();
+    try {
+      const store = new InMemoryExecutionStore();
+      let now = new Date('2026-10-20T09:05:00.000Z');
+      const app = withReliability(db, { now: () => now, store });
+      const id = await register(app);
+      await app.request(`/api/v1/projects/${id}/scan`);
+      now = new Date('2026-10-20T10:05:00.000Z');
+      await app.request(`/api/v1/projects/${id}/scan?fresh=1`);
+      await store.create({ projectId: id }, 'k1', 'ws-1');
+      await store.create({ projectId: 'someone-else' }, 'k2', 'ws-1');
+      const card = ReleaseReadinessCardSchema.parse(
+        await (await app.request(`/api/v1/projects/${id}/readiness?days=7`)).json(),
+      );
+      const activity = card.reasons.find((reason) => reason.code === 'activity');
+      expect(activity).toMatchObject({ level: 'go', message: '1 run in the window' });
+      // Two readings at 80%: known, and holding.
+      expect(card.reasons.find((reason) => reason.code === 'coverage')).toMatchObject({
+        level: 'go',
+        message: 'Coverage holds at 80.0%',
+      });
     } finally {
       await client.close();
     }
