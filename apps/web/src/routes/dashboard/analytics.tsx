@@ -26,6 +26,7 @@ import {
   Segmented,
 } from '../../components/kit.js';
 import { TrendChart } from '../../components/TrendChart.js';
+import { Responsive } from '../../components/responsive.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -91,6 +92,53 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
     );
   }
 
+  const chart = (
+    <>
+      <Panel title={`Pass rate and volume · ${days} days`} className="flex-1">
+        {trend.status === 'ready' ? (
+          <TrendChart buckets={trend.value.buckets} data-testid="analytics-trend" />
+        ) : (
+          <Quiet data-testid="analytics-trend-state">
+            {trend.status === 'error' ? trend.message : 'Reading run history…'}
+          </Quiet>
+        )}
+      </Panel>
+    </>
+  );
+  const byDay = (
+    <>
+      <Panel title="By day" data-testid="analytics-days" className="flex-1">
+        {trend.status === 'ready' ? (
+          <Paged items={trend.value.buckets.slice().reverse()} reservedPx={460} label="day">
+            {(page) => (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Day</TableHead>
+                    <TableHead className="text-right">Runs</TableHead>
+                    <TableHead className="text-right">Pass rate</TableHead>
+                    <TableHead className="text-right">Failed tests</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {page.map((bucket) => (
+                    <TableRow key={bucket.date}>
+                      <TableCell>{shortDate(bucket.date)}</TableCell>
+                      <TableCell numeric>{bucket.runs}</TableCell>
+                      <TableCell numeric>{orDash(bucket.passRate, formatPercent)}</TableCell>
+                      <TableCell numeric>{bucket.testsFailed}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Paged>
+        ) : (
+          <Quiet>Waiting for run history…</Quiet>
+        )}
+      </Panel>
+    </>
+  );
   const window = trend.status === 'ready' ? trend.value.current : null;
   return (
     <PageFrame data-testid="analytics-page">
@@ -99,7 +147,10 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
         subtitle="All-time figures, then the chosen window day by day"
         actions={<Segmented label="Window" options={WINDOWS} value={days} onChange={setDays} />}
       />
-      <section aria-label="Run figures" className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-6">
+      <section
+        aria-label="Run figures"
+        className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
+      >
         <Kpi data-testid="stat-total-runs" label="Runs · all time" value={String(data.totalRuns)} />
         <Kpi
           data-testid="stat-pass-rate"
@@ -135,47 +186,19 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
           footer={window === null ? undefined : `of ${String(window.tests)} executed`}
         />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-        <Panel title={`Pass rate and volume · ${days} days`} className="min-h-72 xl:min-h-0">
-          {trend.status === 'ready' ? (
-            <TrendChart buckets={trend.value.buckets} data-testid="analytics-trend" />
-          ) : (
-            <Quiet data-testid="analytics-trend-state">
-              {trend.status === 'error' ? trend.message : 'Reading run history…'}
-            </Quiet>
-          )}
-        </Panel>
-        <Panel title="By day" data-testid="analytics-days">
-          {trend.status === 'ready' ? (
-            <Paged items={trend.value.buckets.slice().reverse()} reservedPx={460} label="day">
-              {(page) => (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Day</TableHead>
-                      <TableHead className="text-right">Runs</TableHead>
-                      <TableHead className="text-right">Pass rate</TableHead>
-                      <TableHead className="text-right">Failed tests</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {page.map((bucket) => (
-                      <TableRow key={bucket.date}>
-                        <TableCell>{shortDate(bucket.date)}</TableCell>
-                        <TableCell numeric>{bucket.runs}</TableCell>
-                        <TableCell numeric>{orDash(bucket.passRate, formatPercent)}</TableCell>
-                        <TableCell numeric>{bucket.testsFailed}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </Paged>
-          ) : (
-            <Quiet>Waiting for run history…</Quiet>
-          )}
-        </Panel>
-      </div>
+      <Responsive
+        label="Analytics sections"
+        desktop={
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-3">
+            {chart}
+            {byDay}
+          </div>
+        }
+        panels={[
+          { id: 'trend', label: 'Trend', node: chart },
+          { id: 'days', label: 'By day', node: byDay },
+        ]}
+      />
     </PageFrame>
   );
 }

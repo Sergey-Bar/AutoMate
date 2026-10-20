@@ -176,10 +176,12 @@ describe('the score is never rendered without the row that capped it', () => {
   it('renders every cell with its components, so no number is unexplained', async () => {
     render(<ScorePage api={stubApi()} projectId="project-1" />);
     // Fifteen cells share a format string, so this asserts the **count** — a matcher
-    // that found one would still pass if only one cell had rendered.
+    // that found one would still pass if only one cell had rendered. The breakdown sits
+    // in its own span (hidden on a phone) and the whole figure in the cell's title.
     await waitFor(() =>
-      expect(screen.getAllByText(/0\.60 \(P1 D0\.60 S1\.00 Q1\.00\)/u).length).toBe(15),
+      expect(screen.getAllByTitle('0.60 (P1 D0.60 S1.00 Q1.00)').length).toBe(15),
     );
+    expect(screen.getAllByText('(P1 D0.60 S1.00 Q1.00)', { exact: false }).length).toBe(15);
   });
 
   it('says a cell with no suite reads as zero, not as a small number', () => {

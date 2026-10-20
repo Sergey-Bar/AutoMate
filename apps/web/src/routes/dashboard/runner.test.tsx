@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from '@tanstack/react-router';
-import { RunnerPage, inGroup } from './runner';
+import { RunnerPage, inGroup, toolForRun } from './runner';
 import { makeApi, makeQa, makeRun, makeScan, makeTool } from '../../test-utils';
 import type { QaClient } from '../../lib/qa-client';
 import type { ApiClient } from '../../lib/api';
@@ -189,5 +189,120 @@ describe('the runner', () => {
     expect(inGroup(makeTool({ kind: 'sast' }), 'security')).toBe(true);
     expect(inGroup(makeTool({ kind: 'sast' }), 'tests')).toBe(false);
     expect(inGroup(makeTool({ kind: 'other' }), 'all')).toBe(true);
+  });
+});
+
+describe('the runner, as a daily tool', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('pins a tool to the top, keeps it across a reload, and gives it its own group', async () => {
+    const first = renderRunner(makeQa());
+    await waitFor(() => expect(screen.getByTestId('pin-script:.:lint')).toBeInTheDocument());
+    expect(screen.queryByTestId('group-pinned')).not.toBeInTheDocument();
+    const order = () =>
+      within(screen.getByTestId('runner-tools'))
+        .getAllByRole('listitem')
+        .map((item) => item.dataset['testid']);
+    expect(order()[0]).toBe('tool-script:.:test');
+
+    fireEvent.click(screen.getByTestId('pin-script:.:lint'));
+    expect(screen.getByTestId('pin-script:.:lint')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('pin-script:.:lint')).toHaveAccessibleName('Unpin lint');
+    expect(order()[0]).toBe('tool-script:.:lint');
+    expect(JSON.parse(localStorage.getItem('automate-pinned-tools') ?? '[]')).toEqual([
+      'script:.:lint',
+    ]);
+    fireEvent.click(screen.getByTestId('group-pinned'));
+    expect(order()).toEqual(['tool-script:.:lint']);
+    first.unmount();
+
+    renderRunner(makeQa());
+    await waitFor(() => expect(screen.getByTestId('group-pinned')).toHaveTextContent('Pinned1'));
+    fireEvent.click(screen.getByTestId('group-pinned'));
+    fireEvent.click(screen.getByTestId('pin-script:.:lint'));
+    expect(screen.getByText('Nothing pinned yet.')).toBeInTheDocument();
+  });
+
+  it('reads a corrupt pin store as no pins rather than failing the page', async () => {
+    localStorage.setItem('automate-pinned-tools', '{not json');
+    renderRunner(makeQa());
+    await waitFor(() => expect(screen.getByTestId('tool-script:.:lint')).toBeInTheDocument());
+    expect(screen.queryByTestId('group-pinned')).not.toBeInTheDocument();
+    localStorage.setItem('automate-pinned-tools', '{"a":1}');
+    renderRunner(makeQa());
+    await waitFor(() => expect(screen.getAllByTestId('tool-script:.:lint')).toHaveLength(2));
+    expect(screen.queryByTestId('group-pinned')).not.toBeInTheDocument();
+  });
+
+  it('copies the command line of a tool', async () => {
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderRunner(makeQa());
+    await waitFor(() => expect(screen.getByTestId('tool-script:.:lint')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Copy pnpm run lint' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Copied pnpm run lint' })).toBeInTheDocument(),
+    );
+    expect(writeText).toHaveBeenCalledWith('pnpm run lint');
+  });
+
+  it('says nothing was copied when the clipboard refuses', async () => {
+    const writeText = vi.fn(async () => {
+      throw new Error('denied');
+    });
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    renderRunner(makeQa());
+    await waitFor(() => expect(screen.getByTestId('tool-script:.:lint')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Copy pnpm run lint' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(screen.getByRole('button', { name: 'Copy pnpm run lint' })).toBeInTheDocument();
+  });
+
+  it('runs a finished run again through the same confirmation, by the id the server stored', async () => {
+    const runs = [
+      makeRun({ id: 'run-9', suite: 'lint', configuration: { commandId: 'script:.:lint' } }),
+      makeRun({ id: 'run-8', suite: 'gone', configuration: { commandId: 'script:.:missing' } }),
+    ];
+    renderRunner(makeQa(), makeApi({ getRuns: vi.fn(async () => runs) }));
+    await waitFor(() => expect(screen.getByTestId('again-run-9')).toBeInTheDocument());
+    // A run whose tool the scan no longer has cannot be run again from here.
+    expect(screen.queryByTestId('again-run-8')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Run pnpm run lint again' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Run lint?' })).toBeInTheDocument();
+  });
+
+  it('finds the tool a run executed only when the scan still lists it as runnable', () => {
+    const tools = makeScan().tools;
+    expect(toolForRun(makeRun({ configuration: { commandId: 'script:.:lint' } }), tools)?.id).toBe(
+      'script:.:lint',
+    );
+    expect(toolForRun(makeRun({ configuration: { commandId: 'script:.:dev' } }), tools)).toBe(
+      undefined,
+    );
+    expect(toolForRun(makeRun({ configuration: { commandId: 7 } }), tools)).toBe(undefined);
+    expect(toolForRun(makeRun({ configuration: {} }), tools)).toBe(undefined);
+  });
+
+  it('on a narrow screen, trades the groups panel for a select and the columns for tabs', async () => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }));
+    renderRunner(makeQa());
+    const select = await screen.findByTestId('runner-group-select');
+    expect(screen.queryByTestId('group-all')).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'quality' } });
+    expect(
+      within(screen.getByTestId('runner-tools'))
+        .getAllByRole('listitem')
+        .map((item) => item.dataset['testid']),
+    ).toEqual(['tool-script:.:lint']);
+    fireEvent.click(screen.getByRole('button', { name: 'Activity' }));
+    expect(screen.getByTestId('runner-activity')).toBeInTheDocument();
+    expect(screen.queryByTestId('runner-tools')).not.toBeInTheDocument();
   });
 });

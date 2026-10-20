@@ -639,8 +639,8 @@ describe('shipped theme class resolution', () => {
       // `packages/ui` fails here rather than passing on a smaller list.
       'text-text-secondary',
       'bg-bg-elevated',
-      // The trend chart's run-volume swatch, which nothing in `packages/ui` writes.
-      'bg-border-strong',
+      // The score page's limiter outline, which nothing in `packages/ui` writes.
+      'border-accent',
     ]) {
       expect(colorCandidates, `${expected} was not picked up by the scanner`).toContain(expected);
     }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from '@tanstack/react-router';
-import { cn } from '@automate/ui';
+import { Sparkline, cn } from '@automate/ui';
 import { SCORE_CATEGORIES, SCORE_SURFACES, type ScoreCell } from '@automate/shared-contracts';
 import { useResource } from '../hooks/useResource.js';
 import type { ApiClient, QuarantineEntry } from '../lib/api.js';
@@ -34,6 +34,7 @@ import {
   useFitCount,
 } from './kit.js';
 import { ProjectGate } from './ProjectGate.js';
+import { Responsive } from './responsive.js';
 import { TrendChart } from './TrendChart.js';
 
 /**
@@ -200,6 +201,29 @@ function DashboardGrid({
     (name) => snapshot[name].failure !== null,
   );
   const comparisons = trend === null ? [] : compareWindows(trend.previous, trend.current);
+  const trendPanel = (className: string) => (
+    <Panel
+      title={
+        trend === null
+          ? 'Pass rate and volume'
+          : `Pass rate and volume · last ${String(trend.days)} days`
+      }
+      className={className}
+      data-testid="dashboard-trend"
+    >
+      {trend === null ? (
+        <Quiet>{trendFailure ?? 'Reading run history…'}</Quiet>
+      ) : (
+        <TrendChart buckets={trend.buckets} data-testid="trend-chart" />
+      )}
+    </Panel>
+  );
+  const beforeNow = <BeforeNow comparisons={comparisons} trend={trend} />;
+  const matrix = <Matrix score={snapshot.score.value} />;
+  const actions = (
+    <NextActions gaps={snapshot.gaps.value} scan={snapshot.scan.value} projectId={projectId} />
+  );
+  const reports = <Reports scan={snapshot.scan.value} />;
   return (
     <>
       {failed.length > 0 ? (
@@ -213,27 +237,25 @@ function DashboardGrid({
         </p>
       ) : null}
       <Figures snapshot={snapshot} trend={trend} comparisons={comparisons} />
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-3 xl:grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <Panel
-          title={
-            trend === null
-              ? 'Pass rate and volume'
-              : `Pass rate and volume · last ${String(trend.days)} days`
-          }
-          className="min-h-72 xl:col-span-2 xl:min-h-0"
-          data-testid="dashboard-trend"
-        >
-          {trend === null ? (
-            <Quiet>{trendFailure ?? 'Reading run history…'}</Quiet>
-          ) : (
-            <TrendChart buckets={trend.buckets} data-testid="trend-chart" />
-          )}
-        </Panel>
-        <BeforeNow comparisons={comparisons} trend={trend} />
-        <Matrix score={snapshot.score.value} />
-        <NextActions gaps={snapshot.gaps.value} scan={snapshot.scan.value} projectId={projectId} />
-        <Reports scan={snapshot.scan.value} />
-      </div>
+      <Responsive
+        label="Dashboard sections"
+        desktop={
+          <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)] gap-3">
+            {trendPanel('col-span-2')}
+            {beforeNow}
+            {matrix}
+            {actions}
+            {reports}
+          </div>
+        }
+        panels={[
+          { id: 'trend', label: 'Trend', node: trendPanel('flex-1') },
+          { id: 'compare', label: 'Before vs now', node: beforeNow },
+          { id: 'matrix', label: 'Matrix', node: matrix },
+          { id: 'actions', label: 'Actions', node: actions },
+          { id: 'reports', label: 'Reports', node: reports },
+        ]}
+      />
     </>
   );
 }
@@ -260,6 +282,23 @@ function deltaFooter(comparison: Comparison | undefined): React.ReactNode {
   );
 }
 
+/**
+ * A day-by-day sparkline for one figure, or nothing when fewer than two days have a value —
+ * one point has no shape, and a flat line drawn from it would claim a trend.
+ */
+function spark(
+  trend: AnalyticsTrend | null,
+  key: 'passRate' | 'runs' | 'avgDurationMs',
+  label: string,
+  tone: string,
+): React.ReactNode {
+  const points = (trend?.buckets ?? [])
+    .map((bucket) => bucket[key])
+    .filter((value): value is number => value !== null);
+  if (points.length < 2) return undefined;
+  return <Sparkline points={points} label={label} tone={tone} />;
+}
+
 function Figures({
   snapshot,
   trend,
@@ -277,7 +316,7 @@ function Figures({
   return (
     <section
       aria-label="Key figures"
-      className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"
+      className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
     >
       <Kpi
         data-testid="kpi-health"
@@ -297,18 +336,21 @@ function Figures({
         value={orDash(current?.passRate ?? null, (value) => value.toFixed(1))}
         unit="%"
         footer={deltaFooter(find('passRate'))}
+        spark={spark(trend, 'passRate', 'Pass rate by day', 'text-accent')}
       />
       <Kpi
         data-testid="kpi-runs"
         label="Runs"
         value={current === null ? '—' : String(current.runs)}
         footer={deltaFooter(find('runs'))}
+        spark={spark(trend, 'runs', 'Runs by day', 'text-fg-muted')}
       />
       <Kpi
         data-testid="kpi-duration"
         label="Avg duration"
         value={orDash(current?.avgDurationMs ?? null, formatDuration)}
         footer={deltaFooter(find('avgDurationMs'))}
+        spark={spark(trend, 'avgDurationMs', 'Average duration by day', 'text-fg-muted')}
       />
       <Kpi
         data-testid="kpi-flaky"
@@ -507,8 +549,7 @@ function NextActions({
   scan: RepoScan | null;
   projectId: string;
 }): React.ReactElement {
-  const listRef = React.useRef<HTMLDivElement>(null);
-  const room = useFitCount(listRef, 52, 5);
+  const [room, listRef] = useFitCount(52, 5);
   const tools = (scan?.toolbox ?? [])
     .filter((entry) => entry.status === 'recommended')
     .sort((left, right) => PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority]);
@@ -533,7 +574,7 @@ function NextActions({
       {ranked.length === 0 && missing.length === 0 ? (
         <Quiet>Nothing queued: no cell is below target and no capability is missing.</Quiet>
       ) : (
-        <div ref={listRef} className="xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-hidden">
           <ul className="-mx-2 space-y-0.5">
             {ranked.map((gap) => (
               <li key={gap.cell} data-testid={`queue-gap-${gap.cell}`} className="min-w-0">
@@ -614,9 +655,8 @@ export function summariseReports(reports: readonly RepoReport[]): {
 function Reports({ scan }: { scan: RepoScan | null }): React.ReactElement {
   const reports = scan?.reports ?? [];
   const summary = summariseReports(reports);
-  const listRef = React.useRef<HTMLDivElement>(null);
-  // As many report lines as the panel has room for, on a big screen; three otherwise.
-  const shown = useFitCount(listRef, 24, 3);
+  // As many report lines as the panel has room for.
+  const [shown, listRef] = useFitCount(24, 3);
   return (
     <Panel
       title="Reports on disk"
@@ -649,7 +689,7 @@ function Reports({ scan }: { scan: RepoScan | null }): React.ReactElement {
             />
             <Mini label="Findings" value={String(summary.findings)} />
           </dl>
-          <div ref={listRef} className="mt-3 xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+          <div ref={listRef} className="mt-3 min-h-0 flex-1 overflow-hidden">
             <ul className="space-y-1.5">
               {reports.slice(0, shown).map((report) => (
                 <li

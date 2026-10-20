@@ -66,4 +66,35 @@ export {
   ExternalLink,
   /** The filter field on the runner and toolbox pages. */
   Search,
+  // One glyph per QA capability, so the toolbox and the runner read as a launcher: the
+  // shape names the kind of tool before the label does. Each is paired with its name.
+  FlaskConical,
+  Layers,
+  Globe,
+  ChartPie,
+  ScanSearch,
+  Braces,
+  Pilcrow,
+  ShieldCheck,
+  KeyRound,
+  Package,
+  Gauge,
+  Accessibility,
+  Bug,
+  Handshake,
+  Eye,
+  Workflow,
+  Hammer,
+  Database,
+  BookOpen,
+  Terminal,
+  Wrench,
+  /** Copies a command or a link. */
+  Copy,
+  /** Opens the navigation on a narrow screen. */
+  Menu,
+  /** Pins a tool to the top of the runner. */
+  Star,
+  /** Runs a finished command again. */
+  RotateCcw,
 } from 'lucide-react';

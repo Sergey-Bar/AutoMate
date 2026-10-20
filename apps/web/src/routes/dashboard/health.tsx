@@ -10,12 +10,14 @@ import {
   PagerControls,
   Quiet,
   StatusDot,
+  useFitCount,
   usePager,
 } from '../../components/kit.js';
 import { ProjectGate } from '../../components/ProjectGate.js';
 import { useResource } from '../../hooks/useResource.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
-import type { CapabilityCoverage, RegisteredProject, RepoScan } from '../../lib/qa.js';
+import type { CapabilityCoverage, RegisteredProject, RepoReport, RepoScan } from '../../lib/qa.js';
+import { KindIcon, Responsive } from '../../components/responsive.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -110,12 +112,15 @@ function HealthBody({
 function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
   const covered = scan.capabilities.filter((entry) => entry.covered).length;
   const ratio = scan.sourceFiles === 0 ? null : scan.testFiles / scan.sourceFiles;
-  const reports = usePager(scan.reports, 6);
+  const [size, reportBox] = useFitCount(48, 6);
+  const reports = usePager(scan.reports, size);
+  const capabilities = <Capabilities scan={scan} />;
+  const reportPanel = <Reports reports={reports} box={reportBox} />;
   return (
     <>
       <section
         aria-label="Repository figures"
-        className="grid shrink-0 grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6"
+        className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
       >
         <Kpi
           data-testid="health-maturity"
@@ -151,69 +156,104 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
           footer={scan.ecosystems.join(' · ') || 'no ecosystem'}
         />
       </section>
-      <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <Panel title="QA capabilities" data-testid="health-capabilities">
-          <ul className="grid min-h-0 flex-1 grid-cols-2 gap-2 md:grid-cols-4">
-            {scan.capabilities.map((entry) => (
-              <li
-                key={entry.capability}
-                data-testid={`capability-${entry.capability}`}
-                data-covered={entry.covered}
-                className={cn(
-                  'flex min-w-0 flex-col gap-1 rounded-xl border p-3',
-                  entry.covered ? 'border-border' : 'border-dashed border-warning',
-                )}
-              >
-                <span className="flex items-center gap-1.5 text-sm">
-                  {entry.covered ? (
-                    <Check size={14} aria-hidden="true" className="shrink-0 text-success" />
-                  ) : (
-                    <X size={14} aria-hidden="true" className="shrink-0 text-warning" />
-                  )}
-                  <span className="truncate">{CAPABILITY_LABELS[entry.capability]}</span>
-                  <span className="sr-only">{entry.covered ? ', covered' : ', missing'}</span>
-                </span>
-                <span
-                  className="mt-1 line-clamp-2 text-xs text-fg-muted"
-                  title={entry.providers.join(', ')}
-                >
-                  {entry.covered
-                    ? entry.providers.slice(0, 2).join(', ')
-                    : 'Nothing covers this yet'}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Panel>
-        <Panel title="Reports on disk" data-testid="health-reports">
-          {reports.items.length === 0 ? (
-            <Quiet>
-              No coverage, JUnit, Playwright, ESLint, SARIF, Gitleaks or k6 report was found.
-            </Quiet>
-          ) : (
-            <ul className="min-h-0 flex-1 space-y-2">
-              {reports.items.map((report) => (
-                <li key={report.path} data-testid={`report-${report.path}`} className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <StatusDot status={report.status} />
-                    <span className="truncate text-sm">{report.headline}</span>
-                    <Badge variant="outline" className="ml-auto shrink-0">
-                      {report.kind}
-                    </Badge>
-                  </div>
-                  <div
-                    className="truncate pl-4 font-mono text-xs text-fg-muted"
-                    title={report.path}
-                  >
-                    {report.path}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          <PagerControls pager={reports} label="report" />
-        </Panel>
-      </div>
+      <Responsive
+        label="Health sections"
+        desktop={
+          <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] gap-3">
+            {capabilities}
+            {reportPanel}
+          </div>
+        }
+        panels={[
+          { id: 'capabilities', label: 'Capabilities', node: capabilities },
+          { id: 'reports', label: 'Reports', node: reportPanel },
+        ]}
+      />
     </>
+  );
+}
+
+function Capabilities({ scan }: { scan: RepoScan }): React.ReactElement {
+  return (
+    <Panel title="QA capabilities" data-testid="health-capabilities" className="flex-1">
+      {/*
+            Sixteen tiles that share the panel's height, so the grid fits whatever height
+            the layout gives it: four rows on a wide screen, eight on a phone.
+          */}
+      <ul className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-1.5 sm:grid-cols-4 sm:gap-2">
+        {scan.capabilities.map((entry) => (
+          <li
+            key={entry.capability}
+            data-testid={`capability-${entry.capability}`}
+            data-covered={entry.covered}
+            className={cn(
+              'flex min-h-0 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-2.5 py-1.5 sm:gap-1 sm:p-3',
+              entry.covered ? 'border-border' : 'border-dashed border-warning',
+            )}
+          >
+            <span className="flex min-w-0 items-center gap-1.5 text-sm">
+              <KindIcon
+                kind={entry.capability}
+                size={14}
+                className={cn('shrink-0', entry.covered ? 'text-success' : 'text-warning')}
+              />
+              <span className="truncate" title={CAPABILITY_LABELS[entry.capability]}>
+                {CAPABILITY_LABELS[entry.capability]}
+              </span>
+              {entry.covered ? (
+                <Check size={12} aria-hidden="true" className="ml-auto shrink-0 text-success" />
+              ) : (
+                <X size={12} aria-hidden="true" className="ml-auto shrink-0 text-warning" />
+              )}
+              <span className="sr-only">{entry.covered ? ', covered' : ', missing'}</span>
+            </span>
+            <span
+              className="hidden truncate text-xs text-fg-muted sm:block"
+              title={entry.providers.join(', ')}
+            >
+              {entry.covered ? entry.providers.slice(0, 2).join(', ') : 'Nothing covers this yet'}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
+  );
+}
+
+function Reports({
+  reports,
+  box,
+}: {
+  reports: ReturnType<typeof usePager<RepoReport>>;
+  box: (element: HTMLElement | null) => void;
+}): React.ReactElement {
+  return (
+    <Panel title="Reports on disk" data-testid="health-reports" className="flex-1">
+      {reports.items.length === 0 ? (
+        <Quiet>
+          No coverage, JUnit, Playwright, ESLint, SARIF, Gitleaks or k6 report was found.
+        </Quiet>
+      ) : (
+        <ul ref={box} className="min-h-0 flex-1 space-y-2 overflow-hidden">
+          {reports.items.map((report) => (
+            <li key={report.path} data-testid={`report-${report.path}`} className="min-w-0">
+              <div className="flex items-center gap-2">
+                <StatusDot status={report.status} />
+                <span className="truncate text-sm" title={report.headline}>
+                  {report.headline}
+                </span>
+                <Badge variant="outline" className="ml-auto shrink-0">
+                  {report.kind}
+                </Badge>
+              </div>
+              <div className="truncate pl-4 font-mono text-xs text-fg-muted" title={report.path}>
+                {report.path}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      <PagerControls pager={reports} label="report" />
+    </Panel>
   );
 }

@@ -106,11 +106,11 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
         <Panel title="Gaps" className="flex-1">
           <Paged items={response.gaps} reservedPx={DEEP_DIVE_RESERVED} label="gap">
             {(page) => (
-              <Table>
+              <Table className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Cell</TableHead>
-                    <TableHead className="text-right">Now</TableHead>
+                    <TableHead className="hidden text-right sm:table-cell">Now</TableHead>
                     <TableHead className="text-right">Worth</TableHead>
                     <TableHead>What would close it</TableHead>
                   </TableRow>
@@ -119,9 +119,13 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
                   {page.map((gap) => (
                     <TableRow key={gap.cell}>
                       <TableCell className="font-mono">{gap.cell}</TableCell>
-                      <TableCell numeric>{gap.current.toFixed(2)}</TableCell>
+                      <TableCell numeric className="hidden tabular-nums sm:table-cell">
+                        {gap.current.toFixed(2)}
+                      </TableCell>
                       <TableCell numeric>{`+${(gap.potential * 100).toFixed(0)} pts`}</TableCell>
-                      <TableCell>{gap.cheapestClosure}</TableCell>
+                      <TableCell className="w-full max-w-0 truncate" title={gap.cheapestClosure}>
+                        {gap.cheapestClosure}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -157,7 +161,7 @@ export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement 
       <Panel title="Register" className="flex-1">
         <Paged items={response.cells} reservedPx={DEEP_DIVE_RESERVED} label="hollow cell">
           {(page) => (
-            <Table>
+            <Table className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <TableHeader>
                 <TableRow>
                   <TableHead>Cell</TableHead>
@@ -169,7 +173,12 @@ export function HollowPage({ api, projectId }: ScreenProps): React.ReactElement 
                 {page.map((cell) => (
                   <TableRow key={cell.cell}>
                     <TableCell className="font-mono">{cell.cell}</TableCell>
-                    <TableCell>{cell.hollowFingerprints.join(', ')}</TableCell>
+                    <TableCell
+                      className="w-full max-w-0 truncate"
+                      title={cell.hollowFingerprints.join(', ')}
+                    >
+                      {cell.hollowFingerprints.join(', ')}
+                    </TableCell>
                     <TableCell numeric>{cell.signal.toFixed(2)}</TableCell>
                   </TableRow>
                 ))}
@@ -194,7 +203,7 @@ export function FlakyPage({ api, projectId }: ScreenProps): React.ReactElement {
       <Panel title="Register" className="flex-1">
         <Paged items={response.cells} reservedPx={DEEP_DIVE_RESERVED} label="flaky cell">
           {(page) => (
-            <Table>
+            <Table className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
               <TableHeader>
                 <TableRow>
                   <TableHead>Cell</TableHead>
@@ -207,7 +216,12 @@ export function FlakyPage({ api, projectId }: ScreenProps): React.ReactElement {
                 {page.map((cell) => (
                   <TableRow key={cell.cell}>
                     <TableCell className="font-mono">{cell.cell}</TableCell>
-                    <TableCell>{cell.flakyFingerprints.join(', ')}</TableCell>
+                    <TableCell
+                      className="w-full max-w-0 truncate"
+                      title={cell.flakyFingerprints.join(', ')}
+                    >
+                      {cell.flakyFingerprints.join(', ')}
+                    </TableCell>
                     <TableCell numeric>{cell.flakeRate.toFixed(2)}</TableCell>
                     <TableCell numeric>{cell.stability.toFixed(2)}</TableCell>
                   </TableRow>
@@ -254,7 +268,7 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
           <Panel title="Findings" className="flex-1">
             <Paged items={response.findings} reservedPx={DEEP_DIVE_RESERVED} label="finding">
               {(page) => (
-                <Table>
+                <Table className="[&_td]:whitespace-nowrap [&_th]:whitespace-nowrap">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Finding</TableHead>
@@ -266,7 +280,9 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
                     {page.map((finding) => (
                       <TableRow key={`${finding.kind}:${finding.cells.join(',')}`}>
                         <TableCell>{finding.kind}</TableCell>
-                        <TableCell>{finding.statement}</TableCell>
+                        <TableCell className="w-full max-w-0 truncate" title={finding.statement}>
+                          {finding.statement}
+                        </TableCell>
                         <TableCell numeric>{finding.impact.toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
