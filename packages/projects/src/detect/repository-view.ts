@@ -23,6 +23,15 @@ export interface RepositoryView {
 export function fileSystemView(
   root: string,
   ignore: readonly string[] = DEFAULT_IGNORED,
+  /**
+   * Dot-directories the walk descends into anyway.
+   *
+   * Every dot-directory is skipped by default, which is right for the detector — `.git`
+   * is the largest directory in most checkouts and holds no manifest. The repository
+   * scan needs two of them: `.github` is where CI, Dependabot and CodeQL are declared,
+   * and `.husky` is where the pre-commit gates are. Naming them is narrower than a flag.
+   */
+  dotDirectories: readonly string[] = [],
 ): RepositoryView {
   const absolute = path.resolve(root);
   const rootLength = absolute.length + 1;
@@ -36,7 +45,8 @@ export function fileSystemView(
         for (const entry of entries) {
           const full = path.join(current, entry.name);
           if (entry.isDirectory()) {
-            if (ignore.includes(entry.name) || entry.name.startsWith('.')) continue;
+            if (ignore.includes(entry.name)) continue;
+            if (entry.name.startsWith('.') && !dotDirectories.includes(entry.name)) continue;
             stack.push(full);
             continue;
           }
