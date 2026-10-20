@@ -11,7 +11,12 @@ import { createErrorBoundary } from '../errors/boundary.js';
 import { createProjectsRoutes } from './projects.js';
 import { literalView } from '@automate/projects';
 import type { RepositoryView } from '@automate/projects';
-import { CopilotAnswerSchema, QaScoreSchema, ScoreDeltaSchema } from '@automate/shared-contracts';
+import {
+  CopilotAnswerSchema,
+  QaScoreSchema,
+  RepoScanSchema,
+  ScoreDeltaSchema,
+} from '@automate/shared-contracts';
 
 /**
  * The registry and the score, over a real migrated database.
@@ -271,6 +276,86 @@ describe('starting a run takes a command id, never an executable', () => {
       });
       expect(response.status).toBe(202);
       expect(started).toEqual(['node.test']);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('hands the runner the argv it resolved, so the job can actually execute it', async () => {
+    // The job used to carry only `commandId`. The runner reads `configuration.command`,
+    // so a project run arrived with no command at all and could not run what was chosen.
+    const { client, db } = await migrated();
+    try {
+      const app = harness(db, literalView(NODE_REPO), []);
+      const created = await post(app, '/api/v1/projects', {
+        name: 'Service',
+        slug: 'svc',
+        repoPath: '/repos/svc',
+      });
+      const { project } = (await created.json()) as { project: { id: string } };
+      const commands: unknown[] = [];
+      const runnable = mounted(
+        createProjectsRoutes({
+          db: db as never,
+          workspaceId: 'ws-1',
+          viewFor: () => literalView(NODE_REPO),
+          startRun: async (input) => {
+            commands.push(input.command);
+            return { runId: 'run-1', jobId: 'job-1', phase: 'queued' };
+          },
+        }),
+      );
+      // A profile command: a suite, held to the artifact rule.
+      await post(runnable, `/api/v1/projects/${project.id}/run.start`, {
+        commandId: 'node.test',
+        idempotencyKey: 'k1',
+      });
+      // A script only the scan knows: a tool, whose verdict is its exit code.
+      const scripted = await post(runnable, `/api/v1/projects/${project.id}/run.start`, {
+        commandId: 'script:.:test:e2e',
+        idempotencyKey: 'k2',
+      });
+      expect(scripted.status).toBe(202);
+      expect(commands).toEqual([
+        expect.objectContaining({ argv: ['pnpm', 'test'], evidence: 'artifact' }),
+        expect.objectContaining({
+          argv: ['pnpm', 'run', 'test:e2e'],
+          workingDirectory: '.',
+          evidence: 'exit-code',
+          // The checkout the runner must execute in, so it is not its own root by default.
+          repository: '/repos/svc',
+        }),
+      ]);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('serves the repository scan, and refuses a project with no path to scan', async () => {
+    const { client, db } = await migrated();
+    try {
+      const app = harness(db, literalView(NODE_REPO), []);
+      const created = await post(app, '/api/v1/projects', {
+        name: 'Service',
+        slug: 'svc',
+        repoPath: '/repos/svc',
+      });
+      const { project } = (await created.json()) as { project: { id: string } };
+      const response = await app.request(`/api/v1/projects/${project.id}/scan?fresh=1`);
+      expect(response.status).toBe(200);
+      const scan = RepoScanSchema.parse(await response.json());
+      expect(scan.tools.map((tool) => tool.id)).toEqual(['script:.:test', 'script:.:test:e2e']);
+      expect(scan.detected.map((tool) => tool.id)).toEqual(
+        expect.arrayContaining(['vitest', 'playwright']),
+      );
+
+      await db
+        .update(schema.projects)
+        .set({ repoPath: null })
+        .where(eq(schema.projects.id, project.id));
+      const pathless = await app.request(`/api/v1/projects/${project.id}/scan?fresh=1`);
+      expect(pathless.status).toBeGreaterThanOrEqual(400);
+      expect(JSON.stringify(await pathless.json())).toMatch(/no repository path/u);
     } finally {
       await client.close();
     }

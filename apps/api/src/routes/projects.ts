@@ -8,6 +8,12 @@ import {
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { qaScore, stopRun } from '../services/qa-score-service.js';
 import { answer } from '../services/copilot-service.js';
+import {
+  createRepoScanner,
+  resolveCommand,
+  type RepoScanner,
+  type ResolvedCommand,
+} from '../services/repo-scan-service.js';
 import { diffScores } from '@automate/projects';
 import {
   ensureWorkspace,
@@ -40,13 +46,22 @@ import {
  * geometric formula, and the reader has no reason to distrust it.
  */
 export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
-  /** Starts a run. Injected so the routes have no database and no queue in them. */
+  /**
+   * Starts a run. Injected so the routes have no database and no queue in them.
+   *
+   * `command` is the argv **this route** resolved from the profile or the scan. The
+   * caller wires it into the job's configuration as-is: resolving it a second time
+   * further down would be a second place an executable could enter the system.
+   */
   startRun: (input: {
     projectId: string;
     commandId: string;
+    command: ResolvedCommand;
     idempotencyKey: string;
     timeoutMs?: number;
   }) => Promise<{ runId: string; jobId: string; phase: string }>;
+  /** The repository scan. Defaults to one over `viewFor`. */
+  scanner?: RepoScanner;
 }
 
 const RegisterProjectBodySchema = z.object({
@@ -94,6 +109,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   const app = new Hono();
+  const scanner = options.scanner ?? createRepoScanner({ viewFor: options.viewFor });
 
   app.post('/api/v1/projects', async (context) => {
     const parsed = RegisterProjectBodySchema.safeParse(await readJson(context));
@@ -151,7 +167,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
 
   app.post('/api/v1/projects/:id/run.start', async (context) => {
     const projectId = context.req.param('id');
-    await getProject(options, projectId);
+    const project = await getProject(options, projectId);
     const parsed = RunStartBodySchema.safeParse(await readJson(context));
     if (!parsed.success) {
       return context.json(
@@ -168,23 +184,39 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     // Resolved server-side, and a refusal is a 404 rather than a fallback: an
     // unknown command id means the client is out of date with the profile, and
     // guessing at a nearby command would run a suite the operator did not ask for.
+    // The repository is only walked when the id is not a profile command, so the
+    // common case — a detected test suite — costs no scan.
     const commands = await listCommands(options, projectId);
-    const command = commands.find((candidate) => candidate.id === parsed.data.commandId);
-    if (command === undefined) {
-      throw new DomainError(
-        ErrorCode.NOT_FOUND,
-        `No command ${parsed.data.commandId} on project ${projectId}. Correct it in automate.config.json.`,
-      );
-    }
+    const inProfile = commands.some((candidate) => candidate.id === parsed.data.commandId);
+    const command = resolveCommand(
+      parsed.data.commandId,
+      commands,
+      inProfile ? null : await scanner.scan(projectId, project.repoPath),
+    );
+    if (project.repoPath !== null) command.repository = project.repoPath;
     return context.json(
       await options.startRun({
         projectId,
         commandId: command.id,
+        command,
         idempotencyKey: parsed.data.idempotencyKey,
-        timeoutMs: parsed.data.timeoutMs,
+        timeoutMs: parsed.data.timeoutMs ?? command.timeoutMs,
       }),
       202,
     );
+  });
+
+  /**
+   * Everything the repository says about its own QA: every tool, every report on disk,
+   * which capabilities it covers, and what the toolbox recommends.
+   *
+   * `?fresh=1` skips the short cache, which is what the "rescan" button sends after an
+   * operator has changed a manifest.
+   */
+  app.get('/api/v1/projects/:id/scan', async (context) => {
+    const project = await getProject(options, context.req.param('id'));
+    const fresh = context.req.query('fresh') === '1';
+    return context.json(await scanner.scan(project.id, project.repoPath, { fresh }));
   });
 
   app.post('/api/v1/runs/:runId/stop', async (context) => {

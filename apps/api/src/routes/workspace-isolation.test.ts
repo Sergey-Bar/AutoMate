@@ -75,6 +75,9 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   { family: 'orchestration routes', files: ['routes/orchestration.ts'] },
   { family: 'events', files: ['routes/events.ts'] },
   { family: 'dashboard routes', files: ['modules/dashboard/index.ts'] },
+  // The run trend reads the execution store with the composition root's workspace, and
+  // `trend.test.ts` proves a run in another workspace is not counted.
+  { family: 'analytics trend', files: ['execution/trend.ts'] },
   // Below the route layer: the stores and services the families above delegate
   // to. They take a `workspaceId` on every method precisely so the routes cannot
   // forget it, and the second test in this file scans their `where` clauses.

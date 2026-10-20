@@ -121,6 +121,14 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/dashboard/analytics/trend": {
+      "get": {
+        "operationId": "getApiV1DashboardAnalyticsTrend",
+        "tags": ["dashboard"],
+        "x-source": "apps/api/src/execution/trend.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/dashboard/quality-gates": {
       "get": {
         "operationId": "getApiV1DashboardQualityGates",
@@ -451,6 +459,17 @@
     "/api/v1/projects/{id}/run.start": {
       "post": {
         "operationId": "postApiV1ProjectsIdRunStart",
+        "tags": ["projects"],
+        "x-source": "apps/api/src/routes/projects.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/projects/{id}/scan": {
+      "get": {
+        "operationId": "getApiV1ProjectsIdScan",
         "tags": ["projects"],
         "x-source": "apps/api/src/routes/projects.ts",
         "parameters": [
@@ -905,6 +924,108 @@
           "durationMs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
         },
         "required": ["id", "name", "status"],
+        "additionalProperties": false
+      },
+      "AnalyticsTrendSchema": {
+        "type": "object",
+        "properties": {
+          "days": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+          "buckets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+                "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "other": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "passRate": {
+                  "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+                },
+                "avgDurationMs": {
+                  "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+                },
+                "tests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+                "testsFailed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+              },
+              "required": [
+                "date",
+                "runs",
+                "passed",
+                "failed",
+                "other",
+                "passRate",
+                "avgDurationMs",
+                "tests",
+                "testsFailed"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "current": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 },
+              "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "passRate": {
+                "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+              },
+              "failedRuns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "avgDurationMs": {
+                "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+              },
+              "tests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "testsFailed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "flakyTests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+            },
+            "required": [
+              "from",
+              "to",
+              "runs",
+              "passRate",
+              "failedRuns",
+              "avgDurationMs",
+              "tests",
+              "testsFailed",
+              "flakyTests"
+            ],
+            "additionalProperties": false
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 },
+              "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "passRate": {
+                "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+              },
+              "failedRuns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "avgDurationMs": {
+                "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
+              },
+              "tests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "testsFailed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "flakyTests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+            },
+            "required": [
+              "from",
+              "to",
+              "runs",
+              "passRate",
+              "failedRuns",
+              "avgDurationMs",
+              "tests",
+              "testsFailed",
+              "flakyTests"
+            ],
+            "additionalProperties": false
+          },
+          "truncated": { "type": "boolean" }
+        },
+        "required": ["days", "buckets", "current", "previous", "truncated"],
         "additionalProperties": false
       },
       "ApiKeySchema": {
@@ -2776,6 +2897,37 @@
           "timed_out"
         ]
       },
+      "CapabilityCoverageSchema": {
+        "type": "object",
+        "properties": {
+          "capability": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "integration",
+              "e2e",
+              "coverage",
+              "static-analysis",
+              "types",
+              "formatting",
+              "sast",
+              "secrets",
+              "dependencies",
+              "performance",
+              "accessibility",
+              "mutation",
+              "contract",
+              "visual",
+              "ci"
+            ]
+          },
+          "covered": { "type": "boolean" },
+          "providers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "weight": { "type": "number", "minimum": 0 }
+        },
+        "required": ["capability", "covered", "providers", "weight"],
+        "additionalProperties": false
+      },
       "ChatMessageRoleSchema": {
         "type": "string",
         "enum": ["user", "assistant", "system", "tool"]
@@ -3382,6 +3534,37 @@
           "configuration",
           "metadata"
         ],
+        "additionalProperties": false
+      },
+      "DetectedToolSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "capability": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "integration",
+              "e2e",
+              "coverage",
+              "static-analysis",
+              "types",
+              "formatting",
+              "sast",
+              "secrets",
+              "dependencies",
+              "performance",
+              "accessibility",
+              "mutation",
+              "contract",
+              "visual",
+              "ci"
+            ]
+          },
+          "evidence": { "type": "string", "minLength": 1 }
+        },
+        "required": ["id", "name", "capability", "evidence"],
         "additionalProperties": false
       },
       "Digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
@@ -5351,6 +5534,27 @@
         "required": ["observed", "target", "declaredTarget", "shape", "drift"],
         "additionalProperties": false
       },
+      "QaCapabilitySchema": {
+        "type": "string",
+        "enum": [
+          "unit",
+          "integration",
+          "e2e",
+          "coverage",
+          "static-analysis",
+          "types",
+          "formatting",
+          "sast",
+          "secrets",
+          "dependencies",
+          "performance",
+          "accessibility",
+          "mutation",
+          "contract",
+          "visual",
+          "ci"
+        ]
+      },
       "QaScoreCategorySchema": {
         "type": "string",
         "enum": ["unit", "integration", "e2e", "performance", "security"]
@@ -5981,14 +6185,323 @@
         ],
         "additionalProperties": false
       },
+      "RepoReportSchema": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": ["coverage", "tests", "lint", "security", "performance", "quality"]
+          },
+          "format": { "type": "string", "minLength": 1 },
+          "headline": { "type": "string", "minLength": 1 },
+          "metrics": {
+            "type": "object",
+            "propertyNames": { "type": "string" },
+            "additionalProperties": { "type": "number" }
+          },
+          "status": { "type": "string", "enum": ["good", "warn", "bad", "info"] }
+        },
+        "required": ["path", "kind", "format", "headline", "metrics", "status"],
+        "additionalProperties": false
+      },
+      "RepoScanSchema": {
+        "type": "object",
+        "properties": {
+          "scannedAt": { "type": "string", "minLength": 1 },
+          "ecosystems": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "manifests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "testFiles": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "sourceFiles": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "minLength": 1 },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "unit",
+                    "integration",
+                    "e2e",
+                    "coverage",
+                    "static-analysis",
+                    "types",
+                    "formatting",
+                    "sast",
+                    "secrets",
+                    "dependencies",
+                    "performance",
+                    "accessibility",
+                    "mutation",
+                    "contract",
+                    "visual",
+                    "ci",
+                    "build",
+                    "database",
+                    "docs",
+                    "dev",
+                    "other"
+                  ]
+                },
+                "argv": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "workingDirectory": { "type": "string", "minLength": 1 },
+                "source": { "type": "string", "minLength": 1 },
+                "evidence": { "type": "string", "minLength": 1 },
+                "runnable": { "type": "boolean" },
+                "reason": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+              },
+              "required": [
+                "id",
+                "name",
+                "label",
+                "kind",
+                "argv",
+                "workingDirectory",
+                "source",
+                "evidence",
+                "runnable",
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "reports": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": { "type": "string", "minLength": 1 },
+                "kind": {
+                  "type": "string",
+                  "enum": ["coverage", "tests", "lint", "security", "performance", "quality"]
+                },
+                "format": { "type": "string", "minLength": 1 },
+                "headline": { "type": "string", "minLength": 1 },
+                "metrics": {
+                  "type": "object",
+                  "propertyNames": { "type": "string" },
+                  "additionalProperties": { "type": "number" }
+                },
+                "status": { "type": "string", "enum": ["good", "warn", "bad", "info"] }
+              },
+              "required": ["path", "kind", "format", "headline", "metrics", "status"],
+              "additionalProperties": false
+            }
+          },
+          "detected": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "capability": {
+                  "type": "string",
+                  "enum": [
+                    "unit",
+                    "integration",
+                    "e2e",
+                    "coverage",
+                    "static-analysis",
+                    "types",
+                    "formatting",
+                    "sast",
+                    "secrets",
+                    "dependencies",
+                    "performance",
+                    "accessibility",
+                    "mutation",
+                    "contract",
+                    "visual",
+                    "ci"
+                  ]
+                },
+                "evidence": { "type": "string", "minLength": 1 }
+              },
+              "required": ["id", "name", "capability", "evidence"],
+              "additionalProperties": false
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "capability": {
+                  "type": "string",
+                  "enum": [
+                    "unit",
+                    "integration",
+                    "e2e",
+                    "coverage",
+                    "static-analysis",
+                    "types",
+                    "formatting",
+                    "sast",
+                    "secrets",
+                    "dependencies",
+                    "performance",
+                    "accessibility",
+                    "mutation",
+                    "contract",
+                    "visual",
+                    "ci"
+                  ]
+                },
+                "covered": { "type": "boolean" },
+                "providers": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "weight": { "type": "number", "minimum": 0 }
+              },
+              "required": ["capability", "covered", "providers", "weight"],
+              "additionalProperties": false
+            }
+          },
+          "maturity": { "type": "number", "minimum": 0, "maximum": 100 },
+          "toolbox": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "name": { "type": "string", "minLength": 1 },
+                "capability": {
+                  "type": "string",
+                  "enum": [
+                    "unit",
+                    "integration",
+                    "e2e",
+                    "coverage",
+                    "static-analysis",
+                    "types",
+                    "formatting",
+                    "sast",
+                    "secrets",
+                    "dependencies",
+                    "performance",
+                    "accessibility",
+                    "mutation",
+                    "contract",
+                    "visual",
+                    "ci"
+                  ]
+                },
+                "description": { "type": "string", "minLength": 1 },
+                "ecosystems": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                },
+                "status": { "type": "string", "enum": ["in-use", "recommended", "available"] },
+                "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+                "reason": { "type": "string", "minLength": 1 },
+                "setup": { "type": "string", "minLength": 1 },
+                "docsUrl": { "type": "string", "format": "uri" }
+              },
+              "required": [
+                "id",
+                "name",
+                "capability",
+                "description",
+                "ecosystems",
+                "status",
+                "priority",
+                "reason",
+                "setup",
+                "docsUrl"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "scannedAt",
+          "ecosystems",
+          "manifests",
+          "testFiles",
+          "sourceFiles",
+          "tools",
+          "reports",
+          "detected",
+          "capabilities",
+          "maturity",
+          "toolbox"
+        ],
+        "additionalProperties": false
+      },
+      "RepoToolSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "label": { "type": "string", "minLength": 1 },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "integration",
+              "e2e",
+              "coverage",
+              "static-analysis",
+              "types",
+              "formatting",
+              "sast",
+              "secrets",
+              "dependencies",
+              "performance",
+              "accessibility",
+              "mutation",
+              "contract",
+              "visual",
+              "ci",
+              "build",
+              "database",
+              "docs",
+              "dev",
+              "other"
+            ]
+          },
+          "argv": { "minItems": 1, "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "workingDirectory": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "evidence": { "type": "string", "minLength": 1 },
+          "runnable": { "type": "boolean" },
+          "reason": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+        },
+        "required": [
+          "id",
+          "name",
+          "label",
+          "kind",
+          "argv",
+          "workingDirectory",
+          "source",
+          "evidence",
+          "runnable",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
       "ReportFormatIdSchema": {
         "type": "string",
         "enum": ["junit-xml", "playwright-json", "k6-json", "zap-xml", "legacy-upload"]
+      },
+      "ReportKindSchema": {
+        "type": "string",
+        "enum": ["coverage", "tests", "lint", "security", "performance", "quality"]
       },
       "ReportProducerSchema": {
         "type": "string",
         "enum": ["playwright", "junit", "robot", "k6", "zap", "sarif", "otel", "generic", "legacy"]
       },
+      "ReportStatusSchema": { "type": "string", "enum": ["good", "warn", "bad", "info"] },
       "ReporterEventSchema": {
         "type": "object",
         "properties": {
@@ -8090,6 +8603,32 @@
         "required": ["id", "toolName", "args"],
         "additionalProperties": false
       },
+      "ToolKindSchema": {
+        "type": "string",
+        "enum": [
+          "unit",
+          "integration",
+          "e2e",
+          "coverage",
+          "static-analysis",
+          "types",
+          "formatting",
+          "sast",
+          "secrets",
+          "dependencies",
+          "performance",
+          "accessibility",
+          "mutation",
+          "contract",
+          "visual",
+          "ci",
+          "build",
+          "database",
+          "docs",
+          "dev",
+          "other"
+        ]
+      },
       "ToolResultSchema": {
         "type": "object",
         "properties": {
@@ -8099,6 +8638,114 @@
           "error": { "type": "string" }
         },
         "required": ["toolCallId", "toolName", "result"],
+        "additionalProperties": false
+      },
+      "ToolboxEntrySchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "capability": {
+            "type": "string",
+            "enum": [
+              "unit",
+              "integration",
+              "e2e",
+              "coverage",
+              "static-analysis",
+              "types",
+              "formatting",
+              "sast",
+              "secrets",
+              "dependencies",
+              "performance",
+              "accessibility",
+              "mutation",
+              "contract",
+              "visual",
+              "ci"
+            ]
+          },
+          "description": { "type": "string", "minLength": 1 },
+          "ecosystems": {
+            "minItems": 1,
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "status": { "type": "string", "enum": ["in-use", "recommended", "available"] },
+          "priority": { "type": "string", "enum": ["high", "medium", "low"] },
+          "reason": { "type": "string", "minLength": 1 },
+          "setup": { "type": "string", "minLength": 1 },
+          "docsUrl": { "type": "string", "format": "uri" }
+        },
+        "required": [
+          "id",
+          "name",
+          "capability",
+          "description",
+          "ecosystems",
+          "status",
+          "priority",
+          "reason",
+          "setup",
+          "docsUrl"
+        ],
+        "additionalProperties": false
+      },
+      "TrendBucketSchema": {
+        "type": "object",
+        "properties": {
+          "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "other": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "passRate": {
+            "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+          },
+          "avgDurationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+          "tests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "testsFailed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": [
+          "date",
+          "runs",
+          "passed",
+          "failed",
+          "other",
+          "passRate",
+          "avgDurationMs",
+          "tests",
+          "testsFailed"
+        ],
+        "additionalProperties": false
+      },
+      "TrendWindowSchema": {
+        "type": "object",
+        "properties": {
+          "from": { "type": "string", "minLength": 1 },
+          "to": { "type": "string", "minLength": 1 },
+          "runs": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "passRate": {
+            "anyOf": [{ "type": "number", "minimum": 0, "maximum": 100 }, { "type": "null" }]
+          },
+          "failedRuns": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "avgDurationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
+          "tests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "testsFailed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "flakyTests": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+        },
+        "required": [
+          "from",
+          "to",
+          "runs",
+          "passRate",
+          "failedRuns",
+          "avgDurationMs",
+          "tests",
+          "testsFailed",
+          "flakyTests"
+        ],
         "additionalProperties": false
       },
       "TriggerRunRequestSchema": {
