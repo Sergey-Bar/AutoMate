@@ -351,7 +351,7 @@ if (
 }
 
 const installationKeyHash = databaseResources
-  ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureBootstrap({
+  ? await new DrizzleInstallationKeyStore(databaseResources.db).ensureConfigured({
       installationId,
       keyHash: hashCredential(authCookieSecret, installationKey),
       displayPrefix: bootstrapDisplayPrefix(runtimeConfig),

@@ -178,3 +178,51 @@ it('acts on the revokedAt column the schema declares', async () => {
   expect(installationKeys.revokedAt).toBeDefined();
   expect(eq(installationKeys.installationId, INSTALLATION)).toBeDefined();
 });
+
+describe('ensureConfigured: the configured key is the authority', () => {
+  /**
+   * Found in a live demo: the first boot against a database stored a key, and from then on
+   * `ensureBootstrap` returned that stored hash whatever the operator configured. So setting a
+   * new `AUTOMATE_API_KEY` and restarting, which is what `docs/operations/secret-rotation.md`
+   * says to do, left login answering 401 to the new key and 200 to the old one.
+   */
+  const configured = (keyHash: string) =>
+    store.ensureConfigured({ installationId: INSTALLATION, keyHash, displayPrefix: PREFIX });
+
+  it('creates the key when the installation has none, as bootstrap does', async () => {
+    expect(await configured(HASH)).toBe(HASH);
+  });
+
+  it('keeps the stored key when the configuration has not changed', async () => {
+    await configured(HASH);
+    expect(await configured(HASH)).toBe(HASH);
+    const rows = await client.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM installation_keys',
+    );
+    expect(rows.rows[0]?.count).toBe('1');
+  });
+
+  it('replaces the stored key when the operator configured a different one', async () => {
+    await configured(HASH);
+    const rotated = 'd'.repeat(64);
+
+    expect(await configured(rotated)).toBe(rotated);
+
+    const rows = await client.query<{ key_hash: string }>(
+      'SELECT key_hash FROM installation_keys WHERE installation_id = $1 AND revoked_at IS NULL',
+      [INSTALLATION],
+    );
+    expect(
+      rows.rows.map((row) => row.key_hash),
+      'the old key no longer works',
+    ).toEqual([rotated]);
+  });
+
+  it('still refuses to boot on a revoked key, rather than quietly replacing it', async () => {
+    // A revocation is an operator decision to issue a new key deliberately. A configuration
+    // change on the next boot must not undo it.
+    await configured(HASH);
+    await revokeExisting();
+    await expect(configured('e'.repeat(64))).rejects.toBeInstanceOf(BootstrapKeyUnavailableError);
+  });
+});

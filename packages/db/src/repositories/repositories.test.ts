@@ -243,6 +243,37 @@ describe('DrizzleInstallationKeyStore', () => {
     );
     expect(rows.rows[0]?.count).toBe(1);
   });
+
+  it('replaces the key in place when the configured one changes, so a rotation takes effect', async () => {
+    const installationId = '00000000-0000-4000-8000-000000000202';
+    const input = (keyHash: string) => ({ installationId, keyHash, displayPrefix: 'auto_' });
+    expect(await keys.ensureConfigured(input('4'.repeat(64)))).toBe('4'.repeat(64));
+    expect(await keys.ensureConfigured(input('4'.repeat(64))), 'unchanged stays').toBe(
+      '4'.repeat(64),
+    );
+    expect(await keys.ensureConfigured(input('5'.repeat(64))), 'changed replaces').toBe(
+      '5'.repeat(64),
+    );
+    const rows = await client.query<{ key_hash: string }>(
+      'SELECT key_hash FROM installation_keys WHERE installation_id = $1',
+      [installationId],
+    );
+    expect(
+      rows.rows.map((row) => row.key_hash),
+      'one row, holding the new key',
+    ).toEqual(['5'.repeat(64)]);
+  });
+
+  it('does not replace a revoked key on a configuration change', async () => {
+    const installationId = '00000000-0000-4000-8000-000000000203';
+    const input = (keyHash: string) => ({ installationId, keyHash, displayPrefix: 'auto_' });
+    await keys.ensureConfigured(input('6'.repeat(64)));
+    await client.query(
+      'UPDATE installation_keys SET revoked_at = now() WHERE installation_id = $1',
+      [installationId],
+    );
+    await expect(keys.ensureConfigured(input('7'.repeat(64)))).rejects.toThrow(/is revoked/);
+  });
 });
 
 describe('DrizzleOutboxRepository', () => {
