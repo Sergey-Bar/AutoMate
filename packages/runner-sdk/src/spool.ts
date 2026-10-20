@@ -707,7 +707,10 @@ export class DurableSpool implements SpoolQueue {
 }
 
 export async function readOrCreateSpoolKey(path: string): Promise<string> {
-  await mkdir(dirname(path), { recursive: true });
+  // The key lives in the spool directory, and this is usually what creates it. Created with
+  // the umask (0755), the directory was then refused by `DurableSpool.open` as accessible
+  // beyond this account, so on POSIX a runner with no RUNNER_SPOOL_KEY could not start.
+  await mkdir(dirname(path), { recursive: true, mode: SPOOL_DIRECTORY_MODE });
   const existing = (await readOptional(path)).toString('utf8').trim();
   if (existing) return existing;
   const generated = randomBytes(32).toString('hex');
