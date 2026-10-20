@@ -206,7 +206,10 @@ export default defineConfig({
       // A developer running the suite locally gets the server the runner does, and the
       // migration is idempotent, so a second run applies nothing and says so.
       command: [
-        'pnpm --filter @automate/api... build',
+        // The worker and runner too: `full-loop.spec.ts` starts both from source, and the
+        // runner imports `@automate/runner-sdk`, which is not an API dependency and so is not
+        // built by `@automate/api...`. Locally an earlier `pnpm build` hid that; CI has none.
+        'pnpm --filter @automate/api... --filter @automate/worker... --filter @automate/runner... build',
         'pnpm db:migrate',
         'pnpm --filter @automate/api run dev',
       ].join(' && '),

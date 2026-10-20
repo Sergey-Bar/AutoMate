@@ -61,10 +61,12 @@ test.describe('the full loop', () => {
 
     const scratch = mkdtempSync(path.join(tmpdir(), 'automate-full-loop-'));
     const services: ServiceHandle[] = [];
+    let runId: string | undefined;
     try {
       // ------------------------------------------------------------------ 1. a lost runner
       const lost = await registerRunner(request);
       const run = await createRun(request, { branch: 'feat/full-loop' });
+      runId = run.id;
       const held: JobClaim = await claimJob(request, lost, ['playwright'], run.id);
       expect(held.fencingToken, 'a lease carries a fencing token').toBeGreaterThan(0);
 
@@ -168,6 +170,18 @@ test.describe('the full loop', () => {
     } finally {
       for (const service of services.reverse()) await service.stop();
       rmSync(scratch, { recursive: true, force: true });
+      // The queue is shared with every later spec. If this one failed before its run finished,
+      // the run is still claimable, and the next spec to claim gets it instead of its own: in CI
+      // that turned one failure here into seven elsewhere. Cancelling is best effort, because a
+      // failed cleanup must not replace the failure that matters.
+      if (
+        runId !== undefined &&
+        (await getRun(request, runId).catch(() => undefined))?.phase !== 'complete'
+      ) {
+        await request
+          .post(`${API_BASE}/api/v1/runs/${runId}/cancel`, { headers: API_AUTH_HEADERS })
+          .catch(() => undefined);
+      }
     }
   });
 });
