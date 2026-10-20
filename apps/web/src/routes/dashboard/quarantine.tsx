@@ -71,11 +71,15 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
 
   if (error) {
     return (
-      <EmptyState
-        data-testid="quarantine-error"
-        title="Error Loading Quarantine List"
-        description={error.message}
-      />
+      <PageFrame>
+        <PageHeader title="Quarantine" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="quarantine-error"
+          title="Error Loading Quarantine List"
+          description={error.message}
+        />
+      </PageFrame>
     );
   }
 
@@ -147,6 +151,7 @@ export function QuarantinePage({ api }: { api?: ApiClient }) {
 
       {data.length === 0 ? (
         <EmptyState
+          headingLevel={2}
           data-testid="quarantine-empty"
           title="No Quarantined Tests"
           description="There are currently no tests in quarantine."

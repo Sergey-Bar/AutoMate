@@ -211,3 +211,45 @@ describe('a numeric cell', () => {
     expect(cell).toHaveClass('tabular-nums', 'text-right', 'font-mono', 'text-fg-muted');
   });
 });
+
+describe('a table that scrolls', () => {
+  /**
+   * axe `scrollable-region-focusable`: a region that scrolls has to be reachable by keyboard,
+   * or its hidden columns are unreadable without a pointer. A table that fits must not add a
+   * tab stop, which is the other half and the reason the region is conditional.
+   */
+  it('becomes a named, focusable region only while its content overflows', () => {
+    const width = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollWidth');
+    const fits = render(
+      <Table aria-label="Runs">
+        <TableBody>
+          <TableRow>
+            <TableCell>run-1</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+    expect(fits.queryByRole('region')).toBeNull();
+    fits.unmount();
+    Object.defineProperty(HTMLElement.prototype, 'scrollWidth', {
+      configurable: true,
+      get: () => 900,
+    });
+    try {
+      render(
+        <Table aria-label="Runs">
+          <TableBody>
+            <TableRow>
+              <TableCell>run-1</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>,
+      );
+      const region = screen.getByRole('region', { name: 'Runs' });
+      expect(region).toHaveAttribute('tabindex', '0');
+      expect(region.className).toMatch(/focus-visible:outline-2/u);
+    } finally {
+      if (width) Object.defineProperty(HTMLElement.prototype, 'scrollWidth', width);
+    }
+  });
+});

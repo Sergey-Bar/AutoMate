@@ -190,7 +190,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
             className="max-h-[300px] overflow-y-auto p-2"
           >
             {filteredActions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-text-secondary">No results found.</div>
+              <div className="py-6 text-center text-sm text-text-primary">No results found.</div>
             ) : (
               <div className="flex flex-col gap-1">
                 {filteredActions.map((action, index) => {
@@ -215,7 +215,10 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
                         'flex w-full cursor-pointer items-center rounded-md px-3 py-2 text-sm text-left transition-colors',
                         isSelected
                           ? 'bg-brand-50 text-brand-700 font-medium'
-                          : 'text-text-secondary hover:bg-bg-muted hover:text-text-primary',
+                          : // `text-primary`, not `text-secondary`: the palette is glass over a
+                            // dimmed page, and the secondary ink measured 3.77:1 on that
+                            // composite in the light theme.
+                            'text-text-primary hover:bg-bg-muted',
                       )}
                     >
                       {action.label}

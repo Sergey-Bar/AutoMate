@@ -8,7 +8,7 @@ import { isRunActive } from '../../hooks/useRuns.js';
 import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
 import { formatDate as formatDateWithFallback } from '../../lib/format.js';
 import { formatDuration } from '../../lib/insights.js';
-import { PageFrame, Panel } from '../../components/kit.js';
+import { PageFrame, PageHeader, Panel } from '../../components/kit.js';
 
 export const Route = createRoute({
   getParentRoute: () => dashboardRoute,
@@ -125,8 +125,10 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
           className="rounded-md border border-border-default bg-surface-sunken p-4"
         >
           <summary className="cursor-pointer">
-            <span className="font-medium">{test.title}</span>
-            <span className="ml-3 text-xs uppercase text-fg-muted">{test.status}</span>
+            <span className="inline-flex flex-wrap items-baseline gap-x-3">
+              <span className="font-medium">{test.title}</span>
+              <span className="text-xs uppercase text-fg-muted">{test.status}</span>
+            </span>
           </summary>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>
@@ -209,9 +211,12 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
 
   if (isLoading) {
     return (
-      <div data-testid="run-detail-loading" className="p-8">
-        Loading canonical run {id}...
-      </div>
+      <PageFrame>
+        <PageHeader title="Run detail" />
+        <div data-testid="run-detail-loading" className="text-sm text-fg-muted">
+          Loading canonical run {id}...
+        </div>
+      </PageFrame>
     );
   }
 
@@ -229,15 +234,27 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     // generic state, which is the honest answer for an error of unknown provenance.
     if (error instanceof ApiError && error.status === 404) {
       return (
-        <EmptyState
-          data-testid="run-not-found"
-          title="Run not found"
-          description={`No canonical run exists for ${id}.`}
-        />
+        <PageFrame>
+          <PageHeader title="Run detail" />
+          <EmptyState
+            headingLevel={2}
+            data-testid="run-not-found"
+            title="Run not found"
+            description={`No canonical run exists for ${id}.`}
+          />
+        </PageFrame>
       );
     }
     return (
-      <EmptyState data-testid="run-error" title="Run unavailable" description={error.message} />
+      <PageFrame>
+        <PageHeader title="Run detail" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="run-error"
+          title="Run unavailable"
+          description={error.message}
+        />
+      </PageFrame>
     );
   }
 
@@ -275,7 +292,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
         <div className="min-w-0">
           <a
             href="/dashboard/runs"
-            className="rounded-sm text-sm text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            className="inline-flex min-h-11 items-center rounded-sm text-sm text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             ← Runs
           </a>
@@ -367,6 +384,25 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
           }
         />
       </section>
+      <section
+        aria-label="Run context"
+        className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3"
+      >
+        <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 xl:grid-cols-9">
+          <ContextItem label="Project" testId="run-project" value={run.projectId ?? 'UNKNOWN'} />
+          <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
+          <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
+          <ContextItem
+            label="Branch / Commit"
+            value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
+          />
+          <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
+          <ContextItem label="Runner" value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'} />
+          <ContextItem label="Created" value={formatDate(run.createdAt)} />
+          <ContextItem label="Started" value={formatDate(run.startedAt)} />
+          <ContextItem label="Finished" value={formatDate(run.finishedAt)} />
+        </dl>
+      </section>
       {run.error ? (
         <div
           data-testid="run-error-context"
@@ -379,7 +415,12 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
 
       <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)]">
         <Panel title="Test attempts">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label="Test attempt list"
+            className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
             <TestEvidence tests={run.tests} />
           </div>
         </Panel>
@@ -392,22 +433,29 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
               </p>
             ) : null}
             {artifacts.length > 0 ? (
-              <ul className="min-h-0 flex-1 divide-y divide-border-default overflow-y-auto">
-                {artifacts.map((artifact) => (
-                  <li key={artifact.id} className="py-2">
-                    <a
-                      href={getArtifactUrl(artifact.id)}
-                      className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-                    >
-                      {artifact.name ?? artifact.kind}
-                    </a>
-                    <div className="mt-0.5 truncate text-xs text-fg-muted">
-                      {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
-                      {artifact.checksum.slice(0, 12)}...
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="Artifact list"
+                className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+              >
+                <ul className="divide-y divide-border-default">
+                  {artifacts.map((artifact) => (
+                    <li key={artifact.id} className="py-2">
+                      <a
+                        href={getArtifactUrl(artifact.id)}
+                        className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                      >
+                        {artifact.name ?? artifact.kind}
+                      </a>
+                      <div className="mt-0.5 truncate text-xs text-fg-muted">
+                        {artifact.kind} · {artifact.sizeBytes} bytes · SHA-256{' '}
+                        {artifact.checksum.slice(0, 12)}...
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             ) : (
               <p className="max-w-measure text-pretty text-sm text-fg-muted">
                 No persisted artifacts have been reported.
@@ -416,19 +464,26 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
           </Panel>
           <Panel title="Live event timeline" className="min-h-0 flex-1">
             {events.length > 0 ? (
-              <ol className="min-h-0 flex-1 space-y-1.5 overflow-y-auto">
-                {events.map((event) => (
-                  <li
-                    key={event.eventId}
-                    className="flex justify-between gap-3 rounded-md bg-surface-sunken px-3 py-1.5 text-sm"
-                  >
-                    <span className="truncate font-medium">{event.type}</span>
-                    <span className="shrink-0 text-xs text-fg-muted">
-                      #{event.sequence} · {formatDate(event.occurredAt)}
-                    </span>
-                  </li>
-                ))}
-              </ol>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label="Event list"
+                className="min-h-0 flex-1 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+              >
+                <ol className="space-y-1.5">
+                  {events.map((event) => (
+                    <li
+                      key={event.eventId}
+                      className="flex justify-between gap-3 rounded-md bg-surface-sunken px-3 py-1.5 text-sm"
+                    >
+                      <span className="truncate font-medium">{event.type}</span>
+                      <span className="shrink-0 text-xs text-fg-muted">
+                        #{event.sequence} · {formatDate(event.occurredAt)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ) : (
               <p className="max-w-measure text-pretty text-sm text-fg-muted">
                 No events have been observed in this browser session. Run state above is the
@@ -439,30 +494,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
         </div>
 
         <div className="flex min-h-0 flex-col gap-3">
-          <Panel title="Run context" className="min-h-0 flex-1">
-            <dl className="grid min-h-0 grid-cols-2 gap-x-3 gap-y-2 overflow-y-auto text-sm">
-              <ContextItem
-                label="Project"
-                testId="run-project"
-                value={run.projectId ?? 'UNKNOWN'}
-              />
-              <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
-              <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
-              <ContextItem
-                label="Branch / Commit"
-                value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
-              />
-              <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
-              <ContextItem
-                label="Runner"
-                value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'}
-              />
-              <ContextItem label="Created" value={formatDate(run.createdAt)} />
-              <ContextItem label="Started" value={formatDate(run.startedAt)} />
-              <ContextItem label="Finished" value={formatDate(run.finishedAt)} />
-            </dl>
-          </Panel>
-          <Panel title="Quality gate" data-testid="run-gate">
+          <Panel title="Quality gate" data-testid="run-gate" className="min-h-0 flex-1">
             {gate ? (
               <>
                 <Badge
@@ -477,11 +509,18 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 >
                   {gate.status.toUpperCase()}
                 </Badge>
-                <ul className="mt-2 space-y-1 text-sm">
-                  {gate.reasons.map((reason, index) => (
-                    <li key={`${reason}-${index}`}>{reason}</li>
-                  ))}
-                </ul>
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label="Gate reasons"
+                  className="mt-2 min-h-0 overflow-y-auto rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                >
+                  <ul className="space-y-1 break-words text-sm">
+                    {gate.reasons.map((reason, index) => (
+                      <li key={`${reason}-${index}`}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
                 {gate.evidenceRefs.length > 0 ? (
                   <p className="mt-2 max-w-measure truncate text-xs text-fg-muted">
                     Evidence: {gate.evidenceRefs.join(', ')}
@@ -543,7 +582,10 @@ function Figure({
   return (
     <div className="rounded-2xl border border-border bg-surface-raised px-4 py-3">
       <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">{label}</div>
-      <div data-testid={testId} className={`mt-1 tabular-nums text-3xl font-light ${tone ?? ''}`}>
+      <div
+        data-testid={testId}
+        className={`mt-1 break-words tabular-nums text-2xl font-light sm:text-3xl ${tone ?? ''}`}
+      >
         {value}
       </div>
     </div>
@@ -553,7 +595,7 @@ function Figure({
 function ContextItem({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
     <div className="min-w-0">
-      <dt className="text-xs text-fg-muted">{label}</dt>
+      <dt className="truncate text-xs text-fg-muted">{label}</dt>
       <dd data-testid={testId} className="m-0 truncate" title={value}>
         {value}
       </dd>

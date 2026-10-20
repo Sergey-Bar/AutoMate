@@ -47,6 +47,7 @@ export function ProjectGate({
       <PageFrame>
         <PageHeader title={title} />
         <EmptyState
+          headingLevel={2}
           data-testid="project-gate-error"
           title="The project registry is unavailable"
           description={registry.message}

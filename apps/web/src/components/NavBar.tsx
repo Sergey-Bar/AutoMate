@@ -32,7 +32,7 @@ export function NavBar() {
     <nav
       data-testid="nav-bar"
       aria-label="Primary navigation"
-      className={`flex shrink-0 items-center gap-6 border-b border-border-default px-4 sm:px-6 ${GLASS_SURFACE_CLASSES}`}
+      className={`flex shrink-0 flex-wrap items-center gap-x-6 border-b border-border-default px-4 sm:px-6 ${GLASS_SURFACE_CLASSES}`}
     >
       {/*
         The product's name, and the only place it appears in the chrome. `aria-hidden`
@@ -47,11 +47,20 @@ export function NavBar() {
       >
         Automate
       </span>
-      <ul className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      {/*
+        On a phone the destinations wrap onto a second row under the wordmark rather than
+        scrolling sideways: a row that scrolls hides five of seven destinations behind a
+        gesture nothing on screen suggests.
+      */}
+      <ul className="order-last -mx-3 flex w-full flex-wrap items-center gap-x-1 md:order-none md:mx-0 md:w-auto md:min-w-0 md:flex-1">
         {visibleRoutes.map((route) => (
           <li key={route.id} className="shrink-0">
             <Link
               to={route.path}
+              // TanStack marks a link active on any child path and writes `aria-current`
+              // itself, so `/dashboard` claimed to be the current page on every screen and a
+              // screen reader heard two current pages. Exact matching for the root only.
+              activeOptions={{ exact: route.path === '/dashboard' }}
               aria-current={isActive(route.path) ? 'page' : undefined}
               className={cn(
                 'inline-flex min-h-11 items-center rounded-md px-3 text-sm no-underline transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
@@ -65,7 +74,9 @@ export function NavBar() {
           </li>
         ))}
       </ul>
-      <ThemeToggle />
+      <span className="ml-auto md:ml-0">
+        <ThemeToggle />
+      </span>
     </nav>
   );
 }

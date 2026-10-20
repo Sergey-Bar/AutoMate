@@ -63,7 +63,7 @@ function frame<T>(
           ) : (
             // The server's own words. A screen that rendered "something went wrong" would
             // hide the only sentence that would have helped.
-            <EmptyState title={failure} description={resource.message} />
+            <EmptyState headingLevel={2} title={failure} description={resource.message} />
           )}
         </>
       )}
@@ -98,6 +98,7 @@ export function GapsPage({ api, projectId }: ScreenProps): React.ReactElement {
       />
       {response.gaps.length === 0 ? (
         <EmptyState
+          headingLevel={2}
           title="Nothing to fix"
           description="Every cell is either scored or marked n/a."
         />
@@ -245,6 +246,7 @@ export function StructurePage({ api, projectId }: ScreenProps): React.ReactEleme
         />
         {response.findings.length === 0 ? (
           <EmptyState
+            headingLevel={2}
             title="No structural findings"
             description="No cell is present-but-empty, dominant, or single-layer."
           />

@@ -57,12 +57,23 @@ export function ScorePage({
   // copy, and the copy is how this screen came to render `error.message` — "API
   // answered 404" — where its sibling screens rendered the server's own sentence.
   const resource = useResource<QaScore>(() => api.getScore(projectId), [api, projectId]);
-  if (resource.status === 'loading') return <Skeleton />;
+  if (resource.status === 'loading') {
+    return (
+      <PageFrame>
+        <PageHeader title="Health score" />
+        <Skeleton />
+      </PageFrame>
+    );
+  }
   if (resource.status === 'error') {
     return (
       <PageFrame>
         <PageHeader title="Health score" />
-        <EmptyState title="Could not load the score" description={resource.message} />
+        <EmptyState
+          headingLevel={2}
+          title="Could not load the score"
+          description={resource.message}
+        />
       </PageFrame>
     );
   }

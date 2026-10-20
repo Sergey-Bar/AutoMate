@@ -301,6 +301,14 @@ export default tseslint.config(
     files: ['apps/web/src/**/*.tsx', 'packages/ui/src/**/*.tsx'],
     rules: {
       ...jsxA11y.configs.recommended.rules,
+      // A scrollable area a keyboard cannot reach is unreadable by keyboard (axe
+      // `scrollable-region-focusable`). The WAI-ARIA answer is a *named* `region` in the
+      // tab order, so `region` joins the recommended `tabpanel` as a role that may carry
+      // `tabIndex`. Every other non-interactive element is still refused.
+      'jsx-a11y/no-noninteractive-tabindex': [
+        'error',
+        { tags: [], roles: ['tabpanel', 'region'], allowExpressionValues: true },
+      ],
     },
   },
   {

@@ -24,6 +24,12 @@ export interface EmptyStateProps extends HTMLAttributes<HTMLDivElement>, EmptySt
   title: string;
   description: string;
   action?: ReactNode;
+  /**
+   * The title's heading level. `3` by default, which is right inside a panel under an `h2`;
+   * an empty state that *is* the page body under the screen's `h1` passes `2`, or the
+   * heading list skips a level.
+   */
+  headingLevel?: 2 | 3;
   'data-testid'?: string;
 }
 
@@ -36,11 +42,13 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
       title,
       description,
       action,
+      headingLevel = 3,
       'data-testid': testId = 'empty-state',
       ...props
     },
     ref,
   ) => {
+    const Heading = headingLevel === 2 ? 'h2' : 'h3';
     return (
       <div
         ref={ref}
@@ -53,7 +61,7 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
             {icon}
           </div>
         )}
-        <h3 className="mb-1 text-lg font-semibold text-text-primary">{title}</h3>
+        <Heading className="mb-1 text-lg font-semibold text-text-primary">{title}</Heading>
         <p className="mb-6 max-w-sm text-sm text-text-secondary">{description}</p>
         {action && <div>{action}</div>}
       </div>

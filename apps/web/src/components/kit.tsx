@@ -26,8 +26,14 @@ export function PageFrame({
   className,
   ...props
 }: React.HTMLAttributes<HTMLDivElement>): React.ReactElement {
+  // Fitted to the viewport from `xl` up, where every screen is laid out to fit. Below it
+  // the panels stack and the page reflows, because squeezing a three-column screen into
+  // 1024px overlaps its text rather than fitting it.
   return (
-    <div className={cn('flex h-full min-h-0 flex-col gap-4', className)} {...props}>
+    <div
+      className={cn('flex min-h-full flex-col gap-4 xl:h-full xl:min-h-0', className)}
+      {...props}
+    >
       {children}
     </div>
   );
@@ -48,10 +54,12 @@ export function PageHeader({
       <div className="min-w-0">
         <h1 className="text-3xl font-light tracking-tight">{title}</h1>
         {subtitle === undefined ? null : (
-          <div className="mt-1 max-w-measure truncate text-sm text-fg-muted">{subtitle}</div>
+          <div className="mt-1 max-w-measure text-sm text-fg-muted sm:truncate">{subtitle}</div>
         )}
       </div>
-      {actions === undefined ? null : <div className="flex items-center gap-2">{actions}</div>}
+      {actions === undefined ? null : (
+        <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div>
+      )}
     </header>
   );
 }
@@ -71,7 +79,7 @@ export function Panel({
     <section
       aria-labelledby={id}
       className={cn(
-        'flex min-h-0 flex-col rounded-2xl border border-border bg-surface-raised p-4',
+        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-4',
         className,
       )}
       {...props}
@@ -145,14 +153,14 @@ export function Kpi({
       className="flex min-w-0 flex-col justify-between rounded-2xl border border-border bg-surface-raised px-4 py-3"
       {...props}
     >
-      <div className="truncate text-xs font-medium uppercase tracking-widest text-fg-muted">
+      <div className="text-xs font-medium uppercase tracking-widest text-fg-muted sm:truncate">
         {label}
       </div>
       <div className={cn('mt-1 flex items-baseline gap-1', tone)}>
         <span className="tabular-nums text-4xl font-light tracking-tight">{value}</span>
         {unit === undefined ? null : <span className="text-sm text-fg-muted">{unit}</span>}
       </div>
-      <div className="mt-1 min-h-4 truncate text-xs text-fg-muted">{footer}</div>
+      <div className="mt-1 min-h-4 text-xs text-fg-muted sm:truncate">{footer}</div>
     </div>
   );
 }
@@ -176,6 +184,36 @@ export function useViewportRows(reservedPx: number, rowPx: number, min = 4): num
     return () => window.removeEventListener('resize', update);
   }, [measure]);
   return rows;
+}
+
+/**
+ * How many rows of `rowPx` fit in the element `ref` points at, kept current as it resizes.
+ *
+ * For a list inside a panel whose height comes from a grid, where the window height says
+ * little about the panel's. Without `ResizeObserver` (jsdom) it answers `fallback`.
+ */
+export function useFitCount(
+  ref: React.RefObject<HTMLElement | null>,
+  rowPx: number,
+  fallback: number,
+): number {
+  const [count, setCount] = React.useState(fallback);
+  React.useEffect(() => {
+    const element = ref.current;
+    if (element === null || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      // Only where the layout fixes the panel's height. Below `xl` the panel is as tall as
+      // its content, so measuring it would shrink the list a row at a time down to one.
+      const fitted = window.matchMedia?.('(min-width: 1280px)').matches ?? false;
+      const height = element.clientHeight;
+      setCount(fitted && height > 0 ? Math.max(1, Math.floor(height / rowPx)) : fallback);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, rowPx, fallback]);
+  return count;
 }
 
 export interface Pager<T> {
@@ -324,7 +362,7 @@ export function Paged<T>({
   const pager = usePager(items, useViewportRows(reservedPx, rowPx));
   return (
     <>
-      <div className="min-h-0 flex-1 overflow-hidden">{children(pager.items)}</div>
+      <div className="min-h-0 flex-1 xl:overflow-hidden">{children(pager.items)}</div>
       <PagerControls pager={pager} label={label} />
     </>
   );
