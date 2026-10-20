@@ -1,22 +1,23 @@
 FROM node:24.21.0-alpine AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+# pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
+# same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
+# repository moved to 11) and was a second place to keep in step.
+RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @automate/shared-contracts build \
-  && pnpm --filter @automate/config build \
-  && pnpm --filter @automate/auth build \
-  && pnpm --filter @automate/automation build \
-  && pnpm --filter @automate/orchestration build \
-  && pnpm --filter @automate/db build \
-  && pnpm --filter @automate/reporting build \
-  && pnpm --filter @automate/reporter build \
-  && pnpm --filter @automate/realtime build \
-  && pnpm --filter @automate/api build
+# `<package>...` builds the package and everything it depends on, in dependency order, so the
+# list cannot fall behind the code. A hand-written list did: it omitted @automate/projects and the
+# image never built.
+RUN pnpm --filter "@automate/api..." build
+
 
 FROM node:24.21.0-alpine AS runtime
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+# pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
+# same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
+# repository moved to 11) and was a second place to keep in step.
+RUN corepack enable
 COPY --from=build /app ./
 COPY --from=build /app/packages/db/drizzle /app/packages/db/drizzle
 ENV NODE_ENV=production

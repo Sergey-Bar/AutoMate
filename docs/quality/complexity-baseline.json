@@ -20,7 +20,7 @@
     "flattering one."
   ],
   "ceiling": 15,
-  "count": 34,
+  "count": 31,
   "offenders": [
     {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
@@ -33,28 +33,8 @@
       "complexity": 71
     },
     {
-      "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1447,
-      "complexity": 67
-    },
-    {
-      "file": "apps/api/src/routes/reporter.ts",
-      "line": 436,
-      "complexity": 51
-    },
-    {
-      "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1144,
-      "complexity": 42
-    },
-    {
       "file": "apps/api/src/routes/events.ts",
       "line": 78,
-      "complexity": 38
-    },
-    {
-      "file": "apps/api/src/routes/reporter.ts",
-      "line": 323,
       "complexity": 38
     },
     {
@@ -64,12 +44,12 @@
     },
     {
       "file": "apps/runner/src/execution.ts",
-      "line": 245,
+      "line": 243,
       "complexity": 35
     },
     {
       "file": "apps/web/src/routes/dashboard/run-detail.tsx",
-      "line": 158,
+      "line": 190,
       "complexity": 32
     },
     {
@@ -84,8 +64,8 @@
     },
     {
       "file": "apps/runner/src/runner-service.ts",
-      "line": 327,
-      "complexity": 25
+      "line": 328,
+      "complexity": 26
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
@@ -94,13 +74,18 @@
     },
     {
       "file": "scripts/tenancy-check.mjs",
-      "line": 54,
+      "line": 62,
       "complexity": 23
     },
     {
       "file": "packages/automation/src/ollama-gateway.ts",
       "line": 50,
       "complexity": 22
+    },
+    {
+      "file": "apps/api/src/routes/reporter.ts",
+      "line": 507,
+      "complexity": 21
     },
     {
       "file": "apps/worker/src/scheduler.ts",
@@ -123,11 +108,6 @@
       "complexity": 20
     },
     {
-      "file": "apps/api/src/execution/drizzle-execution-store.ts",
-      "line": 1988,
-      "complexity": 19
-    },
-    {
       "file": "apps/api/src/execution/in-memory-execution-store.ts",
       "line": 543,
       "complexity": 19
@@ -143,14 +123,24 @@
       "complexity": 18
     },
     {
+      "file": "apps/api/src/routes/reporter.ts",
+      "line": 365,
+      "complexity": 18
+    },
+    {
       "file": "scripts/skill-scan.mjs",
-      "line": 239,
+      "line": 271,
       "complexity": 18
     },
     {
       "file": "tools/migrate-cli/src/index.ts",
       "line": 21,
       "complexity": 18
+    },
+    {
+      "file": "packages/ui/src/tokens/theme.test.ts",
+      "line": 208,
+      "complexity": 17
     },
     {
       "file": "scripts/oci-checks.mjs",
@@ -165,11 +155,6 @@
     {
       "file": "tests/integration/src/enum-constraints.test.ts",
       "line": 33,
-      "complexity": 17
-    },
-    {
-      "file": "packages/ui/src/tokens/theme.test.ts",
-      "line": 208,
       "complexity": 17
     },
     {
@@ -192,5 +177,7 @@
       "line": 164,
       "complexity": 16
     }
-  ]
+  ],
+  "measuredAt": "2026-10-20",
+  "worst": 73
 }

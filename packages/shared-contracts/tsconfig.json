@@ -7,7 +7,7 @@
     "declaration": true,
     "outDir": "./dist",
     "strict": true,
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "node"],
     "rootDir": "./src",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,

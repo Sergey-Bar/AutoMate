@@ -395,6 +395,14 @@ test('an exempt document says so in its own text, or it is a gap rather than a d
   );
 });
 
+test('the ports a document may name include the worker and the runner health ports', () => {
+  // Derived from their config schemas, so a document describing the local stack is checked against
+  // the code and not against a list. Without this, `docs/operations/local-development.md` could not
+  // name :3001 and :3002 without being reported as drift.
+  assert.ok(environment.realPorts.has('3001'), 'the worker health port is derived');
+  assert.ok(environment.realPorts.has('3002'), 'the runner health port is derived');
+  assert.ok(environment.realPorts.has('3000'), 'and the ports that were already derived still are');
+});
 test('the committed documentation does not drift from the code', () => {
   const findings = driftFindings(environment);
   assert.deepEqual(

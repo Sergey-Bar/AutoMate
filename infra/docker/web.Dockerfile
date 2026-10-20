@@ -1,12 +1,13 @@
 FROM node:24.21.0-alpine AS build
 WORKDIR /app
-RUN corepack enable && corepack prepare pnpm@10.30.2 --activate
+# pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
+# same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
+# repository moved to 11) and was a second place to keep in step.
+RUN corepack enable
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @automate/shared-contracts build \
-  && pnpm --filter @automate/realtime build \
-  && pnpm --filter @automate/ui build \
-  && pnpm --filter @automate/unified-web build
+RUN pnpm --filter "@automate/unified-web..." build
+
 
 FROM nginx:1.27-alpine AS runtime
 # Unprivileged nginx: the stock image runs as root and writes to
