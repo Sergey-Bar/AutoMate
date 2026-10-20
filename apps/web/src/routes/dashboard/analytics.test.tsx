@@ -1,8 +1,9 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Route, AnalyticsPage } from './analytics.js';
 import type { ApiClient, AnalyticsSummary } from '../../lib/api.js';
+import { makeQa } from '../../test-utils.js';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -51,7 +52,43 @@ describe('AnalyticsPage', () => {
 
     expect(screen.getByTestId('stat-total-runs')).toHaveTextContent('150');
     expect(screen.getByTestId('stat-pass-rate')).toHaveTextContent('95%');
-    expect(screen.getByTestId('stat-avg-duration')).toHaveTextContent('1200ms');
+    expect(screen.getByTestId('stat-avg-duration')).toHaveTextContent('1.2 s');
+  });
+
+  it('reads the chosen window from the trend, day by day, and refetches on a new window', async () => {
+    const qa = makeQa();
+    const mockApi = {
+      getAnalyticsSummary: vi.fn(async () => ({ totalRuns: 1, passRate: 100, avgDurationMs: 5 })),
+    } as unknown as ApiClient;
+    render(<AnalyticsPage api={mockApi} qa={qa} />);
+    await waitFor(() => expect(screen.getByTestId('analytics-trend')).toBeInTheDocument());
+    expect(screen.getByTestId('stat-window-runs')).toHaveTextContent('12');
+    expect(screen.getByTestId('stat-window-pass-rate')).toHaveTextContent('90.0%');
+    expect(screen.getByTestId('stat-window-failed')).toHaveTextContent('of 100 executed');
+    // Newest day first, and a day with no verdict reads as a dash, not 0%.
+    const rows = within(screen.getByTestId('analytics-days')).getAllByRole('row');
+    expect(rows[1]).toHaveTextContent('Sep 22');
+    expect(rows[2]).toHaveTextContent('—');
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }));
+    await waitFor(() => expect(qa.getTrend).toHaveBeenLastCalledWith(7));
+  });
+
+  it('keeps the all-time figures when the trend cannot be read', async () => {
+    const qa = makeQa({
+      getTrend: vi.fn(async () => {
+        throw new Error('trend offline');
+      }),
+    });
+    const mockApi = {
+      getAnalyticsSummary: vi.fn(async () => ({ totalRuns: 4, passRate: 50, avgDurationMs: null })),
+    } as unknown as ApiClient;
+    render(<AnalyticsPage api={mockApi} qa={qa} />);
+    await waitFor(() =>
+      expect(screen.getByTestId('analytics-trend-state')).toHaveTextContent('trend offline'),
+    );
+    expect(screen.getByTestId('stat-total-runs')).toHaveTextContent('4');
+    expect(screen.getByTestId('stat-window-runs')).toHaveTextContent('—');
+    expect(screen.getByTestId('analytics-days')).toHaveTextContent('Waiting for run history');
   });
 
   it('handles null average duration', async () => {

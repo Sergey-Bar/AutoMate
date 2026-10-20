@@ -302,3 +302,30 @@ export function Quiet({
     </div>
   );
 }
+
+/**
+ * A paged list as a component, for the places a hook cannot be called directly — a render
+ * callback, or a branch below an early return.
+ */
+export function Paged<T>({
+  items,
+  reservedPx,
+  rowPx = 52,
+  label,
+  children,
+}: {
+  items: readonly T[];
+  /** Height everything else on the page takes, so the rows fill only what is left. */
+  reservedPx: number;
+  rowPx?: number;
+  label: string;
+  children: (page: T[]) => React.ReactNode;
+}): React.ReactElement {
+  const pager = usePager(items, useViewportRows(reservedPx, rowPx));
+  return (
+    <>
+      <div className="min-h-0 flex-1 overflow-hidden">{children(pager.items)}</div>
+      <PagerControls pager={pager} label={label} />
+    </>
+  );
+}

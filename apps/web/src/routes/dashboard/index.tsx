@@ -64,8 +64,8 @@ function outcomeVariant(
 export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
   const { runs, isLoading, error, isLive, refresh } = useRuns(api);
   const [launching, setLaunching] = React.useState(false);
-  // Header, totals, panel title, table head and pager take about 380px.
-  const pager = usePager(runs, useViewportRows(380, 49));
+  // Header, totals, panel title, table head and pager take about 440px; a row is ~56px.
+  const pager = usePager(runs, useViewportRows(440, 56));
   const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
 
   if (isLoading) {

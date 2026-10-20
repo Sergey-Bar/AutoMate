@@ -293,13 +293,15 @@ export function ReleaseReadinessCard({
           Readiness could not be loaded: {error.message}
         </p>
       ) : null}
-      <ul className="mt-2 space-y-1">
+      <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
         {domains.map(([domain, status]) => {
           const reason = data ? undefined : DEFAULT_DOMAIN_REASONS[domain];
           return (
-            <li key={domain} className="flex items-center justify-between gap-2" title={reason}>
-              <span className="text-sm capitalize">{domain}</span>
-              <Badge variant={readinessTone(status)}>{status.toUpperCase()}</Badge>
+            <li key={domain} className="flex min-w-0 flex-col" title={reason}>
+              <span className="text-xs capitalize text-fg-muted">{domain}</span>
+              <Badge variant={readinessTone(status)} className="self-start">
+                {status.toUpperCase()}
+              </Badge>
             </li>
           );
         })}
@@ -320,7 +322,7 @@ export function RecentRuns({ runs, isLive }: { runs: Run[]; isLive: boolean }) {
       action={<span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>}
     >
       <div className="divide-y divide-border-default">
-        {runs.slice(0, 4).map((run) => (
+        {runs.slice(0, 3).map((run) => (
           <Link
             key={run.id}
             to="/dashboard/runs/$runId"

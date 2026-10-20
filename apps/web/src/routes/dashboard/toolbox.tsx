@@ -60,7 +60,7 @@ export function sortToolbox(entries: readonly ToolboxEntry[]): ToolboxEntry[] {
 export function ToolboxPage({ qa }: { qa: QaClient }): React.ReactElement {
   return (
     <ProjectGate qa={qa} title="Toolbox">
-      {(project) => <ToolboxBody qa={qa} project={project} />}
+      {(project, switcher) => <ToolboxBody qa={qa} project={project} switcher={switcher} />}
     </ProjectGate>
   );
 }
@@ -68,9 +68,11 @@ export function ToolboxPage({ qa }: { qa: QaClient }): React.ReactElement {
 function ToolboxBody({
   qa,
   project,
+  switcher,
 }: {
   qa: QaClient;
   project: RegisteredProject;
+  switcher: React.ReactNode;
 }): React.ReactElement {
   const scan = useResource<RepoScan>(() => qa.getScan(project.id), [qa, project.id]);
   if (scan.status !== 'ready') {
@@ -87,15 +89,17 @@ function ToolboxBody({
       </PageFrame>
     );
   }
-  return <ToolboxCatalogue project={project} entries={scan.value.toolbox} />;
+  return <ToolboxCatalogue project={project} entries={scan.value.toolbox} switcher={switcher} />;
 }
 
 function ToolboxCatalogue({
   project,
   entries,
+  switcher,
 }: {
   project: RegisteredProject;
   entries: ToolboxEntry[];
+  switcher: React.ReactNode;
 }): React.ReactElement {
   const recommended = entries.filter((entry) => entry.status === 'recommended').length;
   const inUse = entries.filter((entry) => entry.status === 'in-use').length;
@@ -119,7 +123,10 @@ function ToolboxCatalogue({
         title="Toolbox"
         subtitle={`${String(recommended)} recommended for ${project.name} · ${String(inUse)} already in use · ${String(entries.length)} that fit its stack`}
         actions={
-          <Segmented label="Show" options={STATUS_FILTERS} value={status} onChange={setStatus} />
+          <>
+            {switcher}
+            <Segmented label="Show" options={STATUS_FILTERS} value={status} onChange={setStatus} />
+          </>
         }
       />
       <div className="flex shrink-0 flex-wrap items-center gap-2">

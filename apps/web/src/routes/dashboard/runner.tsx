@@ -80,7 +80,9 @@ export function inGroup(tool: RepoTool, group: GroupId): boolean {
 export function RunnerPage({ qa, api }: { qa: QaClient; api: ApiClient }): React.ReactElement {
   return (
     <ProjectGate qa={qa} title="Runner">
-      {(project) => <RunnerBody qa={qa} api={api} project={project} />}
+      {(project, switcher) => (
+        <RunnerBody qa={qa} api={api} project={project} switcher={switcher} />
+      )}
     </ProjectGate>
   );
 }
@@ -89,10 +91,12 @@ function RunnerBody({
   qa,
   api,
   project,
+  switcher,
 }: {
   qa: QaClient;
   api: ApiClient;
   project: RegisteredProject;
+  switcher: React.ReactNode;
 }): React.ReactElement {
   const [generation, setGeneration] = React.useState(0);
   const scan = useResource<RepoScan>(
@@ -113,15 +117,18 @@ function RunnerBody({
             : project.name
         }
         actions={
-          <Button
-            variant="outline"
-            data-testid="runner-rescan"
-            onClick={() => setGeneration((value) => value + 1)}
-            className="min-h-11"
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-            Rescan
-          </Button>
+          <>
+            {switcher}
+            <Button
+              variant="outline"
+              data-testid="runner-rescan"
+              onClick={() => setGeneration((value) => value + 1)}
+              className="min-h-11"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              Rescan
+            </Button>
+          </>
         }
       />
       <p className="max-w-measure shrink-0 text-xs text-fg-muted">

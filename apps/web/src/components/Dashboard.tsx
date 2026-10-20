@@ -76,7 +76,9 @@ export function Dashboard({
 }): React.ReactElement {
   return (
     <ProjectGate qa={qa} title="Dashboard" projectId={projectId}>
-      {(project) => <DashboardBody qa={qa} api={api} project={project} />}
+      {(project, switcher) => (
+        <DashboardBody qa={qa} api={api} project={project} switcher={switcher} />
+      )}
     </ProjectGate>
   );
 }
@@ -85,10 +87,12 @@ function DashboardBody({
   qa,
   api,
   project,
+  switcher,
 }: {
   qa: QaClient;
   api: ApiClient;
   project: RegisteredProject;
+  switcher: React.ReactNode;
 }): React.ReactElement {
   const [days, setDays] = React.useState<WindowValue>('14');
   const snapshot = useResource<Snapshot>(
@@ -107,7 +111,15 @@ function DashboardBody({
           </span>
         }
         actions={
-          <Segmented label="Comparison window" options={WINDOWS} value={days} onChange={setDays} />
+          <>
+            {switcher}
+            <Segmented
+              label="Comparison window"
+              options={WINDOWS}
+              value={days}
+              onChange={setDays}
+            />
+          </>
         }
       />
       {snapshot.status === 'ready' ? (

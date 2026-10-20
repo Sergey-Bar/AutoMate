@@ -26,9 +26,14 @@ export function ProjectGate({
   /** The screen's own name, so a loading or empty state still has an `h1`. */
   title: string;
   projectId?: string;
-  children: (project: RegisteredProject) => React.ReactNode;
+  /**
+   * The screen, given its subject and the switcher to place in its header. The switcher is
+   * `null` with one project registered, because a choice of one is not a control.
+   */
+  children: (project: RegisteredProject, switcher: React.ReactNode) => React.ReactNode;
 }): React.ReactElement {
   const registry = useResource<RegisteredProject[]>(() => qa.listProjects(), [qa]);
+  const [chosen, choose] = React.useState<string | null>(() => readChoice());
   if (registry.status === 'loading') {
     return (
       <PageFrame data-testid="project-gate-loading">
@@ -49,12 +54,59 @@ export function ProjectGate({
       </PageFrame>
     );
   }
+  const projects = registry.value;
   const subject =
     projectId === undefined
-      ? registry.value[0]
-      : registry.value.find((project) => project.id === projectId);
+      ? (projects.find((project) => project.id === chosen) ?? projects[0])
+      : projects.find((project) => project.id === projectId);
   if (subject === undefined) return <Onboarding title={title} />;
-  return <>{children(subject)}</>;
+  const switcher =
+    projectId === undefined && projects.length > 1 ? (
+      <label className="flex items-center gap-2 text-sm text-fg-muted">
+        <span className="sr-only">Project</span>
+        <select
+          data-testid="project-switcher"
+          value={subject.id}
+          onChange={(event) => {
+            writeChoice(event.target.value);
+            choose(event.target.value);
+          }}
+          className="min-h-11 max-w-56 truncate rounded-lg border border-border bg-surface-raised px-3 text-sm text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        >
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+      </label>
+    ) : null;
+  return <>{children(subject, switcher)}</>;
+}
+
+/**
+ * The chosen project, shared by every project screen and kept across reloads.
+ *
+ * `localStorage` rather than the URL because the choice is the reader's, not the page's:
+ * moving from the dashboard to the runner should stay on the repository they picked.
+ * A stored id that is no longer registered falls back to the first project.
+ */
+const CHOICE_KEY = 'automate-project';
+
+function readChoice(): string | null {
+  try {
+    return localStorage.getItem(CHOICE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeChoice(projectId: string): void {
+  try {
+    localStorage.setItem(CHOICE_KEY, projectId);
+  } catch {
+    // A storage that refuses writes leaves the choice for this page only, which is still a choice.
+  }
 }
 
 function Onboarding({ title }: { title: string }): React.ReactElement {

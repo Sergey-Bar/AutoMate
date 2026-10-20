@@ -55,7 +55,7 @@ export const CAPABILITY_LABELS: Record<CapabilityCoverage['capability'], string>
 export function HealthPage({ qa }: { qa: QaClient }): React.ReactElement {
   return (
     <ProjectGate qa={qa} title="Health">
-      {(project) => <HealthBody qa={qa} project={project} />}
+      {(project, switcher) => <HealthBody qa={qa} project={project} switcher={switcher} />}
     </ProjectGate>
   );
 }
@@ -63,9 +63,11 @@ export function HealthPage({ qa }: { qa: QaClient }): React.ReactElement {
 function HealthBody({
   qa,
   project,
+  switcher,
 }: {
   qa: QaClient;
   project: RegisteredProject;
+  switcher: React.ReactNode;
 }): React.ReactElement {
   const [generation, setGeneration] = React.useState(0);
   const scan = useResource<RepoScan>(
@@ -78,15 +80,18 @@ function HealthBody({
         title="Health"
         subtitle={`What ${project.name} has for QA, and what its reports say`}
         actions={
-          <Button
-            variant="outline"
-            data-testid="health-rescan"
-            onClick={() => setGeneration((value) => value + 1)}
-            className="min-h-11"
-          >
-            <RefreshCw size={14} aria-hidden="true" />
-            Rescan
-          </Button>
+          <>
+            {switcher}
+            <Button
+              variant="outline"
+              data-testid="health-rescan"
+              onClick={() => setGeneration((value) => value + 1)}
+              className="min-h-11"
+            >
+              <RefreshCw size={14} aria-hidden="true" />
+              Rescan
+            </Button>
+          </>
         }
       />
       {scan.status === 'ready' ? (
