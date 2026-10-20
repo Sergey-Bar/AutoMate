@@ -1,6 +1,9 @@
 import { existsSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { win32 } from 'node:path';
 import { RunnerConfigurationError } from './execution.js';
+
+// Windows path rules on every host, so the resolution is the same on a Linux CI runner.
+const { extname, join } = win32;
 
 /**
  * Making a shell-less argv runnable on Windows, without giving the shell back.
