@@ -100,7 +100,9 @@ beforeAll(async () => {
   const TIMESTAMP_FIELDS = ['quarantinedAt', 'resolvedAt'] as const;
   app.post('/api/v1/quarantine', async (c) => {
     const body = (await c.req.json()) as Record<string, unknown>;
-    const values: Record<string, unknown> = { ...body };
+    // The workspace 0003 seeds: every row here is workspace-scoped since 0028, and the
+    // constraint each test provokes is a different one.
+    const values: Record<string, unknown> = { workspaceId: 'default-workspace', ...body };
     for (const field of TIMESTAMP_FIELDS) {
       const value = values[field];
       if (typeof value === 'string') values[field] = new Date(value);
@@ -124,6 +126,7 @@ beforeAll(async () => {
     const body = (await c.req.json()) as Record<string, unknown>;
     await db.insert(schema.runs).values({
       id: String(body['id']),
+      workspaceId: 'default-workspace',
       externalId: String(body['id']),
       startedAt: new Date(),
       total: Number(body['total'] ?? 0),
@@ -227,6 +230,7 @@ describe('a database constraint reaches the caller as a classified 4xx', () => {
     try {
       await raw.insert(schema.quarantine).values({
         id: 'q-typed-1',
+        workspaceId: 'default-workspace',
         testTitle: 'x',
         testFile: 'y',
         quarantinedAt: new Date('2026-01-01T00:00:00.000Z'),

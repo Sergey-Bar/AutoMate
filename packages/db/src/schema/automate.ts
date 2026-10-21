@@ -19,6 +19,8 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
+// The tenancy root. `dashboard.ts` does not import this module, so this is no cycle.
+import { workspaces } from './dashboard.js';
 
 // ─── conversations ─────────────────────────────────────────────────────────
 // Source: conversations table — chat conversation records
@@ -82,17 +84,28 @@ export const messages = pgTable(
 
 // ─── message_attachments ───────────────────────────────────────────────────
 // Source: message_attachments table — file attachments on messages
-export const messageAttachments = pgTable('message_attachments', {
-  id: text('id').primaryKey(),
-  messageId: text('message_id')
-    .notNull()
-    .references(() => messages.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  contentType: text('content_type').notNull(),
-  path: text('path').notNull(),
-  // SQLite: integer('size_bytes')
-  sizeBytes: integer('size_bytes'),
-});
+//
+// This table and the four below carry a hard workspace boundary since 0028 (ledger
+// MNT-17): NOT NULL, a `restrict` key onto `workspaces`, and an index leading with it.
+// An attachment takes its message's workspace; the others had no parent to take one from.
+export const messageAttachments = pgTable(
+  'message_attachments',
+  {
+    id: text('id').primaryKey(),
+    messageId: text('message_id')
+      .notNull()
+      .references(() => messages.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    contentType: text('content_type').notNull(),
+    path: text('path').notNull(),
+    // SQLite: integer('size_bytes')
+    sizeBytes: integer('size_bytes'),
+  },
+  (t) => [index('message_attachments_workspace_message_idx').on(t.workspaceId, t.messageId)],
+);
 
 // ─── connector_configs ─────────────────────────────────────────────────────
 // Source: connector_configs table — per-connector settings
@@ -119,19 +132,26 @@ export const connectorConfigs = pgTable(
 
 // ─── flow_templates ────────────────────────────────────────────────────────
 // Source: flow_templates table — workflow templates
-export const flowTemplates = pgTable('flow_templates', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  description: text('description'),
-  systemPrompt: text('system_prompt').notNull(),
-  // SQLite: text('steps') // JSON
-  steps: jsonb('steps'),
-  category: text('category'),
-  // SQLite: integer('is_built_in', { mode: 'boolean' })
-  isBuiltIn: boolean('is_built_in').default(false),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
-});
+export const flowTemplates = pgTable(
+  'flow_templates',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    systemPrompt: text('system_prompt').notNull(),
+    // SQLite: text('steps') // JSON
+    steps: jsonb('steps'),
+    category: text('category'),
+    // SQLite: integer('is_built_in', { mode: 'boolean' })
+    isBuiltIn: boolean('is_built_in').default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('flow_templates_workspace_idx').on(t.workspaceId)],
+);
 
 // ─── execution_log ─────────────────────────────────────────────────────────
 // Source: execution_log table — tool execution audit trail
@@ -140,6 +160,9 @@ export const executionLog = pgTable(
   {
     id: text('id').primaryKey(),
     conversationId: text('conversation_id').references(() => conversations.id),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     toolName: text('tool_name').notNull(),
     // SQLite: text('input').notNull() // JSON
     input: jsonb('input').notNull(),
@@ -154,23 +177,31 @@ export const executionLog = pgTable(
   (t) => [
     index('execution_log_conversation_id_idx').on(t.conversationId),
     index('execution_log_created_at_idx').on(t.createdAt),
+    index('execution_log_workspace_created_idx').on(t.workspaceId, t.createdAt),
   ],
 );
 
 // ─── model_config ──────────────────────────────────────────────────────────
 // Source: model_config table — active LLM configuration
-export const modelConfig = pgTable('model_config', {
-  id: text('id').primaryKey().default('default'),
-  provider: text('provider').notNull().default('ollama'),
-  model: text('model').notNull().default('llama3.1'),
-  endpoint: text('endpoint').notNull().default('http://localhost:11434'),
-  // SQLite: real('temperature')
-  temperature: real('temperature').default(0.7),
-  // SQLite: integer('max_tokens')
-  maxTokens: integer('max_tokens').default(4096),
-  systemPrompt: text('system_prompt'),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
-});
+export const modelConfig = pgTable(
+  'model_config',
+  {
+    id: text('id').primaryKey().default('default'),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    provider: text('provider').notNull().default('ollama'),
+    model: text('model').notNull().default('llama3.1'),
+    endpoint: text('endpoint').notNull().default('http://localhost:11434'),
+    // SQLite: real('temperature')
+    temperature: real('temperature').default(0.7),
+    // SQLite: integer('max_tokens')
+    maxTokens: integer('max_tokens').default(4096),
+    systemPrompt: text('system_prompt'),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('model_config_workspace_idx').on(t.workspaceId)],
+);
 
 // ─── trace_links ───────────────────────────────────────────────────────────
 // Source: trace_links table — cross-entity traceability links
@@ -178,6 +209,9 @@ export const traceLinks = pgTable(
   'trace_links',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     sourceType: text('source_type').notNull(),
     sourceId: text('source_id').notNull(),
     targetType: text('target_type').notNull(),
@@ -191,6 +225,7 @@ export const traceLinks = pgTable(
   (t) => [
     index('trace_links_source_idx').on(t.sourceType, t.sourceId),
     index('trace_links_target_idx').on(t.targetType, t.targetId),
+    index('trace_links_workspace_source_idx').on(t.workspaceId, t.sourceType, t.sourceId),
   ],
 );
 

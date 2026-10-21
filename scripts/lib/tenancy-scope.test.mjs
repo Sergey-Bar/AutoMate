@@ -45,6 +45,35 @@ export const runs = pgTable('runs', {
   ]);
 });
 
+test('a not-null workspace column with a key onto workspaces is still read as required', () => {
+  // The shape every declaration has had since MNT-17: `.notNull()` first, then the key.
+  // The first comma after the head is inside `.references(...)`, so the bounded chain must
+  // still contain `.notNull()`; a parser that read this as nullable would report 43
+  // regressions against a tree that has none.
+  const source = `
+export const tests = pgTable('tests', {
+  id: text('id').notNull(),
+  workspaceId: text('workspace_id')
+    .notNull()
+    .references(() => workspaces.id, { onDelete: 'restrict' }),
+});
+`;
+  assert.deepEqual(parseTableStates(source), [
+    { table: 'tests', hasWorkspaceColumn: true, notNull: true },
+  ]);
+});
+
+test('a key written before not-null reads as nullable, so the unfamiliar shape is visible', () => {
+  const source = `
+export const tests = pgTable('tests', {
+  workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'restrict' }).notNull(),
+});
+`;
+  assert.deepEqual(parseTableStates(source), [
+    { table: 'tests', hasWorkspaceColumn: true, notNull: false },
+  ]);
+});
+
 test('a table with no workspace column is read as absent, not as nullable', () => {
   // The distinction matters: `absent` means the boundary is missing entirely,
   // `nullable` means it exists and can be bypassed. They are different defects.

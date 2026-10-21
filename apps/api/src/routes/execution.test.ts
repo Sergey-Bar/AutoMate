@@ -10,6 +10,7 @@ import { DrizzleExecutionStore } from '../execution/drizzle-execution-store.js';
 import { InMemoryExecutionStore } from '../execution/in-memory-execution-store.js';
 import { InMemoryRealtimeBus } from '../realtime/realtime-bus.js';
 import type { ExecutionStore } from '../execution/types.js';
+import type { ArtifactBytesStore } from '../infrastructure/artifact-store.js';
 import { createExecutionRoutes } from './execution.js';
 import { createErrorBoundary } from '../errors/boundary.js';
 import { syntheticRunnerRegistrationSecret } from '../test-support/synthetic-credentials.js';
@@ -137,7 +138,10 @@ interface Harness {
  * new PGlite per test is clean and far too slow; a new workspace is the same
  * isolation for the same reason a real install has one workspace per team.
  */
-function harness(overrides: { requireIdempotencyKey?: boolean } = {}): Harness {
+function harness(
+  overrides: { requireIdempotencyKey?: boolean } = {},
+  artifactBytes?: ArtifactBytesStore,
+): Harness {
   counter += 1;
   const workspaceId = `ws-routes-${counter}`;
   const otherWorkspaceId = `${workspaceId}-other`;
@@ -154,11 +158,13 @@ function harness(overrides: { requireIdempotencyKey?: boolean } = {}): Harness {
     db: db as never,
     workspaceId,
     now: () => clock,
+    ...(artifactBytes === undefined ? {} : { artifactBytes }),
   });
   const otherStore = new DrizzleExecutionStore({
     db: db as never,
     workspaceId: otherWorkspaceId,
     now: () => clock,
+    ...(artifactBytes === undefined ? {} : { artifactBytes }),
   });
 
   return {
@@ -213,8 +219,9 @@ async function createWorkspace(id: string, projectId: string): Promise<void> {
 /** A harness with both of its workspaces, their projects, and a release, present. */
 async function workspaceHarness(
   overrides: { requireIdempotencyKey?: boolean } = {},
+  artifactBytes?: ArtifactBytesStore,
 ): Promise<Harness> {
-  const h = harness(overrides);
+  const h = harness(overrides, artifactBytes);
   await createWorkspace(h.workspaceId, h.projectId);
   await createWorkspace(h.otherWorkspaceId, h.otherProjectId);
   // `runs.release_id` is a foreign key onto `releases`, so a run that names a
@@ -1479,5 +1486,74 @@ describe('the execution body limit', () => {
     // The cap is 96 MiB, so a 200 KB body is inside it — this asserts the limit is
     // wired, not that a small body is refused.
     expect(response.status).toBe(202);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The hard tenancy boundary on runs, tests and artifacts (ledger MNT-17)
+// ---------------------------------------------------------------------------
+
+describe('a run’s tests and artifacts carry the run’s own workspace', () => {
+  async function workspaceOf(table: 'runs' | 'tests' | 'artifacts', column: string, id: string) {
+    const rows = await client.query<{ workspace_id: string | null }>(
+      `SELECT workspace_id FROM ${table} WHERE ${column} = $1`,
+      [id],
+    );
+    return rows.rows.map((row) => row.workspace_id);
+  }
+
+  it('stamps the run, every test and every artifact with one workspace', async () => {
+    const h = await workspaceHarness();
+    const seeded = await seed(h);
+    const completed = await h.app.request(`/api/v1/jobs/${seeded.jobId}/complete`, {
+      method: 'POST',
+      headers: { ...JSON_HEADERS, authorization: `Bearer ${seeded.token}` },
+      body: JSON.stringify({
+        phase: 'completed',
+        outcome: 'passed',
+        leaseId: seeded.leaseId,
+        fencingToken: seeded.fencingToken,
+        tests: [{ id: 'tenancy-test-1', title: 'one', file: 'a.spec.ts', status: 'passed' }],
+      }),
+    });
+    expect(completed.status).toBe(200);
+
+    // The column is the boundary, so it is read straight from the table rather than
+    // through a store that might re-derive it from the run.
+    expect(await workspaceOf('runs', 'id', seeded.runId)).toEqual([h.workspaceId]);
+    expect(await workspaceOf('tests', 'run_id', seeded.runId)).toEqual([h.workspaceId]);
+    expect(await workspaceOf('artifacts', 'id', seeded.artifactId)).toEqual([h.workspaceId]);
+  });
+
+  it('answers 404 for another workspace’s artifact addressed through its run', async () => {
+    // One byte store for both workspaces, as in production, where every workspace's
+    // objects live in the same bucket. Each store's private in-process map would hide
+    // the leak behind a 503 for "bytes unavailable".
+    const shared = new Map<string, Uint8Array>();
+    const bytes: ArtifactBytesStore = {
+      put: async (key, value) => void shared.set(key, value),
+      get: async (key) => shared.get(key) ?? null,
+      delete: async (key) => void shared.delete(key),
+    };
+    const h = await workspaceHarness({}, bytes);
+    const seeded = await seed(h);
+    // The run-scoped artifact route read the artifact by id with no workspace and only
+    // compared the run id — which the caller supplies — so any workspace that knew the
+    // two ids could download another workspace's evidence.
+    const foreign = await h.other.request(
+      `/api/v1/runs/${seeded.runId}/artifacts/${seeded.artifactId}`,
+    );
+    expect(foreign.status).toBe(404);
+    // And the owner still reads it, so the 404 is about the workspace, not the route.
+    const own = await h.app.request(`/api/v1/runs/${seeded.runId}/artifacts/${seeded.artifactId}`);
+    expect(own.status).toBe(200);
+  });
+
+  it('never lists or serves an artifact to the other workspace’s store', async () => {
+    const h = await workspaceHarness();
+    const seeded = await seed(h);
+    expect(await h.otherStore.listArtifacts(h.otherWorkspaceId, seeded.runId)).toEqual([]);
+    expect(await h.otherStore.getArtifact(seeded.artifactId, h.otherWorkspaceId)).toBeNull();
+    expect(await h.store.getArtifact(seeded.artifactId, h.workspaceId)).not.toBeNull();
   });
 });

@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
 import { DrizzleQualityGateStore, DrizzleQuarantineStore } from './drizzle-stores.js';
 import { ResolveQuarantineBodySchema } from './schemas.js';
+import { DEFAULT_WORKSPACE_ID } from '../../repositories/run-repository.js';
 
 /**
  * The dashboard's Postgres stores, against the **real** migration graph.
@@ -84,8 +85,9 @@ beforeAll(async () => {
   client = new PGlite();
   await client.exec(migrationSql());
   const db = drizzle(client, { schema });
-  gates = new DrizzleQualityGateStore(db as never);
-  quarantineStore = new DrizzleQuarantineStore(db as never);
+  // `default-workspace` is the row 0003 seeds; `audit_events.workspace_id` has a key onto it.
+  gates = new DrizzleQualityGateStore(db as never, DEFAULT_WORKSPACE_ID);
+  quarantineStore = new DrizzleQuarantineStore(db as never, DEFAULT_WORKSPACE_ID);
 });
 
 afterAll(async () => {
@@ -124,7 +126,7 @@ describe('DrizzleQualityGateStore', () => {
 
   it('reads a gate name from `name`, not from the scoping column', async () => {
     await client.exec(
-      "INSERT INTO quality_gate_config (id, name, workspace_id, pass_rate_threshold, updated_at) VALUES ('scoped-1', 'Release gate', 'ws-a', 92, now())",
+      "INSERT INTO workspaces (id, name, config_path, created_at) VALUES ('ws-a', 'ws-a', 'config', now()); INSERT INTO quality_gate_config (id, name, workspace_id, pass_rate_threshold, updated_at) VALUES ('scoped-1', 'Release gate', 'ws-a', 92, now())",
     );
 
     const gate = await gates.get('scoped-1');
@@ -286,7 +288,7 @@ describe('DrizzleQuarantineStore', () => {
         };
       },
     });
-    const racing = new DrizzleQuarantineStore(overtaken as never);
+    const racing = new DrizzleQuarantineStore(overtaken as never, DEFAULT_WORKSPACE_ID);
 
     const outcome = await racing.resolve(
       id,

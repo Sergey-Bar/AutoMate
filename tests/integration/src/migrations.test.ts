@@ -169,6 +169,7 @@ describe('migration graph', () => {
       '0025_scan_snapshots',
       '0026_locator_suggestions_updated_at',
       '0027_constraint_drift',
+      '0028_workspace_hard_boundaries',
     ]);
   });
 
@@ -224,6 +225,8 @@ describe('migration graph', () => {
     await expect(
       db.insert(runs).values({
         id: '00000000-0000-4000-8000-00000000beef',
+        // A real workspace, so the refusal below is the project key and nothing else.
+        workspaceId: 'default-workspace',
         startedAt: new Date(),
         projectId: unknown,
       }),
@@ -290,8 +293,8 @@ describe('migration graph', () => {
         VALUES ('ws-projects', 'default', 'config', now())`);
       await client.exec(`INSERT INTO projects (id, workspace_id, name, slug, created_at)
         VALUES ('${projectId}', 'ws-projects', 'demo', 'demo', now())`);
-      await client.exec(`INSERT INTO runs (id, started_at, project_id)
-        VALUES ('${runId}', now(), '${projectId}')`);
+      await client.exec(`INSERT INTO runs (id, workspace_id, started_at, project_id)
+        VALUES ('${runId}', 'ws-projects', now(), '${projectId}')`);
 
       await client.exec(`DELETE FROM projects WHERE id = '${projectId}'`);
 
@@ -413,6 +416,7 @@ describe('fail-closed constraints from migration 0006', () => {
   it('quarantines as pending by default and ties a time-to-fix to a resolution', async () => {
     await db.insert(quarantine).values({
       id: 'q-1',
+      workspaceId: 'default-workspace',
       testTitle: 'flaky login',
       testFile: 'tests/login.spec.ts',
       quarantinedAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -442,6 +446,7 @@ describe('fail-closed constraints from migration 0006', () => {
       .values({ id: 'ws-1', name: 'default', configPath: 'config', createdAt: new Date() });
     await db.insert(runs).values({
       id: '00000000-0000-4000-8000-0000000000aa',
+      workspaceId: 'ws-1',
       externalId: 'ext-1',
       startedAt: new Date(),
       source: 'api',
@@ -458,6 +463,7 @@ describe('fail-closed constraints from migration 0006', () => {
     await expect(
       db.insert(schema.artifacts).values({
         runId,
+        workspaceId: 'ws-1',
         legacyAttachmentId: 'legacy-1',
         name: 'a.log',
         contentType: 'text/plain',
@@ -469,6 +475,7 @@ describe('fail-closed constraints from migration 0006', () => {
     await expect(
       db.insert(schema.artifacts).values({
         runId,
+        workspaceId: 'ws-1',
         name: 'a.log',
         contentType: 'text/plain',
         storageKey: 'k/2',
@@ -510,6 +517,7 @@ describe('fail-closed constraints from migration 0006', () => {
     const before = Date.now();
     await db.insert(schema.generatedTestSuggestions).values({
       id: 'sug-1',
+      workspaceId: 'default-workspace',
       sourceType: 'pr_diff',
       status: 'draft',
       originalContent: 'test("login", () => {})',

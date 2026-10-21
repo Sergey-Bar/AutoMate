@@ -38,9 +38,10 @@
  * disagree with it. A third copy in a comment is a third copy to correct by hand, which
  * is the failure twice over.
  *
- * The debt itself is tracked in `docs/quality/findings-ledger.json` under `P-20`
- * and the migration guidance in `AGENTS.md`. This gate's job is to stop it getting
- * worse while that row is worked, not to relitigate it on every pull request.
+ * The debt that used to be here — 28 workspace-scoped tables, of which `P-20` named the
+ * subset that was live — was bounded by `0028_workspace_hard_boundaries.sql` and is
+ * recorded in `docs/quality/findings-ledger.json` under `MNT-17`. This gate's job is to
+ * stop it coming back, not to relitigate it on every pull request.
  *
  * ## Tier
  *
@@ -111,9 +112,12 @@ export function main() {
     for (const entry of debt) console.log(`    - ${entry}`);
     console.log('');
     console.log(
-      '  P-20 in docs/quality/findings-ledger.json is the open row. Adding a table to this',
+      '  MNT-17 in docs/quality/findings-ledger.json bounded the 28 that were here; anything',
     );
-    console.log('  list is not a regression; losing `not-null` on a row that has it is.');
+    console.log(
+      '  listed now is new debt. Adding a table to this list is not a regression; losing',
+    );
+    console.log('  `not-null` on a row that has it is.');
   }
 
   if (unclassified.length === 0 && stale.length === 0 && regressions.length === 0) {

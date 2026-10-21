@@ -283,6 +283,58 @@ describe('execution schema referential intent', () => {
     }
   });
 
+  it('gives every workspace-scoped table a restricting key onto its workspace (MNT-17)', () => {
+    // The 27 tables `pnpm tenancy:check` reported without a hard boundary, plus the one
+    // whose `workspace_id` stays nullable by design. A key that cascaded would erase a
+    // tenant's evidence with the workspace row; one that was missing would let a row
+    // name a workspace that does not exist, which is how `runs` came to hold ids that
+    // `workspaces` never registered.
+    for (const table of [
+      schema.runs,
+      schema.suites,
+      schema.tests,
+      schema.results,
+      schema.attachments,
+      schema.trends,
+      schema.quarantine,
+      schema.knownFailures,
+      schema.qualityGateConfig,
+      schema.blobShards,
+      schema.nlQueryHistory,
+      schema.failureClassifications,
+      schema.testFailureCorrelations,
+      schema.locatorSuggestions,
+      schema.failureClusters,
+      schema.agentSessions,
+      schema.agentSessionRuns,
+      schema.agentSessionFiles,
+      schema.generatedTestSuggestions,
+      schema.repairAttempts,
+      schema.agentConflicts,
+      schema.auditEvents,
+      schema.messageAttachments,
+      schema.flowTemplates,
+      schema.executionLog,
+      schema.modelConfig,
+      schema.traceLinks,
+      artifacts,
+    ]) {
+      expect(targets(table)['workspace_id'], getTableName(table)).toBe(
+        'workspaces.id on delete restrict',
+      );
+      // And an index the boundary can be read through, leading with the column — a
+      // primary key counts, which is how `trends` carries it.
+      const leading = [
+        ...declaredIndexes(table).map((index) => index.columns.split(',')[0]),
+        ...getTableConfig(table).primaryKeys.map((key) => key.columns[0]?.name),
+      ];
+      expect(
+        leading.includes('workspace_id'),
+        `${getTableName(table)} has no index leading with workspace_id`,
+      ).toBe(true);
+    }
+  });
+
   it("removes a run's jobs, events, artifacts and gate evaluations with the run", () => {
     for (const table of [executionJobs, runEvents, artifacts, gateEvaluations]) {
       expect(targets(table)['run_id'], getTableName(table)).toBe('runs.id on delete cascade');

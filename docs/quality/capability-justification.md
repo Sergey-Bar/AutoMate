@@ -48,32 +48,32 @@ correctness problem: nothing writes them, so nothing can read a wrong value out 
 them. They are migration surface, schema documentation, and the residue of a design
 whose product half was never built.
 
-| Table                        | Why it exists                  | Why it is still here                                                         |
-| ---------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
-| `workspaces`                 | tenancy boundary               | a placeholder; tenancy is enforced in code and on `runs`, not by this table  |
-| `suites`                     | suite catalogue                | the dashboard reads runs and tests directly and never groups by suite        |
-| `results`                    | raw per-suite results          | superseded by `canonical_run_results`                                        |
-| `attachments`                | reporter evidence blobs        | the reporter never uploads; evidence is carried on the run row               |
-| `trends`                     | time-series rollups            | no rollup job was ever written                                               |
-| `known_failures`             | flaky-test memory              | no triage UI exists to write to it                                           |
-| `defect_categories`          | classification                 | `failureTaxonomyRules` would consume it; that reader is not built            |
-| `fingerprint_categories`     | classification                 | same                                                                         |
-| `blob_shards`                | sharded blob storage           | superseded by `readAt` on the run row                                        |
-| `nl_query_history`           | natural-language query history | the NL query feature is not built                                            |
-| `failure_taxonomy_rules`     | classification rules           | needs `defect_categories` and the classifier                                 |
-| `failure_classifications`    | per-test classifications       | same                                                                         |
-| `test_failure_correlations`  | cross-test correlation         | the correlation job is not built                                             |
-| `locator_suggestions`        | repair suggestions             | no reader or writer yet; its missing `updatedAt` was added in `0026` (below) |
-| `failure_clusters`           | clustering                     | needs the correlations                                                       |
-| `users`                      | local accounts                 | the install is open; there is no login                                       |
-| `roles`                      | authorisation                  | tenancy is `WORKSPACE_ID`, not roles                                         |
-| `api_keys`                   | personal keys                  | superseded by the installation secret                                        |
-| `agent_sessions`             | agent chat                     | the chat UI is not built                                                     |
-| `agent_session_runs`         | agent chat                     | same                                                                         |
-| `agent_session_files`        | agent chat                     | same                                                                         |
-| `generated_test_suggestions` | agent proposals                | same                                                                         |
-| `repair_attempts`            | self-healing                   | the repair loop is not built                                                 |
-| `agent_conflicts`            | merge conflicts                | not built                                                                    |
+| Table                        | Why it exists                  | Why it is still here                                                                                        |
+| ---------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `workspaces`                 | tenancy boundary               | every `workspace_id` has a `restrict` key onto it since 0028 (MNT-17); `ensureWorkspace` is its only writer |
+| `suites`                     | suite catalogue                | the dashboard reads runs and tests directly and never groups by suite                                       |
+| `results`                    | raw per-suite results          | superseded by `canonical_run_results`                                                                       |
+| `attachments`                | reporter evidence blobs        | the reporter never uploads; evidence is carried on the run row                                              |
+| `trends`                     | time-series rollups            | no rollup job was ever written                                                                              |
+| `known_failures`             | flaky-test memory              | no triage UI exists to write to it                                                                          |
+| `defect_categories`          | classification                 | `failureTaxonomyRules` would consume it; that reader is not built                                           |
+| `fingerprint_categories`     | classification                 | same                                                                                                        |
+| `blob_shards`                | sharded blob storage           | superseded by `readAt` on the run row                                                                       |
+| `nl_query_history`           | natural-language query history | the NL query feature is not built                                                                           |
+| `failure_taxonomy_rules`     | classification rules           | needs `defect_categories` and the classifier                                                                |
+| `failure_classifications`    | per-test classifications       | same                                                                                                        |
+| `test_failure_correlations`  | cross-test correlation         | the correlation job is not built                                                                            |
+| `locator_suggestions`        | repair suggestions             | no reader or writer yet; its missing `updatedAt` was added in `0026` (below)                                |
+| `failure_clusters`           | clustering                     | needs the correlations                                                                                      |
+| `users`                      | local accounts                 | the install is open; there is no login                                                                      |
+| `roles`                      | authorisation                  | tenancy is `WORKSPACE_ID`, not roles                                                                        |
+| `api_keys`                   | personal keys                  | superseded by the installation secret                                                                       |
+| `agent_sessions`             | agent chat                     | the chat UI is not built                                                                                    |
+| `agent_session_runs`         | agent chat                     | same                                                                                                        |
+| `agent_session_files`        | agent chat                     | same                                                                                                        |
+| `generated_test_suggestions` | agent proposals                | same                                                                                                        |
+| `repair_attempts`            | self-healing                   | the repair loop is not built                                                                                |
+| `agent_conflicts`            | merge conflicts                | not built                                                                                                   |
 
 ### `locator_suggestions` now records when it changed
 

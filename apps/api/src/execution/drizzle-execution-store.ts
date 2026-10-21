@@ -1299,7 +1299,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
         });
         lastSequence = input.sequence;
         derivedState = eventRunState(input) ?? derivedState;
-        await this.upsertTestFromEvent(tx, job.runId, input);
+        await this.upsertTestFromEvent(tx, job.runId, eventWorkspaceId, input);
       }
       if (lastSequence !== undefined) {
         await this.applyBatchToRun(tx, job.runId, lastSequence, derivedState);
@@ -1346,6 +1346,9 @@ export class DrizzleExecutionStore implements ExecutionStore {
   private async upsertTestFromEvent(
     tx: ExecutionTransaction,
     runId: string,
+    // The run's own workspace, read from the run row in the same transaction: a test is
+    // evidence about its run and cannot belong anywhere else (ledger MNT-17).
+    workspaceId: string,
     input: ExecutionEventInput,
   ): Promise<void> {
     if (input.type !== 'test.started' && input.type !== 'test.completed') return;
@@ -1361,6 +1364,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       .values({
         id: testId,
         runId,
+        workspaceId,
         title: stringValue(payload['title'], testId),
         file: stringValue(payload['file'], ''),
         status: testStatus,
@@ -1503,6 +1507,8 @@ export class DrizzleExecutionStore implements ExecutionStore {
             .values({
               id: test.id,
               runId: job.runId,
+              // The job's workspace, which `createRun` wrote from the run's own.
+              workspaceId: job.workspaceId,
               title: test.title,
               file: test.file ?? '',
               status: dbTestStatus(test.status),
@@ -1545,9 +1551,12 @@ export class DrizzleExecutionStore implements ExecutionStore {
       const recordedTests =
         completion.tests && completion.tests.length > 0
           ? completion.tests
-          : (await tx.select().from(tests).where(eq(tests.runId, job.runId))).map((row) =>
-              mapTest(rowValue(row)),
-            );
+          : (
+              await tx
+                .select()
+                .from(tests)
+                .where(and(eq(tests.workspaceId, job.workspaceId), eq(tests.runId, job.runId)))
+            ).map((row) => mapTest(rowValue(row)));
       // A run with no tests, a zero total and no recorded pass has produced no
       // evidence, so `passed` is not available to it (see `runStatusFor`).
       const runStatus = runStatusFor(derived, { ...completion, tests: recordedTests });
@@ -1629,6 +1638,11 @@ export class DrizzleExecutionStore implements ExecutionStore {
     // life of the process.
     if (this.options.artifactBytes) await this.options.artifactBytes.put(input.storageKey, bytes);
     else this.memoryBytes.set(input.storageKey, bytes);
+    // The artifact takes its run's workspace, read from the run rather than from the
+    // caller (ledger MNT-17). A subquery rather than a prior read keeps it one statement:
+    // a run that vanished in between yields NULL, which the NOT NULL column refuses, and
+    // the compensation below removes the bytes.
+    const runWorkspace = sql<string>`(select ${runs.workspaceId} from ${runs} where ${runs.id} = ${input.runId})`;
     const row = {
       id: randomUUID(),
       runId: input.runId,
@@ -1664,7 +1678,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
       : ('other' as const);
     const dbRow = { ...row, kind: normalizedKind };
     try {
-      await this.db.insert(artifacts).values(dbRow);
+      await this.db.insert(artifacts).values({ ...dbRow, workspaceId: runWorkspace });
     } catch (failure) {
       // Undo the half of the write that succeeded, then let the original failure
       // through unchanged. Swallowing it here would report a successful artifact
@@ -1724,33 +1738,25 @@ export class DrizzleExecutionStore implements ExecutionStore {
     artifactId: string,
     workspaceId?: string,
   ): Promise<ArtifactDescriptor | null> {
-    // `artifacts` has no workspace column of its own, so the scope is the
-    // artifact's run. A run with a NULL workspace_id never matches.
-    let scope: SQL | undefined = eq(artifacts.id, artifactId);
-    if (workspaceId !== undefined) {
-      scope = and(
-        scope,
-        // Bounded: a subquery, not a list — PostgreSQL plans it and its size is the table's
-        inArray(
-          artifacts.runId,
-          this.db.select({ id: runs.id }).from(runs).where(eq(runs.workspaceId, workspaceId)),
-        ),
-      );
-    }
+    // The artifact's own column since 0028; it used to be a subquery through `runs`, which
+    // is a boundary every reader had to remember to write.
+    const scope: SQL | undefined =
+      workspaceId === undefined
+        ? eq(artifacts.id, artifactId)
+        : and(eq(artifacts.id, artifactId), eq(artifacts.workspaceId, workspaceId));
     const row = (await this.db.select().from(artifacts).where(scope).limit(1))[0];
     return row ? mapArtifact(rowValue(row)) : null;
   }
 
   async listArtifacts(workspaceId: string, runId: string): Promise<ArtifactDescriptor[]> {
-    // `artifacts` has no `workspace_id`, so the constraint is the join through
-    // `runs`. Required, for the same reason as `listEvents`.
+    // Required, for the same reason as `listEvents`, and read from the artifact's own
+    // `workspace_id` rather than through a join.
     const rows = await this.db
-      .select({ artifact: artifacts })
+      .select()
       .from(artifacts)
-      .innerJoin(runs, eq(runs.id, artifacts.runId))
-      .where(and(eq(artifacts.runId, runId), eq(runs.workspaceId, workspaceId)))
+      .where(and(eq(artifacts.workspaceId, workspaceId), eq(artifacts.runId, runId)))
       .orderBy(asc(artifacts.createdAt));
-    return rows.map((row) => mapArtifact(rowValue(row.artifact)));
+    return rows.map((row) => mapArtifact(rowValue(row)));
   }
 
   async createPolicy(
@@ -2105,15 +2111,19 @@ export class DrizzleExecutionStore implements ExecutionStore {
     artifacts: DbRow[];
     runner: unknown;
   }> {
+    // Scoped by the run's own workspace as well as its id: the columns are the boundary,
+    // so the read states it rather than relying on the run having been scoped upstream.
+    const parentId = stringValue(rowsToLoad[0]?.['id']);
+    const parentWorkspace = stringValue(rowsToLoad[0]?.['workspaceId']);
     const [testRows, artifactRows, runnerRow] = await Promise.all([
       this.db
         .select()
         .from(tests)
-        .where(eq(tests.runId, stringValue(rowsToLoad[0]?.['id']))),
+        .where(and(eq(tests.workspaceId, parentWorkspace), eq(tests.runId, parentId))),
       this.db
         .select()
         .from(artifacts)
-        .where(eq(artifacts.runId, stringValue(rowsToLoad[0]?.['id']))),
+        .where(and(eq(artifacts.workspaceId, parentWorkspace), eq(artifacts.runId, parentId))),
       rowsToLoad[0]?.['runnerId']
         ? this.db
             .select()

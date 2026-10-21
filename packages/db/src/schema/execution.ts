@@ -284,6 +284,11 @@ export const artifacts = pgTable(
     runId: uuid('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
+    // The run's workspace, stamped on the row since 0028 (ledger MNT-17). The scope used
+    // to be a subquery through `runs`, which is a boundary every reader had to remember.
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     jobId: uuid('job_id').references(() => executionJobs.id, { onDelete: 'set null' }),
     testId: text('test_id'),
     resultId: text('result_id').references(() => results.id, { onDelete: 'set null' }),
@@ -303,6 +308,7 @@ export const artifacts = pgTable(
   (table) => [
     uniqueIndex('artifacts_legacy_attachment_unique').on(table.legacyAttachmentId),
     index('artifacts_run_created_idx').on(table.runId, table.createdAt),
+    index('artifacts_workspace_run_idx').on(table.workspaceId, table.runId),
     index('artifacts_job_idx').on(table.jobId),
     index('artifacts_test_idx').on(table.testId),
     index('artifacts_result_idx').on(table.resultId),

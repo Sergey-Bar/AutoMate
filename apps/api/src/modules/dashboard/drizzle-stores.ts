@@ -56,7 +56,15 @@ function mapGate(row: typeof qualityGateConfig.$inferSelect): QualityGate {
 }
 
 export class DrizzleQualityGateStore implements QualityGateStore {
-  constructor(private readonly db: AnyPgDb) {}
+  /**
+   * @param workspaceId the workspace whose operator makes these changes. The gate rows
+   *   stay installation-wide — `workspace_id` NULL is the default gate, by design — but
+   *   the audit row for creating one is this workspace's (ledger MNT-17).
+   */
+  constructor(
+    private readonly db: AnyPgDb,
+    private readonly workspaceId: string,
+  ) {}
 
   async list(): Promise<QualityGate[]> {
     const rows = await this.db
@@ -97,6 +105,7 @@ export class DrizzleQualityGateStore implements QualityGateStore {
             ...context,
             details: { name: gate.name, passRateThreshold: gate.passRateThreshold },
           },
+          this.workspaceId,
           now,
         ),
       );
@@ -140,10 +149,28 @@ export type ResolveQuarantineOutcome =
   | { kind: 'illegal_transition'; from: QuarantineStatus; to: QuarantineStatus };
 
 export class DrizzleQuarantineStore implements QuarantineStore {
-  constructor(private readonly db: AnyPgDb) {}
+  /**
+   * @param workspaceId the one workspace this store reads and writes. `quarantine` had no
+   *   workspace column, so the list, the decision and the delete answered for the whole
+   *   installation; every statement below now carries it, and the audit row takes it from
+   *   here rather than from a caller (ledger MNT-17).
+   */
+  constructor(
+    private readonly db: AnyPgDb,
+    private readonly workspaceId: string,
+  ) {}
+
+  /** One entry, and only if this workspace owns it. */
+  private own(id: string) {
+    return and(eq(quarantine.workspaceId, this.workspaceId), eq(quarantine.id, id));
+  }
 
   async list(): Promise<QuarantineEntry[]> {
-    const rows = await this.db.select().from(quarantine).orderBy(asc(quarantine.quarantinedAt));
+    const rows = await this.db
+      .select()
+      .from(quarantine)
+      .where(eq(quarantine.workspaceId, this.workspaceId))
+      .orderBy(asc(quarantine.quarantinedAt));
     return rows.map(mapEntry);
   }
 
@@ -156,6 +183,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
     await this.db.transaction(async (tx) => {
       await tx.insert(quarantine).values({
         id,
+        workspaceId: this.workspaceId,
         testTitle: entry.testTitle,
         testFile: entry.testFile,
         reason: entry.reason ?? null,
@@ -175,6 +203,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
             ...context,
             details: { testTitle: entry.testTitle, testFile: entry.testFile },
           },
+          this.workspaceId,
           now,
         ),
       );
@@ -194,10 +223,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
     // test that silently reappears in the pass rate with nobody having decided
     // anything — the exact shape the audit table exists to rule out.
     const removed = await this.db.transaction(async (tx) => {
-      const rows = await tx
-        .delete(quarantine)
-        .where(eq(quarantine.id, id))
-        .returning({ id: quarantine.id });
+      const rows = await tx.delete(quarantine).where(this.own(id)).returning({ id: quarantine.id });
       if (rows.length === 0) return false;
       const now = new Date();
       await tx.insert(auditEvents).values(
@@ -209,6 +235,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
             ...context,
             details: null,
           },
+          this.workspaceId,
           now,
         ),
       );
@@ -234,7 +261,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
     body: ResolveQuarantineBody,
     context: WriteContext = systemContext(),
   ): Promise<ResolveQuarantineOutcome> {
-    const existing = await this.db.select().from(quarantine).where(eq(quarantine.id, id)).limit(1);
+    const existing = await this.db.select().from(quarantine).where(this.own(id)).limit(1);
     const row = existing[0];
     if (row === undefined) return { kind: 'not_found' };
     const from = row.status;
@@ -260,7 +287,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
           resolutionType: body.resolutionType ?? null,
           resolvedAt: now,
         })
-        .where(and(eq(quarantine.id, id), eq(quarantine.status, from)))
+        .where(and(this.own(id), eq(quarantine.status, from)))
         .returning({ id: quarantine.id });
       if (updated.length === 0) return false;
       await tx.insert(auditEvents).values(
@@ -272,15 +299,14 @@ export class DrizzleQuarantineStore implements QuarantineStore {
             ...context,
             details: { from, to: body.status, resolution: body.resolution },
           },
+          this.workspaceId,
           now,
         ),
       );
       return true;
     });
     if (!applied) {
-      const current = (
-        await this.db.select().from(quarantine).where(eq(quarantine.id, id)).limit(1)
-      )[0];
+      const current = (await this.db.select().from(quarantine).where(this.own(id)).limit(1))[0];
       if (current === undefined) return { kind: 'not_found' };
       if (current.status === body.status) return { kind: 'resolved', entry: mapEntry(current) };
       return { kind: 'illegal_transition', from: current.status, to: body.status };

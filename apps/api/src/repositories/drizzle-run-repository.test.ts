@@ -110,6 +110,8 @@ const CREATE_TESTS_TABLE = `
     -- graph answers that the column does not exist. See E2E-4.
     error_code text,
     error_message text,
+    -- Migration 0028, for the same reason (ledger MNT-17).
+    workspace_id text NOT NULL,
 PRIMARY KEY (id, run_id)
   )
 `;
@@ -130,7 +132,7 @@ async function createTestContext(): Promise<TestContext> {
 
   const createRepo = () => {
     const db = drizzle(client, { schema });
-    return new DrizzleRunRepository(db);
+    return new DrizzleRunRepository(db, DEFAULT_WORKSPACE_ID);
   };
 
   return { repo: createRepo(), createRepo };
@@ -534,7 +536,7 @@ describe('DrizzleRunRepository — listTestsForRuns bounds the statement, not th
     const client = new PGlite();
     await client.exec(CREATE_RUNS_TABLE);
     await client.exec(CREATE_TESTS_TABLE);
-    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 2);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID, 2);
 
     const ids = idsOf(5);
     for (const [index, id] of ids.entries()) {
@@ -559,7 +561,7 @@ describe('DrizzleRunRepository — listTestsForRuns bounds the statement, not th
     const client = new PGlite();
     await client.exec(CREATE_RUNS_TABLE);
     await client.exec(CREATE_TESTS_TABLE);
-    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 2);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID, 2);
 
     const ids = idsOf(2);
     for (const [index, id] of ids.entries()) {
@@ -581,7 +583,7 @@ describe('DrizzleRunRepository — listTestsForRuns bounds the statement, not th
     const client = new PGlite();
     await client.exec(CREATE_RUNS_TABLE);
     await client.exec(CREATE_TESTS_TABLE);
-    const repo = new DrizzleRunRepository(drizzle(client, { schema }));
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID);
 
     const grouped = await repo.listTestsForRuns([]);
 
@@ -596,7 +598,7 @@ describe('DrizzleRunRepository — listTestsForRuns bounds the statement, not th
     const client = new PGlite();
     await client.exec(CREATE_RUNS_TABLE);
     await client.exec(CREATE_TESTS_TABLE);
-    const repo = new DrizzleRunRepository(drizzle(client, { schema }), 0);
+    const repo = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID, 0);
 
     await expect(repo.listTestsForRuns(idsOf(1))).rejects.toThrow(/chunked was given a size of 0/);
   });

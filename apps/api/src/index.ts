@@ -43,6 +43,7 @@ import { createRepoScanner } from './services/repo-scan-service.js';
 import { createProjectsRoutes } from './routes/projects.js';
 import {
   discoverProjectAtBoot,
+  ensureWorkspace,
   type ProjectRegistryServiceOptions,
 } from './services/project-registry-service.js';
 import { DEFAULT_WORKSPACE_ID, type RunRepository } from './repositories/run-repository.js';
@@ -113,7 +114,10 @@ const databaseResources = databaseUrl ? createDbResources(databaseUrl) : undefin
 
 function createRunRepository(): RunRepository {
   if (databaseResources) {
-    return new DrizzleRunRepository(databaseResources.db);
+    return new DrizzleRunRepository(
+      databaseResources.db,
+      runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    );
   }
   // Development/test fallback — startup policy enforces DATABASE_URL in production.
   assertInMemoryAllowed(runtimeConfig, 'InMemoryRunRepository');
@@ -128,9 +132,13 @@ function createDashboardStores(): {
     assertInMemoryAllowed(runtimeConfig, 'dashboard stores');
     return {};
   }
+  // Bound to the configured workspace, as every other store is. Both used to be composed
+  // with none: `quarantine` had no column to scope by, and every audit row they wrote
+  // carried a NULL workspace (ledger MNT-17).
+  const workspaceId = runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID;
   return {
-    quarantineStore: new DrizzleQuarantineStore(databaseResources.db),
-    qualityGateStore: new DrizzleQualityGateStore(databaseResources.db),
+    quarantineStore: new DrizzleQuarantineStore(databaseResources.db, workspaceId),
+    qualityGateStore: new DrizzleQualityGateStore(databaseResources.db, workspaceId),
   };
 }
 
@@ -578,6 +586,17 @@ if (databaseResources !== undefined) {
     workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
     viewFor: (repoPath) => fileSystemView(repoPath),
   };
+  /**
+   * The configured workspace exists before anything is written under it.
+   *
+   * Every workspace-scoped table has a `restrict` key onto `workspaces` since 0028, so a
+   * run, a test, a quarantine entry or an audit row naming an unregistered workspace is
+   * refused. The row used to be created only when a project was registered — so a
+   * reporter-only install with a `WORKSPACE_ID` other than the `default-workspace` 0003
+   * seeds would have had every upload refused. Idempotent, and not swallowed: an API that
+   * cannot register its own workspace cannot write anything, and should say so at boot.
+   */
+  await ensureWorkspace(registry);
   app.route(
     '/',
     createProjectsRoutes({

@@ -13,6 +13,8 @@ export interface CliOptions {
   sourceCommit?: string;
   targetCommit?: string;
   plan?: string;
+  /** The workspace every imported row belongs to; see `MigrateOptions.workspaceId`. */
+  workspace?: string;
   dryRun: boolean;
 }
 
@@ -71,7 +73,12 @@ async function main(argv: readonly string[]): Promise<void> {
         'Migration apply is blocked until the resumable wave engine and restore verification are enabled',
       );
     }
-    const report = await migrateToPostgres({ from: options.from, to: options.to, dryRun: true });
+    const report = await migrateToPostgres({
+      from: options.from,
+      to: options.to,
+      dryRun: true,
+      ...(options.workspace === undefined ? {} : { workspaceId: options.workspace }),
+    });
     if (report.errors.length > 0) process.exitCode = 1;
     return;
   }
@@ -113,6 +120,7 @@ export function parseArgs(args: readonly string[]): CliOptions {
     else if (arg === '--source-commit') options.sourceCommit = value;
     else if (arg === '--target-commit') options.targetCommit = value;
     else if (arg === '--plan') options.plan = value;
+    else if (arg === '--workspace') options.workspace = value;
     else throw new Error(`Unknown argument: ${arg}`);
     index += 1;
   }

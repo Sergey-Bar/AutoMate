@@ -162,12 +162,15 @@ const SCHEMA_SQL = `
     -- graph answers that the column does not exist. See E2E-4.
     error_code text,
     error_message text,
+    -- Migration 0028 (ledger MNT-17): the store reads children by workspace.
+    workspace_id text NOT NULL,
     PRIMARY KEY (id, run_id)
   );
   CREATE TABLE artifacts (
     id uuid PRIMARY KEY,
     legacy_attachment_id text,
     run_id uuid NOT NULL,
+    workspace_id text NOT NULL,
     job_id uuid,
     test_id text,
     result_id text,

@@ -140,6 +140,11 @@ describe('parseArgs', () => {
   it('refuses an unknown flag by name', () => {
     expect(() => parseArgs(['validate', '--force', 'yes'])).toThrow('Unknown argument: --force');
   });
+
+  it('reads --workspace, the tenant every imported row belongs to (ledger MNT-17)', () => {
+    expect(parseArgs(['apply', '--plan', 'p.json', '--workspace', 'ws-1']).workspace).toBe('ws-1');
+    expect(parseArgs(['apply', '--plan', 'p.json']).workspace).toBeUndefined();
+  });
 });
 
 describe('run', () => {
