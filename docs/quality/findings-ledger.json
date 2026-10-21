@@ -4323,6 +4323,98 @@
         }
       ],
       "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
+    },
+    {
+      "id": "MNT-1",
+      "title": "Every job's deadline was capped at the 30 s lease left at claim time, so any suite longer than about 30 s ended `timed_out`",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`RunnerService.executeClaim` passed the executor `deadlineMs: Math.min(claim.timeoutMs, remainingLeaseMs)`, where `remainingLeaseMs` was `leaseExpiresAt - now` **at claim time**. The production API store is built without a lease setting, so `claimJob` hands out `leaseExpiresAt = now + 30 000`, and the runner's heartbeat (every 15 s by default) renews it — `heartbeatRunner` extends `leaseExpiresAt` for every leased job the runner owns. The lease therefore says how long a runner may go silent, not how long a suite may run, but the deadline was fixed once from the first lease. A Playwright or generic suite with a 30-minute `timeoutMs` that needed 45 s was terminated at about 30 s and reported `timed_out` against a healthy lease. No test asserted the deadline the executor received, which is why the defect survived from the first vertical slice.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `runner-service.ts` beside `drizzle-execution-store.ts` `claimJob` (30 000 ms default lease) and `heartbeatRunner` (renews every leased job of the runner), and `apps/runner/src/config.ts` (15 s heartbeat). Then a test with `leaseExpiresAt = now + 1 000` and `timeoutMs = 600 000` received a deadline of 995 ms.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/runner-service.ts",
+          "asserts": "The executor receives `deadlineMs: claim.timeoutMs`. Cancellation still arrives through the heartbeat's cancelled ids, and a lost lease is refused at completion by its fencing token."
+        },
+        {
+          "path": "apps/runner/src/runner-service.test.ts",
+          "asserts": "`gives the executor the job's own timeout, not the lease left at claim time` claims a job with one second of lease and a ten-minute timeout and asserts the executor saw 600 000. It received 995 before the fix."
+        }
+      ],
+      "resolution": "The deadline is the job's own timeout. The lease is not a bound on execution time, because the heartbeat renews it; a cancellation reported by the heartbeat aborts the run's signal, and a lease that was genuinely lost is refused at completion by the fencing token, which is the mechanism built for that case."
+    },
+    {
+      "id": "MNT-2",
+      "title": "The generic adapter signalled only the process-group leader and never escalated, so a timed-out or cancelled command could hang its slot forever",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`GenericSpawnAdapter` spawns the command as a group leader (`detached` on POSIX) and its `defaultTerminate` sent `SIGTERM` to the leader alone — the Playwright adapter's terminator signals the group, and this one, written later, did not. `awaitChild` settles on `'close'`, which waits for every holder of the stdio pipes. So a script whose child inherited stdout (`bash test.sh` running a server, `npm test` grandchildren), or a leader that ignores `SIGTERM`, kept `'close'` from ever firing: `execute()` never returned, the runner's slot stayed occupied, and shutdown's `Promise.allSettled(active)` never drained. Neither adapter escalated to `SIGKILL`.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `generic-spawn.ts` (`detached`, `defaultTerminate`, `awaitChild` on `'close'`), `main.ts` (no `terminateProcess` injected, so the default is the production path) and `execution.ts`'s group-signalling terminator for contrast.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/execution.ts",
+          "asserts": "`terminateProcessTree` signals the group with `SIGTERM`, waits `TERMINATE_GRACE_MS` for `'close'`, and sends the group `SIGKILL` if it has not come; on Windows `taskkill /t /f` ends the tree. Both adapters use it."
+        },
+        {
+          "path": "apps/runner/src/generic-spawn.test.ts",
+          "asserts": "`ends a timed-out command together with the children holding its output open` runs a real leader that ignores SIGTERM beside a grandchild holding stdout, with a 300 ms deadline, and requires `timed_out` well inside the test's timeout. The defect is POSIX's: a leader-only SIGTERM there never ends it, while on Windows the old terminator happened to release the pipes, so CI's Linux runner is where this test discriminates."
+        }
+      ],
+      "resolution": "One terminator for both adapters: group SIGTERM, a grace period bounded by `'close'`, then group SIGKILL. The kill is skipped when the group closed in time, so a group id the kernel may have reused is not signalled for nothing."
+    },
+    {
+      "id": "MNT-3",
+      "title": "A generic command that threw after its workspace existed left the directory and its logs behind on every run",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`GenericSpawnAdapter.execute` creates a per-job workspace with `mkdtemp` and then can throw: a binary that does not exist (`Command could not be started`), a declared artifact over `artifactMaxBytes`, or a filesystem error. `RunnerService` only learns `workspacePath` from a *returned* result and cleans up only when it has one, so on a throw nobody removed the directory. The Playwright adapter has the `catch` that removes it; the generic adapter did not. A project whose glob matched one oversized file leaked a directory with both log files on every run of a long-lived runner.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `generic-spawn.ts` `execute` against `runner-service.ts` `executeClaim`'s `finally`, which cleans up only a `workspacePath` taken from a result.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/generic-spawn.ts",
+          "asserts": "Everything after `prepareWorkspace` runs inside a `try` whose `catch` removes the workspace and rethrows."
+        },
+        {
+          "path": "apps/runner/src/generic-spawn.test.ts",
+          "asserts": "`removes its workspace when the command cannot be started` and `removes its workspace when a declared artifact is over the size limit` both assert an empty workspace root after the rejection. Both failed before the fix."
+        }
+      ],
+      "resolution": "The adapter that created the directory removes it when it cannot hand it over."
+    },
+    {
+      "id": "MNT-4",
+      "title": "The runner's log cap counted UTF-16 code units, so non-ASCII output stored up to three times the cap and split characters across chunks",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`collectLogs` decoded each chunk with `toString()` and kept `text.slice(0, maxBytes - taken)` — a character count — while adding `Buffer.byteLength(accepted)` to the counter. Two-byte output stored twice the cap, three-byte output three times, and a multibyte character that straddled two chunks was decoded as two replacement characters.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `collectLogs` in `generic-spawn.ts`; a test writing `'é'.repeat(1000)` under a 1 000-byte cap received 2 000 bytes.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/generic-spawn.ts",
+          "asserts": "`collectLogs` keeps the chunks as bytes, cuts them at the cap, and decodes once with a `StringDecoder` that drops a character the cap cut in half."
+        },
+        {
+          "path": "apps/runner/src/generic-spawn.test.ts",
+          "asserts": "`stores at most logMaxBytes of non-ASCII output` expects exactly 500 `é` for a 1 000-byte cap."
+        }
+      ],
+      "resolution": "Bytes in, bytes counted, decoded once."
     }
   ]
 }
