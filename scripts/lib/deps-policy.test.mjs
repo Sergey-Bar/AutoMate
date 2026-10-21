@@ -418,6 +418,23 @@ test('a comment written above the override it documents is read the same way', (
   assert.deepEqual(expired, [{ override: 'ajv@8.20.0>fast-uri', reviewedOn: '2026-09-29' }]);
 });
 
+test('an override can say when it is next due, and that date is what expires', () => {
+  // "Reviewed <date>" records the past, so read as the deadline it made every override
+  // expire the day after its review — the gate was red from the morning after every audit.
+  // `Review by <date>` is the deadline; when both are written, it is the one that counts.
+  const yaml = [
+    'overrides:',
+    '  # GHSA-x. Reviewed 2026-10-21. Review by 2026-11-21.',
+    "  'kept': ^1.0.0",
+    '  # GHSA-y. Reviewed 2026-10-21. Review by 2026-10-25.',
+    "  'due': ^1.0.0",
+  ].join('\n');
+  assert.deepEqual(expiredOverrideReviews(yaml, '2026-10-30'), [
+    { override: 'due', reviewedOn: '2026-10-25' },
+  ]);
+  assert.deepEqual(expiredOverrideReviews(yaml, '2026-10-22'), []);
+});
+
 test('a review date in the future is not expired', () => {
   // A date past today still has to be acted on when it arrives; the gate cannot be
   // satisfied by moving a date out of sight.

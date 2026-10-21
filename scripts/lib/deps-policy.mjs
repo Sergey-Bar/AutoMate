@@ -645,6 +645,10 @@ function commentRunBelow(lines, index) {
  */
 function reviewDate(documented) {
   const flattened = documented.replaceAll('#', ' ').replaceAll(/\s+/g, ' ');
+  // The deadline, when one is written, is what expires; "Reviewed" is the older form and
+  // the fallback, so an existing comment keeps the meaning it had.
+  const due = /Review by\s+(\d{4}-\d{2}-\d{2})/.exec(flattened);
+  if (due) return due[1];
   const reviewed = /Reviewed\s+(\d{4}-\d{2}-\d{2})/.exec(flattened);
   return reviewed ? reviewed[1] : null;
 }

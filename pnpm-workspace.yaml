@@ -108,6 +108,11 @@ peerDependencyRules:
 # Review procedure: on or after the date, either confirm the advisory is fixed
 # upstream and drop the override, or move the date and say why it still applies.
 #
+# Reviewed 2026-10-21: six more removed (seroval, source-map-js, hono, @hono/node-server,
+# postcss, fast-uri), each after `pnpm audit` came back clean with only it dropped; the four
+# that remain carry the advisory that keeps them and a `Review by` date, which is the date
+# `pnpm deps:policy` expires them on.
+#
 # Reviewed 2026-10-20: six overrides past their date (browserslist, two brace-expansion, two
 # postcss/nanoid, and the ajv fast-uri pin) were removed after `pnpm audit` came back clean
 # without them; `vitepress>vite` was kept because it was not.
@@ -130,29 +135,20 @@ overrides:
   # launch-editor NTLMv2 disclosure), so this was tested rather than assumed.
   # Raised to 6.4.4 on 2026-10-20 for GHSA-587h-7wmj-h5pm (launch-editor existence-check
   # bypass on Windows, high), with the catalog entry below.
+  # Reviewed 2026-10-21: still needed — without it `pnpm audit` reports six vite advisories
+  # (moderate and high). Review by 2026-11-21.
   'vitepress>vite': ^6.4.4
   # Added by `pnpm audit --fix` on 2026-10-20, one entry per advisory it reported. Drop each when
   # its parent takes the fix.
   #
-  # GHSA-jp82-f5mq-hwhp (seroval, critical) reached through @tanstack/router-core. Reviewed 2026-10-20.
-  seroval@<=1.6.2: ^1.6.3
-  # GHSA-68fv-2mgg-jv7q (source-map-js, high). Reviewed 2026-10-20.
-  source-map-js@>=1.0.0 <1.2.2: ^1.2.2
-  # hono, moderate, several advisories fixed by 4.13.7 (the API's @hono/node-server). Reviewed 2026-10-20.
-  hono@<4.13.7: ^4.13.7
-  # @hono/node-server, moderate, fixed in 1.19.15. Reviewed 2026-10-20.
-  '@hono/node-server@<1.19.15': ^1.19.15
-  # esbuild, moderate and low, through drizzle-kit and vitest. Reviewed 2026-10-20.
+  # esbuild, moderate and low, through drizzle-kit and vitest. Reviewed 2026-10-21: both still
+  # needed — without the first the install does not resolve, without the second `pnpm audit`
+  # reports a low esbuild advisory. Review by 2026-11-21.
   esbuild@<=0.24.2: ^0.25.0
   esbuild@>=0.27.3 <0.28.1: ^0.28.1
-  # postcss, moderate, through vite. Reviewed 2026-10-20.
-  postcss@<=8.5.22: ^8.5.23
-  # uuid, moderate, through storybook. Reviewed 2026-10-20.
+  # uuid, moderate, through storybook. Reviewed 2026-10-21: still needed — without it
+  # `pnpm audit` reports a moderate uuid advisory. Review by 2026-11-21.
   uuid@<11.1.1: ^11.1.1
-  # fast-uri, moderate (GHSA-hrr3-gc8f-f4qj), through ajv, which commitlint and shared-contracts
-  # use. This range override replaced the `ajv@8.20.0>fast-uri` pin, which was removed once it
-  # covered the same path. Reviewed 2026-10-20.
-  fast-uri@>=3.0.0 <3.1.8: ^3.1.8
 
 catalog:
   '@eslint/js': ^10.0.1
@@ -172,7 +168,7 @@ catalog:
   drizzle-orm: ^0.45.2
   eslint: ^10.12.0
   jsdom: ^24.1.3
-  lucide-react: ^0.577.0
+  lucide-react: ^1.59.0
   pg: ^8.20.0
   prettier: ^3.6.2
   react: ^19.0.0

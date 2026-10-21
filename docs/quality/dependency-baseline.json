@@ -36,11 +36,11 @@
     },
     {
       "name": "@commitlint/cli",
-      "version": "20.5.3"
+      "version": "21.2.4"
     },
     {
       "name": "@commitlint/config-conventional",
-      "version": "20.5.3"
+      "version": "21.2.4"
     },
     {
       "name": "@electric-sql/pglite",
@@ -144,7 +144,7 @@
     },
     {
       "name": "better-sqlite3",
-      "version": "12.9.0"
+      "version": "13.0.3"
     },
     {
       "name": "class-variance-authority",
@@ -208,7 +208,7 @@
     },
     {
       "name": "lucide-react",
-      "version": "0.577.0"
+      "version": "1.60.0"
     },
     {
       "name": "pg",
@@ -236,7 +236,7 @@
     },
     {
       "name": "tailwind-merge",
-      "version": "2.6.1"
+      "version": "3.7.0"
     },
     {
       "name": "tailwindcss",
