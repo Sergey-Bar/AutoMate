@@ -342,10 +342,9 @@ jobs:
           retention-days: 14
 
   render-budget:
-    # The name says what the job is *doing*, not just what it is called, because the
-    # answer differs by phase and a reviewer has to tell them apart at a glance. Once
-    # a baseline is recorded this reads as a gate and stops changing.
-    name: Rendering budget (measuring, no ceiling recorded)
+    # The name says what the job is *doing*. It read "Rendering budget (measuring, no
+    # ceiling recorded)" until PERF-1 recorded the baseline on 2026-10-21; it is a gate now.
+    name: Rendering budget
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -355,20 +354,17 @@ jobs:
     # per-job `permissions:` to add — declaring one here would be noise that reads as
     # a grant.
     #
-    # The two-phase rollout, and why it is two phases:
+    # The two-phase rollout, and why it was two phases:
     #
-    #  - **Measurement phase (now).** `performance/rendering-budget.json` has no
-    #    recorded ceiling, so this job measures the four primary routes and publishes
-    #    the numbers to the job summary without comparing them. It is **not** a
-    #    required check. The obvious alternative — keep it `pr-blocking` and red until
-    #    someone measures — is indefensible in practice: a required check that can
-    #    never pass blocks every pull request, teaches reviewers to read red as
-    #    noise, and buries the failures that matter under a failure nobody can fix
-    #    without hardware.
-    #  - **Threshold phase (after a real run).** Someone runs `pnpm render:baseline` on
-    #    the reference hardware the plan's D10 commits to, reviews the diff, and
-    #    commits it. The comparison becomes a real gate, and `test:render` becomes
-    #    `pr-blocking` **in the same commit**.
+    #  - **Measurement phase (until 2026-10-21).** `performance/rendering-budget.json` had
+    #    no recorded ceiling, so this job measured the four primary routes and published
+    #    the numbers to the job summary without comparing them, and was not a required
+    #    check — a required check that can never pass blocks every pull request and
+    #    teaches reviewers to read red as noise.
+    #  - **Threshold phase (now).** `pnpm render:baseline` recorded the reference install's
+    #    readings, with headroom for this runner (see `CEILING_RULES` in
+    #    `scripts/lib/rendering-budget.mjs`), and `test:render` became `pr-blocking` in
+    #    the same commit. The comparison is a real gate.
     #
     # That transition is not a convention. `scripts/lib/render-gate-phase.mjs` derives
     # the required tier from the baseline, and `gate-tooling.test.mjs` fails until the

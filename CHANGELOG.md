@@ -52,6 +52,15 @@ and the thresholds moved from `p(95)<500` / `p(99)<1500` to `p(95)<50` / `p(99)<
 scenario now exports `p(99)`, which k6 evaluated but never wrote to the summary.
 `scripts/lib/performance-thresholds.test.mjs` holds the record to the thresholds.
 
+**`PERF-1` closed, and the rendering budget is a required check.** The budget had been
+measuring the Vite dev server (8952 ms of LCP on the first route was compilation); it now
+builds the web bundle and measures it under `vite preview`. The recorded ceilings are
+`ceilingFor(observed)` — 3x for LCP and INP with floors, 2x for CLS, +2 long tasks —
+because they are recorded on the reference install and compared on the CI runner, which
+is ~1.7–2x slower. `test:render` is `pr-blocking`, and the nightly `Quality baseline` job
+now builds and runs the package tests before aggregating, so it no longer fails every
+night on missing `dist/` and coverage inputs.
+
 ## 2.2.0 — 2026-10-02
 
 A version bump, three ledger rows closed on a measurement rather than an assertion, four

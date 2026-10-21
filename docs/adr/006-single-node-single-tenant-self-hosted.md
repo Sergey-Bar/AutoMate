@@ -26,17 +26,19 @@ Four things the product deliberately does not do:
 ## Decision
 
 **Single node. Single tenant. Self-hosted. English only.** And the reference
-hardware is a self-hosted single-node install — explicitly **not** a GitHub runner,
-which is why the rendering budget's job is `pr-reporting` and not a required check
-until somebody records a run on that hardware (ledger **PERF-1**).
+hardware is a self-hosted single-node install, explicitly **not** a GitHub runner.
+The rendering budget's ceilings are recorded on that hardware (ledger **PERF-1**,
+recorded 2026-10-21).
 
 ## Consequences
 
-- **The rendering gate cannot be `pr-blocking` yet.** A required check that can
-  never pass blocks every pull request, teaches reviewers to read red as noise, and
-  hides the failures that matter. `scripts/lib/render-gate-phase.mjs` derives the
-  tier from whether a baseline is recorded, and a test fails if only one of the two
-  halves of graduating it happened.
+- **The rendering gate compares on a runner it was not recorded on, and says so.**
+  The ceilings come from the reference install; the required check runs on the CI
+  runner, which read the same bundle about 1.7-2x slower. `CEILING_RULES` in
+  `scripts/lib/rendering-budget.mjs` derives each ceiling from the reading with
+  measured headroom for that gap, rather than requiring the two machines to agree.
+  `scripts/lib/render-gate-phase.mjs` still derives the tier from whether a baseline
+  is recorded, and a test fails if only one of the two halves of graduating happened.
 - **The five execution engines are BK-1, not v1.0.0.** The agent routes answer
   `501` today and say so; the features endpoint is derived from the same registry
   and reports `available: false` for every domain, which is the honest answer and is

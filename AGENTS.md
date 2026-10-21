@@ -109,7 +109,13 @@ both directions:
   because a required check that can never pass blocks every pull request and teaches
   reviewers to read red as noise.
 - `recorded: true` — the same spec **compares** against the ceilings and fails on a
-  regression, and `test:render` must be `pr-blocking`.
+  regression, and `test:render` must be `pr-blocking`. **This is the state since
+  2026-10-21.**
+
+`test:render` builds the web bundle and measures it under `vite preview`; the
+`rendering-budget` Playwright project does not exist in any other run. A recorded
+ceiling is `ceilingFor(observed)`, never the reading: the ceilings come from the
+reference install and are compared on the CI runner, which is ~1.7–2x slower.
 
 ### The static scanners, and the one way to run around them
 
@@ -295,31 +301,21 @@ pnpm db:check      # drizzle-kit check — journal and schema agree
 
 ### The findings that are waiting on a measurement, not on code
 
-One row in the ledger cannot be closed from a development host: the harness is
-complete and the _evidence_ is missing. It is listed here because a reader finding it
-in the ledger would otherwise re-derive why it is open.
+None, today. Three rows could not be closed from a development host because the
+harness was complete and the _evidence_ was missing, and each closed on a recorded
+run rather than on more code:
 
-| Row        | What is built                                                                          | What is missing                                                                                                                                                                |
-| ---------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
-
-It is not closable by writing more code, and it should not be closed on the strength
-of its harness. The blocker is evidence, not scope.
-
-**RF-9 was on this list and is not any more.** k6 ran on the reference install on
-2026-10-21; `performance/thresholds.json` records the observation with
-`recorded: true`, and the thresholds were tightened from `p(95)<500` / `p(99)<1500` to
-`p(95)<50` / `p(99)<150` — about 9x over the slowest observed p95.
-`scripts/lib/performance-thresholds.test.mjs` fails if the record goes back to
-`recorded: false` or a ceiling drifts more than 30x above its observation.
-
-**RF-5 was on this list and is not any more.** The tenancy wave (W7) landed in five
-migrations before the rehearsal it was gated on had run, so the row went back to an
-`open` Blocker and `pnpm findings:check` said so. The rehearsal then ran on 2026-10-04
-against two PostgreSQL 16.4 instances, and the row is `fixed` with the date, the
-installation and the row count in its `resolution`. That rule lives in
-`docs/quality/wave-gates.json` rather than in a sentence, which is the only reason it
-survived as long as it did.
+- **RF-5** — the migration rehearsal ran on 2026-10-04 against two PostgreSQL 16.4
+  instances. The tenancy wave (W7) had landed before it, so the row went back to an
+  `open` Blocker first; that rule lives in `docs/quality/wave-gates.json` rather than in
+  a sentence, which is the only reason it survived as long as it did.
+- **RF-9** — k6 ran on the reference install on 2026-10-21; the thresholds were
+  tightened from `p(95)<500` / `p(99)<1500` to `p(95)<50` / `p(99)<150`, and
+  `scripts/lib/performance-thresholds.test.mjs` fails if the record reverts or a
+  ceiling drifts more than 30x above its observation.
+- **PERF-1** — `pnpm render:baseline` recorded the rendering ceilings on 2026-10-21,
+  after the budget was moved off the dev server, and `test:render` became
+  `pr-blocking` in the same commit.
 
 ---
 

@@ -21,6 +21,15 @@ export interface RenderMetricDefinition {
 
 export declare const METRICS: readonly RenderMetricDefinition[];
 
+export declare const CEILING_RULES: Readonly<
+  Record<
+    RenderMetricDefinition['key'],
+    { factor: number; floor: number; add: number; step: number }
+  >
+>;
+
+export declare function ceilingFor(key: RenderMetricDefinition['key'], observed: number): number;
+
 export declare function measurementProblems(route: string, reading: unknown): string[];
 
 export declare function auditRenderingBudget(
