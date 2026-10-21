@@ -787,8 +787,12 @@ describe('response contract failures', () => {
 });
 
 /**
- * The default action on expiry: a real navigation to the login route, carrying
- * the path the user was on so the login page can send them back to it.
+ * The default action on expiry: **none**.
+ *
+ * The install is open (ADR-006) and has no login route to send anyone to — it was a
+ * full navigation to `/login`, which rendered an empty page and stranded the reader
+ * there. A 401 now surfaces as the screen's own error state, where the request that
+ * failed says why; the listeners still hear about it once.
  */
 describe('default session expiry responder', () => {
   function stubLocation(pathname: string, search = ''): { assign: ReturnType<typeof vi.fn> } {
@@ -797,27 +801,29 @@ describe('default session expiry responder', () => {
     return { assign };
   }
 
-  it('navigates to the login route with the current path encoded as the return', async () => {
+  it('keeps the reader on the page instead of navigating to a route that does not exist', async () => {
     const { assign } = stubLocation('/dashboard/runs', '?status=failed');
     setSessionExpiredResponder(null);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })));
 
     await expect(defaultApiClient.getRuns()).rejects.toMatchObject({ status: 401 });
 
-    expect(assign).toHaveBeenCalledOnce();
-    expect(assign).toHaveBeenCalledWith('/login?return=%2Fdashboard%2Fruns%3Fstatus%3Dfailed');
+    expect(assign).not.toHaveBeenCalled();
   });
 
-  it('does not navigate again when the user is already signing in', async () => {
-    const { assign } = stubLocation('/login', '?return=%2Fdashboard');
+  it('still tells a listener, once, with the path the reader was on', async () => {
+    stubLocation('/dashboard/runs', '?status=failed');
     setSessionExpiredResponder(null);
+    const heard = vi.fn();
+    const unsubscribe = subscribeToSessionExpired(heard);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 401 })));
 
     await expect(defaultApiClient.getRuns()).rejects.toMatchObject({ status: 401 });
+    await expect(defaultApiClient.getRuns()).rejects.toMatchObject({ status: 401 });
 
-    // Reloading the login page would reproduce the same expired session and
-    // assign the same URL again â€” the loop this latch exists to prevent.
-    expect(assign).not.toHaveBeenCalled();
+    expect(heard).toHaveBeenCalledOnce();
+    expect(heard).toHaveBeenCalledWith('/dashboard/runs?status=failed');
+    unsubscribe();
   });
 
   it('reports an unbuildable request as ours, and sends nothing', async () => {
