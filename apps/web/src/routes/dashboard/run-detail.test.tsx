@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { RunDetailPage } from './run-detail.js';
 import { makeApi, makePhaseEvent, makeRun, TEST_TIMESTAMP } from '../../test-utils.js';
 import { ApiError, type ApiClient, type Run } from '../../lib/api.js';
@@ -31,7 +31,7 @@ const gate = {
   policyHash: 'b'.repeat(64),
   status: 'failed' as const,
   decision: 'blocked' as const,
-  reasons: ['browser tests failed'],
+  reasons: ['browser:FAILED', 'product_failure:FAILED_TEST_COUNT'],
   evidenceRefs: ['run-123'],
   domainStatuses: {
     browser: 'failed' as const,
@@ -122,7 +122,7 @@ describe('RunDetailPage', () => {
     expect(failed).toHaveTextContent('loads the command center');
     expect(failed).toHaveTextContent('Expected command center');
     expect(failed).toHaveTextContent('e2e/smoke.spec.ts');
-    expect(failed).toHaveTextContent('browser tests failed');
+    expect(failed).toHaveTextContent('Browser tests failed · Tests failed');
     // Above the execution summary, so the reason is the first thing on a phone.
     const summary = screen.getByRole('region', { name: 'Execution summary' });
     expect(failed.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -172,6 +172,90 @@ describe('RunDetailPage', () => {
     expect(await screen.findByTestId('run-verdict')).toHaveTextContent('All 3 tests passed');
     expect(screen.queryByTestId('run-what-failed')).toBeNull();
   });
+
+  /** A run whose own result is green but which the gate does not clear. */
+  function greenRun(
+    gateStatus: 'passed' | 'unknown' | null,
+    summary: Partial<Run['summary']> = {},
+    reasons: string[] = [],
+  ) {
+    const gateValue =
+      gateStatus === null
+        ? null
+        : { ...gate, status: gateStatus, decision: 'not_ready' as const, reasons };
+    const run = makeRun({
+      ...passedRun,
+      outcome: 'passed',
+      tests: [],
+      summary: { ...passedRun.summary, total: 3, passed: 3, failed: 0, ...summary },
+      policyEvaluation: null,
+    });
+    render(
+      <RunDetailPage
+        id="run-123"
+        api={detailApi(run, { getRunGate: vi.fn().mockResolvedValue(gateValue) })}
+      />,
+    );
+  }
+
+  it('does not call a run green when the gate has no verdict', async () => {
+    greenRun('unknown', {}, ['evidence:MISSING_REQUIRED_EVIDENCE']);
+    const verdict = await screen.findByTestId('run-verdict');
+    expect(verdict).not.toHaveTextContent('All 3 tests passed');
+    expect(verdict).not.toHaveClass('text-success');
+    expect(verdict).toHaveTextContent('3 of 3 tests passed');
+    expect(verdict).toHaveTextContent('Required evidence is missing');
+  });
+
+  it('does not say "all" passed when some were skipped', async () => {
+    greenRun('passed', { total: 5, passed: 3, skipped: 2 });
+    const verdict = await screen.findByTestId('run-verdict');
+    expect(verdict).toHaveTextContent('3 of 5 tests passed');
+    expect(verdict).not.toHaveTextContent('All');
+  });
+
+  it.each([
+    [
+      'no tests ran',
+      { outcome: 'passed' as const, summary: { total: 0, passed: 0, failed: 0 } },
+      ['evidence:NO_TESTS'],
+      'No tests ran',
+    ],
+    [
+      'it timed out',
+      { outcome: 'timed_out' as const, summary: { total: 4, passed: 4, failed: 0 } },
+      ['timed_out:EXECUTION_TIMEOUT'],
+      'The run timed out',
+    ],
+    [
+      'the pass rate missed',
+      { outcome: 'passed' as const, summary: { total: 4, passed: 4, failed: 0 } },
+      ['threshold:PASS_RATE; observed=75.00; required=100; rule=browserPassRateThreshold'],
+      'Pass rate 75.00%, needs 100%',
+    ],
+  ])(
+    'heads a failure where %s with that cause, not "0 of N tests failed"',
+    async (_, run, reasons, headline) => {
+      const failedGate = { ...gate, reasons };
+      const value = makeRun({
+        ...passedRun,
+        ...run,
+        phase: 'complete',
+        tests: [],
+        summary: { ...passedRun.summary, ...run.summary },
+        policyEvaluation: failedGate,
+      });
+      render(
+        <RunDetailPage
+          id="run-123"
+          api={detailApi(value, { getRunGate: vi.fn().mockResolvedValue(failedGate) })}
+        />,
+      );
+      const failed = await screen.findByTestId('run-what-failed');
+      expect(within(failed).getByRole('heading', { level: 2 })).toHaveTextContent(headline);
+      expect(failed).not.toHaveTextContent(/\d+ of \d+ tests failed/u);
+    },
+  );
 
   it('renders loading state initially', () => {
     const api = detailApi(passedRun, { getRun: vi.fn(() => new Promise<Run>(() => undefined)) });
@@ -272,7 +356,7 @@ describe('RunDetailPage', () => {
       'href',
       '/api/v1/artifacts/artifact-1',
     );
-    expect(screen.getByTestId('run-gate')).toHaveTextContent('browser tests failed');
+    expect(screen.getByTestId('run-gate')).toHaveTextContent('Browser tests failed');
     expect(screen.getByTestId('run-readiness')).toHaveTextContent('NOT_CONFIGURED');
   });
 

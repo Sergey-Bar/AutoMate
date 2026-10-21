@@ -18,10 +18,10 @@
     "lines": 73.25
   },
   "apps/web": {
-    "statements": 96.18,
-    "branches": 88.47,
-    "functions": 96.34,
-    "lines": 98.23
+    "statements": 97.6,
+    "branches": 91,
+    "functions": 97.7,
+    "lines": 98.6
   },
   "apps/worker": {
     "statements": 63.21,
@@ -120,10 +120,10 @@
     "lines": 99.25
   },
   "packages/ui": {
-    "statements": 67.13,
-    "branches": 84.27,
-    "functions": 67.85,
-    "lines": 66.46
+    "statements": 69.7,
+    "branches": 86,
+    "functions": 71.1,
+    "lines": 69
   },
   "tests/contract": {
     "status": "not_configured",

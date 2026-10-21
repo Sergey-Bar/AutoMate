@@ -84,6 +84,8 @@ export interface RepoMap {
   blockingPath: string[];
   /** One sentence the map needs said above it, or `null`. */
   notice: string | null;
+  /** Why the blocking path is empty when the verdict is not Go, or `null`. */
+  pathNote: string | null;
 }
 
 /** The parts of each read the map uses, so a test builds only what it means. */
@@ -96,13 +98,25 @@ export interface MapInput {
 
 const RANK: Record<NodeStatus, number> = { bad: 0, warn: 1, good: 2, unknown: 3, muted: 4 };
 
-/** The worst verdict in a set; `unknown` when none of them is a verdict. */
+/**
+ * The worst verdict in a set; `unknown` when none of them is a verdict.
+ *
+ * An unmeasured member never lets the set pass: good beside unknown is `warn`, because
+ * "everything we measured passed" is not "it passed" when something was not measured.
+ */
 function worst(statuses: readonly NodeStatus[]): NodeStatus {
   const verdicts = statuses.filter(
     (status) => status === 'bad' || status === 'warn' || status === 'good',
   );
   if (verdicts.length === 0) return 'unknown';
-  return [...verdicts].sort((left, right) => RANK[left] - RANK[right])[0] ?? 'unknown';
+  const ranked = [...verdicts].sort((left, right) => RANK[left] - RANK[right])[0] ?? 'unknown';
+  return ranked === 'good' && statuses.includes('unknown') ? 'warn' : ranked;
+}
+
+/** " · 2 unmeasured", or nothing. */
+function unmeasured(statuses: readonly NodeStatus[]): string {
+  const count = statuses.filter((status) => status === 'unknown').length;
+  return count === 0 ? '' : ` · ${String(count)} unmeasured`;
 }
 
 function reportStatus(status: RepoScan['reports'][number]['status']): NodeStatus {
@@ -222,7 +236,7 @@ function reportNode(report: RepoScan['reports'][number], column: number): MapNod
   };
 }
 
-function packagesView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice'> {
+function packagesView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice' | 'pathNote'> {
   const { scan } = input;
   const toolDirs = [...new Set(scan.tools.map((tool) => tool.workingDirectory))];
   const owner = new Map<string, string>();
@@ -253,12 +267,13 @@ function packagesView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice'>
       .sort((left, right) => left.path.localeCompare(right.path));
     const tools = scan.tools.filter((tool) => tool.workingDirectory === dir);
     const id = `pkg:${dir}`;
+    const statuses = reports.map((report) => reportStatus(report.status));
     nodes.push({
       id,
       label: dir === '.' ? 'Root' : dir,
-      detail: `${plural(tools.length, 'tool')} · ${plural(reports.length, 'report')}`,
+      detail: `${plural(tools.length, 'tool')} · ${plural(reports.length, 'report')}${unmeasured(statuses)}`,
       column: 1,
-      status: worst(reports.map((report) => reportStatus(report.status))),
+      status: worst(statuses),
       kind: 'package',
       evidence: [
         { label: 'Directory', value: dir, mono: true },
@@ -395,9 +410,11 @@ function wireTools(
   kinds: readonly ReportKind[],
   nodes: MapNode[],
   edges: MapEdge[],
-): { fed: Set<ReportKind>; withTools: Set<string> } {
+): { fed: Set<ReportKind>; reaching: Set<string> } {
   const fed = new Set<ReportKind>();
-  const withTools = new Set<string>();
+  // Layers with at least one tool whose report is on disk. Every other layer gets its own
+  // edge to the verdict, or a red layer whose junit file was never written is a dead end.
+  const reaching = new Set<string>();
   // In layer order, static checks last, so a tool sits beside the layer it belongs to and
   // the layout's "parent level with its first child" keeps the layers column compact.
   const rank = (tool: DetectedTool) => {
@@ -423,17 +440,17 @@ function wireTools(
     const layer = layerOf(tool.capability);
     const parent = layer === null ? 'layer:static' : `layer:${layer}`;
     edges.push(edge(parent, id));
-    withTools.add(parent);
     const kind = REPORT_OF[tool.capability];
     if (kinds.includes(kind)) {
       edges.push(edge(id, `reports:${kind}`));
       fed.add(kind);
+      reaching.add(parent);
     }
   }
-  return { fed, withTools };
+  return { fed, reaching };
 }
 
-function flowView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice'> {
+function flowView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice' | 'pathNote'> {
   const { scan, score, readiness } = input;
   const nodes: MapNode[] = [
     {
@@ -462,17 +479,18 @@ function flowView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice'> {
     nodes.push(statics);
     edges.push(edge('code', statics.id));
   }
-  const { fed, withTools } = wireTools(scan.detected, kinds, nodes, edges);
+  const { fed, reaching } = wireTools(scan.detected, kinds, nodes, edges);
 
   for (const kind of kinds) {
     const reports = scan.reports.filter((report) => report.kind === kind);
     const id = `reports:${kind}`;
+    const statuses = reports.map((report) => reportStatus(report.status));
     nodes.push({
       id,
       label: REPORT_LABEL[kind],
-      detail: plural(reports.length, 'report'),
+      detail: `${plural(reports.length, 'report')}${unmeasured(statuses)}`,
       column: 3,
-      status: worst(reports.map((report) => reportStatus(report.status))),
+      status: worst(statuses),
       kind: 'report',
       evidence: reports.map((report) => ({ label: report.path, value: report.headline })),
       link: { label: 'Open capabilities', to: '/dashboard/health' },
@@ -481,7 +499,7 @@ function flowView(input: MapInput): Omit<RepoMap, 'blockingPath' | 'notice'> {
     edges.push(edge(id, 'verdict'));
   }
   for (const layer of layers) {
-    if (!withTools.has(layer.id)) edges.push(edge(layer.id, 'verdict'));
+    if (!reaching.has(layer.id)) edges.push(edge(layer.id, 'verdict'));
   }
 
   const verdict = readiness === null ? null : VERDICT[readiness.verdict];
@@ -563,7 +581,16 @@ export function buildRepoMap(input: MapInput, view: MapView): RepoMap {
     view === 'flow' && scoredLayers.length === 0
       ? 'No test layer has been scored yet. Run a suite through Launch and its results fill the layers in; until then each one reads “not measured”, never as a pass.'
       : null;
-  return { ...base, blockingPath, notice };
+  const verdict = base.nodes.find((node) => node.id === 'verdict');
+  // A No-go set only by activity, quarantine or gate reasons has no failing node to start a
+  // path from. Say so, rather than a pressed toggle that draws nothing.
+  const pathNote =
+    verdict !== undefined &&
+    (verdict.status === 'bad' || verdict.status === 'warn') &&
+    blockingPath.length === 0
+      ? `Nothing on this view explains the ${verdict.label}. Open the verdict for the readiness reasons behind it.`
+      : null;
+  return { ...base, blockingPath, notice, pathNote };
 }
 
 /** A node's whole lineage: everything upstream and downstream of it, and the edges between. */

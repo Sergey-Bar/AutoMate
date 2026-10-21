@@ -95,6 +95,10 @@ describe('what is wrong, and what is good', () => {
       'See flaky tests: 2% of tests were flaky; the gate allows 0%',
     );
     expect(items[1]).toHaveTextContent('3 new failures');
+    // The action's label is its text, never an attribute leaked onto the anchor.
+    for (const link of within(wrong).getAllByRole('link')) {
+      expect(link).not.toHaveAttribute('label');
+    }
 
     const good = screen.getByTestId('findings-good');
     expect(

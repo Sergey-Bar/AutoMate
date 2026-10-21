@@ -217,6 +217,16 @@ export function RepoMap({
         </p>
       )}
 
+      {state.path && map.pathNote !== null ? (
+        <p
+          role="status"
+          data-testid="map-path-note"
+          className="max-w-measure shrink-0 text-pretty text-sm text-fg"
+        >
+          {map.pathNote}
+        </p>
+      ) : null}
+
       {wide ? (
         <Canvas
           map={map}
@@ -261,7 +271,16 @@ export function RepoMap({
 
       <Dialog
         open={selected !== undefined}
-        onOpenChange={(open) => (open ? undefined : onStateChange({ ...state, node: undefined }))}
+        onOpenChange={(open) => {
+          if (open) return;
+          const closed = state.node;
+          onStateChange({ ...state, node: undefined });
+          // Back to the node the detail was about. The dialog's own focus return goes to
+          // whatever was focused when it opened, which for a shared link is the page body.
+          window.setTimeout(() => {
+            if (closed !== undefined) buttons.current.get(closed)?.focus();
+          }, 0);
+        }}
         className="m-0 ml-auto h-dvh max-h-dvh w-full max-w-md rounded-none"
       >
         {selected === undefined ? null : <Detail node={selected} />}

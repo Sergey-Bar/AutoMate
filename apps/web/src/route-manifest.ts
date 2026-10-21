@@ -172,7 +172,10 @@ export function isApplicationPath(path: string): boolean {
 
 /** The section `path` sits in, or `null` for a path that is not a page. */
 export function sectionOf(path: string): SectionId | null {
-  return routeFor(path)?.section ?? null;
+  const section = routeFor(path)?.section;
+  if (section !== undefined) return section;
+  // Anything under a run is that run's page, even a sub-path the manifest does not name.
+  return isApplicationPath(path) && normalise(path).startsWith('/dashboard/runs/') ? 'runs' : null;
 }
 
 /** A page that has a place on its section's tab row. */

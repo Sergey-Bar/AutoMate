@@ -80,6 +80,11 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
      * neither holds for an unmount or a React-driven `open` flip.
      */
     const returnFocusTo = useRef<HTMLElement | null>(null);
+    /** The latest callback, read when the dialog closes rather than captured when it opened. */
+    const onOpenChangeRef = useRef(onOpenChange);
+    useEffect(() => {
+      onOpenChangeRef.current = onOpenChange;
+    }, [onOpenChange]);
 
     useEffect(() => {
       if (typeof ref === 'function') {
@@ -94,7 +99,7 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
       if (!dialog) return;
 
       const handleClose = () => {
-        onOpenChange?.(false);
+        onOpenChangeRef.current?.(false);
         const target = returnFocusTo.current;
         returnFocusTo.current = null;
         // Guarded because the trigger may itself be gone by the time the dialog
@@ -120,7 +125,10 @@ export const Dialog = forwardRef<HTMLDialogElement, DialogProps>(
       }
 
       return () => dialog.removeEventListener('close', handleClose);
-    }, [open, onOpenChange]);
+      // `open` only. A new `onOpenChange` identity is not a request to open: a parent whose
+      // state lags the native close (one that keeps it in the URL) re-renders with a fresh
+      // inline callback before `open` turns false, and re-running here reopened the dialog.
+    }, [open]);
 
     /*
      * Backdrop dismissal. Listeners rather than JSX handlers because a `<dialog>` is not an

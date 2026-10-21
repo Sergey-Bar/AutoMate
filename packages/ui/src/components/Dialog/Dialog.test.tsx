@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import {
@@ -30,6 +30,28 @@ function stubDialogElement(): void {
 describe('Dialog', () => {
   beforeEach(() => {
     stubDialogElement();
+  });
+
+  it('does not reopen when the parent re-renders with a new callback before it has caught up', () => {
+    // The controlled `open` can lag the native close: a parent that keeps its state in
+    // the URL closes asynchronously, and a re-render in between (focus returning to the
+    // trigger is enough) hands the dialog a new inline `onOpenChange`. That must not be
+    // read as "open again" — the dialog closed, and only `open` changing may reopen it.
+    function Lagging({ tick }: { tick: number }) {
+      return (
+        <Dialog open onOpenChange={() => tick} data-testid="lagging">
+          <DialogContent>Body</DialogContent>
+        </Dialog>
+      );
+    }
+    const { rerender } = render(<Lagging tick={0} />);
+    const showModal = vi.mocked(HTMLDialogElement.prototype.showModal);
+    expect(showModal).toHaveBeenCalledTimes(1);
+    const dialog = screen.getByTestId('lagging') as HTMLDialogElement;
+    act(() => dialog.close());
+    rerender(<Lagging tick={1} />);
+    expect(showModal).toHaveBeenCalledTimes(1);
+    expect(dialog.open).toBe(false);
   });
 
   it('renders dialog closed by default', () => {

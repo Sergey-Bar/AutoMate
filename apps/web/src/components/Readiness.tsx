@@ -161,14 +161,7 @@ function FindingList({
                   {item.evidence}
                 </p>
               </div>
-              <Link
-                {...item.action}
-                aria-label={`${item.action.label}: ${item.title}`}
-                className="-my-2 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-fg no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-              >
-                {item.action.label}
-                <ArrowRight size={14} aria-hidden="true" />
-              </Link>
+              <ActionLink action={item.action} title={item.title} />
             </li>
           ))}
         </ul>
@@ -185,5 +178,26 @@ function FindingList({
         </button>
       ) : null}
     </section>
+  );
+}
+
+/** A finding's next step. `label` is the link text, so it is taken out before the spread. */
+function ActionLink({
+  action,
+  title,
+}: {
+  action: Finding['action'];
+  title: string;
+}): React.ReactElement {
+  const { label, ...link } = action;
+  return (
+    <Link
+      {...link}
+      aria-label={`${label}: ${title}`}
+      className="-my-2 inline-flex min-h-11 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-fg no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+    >
+      {label}
+      <ArrowRight size={14} aria-hidden="true" />
+    </Link>
   );
 }

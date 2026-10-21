@@ -25,6 +25,7 @@ function map(columns: number[]): RepoMap {
     edges,
     blockingPath: [],
     notice: null,
+    pathNote: null,
   };
 }
 

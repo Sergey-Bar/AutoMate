@@ -179,6 +179,26 @@ describe('the packages view', () => {
     expect(status('tools:apps/web')).toBe('muted');
   });
 
+  it('never lets an unmeasured report pass a package that has a good one beside it', () => {
+    const mixed = buildRepoMap(
+      {
+        ...INPUT,
+        scan: {
+          ...INPUT.scan,
+          tools: [],
+          reports: [
+            report('packages/db/coverage/lcov.info', 'coverage', 'good'),
+            report('packages/db/eslint.json', 'lint', 'info'),
+          ],
+        },
+      },
+      'packages',
+    );
+    const db = mixed.nodes.find((node) => node.id === 'pkg:packages/db');
+    expect(db?.status).toBe('warn');
+    expect(db?.detail).toBe('0 tools · 2 reports · 1 unmeasured');
+  });
+
   it('marks the path from the repository to every failing report', () => {
     expect(map.blockingPath.sort()).toEqual([
       'pkg:apps/web->report:apps/web/junit.xml',
@@ -280,6 +300,44 @@ describe('the flow view', () => {
     expect(
       map.edges.some((edge) => edge.from === 'layer:integration' && edge.to === 'verdict'),
     ).toBe(true);
+  });
+
+  it('still routes a failing layer to the verdict when its tools wrote no report', () => {
+    // Layer scores come from runs, so a red layer with no junit file on disk is common.
+    const noJunit = buildRepoMap(
+      {
+        ...INPUT,
+        scan: { ...INPUT.scan, reports: INPUT.scan.reports.filter((r) => r.kind !== 'tests') },
+      },
+      'flow',
+    );
+    expect(noJunit.edges.some((edge) => edge.id === 'layer:e2e->verdict')).toBe(true);
+    expect(noJunit.blockingPath).toContain('layer:e2e->verdict');
+    expect(traceOf(noJunit, 'layer:e2e').nodes.has('verdict')).toBe(true);
+  });
+
+  it('says when nothing on the view explains a verdict that is not Go', () => {
+    expect(buildRepoMap(INPUT, 'flow').pathNote).toBeNull();
+    const quiet = buildRepoMap(
+      {
+        ...INPUT,
+        score: { cells: [] },
+        scan: { ...INPUT.scan, reports: INPUT.scan.reports.filter((r) => r.status !== 'bad') },
+      },
+      'flow',
+    );
+    expect(quiet.blockingPath).toEqual([]);
+    expect(quiet.pathNote).toMatch(/Nothing on this view explains the No-go/u);
+    const go = buildRepoMap(
+      {
+        ...INPUT,
+        score: { cells: [] },
+        scan: { ...INPUT.scan, reports: [] },
+        readiness: { ...INPUT.readiness!, verdict: 'go', reasons: [] },
+      },
+      'flow',
+    );
+    expect(go.pathNote).toBeNull();
   });
 
   it('marks every edge on a path from a failing node to the verdict', () => {

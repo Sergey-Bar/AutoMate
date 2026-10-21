@@ -123,7 +123,7 @@ describe('summarizeHealth', () => {
       'The gate failed': '/dashboard/runs',
       'Pass rate 80%': '/dashboard/analytics',
       Flaky: '/dashboard/insights',
-      'Coverage 40%': '/dashboard/map',
+      'Coverage 40%': `/dashboard/gaps/${PROJECT}`,
       '4 quarantined': '/dashboard/quarantine',
       'No runs': '/dashboard/runner',
       'login is slower': '/dashboard/insights',
@@ -196,7 +196,13 @@ describe('summarizeHealth', () => {
     expect(summary.good).toEqual([]);
   });
 
-  it('shows five at first, which is the most a glance takes in', () => {
-    expect(WRONG_SHOWN).toBe(5);
+  it('returns every finding, so "Show all" has something to show; the cap is the view’s', () => {
+    const digest: DigestItem[] = Array.from({ length: WRONG_SHOWN + 2 }, (_, index) => ({
+      kind: 'new-failure',
+      tone: 'bad',
+      text: `failure ${String(index)}`,
+    }));
+    const summary = summarizeHealth({ projectId: PROJECT, readiness: null, digest, gaps: null });
+    expect(summary.wrong).toHaveLength(WRONG_SHOWN + 2);
   });
 });

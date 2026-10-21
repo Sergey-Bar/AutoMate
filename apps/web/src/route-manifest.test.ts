@@ -81,6 +81,7 @@ describe('route manifest', () => {
     ['/dashboard', 'overview'],
     ['/dashboard/runs', 'runs'],
     ['/dashboard/runs/run-1', 'runs'],
+    ['/dashboard/runs/run-1/extra', 'runs'],
     ['/dashboard/runner', 'runs'],
     ['/dashboard/insights', 'insights'],
     ['/dashboard/analytics', 'insights'],

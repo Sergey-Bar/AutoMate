@@ -428,11 +428,11 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   | Package                     | Floor       |
   | --------------------------- | ----------- |
   | `apps/api`                  | 95/86/95/97 |
-  | `apps/web`                  | 96/88/96/98 |
+  | `apps/web`                  | 98/91/98/99 |
   | `apps/runner`               | 70/58/66/72 |
   | `apps/worker`               | 63/57/69/65 |
   | `packages/shared-contracts` | 99/98/97/99 |
-  | `packages/ui`               | 67/84/68/66 |
+  | `packages/ui`               | 70/86/71/69 |
   | `packages/db`               | 72/67/55/73 |
   | `tools/migrate-cli`         | 59/42/85/60 |
 

@@ -116,7 +116,8 @@ test.describe('the repo map', () => {
     await page.goto(`${WEB_BASE}/dashboard/map?view=flow`);
     const verdict = page.locator('[data-node="verdict"]');
     await expect(verdict).toBeVisible({ timeout: 20_000 });
-    await expect(verdict).toContainText(word);
+    // The node's name starts with its label, so "Go" cannot match inside "No-go".
+    await expect(verdict).toHaveAttribute('aria-label', new RegExp(`^${word},`, 'u'));
   });
 });
 

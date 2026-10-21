@@ -203,16 +203,93 @@ function uniqueReasons(reasons: readonly string[]): Array<[string, string]> {
   return [...seen.entries()];
 }
 
+/** Gate reasons as a dot-separated line of sentences, each with its raw code on hover. */
+function GateSentences({ reasons }: { reasons: readonly string[] }): React.ReactElement {
+  return (
+    <>
+      {uniqueReasons(reasons).map(([sentence, raw], index) => (
+        <React.Fragment key={raw}>
+          {index > 0 ? ' · ' : null}
+          <span title={raw}>{sentence}</span>
+        </React.Fragment>
+      ))}
+    </>
+  );
+}
+
 /** How many failing tests the header names before pointing at the full list. */
 const FAILURES_SHOWN = 5;
 
+/** Reasons that name a cause on their own, most decisive first. */
+const LEAD_REASONS = [
+  'runner_lost:',
+  'infra_failed:',
+  'config_failed:',
+  'cancelled:',
+  'timed_out:',
+  'evidence:NO_TESTS',
+  'threshold:',
+  'product_failure:TEST_FAILURE',
+];
+
+/** The sentence a failure is headed with when no test failed: the gate's own cause. */
+function leadSentence(run: Run, reasons: readonly string[]): string {
+  for (const prefix of LEAD_REASONS) {
+    const found = reasons.find((reason) => reason.startsWith(prefix));
+    if (found !== undefined) return describeGateReason(found);
+  }
+  if (run.error) return run.error.message;
+  const [first] = reasons;
+  return first === undefined ? 'The run failed' : describeGateReason(first);
+}
+
+/** A run nothing failed in: "all passed" only when every test did and the gate agrees. */
+function RunPassed({
+  run,
+  gate,
+}: {
+  run: Run;
+  gate: { status: string; reasons: readonly string[] } | null;
+}): React.ReactElement | null {
+  if (run.outcome !== 'passed') return null;
+  const { passed, total } = run.summary;
+  const cleared = gate === null || gate.status === 'passed';
+  if (cleared && total > 0 && passed === total) {
+    return (
+      <p
+        data-testid="run-verdict"
+        className="inline-flex shrink-0 items-center gap-2 text-lg font-semibold text-success"
+      >
+        <StatusDot status="good" />
+        {`All ${String(total)} tests passed`}
+      </p>
+    );
+  }
+  return (
+    <div data-testid="run-verdict" className="shrink-0">
+      <p className="inline-flex items-center gap-2 text-lg font-semibold text-fg">
+        <StatusDot status={cleared ? 'warn' : 'unknown'} />
+        {`${String(passed)} of ${String(total)} tests passed`}
+      </p>
+      {!cleared && gate !== null ? (
+        <p className="mt-1 max-w-measure text-sm text-fg-muted">
+          {`Quality gate ${gate.status}: `}
+          <GateSentences reasons={gate.reasons} />
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /**
- * The answer first: what failed, or that nothing did.
+ * The answer first: what failed, or that nothing did — and only "all passed" when that is
+ * true of every test *and* the gate agrees.
  *
  * A failed run used to open on a phase timeline and four figures, and the reason it
- * failed was a panel and a click away. Now the failing tests, their first error, the
- * gate's reasons and the run's own error are the first block under the title — above the
- * fold on a phone, where the panels below become tabs.
+ * failed was a panel and a click away. Now the cause heads the page: the failing tests and
+ * their first error when tests failed, otherwise the gate's decisive reason (no tests ran,
+ * a timeout, a missed threshold). A run whose tests passed but whose gate has no verdict, or
+ * that skipped tests, says how many passed and why it is not green.
  */
 function RunVerdict({
   run,
@@ -224,30 +301,23 @@ function RunVerdict({
   if (isRunActive(run)) return null;
   const failing = run.tests.filter((test) => test.status === 'failed');
   const gateFailed = gate?.status === 'failed';
+  const reasons = gate?.reasons ?? [];
   const failed =
     run.outcome === 'failed' || run.summary.failed > 0 || gateFailed || run.error != null;
-  if (!failed) {
-    if (run.outcome !== 'passed') return null;
-    return (
-      <p
-        data-testid="run-verdict"
-        className="inline-flex shrink-0 items-center gap-2 text-lg font-semibold text-success"
-      >
-        <StatusDot status="good" />
-        {`All ${String(run.summary.total)} tests passed`}
-      </p>
-    );
-  }
+  const { total } = run.summary;
+  if (!failed) return <RunPassed run={run} gate={gate} />;
   return (
     <section
       aria-label="What failed"
       data-testid="run-what-failed"
       className="shrink-0 rounded-xl border border-border bg-surface px-5 py-4"
     >
-      <p className="inline-flex items-center gap-2 text-lg font-semibold text-danger">
+      <h2 className="inline-flex items-center gap-2 text-lg font-semibold text-danger">
         <StatusDot status="bad" />
-        {`${String(run.summary.failed)} of ${String(run.summary.total)} tests failed`}
-      </p>
+        {run.summary.failed > 0
+          ? `${String(run.summary.failed)} of ${String(total)} tests failed`
+          : leadSentence(run, reasons)}
+      </h2>
       {failing.length > 0 ? (
         <ul className="mt-3 divide-y divide-border">
           {failing.slice(0, FAILURES_SHOWN).map((test) => (
@@ -268,15 +338,10 @@ function RunVerdict({
           {`and ${String(failing.length - FAILURES_SHOWN)} more under Test attempts`}
         </p>
       ) : null}
-      {gateFailed && gate !== null && gate.reasons.length > 0 ? (
+      {gateFailed && reasons.length > 0 ? (
         <p className="mt-2 max-w-measure text-sm text-fg">
           <span className="text-fg-muted">Quality gate: </span>
-          {uniqueReasons(gate.reasons).map(([sentence, raw], index) => (
-            <React.Fragment key={raw}>
-              {index > 0 ? ' · ' : null}
-              <span title={raw}>{sentence}</span>
-            </React.Fragment>
-          ))}
+          <GateSentences reasons={reasons} />
         </p>
       ) : null}
       {run.error ? (

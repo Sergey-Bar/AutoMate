@@ -18,7 +18,7 @@ on a regression instead.
 | `apps/api`                   | 95.26      | 86.16    | 94.6      | 97.27 |
 | `apps/runner`                | 70.14      | 57.88    | 66.43     | 72.01 |
 | `apps/tui`                   | 70.4       | 64.51    | 89.47     | 73.25 |
-| `apps/web`                   | 96.18      | 88.47    | 96.34     | 98.23 |
+| `apps/web`                   | 97.6       | 91       | 97.7      | 98.6  |
 | `apps/worker`                | 63.21      | 56.74    | 69.02     | 64.88 |
 | `packages/auth`              | 100        | 100      | 100       | 100   |
 | `packages/automation`        | 94.57      | 85.5     | 89.65     | 96.52 |
@@ -35,7 +35,7 @@ on a regression instead.
 | `packages/reporting`         | 95.34      | 98.73    | 96        | 94    |
 | `packages/runner-sdk`        | 93         | 90.04    | 100       | 93.58 |
 | `packages/shared-contracts`  | 99.27      | 97.72    | 97.22     | 99.25 |
-| `packages/ui`                | 67.13      | 84.27    | 67.85     | 66.46 |
+| `packages/ui`                | 69.7       | 86       | 71.1      | 69    |
 | `tests/integration`          | 88         | 68       | 96        | 87    |
 | `tools/migrate-cli`          | 59.12      | 41.89    | 85.48     | 59.83 |
 

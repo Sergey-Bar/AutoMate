@@ -286,10 +286,17 @@ test('each detector fires on the shape of claim it exists to catch', () => {
     [],
     'the floor the baseline records is not a finding, or the detector fails the table it protects',
   );
+  // Derived like the `apps/api` arm above, never typed: a hard-coded floor here broke the
+  // first time the ratchet raised `packages/ui`, which is the one thing the ratchet is for.
+  const uiFloor = environment.coverageFloors.get('packages/ui');
+  assert.ok(
+    uiFloor !== undefined,
+    'packages/ui must have a recorded floor, or this arm proves nothing',
+  );
   assert.deepEqual(
     findingsFor('coverage-floors', 'AGENTS.md', '| `packages/ui` | 59/74/62/59 |'),
     [
-      "AGENTS.md: quotes `packages/ui`'s coverage floor as 59/74/62/59, and `coverage-baseline.json` records 67/84/68/66. A floor printed in prose is a copy, and the ratchet moves the original every time a package gains tests.",
+      `AGENTS.md: quotes \`packages/ui\`'s coverage floor as 59/74/62/59, and \`coverage-baseline.json\` records ${uiFloor}. A floor printed in prose is a copy, and the ratchet moves the original every time a package gains tests.`,
     ],
     'the real `AGENTS.md` tuple, so the arm fails if the detector stops matching the shape it exists for',
   );

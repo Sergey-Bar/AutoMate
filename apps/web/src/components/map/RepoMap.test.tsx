@@ -110,6 +110,28 @@ describe('the repo map', () => {
     );
   });
 
+  it('says why the blocking path is empty instead of a pressed toggle drawing nothing', async () => {
+    const quiet = buildRepoMap(
+      { ...INPUT, scan: { ...INPUT.scan, reports: [] }, score: { cells: [] } },
+      'flow',
+    );
+    const rootRoute = createRootRoute({
+      component: () => (
+        <RepoMap
+          map={quiet}
+          state={{ view: 'flow', node: undefined, path: true }}
+          onStateChange={() => undefined}
+        />
+      ),
+    });
+    const router = createRouter({ routeTree: rootRoute });
+    router.update({ history: createMemoryHistory({ initialEntries: ['/dashboard/map'] }) });
+    render(<RouterProvider router={router} />);
+    expect(await screen.findByTestId('map-path-note')).toHaveTextContent(
+      'Nothing on this view explains the No-go',
+    );
+  });
+
   it('draws every column, and names each node’s status in words', async () => {
     renderMap();
     const canvas = await screen.findByTestId('map-canvas');
@@ -217,6 +239,13 @@ describe('the repo map', () => {
       'aria-pressed',
       'true',
     );
+  });
+
+  it('returns focus to the node when a shared-link detail closes', async () => {
+    renderMap({ node: 'verdict' });
+    const details = await screen.findByTestId('map-detail');
+    fireEvent.click(within(details).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(node('verdict')).toHaveFocus());
   });
 
   it('ignores a shared node id that is not on the map', async () => {

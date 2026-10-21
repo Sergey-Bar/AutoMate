@@ -57,11 +57,10 @@ export interface HealthSummary {
 /** How many findings a column shows before "Show all". */
 export const WRONG_SHOWN = 5;
 
-const REASON_ACTION: Record<ReadinessReason['code'], Finding['action']> = {
+const REASON_ACTION: Record<Exclude<ReadinessReason['code'], 'coverage'>, FindingAction> = {
   gate: { label: 'Open runs', to: '/dashboard/runs' },
   'pass-rate': { label: 'See the trend', to: '/dashboard/analytics' },
   flaky: { label: 'See flaky tests', to: '/dashboard/insights' },
-  coverage: { label: 'Find the gap', to: '/dashboard/map' },
   quarantine: { label: 'Review quarantine', to: '/dashboard/quarantine' },
   activity: { label: 'Launch a run', to: '/dashboard/runner' },
 };
@@ -89,13 +88,17 @@ const LEVEL_TONE: Record<ReadinessReason['level'], FindingTone> = {
   go: 'good',
 };
 
-function fromReason(reason: ReadinessReason): Finding {
+function fromReason(reason: ReadinessReason, projectId: string): Finding {
   return {
     id: `reason-${reason.code}`,
     tone: LEVEL_TONE[reason.level],
     title: reason.message,
     evidence: reason.evidence,
-    action: REASON_ACTION[reason.code],
+    // Coverage is closed cell by cell, so it goes to the gap queue that names the cells.
+    action:
+      reason.code === 'coverage'
+        ? { label: 'Find the gap', to: '/dashboard/gaps/$projectId', params: { projectId } }
+        : REASON_ACTION[reason.code],
   };
 }
 
@@ -137,12 +140,16 @@ export function summarizeHealth({
     );
 
   const wrong = [
-    ...reasons.filter((reason) => reason.level !== 'go').map(fromReason),
+    ...reasons
+      .filter((reason) => reason.level !== 'go')
+      .map((reason) => fromReason(reason, projectId)),
     ...news.filter(({ item }) => item.tone === 'bad').map(({ finding }) => finding),
     ...queue,
   ];
   const good = [
-    ...reasons.filter((reason) => reason.level === 'go').map(fromReason),
+    ...reasons
+      .filter((reason) => reason.level === 'go')
+      .map((reason) => fromReason(reason, projectId)),
     ...news.filter(({ item }) => item.tone === 'good').map(({ finding }) => finding),
   ];
 
