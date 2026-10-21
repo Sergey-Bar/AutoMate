@@ -8,7 +8,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { cva } from 'class-variance-authority';
-import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 /** See `Dialog.tsx` for why the selector is spelled out in full. */
@@ -28,16 +27,10 @@ export interface DrawerProps extends DialogHTMLAttributes<HTMLDialogElement> {
 }
 
 /**
- * A drawer is glass because it is *the* case for it.
+ * A drawer is an opaque overlay: the raised plane step and the dialog's elevation.
  *
- * A drawer slides in over a dimmed page and the content behind it is still moving, so its
- * backdrop is not a token anyone can pick — it is whatever the page had at that moment.
- * That is precisely what a translucent surface is for, and precisely the condition the
- * design language refuses to leave unmeasured: `theme.test.ts` requires 4.5:1 for the
- * composite this fill makes over each of the four plane steps, in both themes.
- *
- * `bg-surface/50` on the `backdrop:` pseudo is left alone: a scrim's job is to darken
- * what is behind it, and a scrim you can see through is not a scrim.
+ * `bg-surface/50` on the `backdrop:` pseudo is a scrim — its job is to darken what is
+ * behind it — and nothing is read through it, so it carries no blur.
  */
 /**
  * **The drawer slides**, which is the `transition` role and the only movement in the
@@ -50,7 +43,7 @@ export interface DrawerProps extends DialogHTMLAttributes<HTMLDialogElement> {
  * therefore the one the reader sees on the way out, and the way out is faster on purpose.
  */
 const drawerVariants = cva(
-  `fixed z-modal text-fg transition-transform duration-300 ease-in-out open:animate-automate-slide-in backdrop:bg-surface/50 p-0 m-0 ${GLASS_SURFACE_CLASSES}`,
+  `fixed z-modal text-fg transition-transform duration-300 ease-in-out open:animate-automate-slide-in backdrop:bg-surface/50 p-0 m-0 bg-surface-raised shadow-elevation-3`,
   {
     variants: {
       position: {

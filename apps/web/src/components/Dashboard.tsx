@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from '@tanstack/react-router';
 import { Sparkline, cn } from '@automate/ui';
 import { SCORE_CATEGORIES, SCORE_SURFACES, type ScoreCell } from '@automate/shared-contracts';
-import { useResource } from '../hooks/useResource.js';
+import { useResource, type Resource } from '../hooks/useResource.js';
 import type { ApiClient, QuarantineEntry } from '../lib/api.js';
 import {
   compareWindows,
@@ -36,22 +36,28 @@ import {
   useFitCount,
 } from './kit.js';
 import { ProjectGate } from './ProjectGate.js';
-import { ReadinessStrip } from './Readiness.js';
+import { FindingsColumns, VerdictHero } from './Readiness.js';
+import { summarizeHealth, type HealthSummary } from '../lib/health-summary.js';
 import { Responsive } from './responsive.js';
 import { TrendChart } from './TrendChart.js';
 
 /**
- * The dashboard: the whole QA picture of one repository, on one screen, with no scroll.
+ * The Overview: can I ship, what is wrong, what is good — and then the detail.
  *
- * ## Read in three passes
+ * ## Read top to bottom, and stop when you have the answer
  *
- * 1. **The six figures** — health, pass rate, volume, speed, flakiness, maturity — each
- *    with the change since the window before it, so every number is an answer and not a
- *    reading.
- * 2. **The trend and the comparison** — the same window drawn day by day, and "before
- *    versus now" as a table whose every row says whether the change was good.
- * 3. **What to do** — the health matrix with its limiter, the next actions ranked by
- *    what they are worth, and what the reports already on disk say.
+ * 1. **The verdict** — Go, Caution or No-go at display size, with the reason that set it.
+ * 2. **What's wrong beside what's good** — every readiness reason, the week's news and the
+ *    score's gap queue, ranked, each with its evidence and one next action
+ *    (`lib/health-summary.ts`).
+ * 3. **The six figures** — health, pass rate, volume, speed, flakiness, maturity — each
+ *    with the change since the window before it.
+ * 4. **The detail** — the trend, before versus now, the health matrix, the next actions
+ *    and the reports on disk, in a fixed-height grid so the paged lists keep their size.
+ *
+ * Most readers stop after the first two. The page scrolls, deliberately: the answer is
+ * above the fold and the detail is below it, rather than everything squeezed into one
+ * viewport.
  *
  * ## Every read settles on its own
  *
@@ -89,7 +95,7 @@ export function Dashboard({
   projectId?: string;
 }): React.ReactElement {
   return (
-    <ProjectGate qa={qa} title="Dashboard" projectId={projectId}>
+    <ProjectGate qa={qa} title="Overview" projectId={projectId}>
       {(project, switcher) => (
         <DashboardBody qa={qa} api={api} project={project} switcher={switcher} />
       )}
@@ -125,10 +131,12 @@ function DashboardBody({
     [qa, days, project.id],
   );
 
+  const summary = overviewSummary(project.id, readiness, insights, snapshot);
+
   return (
-    <PageFrame data-testid="dashboard">
+    <PageFrame data-testid="dashboard" className="h-auto gap-4 sm:gap-6">
       <PageHeader
-        title="Dashboard"
+        title="Overview"
         subtitle={
           <span data-testid="dashboard-subject">
             {project.name} · {project.repoPath ?? 'no repository path recorded'}
@@ -146,11 +154,13 @@ function DashboardBody({
           </>
         }
       />
-      <ReadinessStrip
-        readiness={readiness.status === 'ready' ? readiness.value : null}
+      <VerdictHero
+        summary={readiness.status === 'ready' ? summary : null}
         failure={readiness.status === 'error' ? readiness.message : null}
-        digest={insights.status === 'ready' ? insights.value.digest : []}
       />
+      {summary === null || snapshot.status === 'loading' ? null : (
+        <FindingsColumns summary={summary} />
+      )}
       {snapshot.status === 'ready' ? (
         <DashboardGrid
           snapshot={snapshot.value}
@@ -167,6 +177,22 @@ function DashboardBody({
       )}
     </PageFrame>
   );
+}
+
+/** What is wrong and what is good, from whichever reads have settled. `null` until readiness has. */
+function overviewSummary(
+  projectId: string,
+  readiness: Resource<ReleaseReadinessCard>,
+  insights: Resource<QaInsights>,
+  snapshot: Resource<Snapshot>,
+): HealthSummary | null {
+  if (readiness.status === 'loading') return null;
+  return summarizeHealth({
+    projectId,
+    readiness: readiness.status === 'ready' ? readiness.value : null,
+    digest: insights.status === 'ready' ? insights.value.digest : [],
+    gaps: snapshot.status === 'ready' ? snapshot.value.gaps.value : null,
+  });
 }
 
 async function loadSnapshot(
@@ -244,6 +270,7 @@ function DashboardGrid({
   const reports = <Reports scan={snapshot.scan.value} />;
   return (
     <>
+      <h2 className="sr-only">The detail</h2>
       {failed.length > 0 ? (
         <p
           role="alert"
@@ -255,25 +282,31 @@ function DashboardGrid({
         </p>
       ) : null}
       <Figures snapshot={snapshot} trend={trend} comparisons={comparisons} />
-      <Responsive
-        label="Dashboard sections"
-        desktop={
-          <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)] gap-3">
-            {trendPanel('col-span-2')}
-            {beforeNow}
-            {matrix}
-            {actions}
-            {reports}
-          </div>
-        }
-        panels={[
-          { id: 'trend', label: 'Trend', node: trendPanel('flex-1') },
-          { id: 'compare', label: 'Before vs now', node: beforeNow },
-          { id: 'matrix', label: 'Matrix', node: matrix },
-          { id: 'actions', label: 'Actions', node: actions },
-          { id: 'reports', label: 'Reports', node: reports },
-        ]}
-      />
+      {/*
+        A fixed height at every width: the paged lists inside measure their panel, and a
+        panel whose height came from its own list would measure itself.
+      */}
+      <div className="flex h-[34rem] shrink-0 flex-col xl:h-auto">
+        <Responsive
+          label="Overview detail"
+          desktop={
+            <div className="grid h-[44rem] shrink-0 grid-cols-3 grid-rows-[minmax(0,1.15fr)_minmax(0,1fr)] gap-3">
+              {trendPanel('col-span-2')}
+              {beforeNow}
+              {matrix}
+              {actions}
+              {reports}
+            </div>
+          }
+          panels={[
+            { id: 'trend', label: 'Trend', node: trendPanel('flex-1') },
+            { id: 'compare', label: 'Before vs now', node: beforeNow },
+            { id: 'matrix', label: 'Matrix', node: matrix },
+            { id: 'actions', label: 'Actions', node: actions },
+            { id: 'reports', label: 'Reports', node: reports },
+          ]}
+        />
+      </div>
     </>
   );
 }
@@ -337,7 +370,7 @@ function Figures({
   return (
     <section
       aria-label="Key figures"
-      className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
+      className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6"
     >
       <Kpi
         data-testid="kpi-health"
@@ -550,7 +583,7 @@ function MatrixCell({ cell }: { cell: ScoreCell | undefined }): React.ReactEleme
 }
 
 const LINK =
-  '-my-3 inline-flex min-h-11 items-center rounded-sm px-1 text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
+  '-my-3 inline-flex min-h-11 items-center rounded-sm px-1 text-xs text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
 const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 } as const;
 
@@ -749,7 +782,7 @@ function Mini({
   return (
     <div className="min-w-0">
       <dt className="truncate text-xs text-fg-muted">{label}</dt>
-      <dd className="m-0 tabular-nums text-2xl font-light">{value}</dd>
+      <dd className="m-0 tabular-nums text-2xl font-semibold">{value}</dd>
       {hint === undefined ? null : <dd className={cn('m-0 text-xs', hintTone)}>{hint}</dd>}
     </div>
   );

@@ -60,7 +60,7 @@ export const CAPABILITY_LABELS: Record<CapabilityCoverage['capability'], string>
 
 export function HealthPage({ qa }: { qa: QaClient }): React.ReactElement {
   return (
-    <ProjectGate qa={qa} title="Health">
+    <ProjectGate qa={qa} title="Capabilities">
       {(project, switcher) => <HealthBody qa={qa} project={project} switcher={switcher} />}
     </ProjectGate>
   );
@@ -83,7 +83,7 @@ function HealthBody({
   return (
     <PageFrame data-testid="health-page">
       <PageHeader
-        title="Health"
+        title="Capabilities"
         subtitle={`What ${project.name} has for QA, and what its reports say`}
         actions={
           <>
@@ -126,7 +126,7 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
     <>
       <section
         aria-label="Repository figures"
-        className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
+        className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6"
       >
         <Kpi
           data-testid="health-maturity"

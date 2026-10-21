@@ -1,6 +1,6 @@
 ---
 title: The design language
-description: The four steps of the plane, what the accent is allowed to do, and which numbers every colour has to clear.
+description: A flat, monochrome plane where colour only ever means a verdict — the four steps, the accent, and the numbers every colour has to clear.
 ---
 
 # The design language
@@ -18,52 +18,53 @@ failure, and a colour in this page that is not in `theme.css` is a page that has
 drifted from the product.
 :::
 
+## The principle
+
+**Monochrome, flat, and colour is meaning.** The product is an instrument: a QA engineer
+opens it to learn what is wrong and what is good, and every pixel that is coloured is a
+pixel they have to decide about. So the plane is neutral grey in four opaque steps, the
+accent is the foreground tone rather than a brand hue, and the only colour on screen is a
+verdict — pass, warn, fail, flaky — or a chart series. There is no glass and no gradient.
+
 ## The plane
 
 Four steps, and the names do not change between themes — the plane is what inverts.
 
 | Token                       | Dark      | Light     | What it is for                                                    |
 | --------------------------- | --------- | --------- | ----------------------------------------------------------------- |
-| `--automate-surface-sunken` | `#08080a` | `#f1f1f4` | The page behind the panels, and the evidence surfaces inside them |
-| `--automate-surface`        | `#0b0b0c` | `#ffffff` | A panel. The base                                                 |
-| `--automate-surface-raised` | `#131316` | `#fbfbfd` | A control sitting on the base                                     |
-| `--automate-surface-muted`  | `#17171b` | `#f4f4f5` | The recessed fill inside a control                                |
+| `--automate-surface-sunken` | `#050505` | `#ebebed` | The page behind the panels, and the evidence surfaces inside them |
+| `--automate-surface`        | `#0a0a0a` | `#ffffff` | A panel. The base                                                 |
+| `--automate-surface-raised` | `#121212` | `#fcfcfc` | A control sitting on the base, and every overlay                  |
+| `--automate-surface-muted`  | `#171717` | `#f4f4f5` | The recessed fill inside a control                                |
 
 In dark mode the plane gets **lighter** as it rises; in light mode it gets **closer to
 white**. That inversion is asserted, not described: `theme.test.ts` checks that
 `surface-sunken` is the darkest step in both themes, that `surface-raised` lies
 strictly between the base and the inset, and that the direction from base to inset is
-opposite in the two themes. Re-tuning one value cannot invert the stack without that
-failing.
+opposite in the two themes. It also holds every plane step, both foregrounds and the
+decorative border under 0.012 OKLCH chroma — the plane is grey, not cool or warm.
 
 There is no fifth surface. A component that needs one is a component that needs a
 token, a contrast case and a name for what the new step is.
 
 ### Elevation
 
-Elevation is a shadow that _follows_ the plane, not one that leads it:
+Depth comes from the plane step and a hairline. A shadow is for something that floats:
 
-| Step    | Shadow                                    | For                                       |
-| ------- | ----------------------------------------- | ----------------------------------------- |
-| `1`     | `0 1px 2px rgb(0 0 0 / 0.32)`             | A card                                    |
-| `2`     | `0 4px 12px -2px`, plus a 1px `0 1px 3px` | A raised panel, a hover surface           |
-| `3`     | `0 18px 48px -12px`, plus `0 4px 12px`    | A dialog, a command palette               |
-| `glass` | `0 24px 64px -16px`, plus `0 6px 16px`    | A translucent panel — see [Glass](#glass) |
+| Step | Shadow                                    | For                                     |
+| ---- | ----------------------------------------- | --------------------------------------- |
+| `1`  | `0 1px 2px rgb(0 0 0 / 0.32)`             | Rarely; a card does not need one        |
+| `2`  | `0 4px 12px -2px`, plus a 1px `0 1px 3px` | A popover, a toast                      |
+| `3`  | `0 18px 48px -12px`, plus `0 4px 12px`    | A dialog, a drawer, the command palette |
 
-A single `shadow-sm` cannot describe a plane with four levels — it is either invisible
-on the base or heavy on the top one — so the scale exists to say _which_ plane token a
-surface is painted on. The fourth entry is not a fifth level of the plane: it is the same
-plane, seen through something.
+Cards and panels carry **no** shadow: one opaque step and the decorative border.
 
-### The light plane, re-ordered
+### The light plane
 
-The light theme used to read as one flat sheet: the page (`#f1f1f4`) and the panel on it
-(`#fbfbfd`) measured 1.08:1 apart, and the raised step was _darker_ than the base. The
-page is now a cool `#e9ebf0` under white panels — at least 1.15:1, asserted in
-`theme.test.ts` — the decorative edge is `#dcdfe6` (visible on white, still under the 3:1
-that would outline every box), and the three elevation steps are re-declared for light
-only, as low-alpha cool shadows. On a near-black page a 32% black shadow is the only
-separation between planes; on white the same shadow is a smudge.
+White panels on a soft neutral page (`#ebebed`), at least 1.15:1 apart — asserted in
+`theme.test.ts` — with a decorative edge of `#dcdcdf` that is visible on white and still
+under the 3:1 that would outline every box. The three elevation steps are re-declared
+for light only, as low-alpha neutral shadows: on white a 32% black shadow is a smudge.
 
 ### The chart palette
 
@@ -84,28 +85,20 @@ first field `data-autofocus` instead.
 
 ## The accent
 
-`--automate-accent` is `#3d9bff` in dark and `#1466b5` in light. Measured, it is
-`oklch(0.682 0.172 252.9)` — cyan-shifted electric blue.
+`--automate-accent` is `#e5e5e5` in dark and `#171717` in light — the foreground tone, with
+no hue. `theme.test.ts` holds it under 0.01 OKLCH chroma in both themes.
 
-**It reads as emitted light because of where it is allowed, not because of how it
-looks.** The accent is a hairline and a glow:
+It is allowed in three places:
 
-- the active-run rail,
 - the focus ring,
-- the `LIVE` pulse,
-- a hover underline,
-- one bloom behind the Command Center hero.
+- the active state (the current section in the navigation, a selected tab),
+- the one solid primary fill — a white button with a black label in dark, black with a
+  white label in light.
 
-It is not a large fill and it is not a verdict. A reader who has learned that a
-particular colour means a particular thing is being told something else by the same
-pixel if the brand colour does double duty.
+It is never a verdict, and now it cannot look like one: a reader who has learned that
+green means passed is never asked whether a blue pixel is a result or the brand.
 
-**The light theme uses the 800 step of the ramp, not the 500.** The dark theme can
-afford a light blue on a near-black plane — 6.87:1 — because the contrast is enormous.
-The same value on white is 2.86:1, and the accent backs link and button text there, so
-it owes 4.5:1 like any other text.
-
-## Run state, and why `info` is not the accent
+## Run state, and why `info` is quieter
 
 | Token                | Dark      | Light     | OKLCH hue         |
 | -------------------- | --------- | --------- | ----------------- |
@@ -113,20 +106,19 @@ it owes 4.5:1 like any other text.
 | `--automate-warning` | `#e4a247` | `#7e5415` | 72                |
 | `--automate-danger`  | `#d9716b` | `#9f3331` | 25                |
 | `--automate-info`    | `#7c8da6` | `#4d5f79` | 258, chroma 0.048 |
-| `--automate-accent`  | `#3d9bff` | `#1466b5` | 253, chroma 0.172 |
 
-`--automate-info` used to be literally `var(--automate-accent)`, which made the brand
-colour double as a verdict. It is steel now: the same hue as the accent and roughly a
-third of its chroma, so a reader who has learned that a colour means a verdict is not
-told something else by the same pixel. The test asserts _categorically_ — info's chroma
-must be under half the accent's — rather than picking a number, because the claim is
-about being visibly quieter, not about a specific measurement.
+`--automate-info` is steel: a note, never a verdict. The test asserts it categorically —
+every run state is at least half as saturated again as info — rather than picking a
+number, because the claim is about being visibly quieter.
 
 The three run states keep 20 degrees or more of hue between them, which is about where
 two hues stop being separable by hue alone. Below that the palette is relying on
 saturation as well as hue, which is exactly what a reader with a colour vision
 deficiency cannot do. `theme.test.ts` measures the hues in OKLab and asserts the
 decisions, because a contrast ratio cannot check a hue.
+
+**A status is never colour alone.** A verdict is a dot _and_ a word, and a trend is an
+icon _and_ a screen-reader label (`StatusDot`, `StatCard`).
 
 **These are used as body text.** `Alert` and `Toast` render `text-success` over
 `bg-success/10`, so they owe 4.5:1 — not the 3:1 a swatch would owe — and a second
@@ -138,8 +130,8 @@ shipped rendering failed. There is a test for that case per plane step.
 
 | Token                      | Dark      | Light     | Measured                                      |
 | -------------------------- | --------- | --------- | --------------------------------------------- |
-| `--automate-border`        | `#2a2a2e` | `#e4e4e7` | ~1.3:1 on the base — below 3:1 **on purpose** |
-| `--automate-border-strong` | `#66666b` | `#898990` | 3.2:1 or better against every plane step      |
+| `--automate-border`        | `#262626` | `#dcdcdf` | ~1.3:1 on the base — below 3:1 **on purpose** |
+| `--automate-border-strong` | `#6b6b6b` | `#76767c` | 3.2:1 or better against every plane step      |
 
 `--automate-border` is decoration: a card outline, a divider, a table rule. A card edge
 at 3:1 on a plane this dark is a mid-grey line around every rectangle on the screen.
@@ -152,15 +144,6 @@ it. Before it existed they drew their 1px edge from the decorative token and mea
 The test asserts the strong border against all four plane steps, not only the base,
 because a control painted on `--automate-surface-sunken` has to survive there too — and
 in the dark theme the _muted_ step is the binding constraint, not the base.
-
-**Two borders, and then a third case that is neither.** A glass border is neither the
-delineating edge nor the decorative one: its job is to describe a panel's edge against
-_whatever is behind it_, so it is a function of the backdrop, and a token cannot hold a
-function. There is no `--automate-glass-border` and a test asserts its absence, because a
-fixed-alpha hairline would be invisible on a light backdrop and a hard line on a dark one.
-The glass edge is `--shadow-glass` instead: the third state of this section is _elevation
-describing the edge_, and it is the reason the elevation scale has four steps rather than
-three.
 
 ## Type
 
@@ -230,56 +213,43 @@ scale variable — so the media query clamps the properties themselves as well, 
 drawer still slides. `0.01ms` rather than `0s`: a zero duration can suppress the
 `animationend` event a component is waiting on.
 
-## Glass
+## No glass
 
-Glass ships. `backdrop-filter` remains an **error** in every `.ts` and `.tsx` file outside
-one exported allowlist, enforced by `eslint.config.js`. The reasoning has not changed: a
-backdrop-filter makes an overlay a _lens_, so the readability of the thing being read
-depends on whatever is underneath, and in an evidence console the pixels behind a panel are
-usually the evidence.
+`backdrop-filter` is an **error** in every `.ts` and `.tsx` file, with no allowlist
+(`eslint.config.js`, proved live by `scripts/lib/eslint-plugin-compatibility.test.mjs`).
+`theme.css` declares no glass token and no page wash, `theme-resolution.test.ts` fails on
+any `backdrop-*` class, and `performance/rendering-budget.json` holds the glass stack
+depth at **0** on every primary route, measured from computed style in a real browser.
 
-What changed is the **instrument**. Phase 1 answered that observation with a total ban,
-and a total ban cannot ask its own question — it knows the property and nothing about what
-is behind the element. So glass is now admissible where the backdrop is _stable_, and the
-review rule that replaced `no-glass-over-data` asks the narrower question that can actually
-be answered: `glass-over-unstable-backdrop`.
+Glass shipped for a while against a measured contrast rule. It was removed because a
+lens makes the readability of the thing being read depend on whatever is underneath,
+and in an evidence console the pixels behind a panel are usually the evidence. An
+overlay is the raised plane step at `shadow-elevation-3`; a scrim darkens and is never
+read through.
 
-### Stable and unstable
+## The Overview and the Map
 
-| Backdrop                                                                                 | Verdict                                                                                                          |
-| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| The plane, or chrome over the page — `NavBar`, `Sidebar`, the shell, `Drawer`, `Popover` | **Admissible.** The backdrop is a token, or one of four fixed plane steps                                        |
-| A panel over another panel, at any depth                                                 | **Admissible, and capped at one layer** — `performance/rendering-budget.json`                                    |
-| Over a log, a stack trace, a diff, a scrolling table                                     | **Not admissible.** A reader comparing two lines needs both at once, and no contrast measurement makes that safe |
+**Four sections, and every old page is a tab.** Overview, Runs, Insights and Map are the
+only top-level destinations (`apps/web/src/route-manifest.ts`, `SECTIONS`); the eight pages
+that used to be in the bar are tabs of those sections, at the URLs they always had. From
+`lg` up the sections sit in the top bar; below it they are a bottom tab bar with 56px
+targets, and the top bar names where you are.
 
-### The tokens, and why each one is what it is
+**The Overview answers in order and stops.** The verdict first — Go, Caution or No-go at
+display size, in words and an icon as well as a colour — then _What's wrong_ beside
+_What's good_, each finding with its evidence and one next action
+(`apps/web/src/lib/health-summary.ts`). An unknown input is listed as wrong, never as good.
+The figures and the detail sit below the fold on purpose.
 
-| Token                       | Value                                                        | Why                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| --------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--automate-glass-fill`     | `color-mix(in oklab, `--automate-surface` 72%, transparent)` | A **floor**, not a preference. Below it the contrast against the worst-case backdrop stops being measurable. There is no border token and no border utility: a glass border describes an edge against _whatever is behind it_, which is a function a token cannot hold. A 1px hairline at fixed alpha is invisible on a light backdrop and a hard line on a dark one, so the edge is described by elevation instead. |
-| `--automate-glass-blur`     | `8px`                                                        | The bottom of the scheduled 8–16px range. The cost argument against glass scales with the kernel radius; 8px delivers the material read — you can see there is something behind the panel — at about a third of the cost of 16px.                                                                                                                                                                                    |
-| `--automate-glass-saturate` | `1.05`                                                       | The bottom of the scheduled 1.05–1.15 range, for the same reason.                                                                                                                                                                                                                                                                                                                                                    |
-| `--automate-glass-radius`   | `12px`                                                       | A **ceiling**, deliberately not exposed as a utility. Every surface that adopts glass is already at 6, 8 or 12px. A ceiling published as a utility is a default wearing a limit as a name.                                                                                                                                                                                                                           |
-| `--shadow-glass`            | a fourth elevation step                                      | Stronger than `--shadow-elevation-3`, because a translucent panel has to be separated from what shows through it rather than from an opaque neighbour.                                                                                                                                                                                                                                                               |
-
-The fill is declared once in `:root`, not per theme: it is a `color-mix` against
-`--automate-surface`, which the light theme redefines, and a test fails if a theme block
-starts restating it.
-
-### The contrast case, and what it replaced
-
-A panel over a static plane samples a fixed set of pixels and its contrast is a property of
-the theme. A translucent panel does not. `packages/ui/src/tokens/theme.test.ts` composites
-`--automate-glass-fill` over **every** plane step, in **both** themes, and requires 4.5:1
-on the result for `--automate-fg`, `--automate-fg-muted` and all five status hues plus
-`--automate-accent`. A panel that passes against `--automate-surface` and fails against
-`--automate-surface-sunken` is legible on one screen and not on another, and no assertion
-that reads a single token can see it.
-
-### Reading it back
-
-`pnpm site:doctor` check 8 imports this page's `theme.css` rather than copying it, so the
-tokens above are the ones the product ships.
+**The Map is the repository as an explorable picture.** Two views of one set of facts
+(`apps/web/src/lib/repo-map.ts`): _Flow_ runs from the code through the test layers, the
+tools and the reports to the verdict; _Packages_ runs from the repository to each package
+and its evidence. Nodes are buttons named with their status in words; edges are
+decoration. Hover or focus traces a node's lineage, _Show blocking path_ colours the edges
+that explain the worst news, and a node opens its evidence. The view, the open node and
+the path live in the URL, so a link reopens the same picture. Below `md` the canvas
+becomes a list per column. No graph library: the layout is a deterministic column stack
+(`map-layout.ts`) and motion is opacity only, off under reduced motion.
 
 ## The escape hatches
 
@@ -288,7 +258,7 @@ different requests:
 
 | Query                                  | What it does                                                                                                               |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `prefers-reduced-transparency: reduce` | The plane becomes fully opaque, both borders are pushed to 3:1, and a glass panel gets an opaque fill with **no** effect   |
+| `prefers-reduced-transparency: reduce` | Both borders are pushed to 3:1 against every plane step                                                                    |
 | `prefers-contrast: more`               | Muted text moves toward the full foreground; both borders go to the control border. The status hues are **untouched**      |
 | `forced-colors: active`                | The borders and the plane are handed to `Canvas`/`CanvasText`, because in forced-colors the two themes are the same screen |
 
@@ -299,14 +269,6 @@ which fixes one contrast request by breaking a different one.
 `forced-color-adjust` is not set to `none` anywhere, and there is an assertion for that.
 Overriding it is how a component ends up with a colour the user did not choose, which is
 the one outcome that query exists to prevent.
-
-**The transparency query carries the glass fallback, and it neutralises the effect as well
-as the fill.** `--automate-glass-blur` goes to `0px` and `--automate-glass-saturate` to `1`
-alongside the opaque fill. Blurring an opaque fill is invisible, so setting only the fill
-would have looked right while leaving the compositor repainting a backdrop for a result
-nobody can see — which is the cost half of the argument against glass. Doing it through
-the tokens rather than through a second rule is why a new glass surface inherits the
-fallback by existing.
 
 ## What this site is made of
 

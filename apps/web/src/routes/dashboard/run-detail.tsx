@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createRoute } from '@tanstack/react-router';
-import { Badge, Button, EmptyState } from '@automate/ui';
+import { Badge, Button, EmptyState, StatusDot } from '@automate/ui';
 import type { RunPhase } from '@automate/shared-contracts';
 import { Route as dashboardRoute } from '../dashboard.js';
 import { useRunDetail } from '../../hooks/useDashboard.js';
@@ -8,6 +8,7 @@ import { isRunActive } from '../../hooks/useRuns.js';
 import { ApiError, getArtifactUrl, type ApiClient, type Run } from '../../lib/api.js';
 import { formatDate as formatDateWithFallback } from '../../lib/format.js';
 import { formatDuration } from '../../lib/insights.js';
+import { describeGateReason } from '../../lib/gate-reason.js';
 import { PageFrame, PageHeader, Panel } from '../../components/kit.js';
 import { Responsive } from '../../components/responsive.js';
 
@@ -192,6 +193,101 @@ function TestEvidence({ tests }: { tests: Run['tests'] }) {
   );
 }
 
+/** Gate reasons as `[sentence, raw]`, one per distinct sentence, in the server's order. */
+function uniqueReasons(reasons: readonly string[]): Array<[string, string]> {
+  const seen = new Map<string, string>();
+  for (const raw of reasons) {
+    const sentence = describeGateReason(raw);
+    if (!seen.has(sentence)) seen.set(sentence, raw);
+  }
+  return [...seen.entries()];
+}
+
+/** How many failing tests the header names before pointing at the full list. */
+const FAILURES_SHOWN = 5;
+
+/**
+ * The answer first: what failed, or that nothing did.
+ *
+ * A failed run used to open on a phase timeline and four figures, and the reason it
+ * failed was a panel and a click away. Now the failing tests, their first error, the
+ * gate's reasons and the run's own error are the first block under the title — above the
+ * fold on a phone, where the panels below become tabs.
+ */
+function RunVerdict({
+  run,
+  gate,
+}: {
+  run: Run;
+  gate: { status: string; reasons: readonly string[] } | null;
+}): React.ReactElement | null {
+  if (isRunActive(run)) return null;
+  const failing = run.tests.filter((test) => test.status === 'failed');
+  const gateFailed = gate?.status === 'failed';
+  const failed =
+    run.outcome === 'failed' || run.summary.failed > 0 || gateFailed || run.error != null;
+  if (!failed) {
+    if (run.outcome !== 'passed') return null;
+    return (
+      <p
+        data-testid="run-verdict"
+        className="inline-flex shrink-0 items-center gap-2 text-lg font-semibold text-success"
+      >
+        <StatusDot status="good" />
+        {`All ${String(run.summary.total)} tests passed`}
+      </p>
+    );
+  }
+  return (
+    <section
+      aria-label="What failed"
+      data-testid="run-what-failed"
+      className="shrink-0 rounded-xl border border-border bg-surface px-5 py-4"
+    >
+      <p className="inline-flex items-center gap-2 text-lg font-semibold text-danger">
+        <StatusDot status="bad" />
+        {`${String(run.summary.failed)} of ${String(run.summary.total)} tests failed`}
+      </p>
+      {failing.length > 0 ? (
+        <ul className="mt-3 divide-y divide-border">
+          {failing.slice(0, FAILURES_SHOWN).map((test) => (
+            <li key={test.id} className="min-w-0 py-2">
+              <p className="text-sm font-medium text-fg">{test.title}</p>
+              {test.error ? <p className="text-sm text-danger">{test.error.message}</p> : null}
+              {test.file ? (
+                <p className="truncate font-mono text-xs text-fg-muted" title={test.file}>
+                  {test.file}
+                </p>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {failing.length > FAILURES_SHOWN ? (
+        <p className="mt-1 text-xs text-fg-muted">
+          {`and ${String(failing.length - FAILURES_SHOWN)} more under Test attempts`}
+        </p>
+      ) : null}
+      {gateFailed && gate !== null && gate.reasons.length > 0 ? (
+        <p className="mt-2 max-w-measure text-sm text-fg">
+          <span className="text-fg-muted">Quality gate: </span>
+          {uniqueReasons(gate.reasons).map(([sentence, raw], index) => (
+            <React.Fragment key={raw}>
+              {index > 0 ? ' · ' : null}
+              <span title={raw}>{sentence}</span>
+            </React.Fragment>
+          ))}
+        </p>
+      ) : null}
+      {run.error ? (
+        <p className="mt-2 text-sm text-fg">
+          <span className="font-mono text-danger">{run.error.code}</span> {run.error.message}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
   const {
     run,
@@ -289,7 +385,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
 
   const summary = (
     <>
-      <div className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3">
+      <div className="shrink-0 rounded-xl border border-border bg-surface-raised px-4 py-3">
         <PhaseTimeline phase={run.phase} />
       </div>
 
@@ -310,24 +406,32 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
         <Figure
           label="Duration"
           testId="run-duration"
-          value={
-            run.summary.durationMs == null ? 'UNKNOWN' : formatDuration(run.summary.durationMs)
-          }
+          value={run.summary.durationMs == null ? '—' : formatDuration(run.summary.durationMs)}
+          hint={run.summary.durationMs == null ? 'Not reported' : undefined}
         />
       </section>
       <section
         aria-label="Run context"
-        className="shrink-0 rounded-2xl border border-border bg-surface-raised px-4 py-3"
+        className="shrink-0 rounded-xl border border-border bg-surface-raised px-4 py-3"
       >
         <dl className="m-0 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3 xl:grid-cols-9">
-          <ContextItem label="Project" testId="run-project" value={run.projectId ?? 'UNKNOWN'} />
-          <ContextItem label="Environment" value={run.environmentId ?? 'UNKNOWN'} />
-          <ContextItem label="Release" value={run.releaseId ?? 'UNKNOWN'} />
+          {/*
+            Project, environment and release are omitted when the run never had them — a
+            reporter-sent run has none of the three — rather than drawn as UNKNOWN. Branch,
+            runner and the times stay, because their absence is itself the information.
+          */}
+          {run.projectId ? (
+            <ContextItem label="Project" testId="run-project" value={run.projectId} />
+          ) : null}
+          {run.environmentId ? <ContextItem label="Environment" value={run.environmentId} /> : null}
+          {run.releaseId ? <ContextItem label="Release" value={run.releaseId} /> : null}
           <ContextItem
             label="Branch / Commit"
-            value={`${run.branch ?? 'UNKNOWN'} / ${run.commit ?? 'UNKNOWN'}`}
+            value={`${run.branch ?? '—'} / ${run.commit ?? '—'}`}
           />
-          <ContextItem label="Framework" value={run.framework ?? 'UNKNOWN'} />
+          {run.framework && run.framework !== 'unknown' ? (
+            <ContextItem label="Framework" value={run.framework} />
+          ) : null}
           <ContextItem label="Runner" value={run.runner?.name ?? run.runner?.id ?? 'UNASSIGNED'} />
           <ContextItem label="Created" value={formatDate(run.createdAt)} />
           <ContextItem label="Started" value={formatDate(run.startedAt)} />
@@ -379,7 +483,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
                 <li key={artifact.id} className="py-2">
                   <a
                     href={getArtifactUrl(artifact.id)}
-                    className="rounded-sm font-medium text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                    className="rounded-sm font-medium text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                   >
                     {artifact.name ?? artifact.kind}
                   </a>
@@ -457,7 +561,9 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
             >
               <ul className="space-y-1 break-words text-sm">
                 {gate.reasons.map((reason, index) => (
-                  <li key={`${reason}-${index}`}>{reason}</li>
+                  <li key={`${reason}-${index}`} title={reason}>
+                    {describeGateReason(reason)}
+                  </li>
                 ))}
               </ul>
             </div>
@@ -510,11 +616,11 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
         <div className="min-w-0">
           <a
             href="/dashboard/runs"
-            className="inline-flex min-h-11 items-center rounded-sm text-sm text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            className="inline-flex min-h-11 items-center rounded-sm text-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
           >
             ← Runs
           </a>
-          <h1 className="mt-1 text-3xl font-light tracking-tight">Run detail</h1>
+          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Run detail</h1>
           <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
             {run.suite ? <span className="truncate font-mono text-fg">{run.suite}</span> : null}
             <span data-testid="run-id" className="truncate font-mono">
@@ -565,13 +671,15 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
             <a
               data-testid="retry-run-link"
               href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
-              className="rounded-sm text-accent hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+              className="rounded-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
             >
               Open retried run {retryTarget}
             </a>
           ) : null}
         </div>
       ) : null}
+
+      <RunVerdict run={run} gate={gate} />
 
       <Responsive
         label="Run sections"
@@ -614,14 +722,17 @@ function Figure({
   value,
   testId,
   tone,
+  hint,
 }: {
   label: string;
   value: string;
   testId: string;
   tone?: string;
+  /** What a dash means, for a reader who hovers it. */
+  hint?: string;
 }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3">
+    <div className="min-w-0 rounded-xl border border-border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3">
       <div
         className="truncate text-[0.6875rem] font-medium uppercase tracking-widest text-fg-muted sm:text-xs"
         title={label}
@@ -631,8 +742,8 @@ function Figure({
       {/* A word ("UNKNOWN") steps down a size on a phone, so four figures share one row. */}
       <div
         data-testid={testId}
-        title={value}
-        className={`mt-1 truncate tabular-nums font-light sm:text-3xl ${value.length > 5 ? 'text-base' : 'text-xl'} ${tone ?? ''}`}
+        title={hint ?? value}
+        className={`mt-1 truncate tabular-nums font-semibold sm:text-3xl ${value.length > 5 ? 'text-base' : 'text-xl'} ${tone ?? ''}`}
       >
         {value}
       </div>

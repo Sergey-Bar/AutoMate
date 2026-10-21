@@ -69,6 +69,8 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
   // The table measures its own panel: a row is ~56px under a ~44px head.
   const [size, tableBox] = useFitCount(56, 8, 44);
   const pager = usePager(runs, size);
+  const showProject = runs.some((run) => run.projectId != null);
+  const showDuration = runs.some((run) => run.summary.durationMs != null);
   const latestReleaseId = runs.find((run) => run.releaseId)?.releaseId ?? null;
 
   if (isLoading) {
@@ -118,16 +120,24 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
         />
       ) : (
         <Panel title="All runs" data-testid="runs-table">
+          {/*
+            A column no run fills is a column of dashes. Reporter-sent runs carry neither a
+            project nor a duration, so both columns appear only once some run has one.
+          */}
           <div ref={tableBox} className="min-h-0 flex-1 overflow-hidden">
             <Table aria-label="Runs">
               <TableHeader>
                 <TableRow>
                   <TableHead>Run</TableHead>
-                  <TableHead className="hidden lg:table-cell">Project</TableHead>
+                  {showProject ? (
+                    <TableHead className="hidden lg:table-cell">Project</TableHead>
+                  ) : null}
                   <TableHead className="hidden md:table-cell">Phase</TableHead>
                   <TableHead>Outcome</TableHead>
                   <TableHead className="hidden md:table-cell">Created</TableHead>
-                  <TableHead className="hidden sm:table-cell">Duration</TableHead>
+                  {showDuration ? (
+                    <TableHead className="hidden sm:table-cell">Duration</TableHead>
+                  ) : null}
                   <TableHead>Tests</TableHead>
                 </TableRow>
               </TableHeader>
@@ -137,14 +147,14 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
                     <TableCell>
                       <a
                         href={runDetailPath(run.id)}
-                        className="inline-flex min-h-6 items-center rounded-sm font-mono text-xs text-accent no-underline hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                        className="inline-flex min-h-6 items-center rounded-sm font-mono text-xs text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
                       >
                         {run.suite ?? run.id.slice(0, 8)}
                       </a>
                     </TableCell>
-                    <TableCell className="hidden lg:table-cell">
-                      {run.projectId ?? 'UNKNOWN'}
-                    </TableCell>
+                    {showProject ? (
+                      <TableCell className="hidden lg:table-cell">{run.projectId ?? '—'}</TableCell>
+                    ) : null}
                     <TableCell className="hidden md:table-cell">
                       <Badge variant={isRunActive(run) ? 'default' : 'outline'}>{run.phase}</Badge>
                     </TableCell>
@@ -159,11 +169,13 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
                     <TableCell className="hidden md:table-cell">
                       {formatDate(run.createdAt, 'Not started')}
                     </TableCell>
-                    <TableCell numeric className="hidden sm:table-cell">
-                      {run.summary.durationMs != null
-                        ? formatDuration(run.summary.durationMs)
-                        : 'UNKNOWN'}
-                    </TableCell>
+                    {showDuration ? (
+                      <TableCell numeric className="hidden sm:table-cell">
+                        {run.summary.durationMs != null
+                          ? formatDuration(run.summary.durationMs)
+                          : '—'}
+                      </TableCell>
+                    ) : null}
                     <TableCell numeric>
                       {run.summary.total > 0
                         ? `${run.summary.passed}/${run.summary.total}`

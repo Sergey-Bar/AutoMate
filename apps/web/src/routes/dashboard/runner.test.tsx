@@ -30,7 +30,7 @@ describe('the runner', () => {
   it('lists the scanned tools, with the ones that never exit disabled and explained', async () => {
     renderRunner(makeQa());
     await waitFor(() => expect(screen.getByTestId('tool-script:.:test')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { level: 1, name: 'Runner' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Launch' })).toBeInTheDocument();
     expect(screen.getByText('3 runnable of 4 tools declared in Automate')).toBeInTheDocument();
     expect(screen.getByTestId('run-script:.:dev')).toBeDisabled();
     expect(screen.getByTestId('tool-script:.:dev')).toHaveTextContent('long-running server');

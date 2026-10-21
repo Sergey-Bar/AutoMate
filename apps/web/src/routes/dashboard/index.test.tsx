@@ -106,7 +106,7 @@ describe('RunsListPage', () => {
     expect(link).toHaveAttribute('href', '/dashboard/runs/run-active');
   });
 
-  it('renders UNKNOWN for missing project and duration', async () => {
+  it('drops the project and duration columns when no run reports them', async () => {
     const unknownRun = makeRun({
       id: 'run-unknown',
       projectId: null,
@@ -116,7 +116,26 @@ describe('RunsListPage', () => {
     renderRunsPage(makeApi({ getRuns: vi.fn().mockResolvedValue([unknownRun]) }));
     await waitFor(() => expect(screen.getByTestId('run-row-run-unknown')).toBeInTheDocument());
     const row = screen.getByTestId('run-row-run-unknown');
-    expect(row).toHaveTextContent('UNKNOWN');
+    expect(row).not.toHaveTextContent('UNKNOWN');
     expect(row).toHaveTextContent('No tests reported');
+    expect(screen.queryByRole('columnheader', { name: 'Project' })).toBeNull();
+    expect(screen.queryByRole('columnheader', { name: 'Duration' })).toBeNull();
+  });
+
+  it('keeps a column some runs report, and dashes the runs that do not', async () => {
+    const unknownRun = makeRun({
+      id: 'run-unknown',
+      projectId: null,
+      phase: 'complete',
+      outcome: 'passed',
+      summary: { ...passedRun.summary, durationMs: null },
+    });
+    renderRunsPage(makeApi({ getRuns: vi.fn().mockResolvedValue([passedRun, unknownRun]) }));
+    await waitFor(() => expect(screen.getByTestId('run-row-run-unknown')).toBeInTheDocument());
+    expect(screen.getByRole('columnheader', { name: 'Project' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Duration' })).toBeInTheDocument();
+    const row = screen.getByTestId('run-row-run-unknown');
+    expect(row).not.toHaveTextContent('UNKNOWN');
+    expect(row).toHaveTextContent('—');
   });
 });

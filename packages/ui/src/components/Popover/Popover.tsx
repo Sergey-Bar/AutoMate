@@ -11,7 +11,6 @@ import {
   type RefAttributes,
   isValidElement,
 } from 'react';
-import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 export interface PopoverProps {
@@ -171,7 +170,7 @@ export const PopoverContent = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivE
          * belongs to the anchor and only the component knows which edge it is on.
          */
         'absolute z-popover mt-2 w-72 origin-top rounded-md border border-border p-4 text-fg outline-none animate-zoom-in-95 duration-150',
-        GLASS_SURFACE_CLASSES,
+        'bg-surface-raised shadow-elevation-2',
         className,
       )}
       {...props}

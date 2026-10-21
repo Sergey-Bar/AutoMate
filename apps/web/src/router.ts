@@ -8,6 +8,7 @@ import { Route as runsListRoute } from './routes/dashboard/index.js';
 import { Route as runDetailRoute } from './routes/dashboard/run-detail.js';
 import { Route as runnerRoute } from './routes/dashboard/runner.js';
 import { Route as healthRoute } from './routes/dashboard/health.js';
+import { Route as mapRoute } from './routes/dashboard/map.js';
 import { Route as toolboxRoute } from './routes/dashboard/toolbox.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
@@ -19,6 +20,7 @@ const dashboardTree = dashboardRoute.addChildren([
   runDetailRoute,
   runnerRoute,
   healthRoute,
+  mapRoute,
   toolboxRoute,
   analyticsRoute,
   quarantineRoute,

@@ -94,7 +94,7 @@ export function HistoryChart({ points }: { points: readonly ScanSnapshot[] }): R
                     points={segment}
                     fill="none"
                     stroke="currentColor"
-                    strokeWidth={2.5}
+                    strokeWidth={1.75}
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     vectorEffect="non-scaling-stroke"

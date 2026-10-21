@@ -1,76 +1,44 @@
 import React from 'react';
 import { Link, useRouterState } from '@tanstack/react-router';
-import { GLASS_SURFACE_CLASSES, Menu, X, cn } from '@automate/ui';
-import { visibleRoutes } from '../route-manifest.js';
+import { Activity, LayoutGrid, ListChecks, Network, cn } from '@automate/ui';
+import { SECTIONS, routeFor, sectionOf, tabsOf, type SectionId } from '../route-manifest.js';
 import { ThemeToggle } from './ThemeToggle.js';
 
 /**
- * The only chrome: one bar, the product's name, every destination, the theme.
+ * The chrome: four sections, three surfaces.
  *
- * ## One row at every width
+ * - `NavBar` — the top bar. The wordmark, the four sections from `lg` up, the theme.
+ * - `SectionTabs` — the tab row under it, for a section with more than one page.
+ * - `BottomTabBar` — the four sections as a thumb-reach tab bar below `lg`.
  *
- * From `lg` up the seven destinations sit inline. Below it they move behind a menu button,
- * so the bar stays one row tall on a phone — a second row of links is 50px every page has
- * to give up, and the rule is that a page fits without scrolling. The bar names the page
- * you are on beside the button, so the menu hides the other destinations and never the
- * current one.
- *
- * ## The current page is marked for assistive technology, not only by colour
- *
- * `aria-current="page"` on the active link, and the visual marker is a weight and an
- * underline as well as a colour, so a reader who cannot see the hue still sees which.
+ * All three read `SECTIONS` and `sectionOf` from the manifest, so there is one answer to
+ * "where am I". The current section is marked with `aria-current="page"` **and** with
+ * weight and a rule, never with colour alone.
  *
  * **No Logout button.** The install is open, so there is no session to end.
  */
-const LINK_BASE =
-  'inline-flex min-h-11 items-center rounded-md px-3 text-sm no-underline transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
-export function NavBar() {
-  const currentPath = useRouterState({ select: (state) => state.location.pathname });
-  const isActive = (path: string) =>
-    path === '/dashboard' ? currentPath === path : currentPath.startsWith(path);
-  const [open, setOpen] = React.useState(false);
-  const menuId = React.useId();
-  const current = visibleRoutes.find((route) => isActive(route.path));
+const SECTION_ICONS: Record<SectionId, typeof LayoutGrid> = {
+  overview: LayoutGrid,
+  runs: ListChecks,
+  insights: Activity,
+  map: Network,
+};
 
-  // A navigation closes the menu; so does Escape, from anywhere on the page.
-  React.useEffect(() => setOpen(false), [currentPath]);
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+const FOCUS =
+  'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
-  const links = (inMenu: boolean) =>
-    visibleRoutes.map((route) => (
-      <li key={route.id} className={inMenu ? undefined : 'shrink-0'}>
-        <Link
-          to={route.path}
-          // TanStack writes `aria-current` itself on any child path, so `/dashboard` would
-          // claim to be current on every screen. Exact matching for the root only.
-          activeOptions={{ exact: route.path === '/dashboard' }}
-          aria-current={isActive(route.path) ? 'page' : undefined}
-          className={cn(
-            LINK_BASE,
-            inMenu && 'w-full',
-            isActive(route.path)
-              ? 'font-semibold text-fg underline decoration-accent decoration-2 underline-offset-8'
-              : 'text-fg-muted hover:text-fg',
-          )}
-        >
-          {route.label}
-        </Link>
-      </li>
-    ));
+function useCurrentPath(): string {
+  return useRouterState({ select: (state) => state.location.pathname });
+}
 
+export function NavBar(): React.ReactElement {
+  const current = sectionOf(useCurrentPath());
   return (
     <nav
       data-testid="nav-bar"
       aria-label="Primary navigation"
-      className={`relative flex shrink-0 items-center gap-x-4 border-b border-border-default px-4 sm:px-6 lg:gap-x-6 ${GLASS_SURFACE_CLASSES}`}
+      className="relative flex h-14 shrink-0 items-center gap-x-6 border-b border-border bg-surface px-4 sm:px-6"
     >
       {/*
         The product's name, and the only place it appears in the chrome. `aria-hidden`
@@ -83,31 +51,120 @@ export function NavBar() {
       >
         Automate
       </span>
-      <ul className="hidden min-w-0 flex-1 items-center gap-x-1 lg:flex">{links(false)}</ul>
-      <div className="flex min-w-0 flex-1 items-center gap-1 lg:hidden">
-        <button
-          type="button"
-          data-testid="nav-menu-toggle"
-          aria-expanded={open}
-          aria-controls={menuId}
-          onClick={() => setOpen((value) => !value)}
-          className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-md px-2 text-sm text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-        >
-          {open ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
-          <span className="truncate">{current?.label ?? 'Menu'}</span>
-          <span className="sr-only">{open ? ', close the menu' : ', open the menu'}</span>
-        </button>
-      </div>
+      <ul className="hidden min-w-0 flex-1 items-center justify-center gap-x-1 lg:flex">
+        {SECTIONS.map((section) => {
+          const active = section.id === current;
+          return (
+            <li key={section.id}>
+              <Link
+                to={section.path}
+                activeOptions={{ exact: true }}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'inline-flex min-h-11 items-center rounded-md px-4 text-sm transition-colors',
+                  FOCUS,
+                  active
+                    ? 'font-semibold text-fg underline decoration-accent decoration-2 underline-offset-[1.15rem]'
+                    : 'font-medium text-fg-muted hover:text-fg',
+                )}
+              >
+                {section.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+      {/* Below `lg` the sections are in the bottom bar; the top bar names where you are. */}
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-fg-muted lg:hidden">
+        {SECTIONS.find((section) => section.id === current)?.label}
+      </span>
       <ThemeToggle />
-      {open ? (
-        <ul
-          id={menuId}
-          data-testid="nav-menu"
-          className="absolute inset-x-0 top-full z-overlay flex flex-col gap-0.5 border-b border-border bg-surface-raised p-2 shadow-elevation-2 lg:hidden"
-        >
-          {links(true)}
-        </ul>
-      ) : null}
+    </nav>
+  );
+}
+
+/**
+ * The section's pages, as an underline row. Shown only when the current page is one of
+ * the section's tabs — a run detail or a score deep-dive is reached by a link, and a tab
+ * row above it would mark nothing as current.
+ */
+export function SectionTabs(): React.ReactElement | null {
+  const path = useCurrentPath();
+  const section = sectionOf(path);
+  const page = routeFor(path);
+  if (section === null || page === undefined || !('tab' in page)) return null;
+  const tabs = tabsOf(section);
+  if (tabs.length === 0) return null;
+  const label = SECTIONS.find((entry) => entry.id === section)?.label ?? '';
+  return (
+    <nav
+      data-testid="section-tabs"
+      aria-label={`${label} pages`}
+      className="-mx-4 mb-4 overflow-x-auto border-b border-border px-4 sm:-mx-6 sm:mb-6 sm:px-6"
+    >
+      <ul className="flex gap-1">
+        {tabs.map((tab) => {
+          const active = tab.id === page.id;
+          return (
+            <li key={tab.id} className="shrink-0">
+              <Link
+                to={tab.path}
+                activeOptions={{ exact: true }}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  '-mb-px inline-flex min-h-11 items-center border-b-2 px-3 text-sm transition-colors',
+                  FOCUS,
+                  active
+                    ? 'border-accent font-semibold text-fg'
+                    : 'border-transparent font-medium text-fg-muted hover:text-fg',
+                )}
+              >
+                {tab.tab}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+/**
+ * The four sections within thumb reach, below `lg`. A flex child of the shell rather than
+ * `position: fixed`, so it never covers the last row of a page, with the safe-area inset
+ * added beneath it for a phone with a home indicator.
+ */
+export function BottomTabBar(): React.ReactElement {
+  const current = sectionOf(useCurrentPath());
+  return (
+    <nav
+      data-testid="bottom-tab-bar"
+      aria-label="Sections"
+      className="shrink-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
+    >
+      <ul className="grid grid-cols-4">
+        {SECTIONS.map((section) => {
+          const Icon = SECTION_ICONS[section.id];
+          const active = section.id === current;
+          return (
+            <li key={section.id}>
+              <Link
+                to={section.path}
+                activeOptions={{ exact: true }}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex min-h-14 flex-col items-center justify-center gap-1 text-xs transition-colors',
+                  FOCUS,
+                  active ? 'font-semibold text-fg' : 'font-medium text-fg-muted hover:text-fg',
+                )}
+              >
+                <Icon size={20} strokeWidth={active ? 2.25 : 1.75} aria-hidden="true" />
+                {section.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
     </nav>
   );
 }

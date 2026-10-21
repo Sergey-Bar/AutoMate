@@ -122,6 +122,29 @@ test('a compliant component is not reported, so the rules are discriminating', (
   }
 });
 
+/**
+ * The backdrop ban, live. The plane is flat and `GLASS_ALLOWLIST` is empty, so every
+ * `backdrop-*` filter class is an error — including the two that used to be allowed.
+ * An empty negative lookahead would have made the selector match nothing, so the ban is
+ * proved by linting, not by reading the selector. The opaque twin must stay clean.
+ */
+const BACKDROP_PROBE = `export const glass = 'rounded-md backdrop-blur-glass';
+export const blur = 'backdrop-blur-md';
+export const flat = 'bg-surface-raised shadow-elevation-3';
+`;
+
+test('the backdrop ban reports every backdrop filter class and nothing opaque', (t) => {
+  const file = path.join(probeDirectory, 'zz-backdrop-probe.ts');
+  writeFileSync(file, BACKDROP_PROBE, 'utf8');
+  t.after(() => rmSync(file, { force: true }));
+
+  const lines = lint(file)
+    .split('\n')
+    .filter((line) => /no-restricted-syntax/.test(line) && /backdrop-filter/.test(line))
+    .map((line) => Number.parseInt(line.trim().split(':')[0], 10));
+  assert.deepEqual(lines.sort(), [1, 2], `expected lines 1 and 2 only, got ${String(lines)}`);
+});
+
 test('the plugin is loaded rather than absent, which the flat config would otherwise hide', () => {
   // `eslint.config.js` does `...jsxA11y.configs.recommended.rules` at module load. If
   // the plugin failed to load under ESLint 10 that spread would throw on `undefined`

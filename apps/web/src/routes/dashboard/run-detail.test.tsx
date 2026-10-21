@@ -115,6 +115,64 @@ function detailApi(run: Run | null, overrides: Partial<ApiClient> = {}): ApiClie
 }
 
 describe('RunDetailPage', () => {
+  it('leads a failed run with what failed: the tests, their errors and the gate', async () => {
+    render(<RunDetailPage id="run-123" api={detailApi(passedRun)} />);
+    const failed = await screen.findByTestId('run-what-failed');
+    expect(failed).toHaveTextContent('1 of 1 tests failed');
+    expect(failed).toHaveTextContent('loads the command center');
+    expect(failed).toHaveTextContent('Expected command center');
+    expect(failed).toHaveTextContent('e2e/smoke.spec.ts');
+    expect(failed).toHaveTextContent('browser tests failed');
+    // Above the execution summary, so the reason is the first thing on a phone.
+    const summary = screen.getByRole('region', { name: 'Execution summary' });
+    expect(failed.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('reads gate codes as sentences, keeps the raw code on hover, and dashes a missing duration', async () => {
+    const coded = {
+      ...gate,
+      reasons: [
+        'browser:FAILED',
+        'threshold:PASS_RATE; observed=33.33; required=100; rule=browserPassRateThreshold',
+      ],
+    };
+    const run = makeRun({
+      ...passedRun,
+      summary: { ...passedRun.summary, durationMs: null },
+      policyEvaluation: coded,
+    });
+    render(
+      <RunDetailPage
+        id="run-123"
+        api={detailApi(run, { getRunGate: vi.fn().mockResolvedValue(coded) })}
+      />,
+    );
+    const failed = await screen.findByTestId('run-what-failed');
+    expect(failed).toHaveTextContent('Browser tests failed · Pass rate 33.33%, needs 100%');
+    expect(failed).not.toHaveTextContent('threshold:PASS_RATE');
+    expect(screen.getAllByTitle(/threshold:PASS_RATE; observed=33.33/u).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('run-duration')).toHaveTextContent('—');
+    expect(screen.getByTestId('run-duration')).toHaveAttribute('title', 'Not reported');
+  });
+
+  it('says a passing run passed, and draws no failure header', async () => {
+    const green = makeRun({
+      ...passedRun,
+      outcome: 'passed',
+      tests: [],
+      summary: { ...passedRun.summary, total: 3, passed: 3, failed: 0 },
+      policyEvaluation: null,
+    });
+    render(
+      <RunDetailPage
+        id="run-123"
+        api={detailApi(green, { getRunGate: vi.fn().mockResolvedValue(null) })}
+      />,
+    );
+    expect(await screen.findByTestId('run-verdict')).toHaveTextContent('All 3 tests passed');
+    expect(screen.queryByTestId('run-what-failed')).toBeNull();
+  });
+
   it('renders loading state initially', () => {
     const api = detailApi(passedRun, { getRun: vi.fn(() => new Promise<Run>(() => undefined)) });
     render(<RunDetailPage id="run-123" api={api} />);
@@ -218,12 +276,24 @@ describe('RunDetailPage', () => {
     expect(screen.getByTestId('run-readiness')).toHaveTextContent('NOT_CONFIGURED');
   });
 
-  it('shows explicit UNKNOWN values for missing evidence', async () => {
-    const unknownRun = makeRun({ id: 'unknown', projectId: null, phase: 'queued' });
+  it('says what is unknown about a run, and leaves out context nobody reported', async () => {
+    const unknownRun = makeRun({
+      id: 'unknown',
+      projectId: null,
+      environmentId: null,
+      releaseId: null,
+      phase: 'queued',
+    });
     render(<RunDetailPage id="unknown" api={detailApi(unknownRun)} />);
     await waitFor(() => expect(screen.getByTestId('run-detail-page')).toBeInTheDocument());
-    expect(screen.getByTestId('run-project')).toHaveTextContent('UNKNOWN');
-    expect(screen.getByTestId('run-duration')).toHaveTextContent('UNKNOWN');
+    // A reporter-sent run has no project, environment or release: those cells are omitted
+    // rather than drawn as a row of UNKNOWN.
+    expect(screen.queryByTestId('run-project')).toBeNull();
+    const context = screen.getByRole('region', { name: 'Run context' });
+    expect(context).not.toHaveTextContent('Environment');
+    expect(context).not.toHaveTextContent('Release');
+    expect(context).toHaveTextContent('Branch / Commit');
+    expect(screen.getByTestId('run-duration')).toHaveTextContent('—');
     expect(screen.getByTestId('run-gate')).toHaveTextContent('UNKNOWN');
     expect(screen.getByText(/No events have been observed/iu)).toBeInTheDocument();
   });

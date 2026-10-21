@@ -53,6 +53,11 @@
     "The count is of *elements with a computed `backdrop-filter`*, not of elements carrying",
     "a glass class, so a token that stops applying stops counting.",
     "",
+    "**The ceiling is 0 on every route since the flat redesign.** The product ships no",
+    "translucent surface at all, so any element with a computed `backdrop-filter` is a",
+    "regression this spec reports by route. The depth counter is kept rather than deleted",
+    "because a ban that nothing measures in a real browser is a ban on paper.",
+    "",
     "How to populate it: run `pnpm render:baseline` on the reference hardware the plan's",
     "D10 commits to, which writes the measured values here with `recorded: true` and the",
     "date. Review the diff before committing it — the point of recording the number once is",
@@ -61,36 +66,36 @@
     "wrong number just as honestly as a guess would."
   ],
   "recorded": false,
-  "reason": "Never measured. Every timing ceiling below is null because no run on the reference hardware has populated it, so the timing half of this budget currently protects nothing. This is the same defect the ledger records as RF-9 for performance/thresholds.json, adopted here deliberately so the rendering budget does not ship as an unvalidated estimate — except that this file refuses to pretend. The timings stay null and the gate stays in its measurement phase rather than being given numbers that mean nothing. Populate with `pnpm render:baseline` on the reference hardware the plan's D10 commits to, and raise `test:render` to `pr-blocking` in the same commit. Tracked as PERF-1. The `glassStackDepth` ceilings are the exception: they are not timings, they were measured by running this spec, and they are compared today.",
+  "reason": "Never measured. Every timing ceiling below is null because no run on the reference hardware has populated it, so the timing half of this budget currently protects nothing. This is the same defect the ledger records as RF-9 for performance/thresholds.json, adopted here deliberately so the rendering budget does not ship as an unvalidated estimate — except that this file refuses to pretend. The timings stay null and the gate stays in its measurement phase rather than being given numbers that mean nothing. Populate with `pnpm render:baseline` on the reference hardware the plan's D10 commits to, and raise `test:render` to `pr-blocking` in the same commit. Tracked as PERF-1. The `glassStackDepth` ceilings are the exception: they are not timings, they are 0 because the plane is flat, and they are compared today.",
   "recordedOn": null,
   "routes": {
     "/login": {
-      "$why": "The first paint a person sees, and the only route reachable with no session. Chrome only — the shell, the sidebar and nothing else, which is why its glass count is the lowest of the four and the reason a regression here would be a chrome regression rather than a data one.",
-      "glassStackDepth": 1,
+      "$why": "The first paint a person sees. Chrome only, and opaque like everything else: a non-zero glass depth here is a chrome regression.",
+      "glassStackDepth": 0,
       "lcpMs": null,
       "inpMs": null,
       "cls": null,
       "longTasks": null
     },
     "/dashboard/runs": {
-      "$why": "The Command Center list. The heaviest of the four: every row is a run, and a slow one here is a dashboard that appears to hang. It is also the route with the most panels per screen, so its glass count is the one a new card-shaped component would move.",
-      "glassStackDepth": 1,
+      "$why": "The runs list. The heaviest of the four: every row is a run, and a slow one here is a dashboard that appears to hang. Opaque rows on an opaque plane, so the glass depth is 0.",
+      "glassStackDepth": 0,
       "lcpMs": null,
       "inpMs": null,
       "cls": null,
       "longTasks": null
     },
     "/dashboard/runs/:runId": {
-      "$why": "Where a person decides whether a release is safe, so a rendering defect here is the most expensive one in the product. This is also the route the design language explicitly keeps dense — glass is chrome and cards, never the evidence table — which makes it the natural canary for the glass budget: a ceiling that moves here means a translucent surface has crept over the data.",
-      "glassStackDepth": 1,
+      "$why": "Where a person decides whether a release is safe, so a rendering defect here is the most expensive one in the product. Evidence is never read through a translucent surface: the glass depth is 0.",
+      "glassStackDepth": 0,
       "lcpMs": null,
       "inpMs": null,
       "cls": null,
       "longTasks": null
     },
     "/dashboard/quarantine": {
-      "$why": "The filter surface, and the only primary flow whose content changes on every keystroke — so its INP is the reading most likely to catch an unthrottled re-render. It re-renders on input, which is also when a translucent panel is cheapest to get wrong: a backdrop that is recomposited per keystroke is the exact cost `GLASS_SURFACE_CLASSES` was measured to avoid.",
-      "glassStackDepth": 1,
+      "$why": "The filter surface, and the only primary flow whose content changes on every keystroke — so its INP is the reading most likely to catch an unthrottled re-render. Opaque, glass depth 0.",
+      "glassStackDepth": 0,
       "lcpMs": null,
       "inpMs": null,
       "cls": null,

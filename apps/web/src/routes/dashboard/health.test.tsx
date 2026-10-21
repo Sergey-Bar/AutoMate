@@ -8,7 +8,7 @@ describe('the health page', () => {
   it('shows every capability as covered or missing, in words as well as an icon', async () => {
     render(<HealthPage qa={makeQa()} />);
     await waitFor(() => expect(screen.getByTestId('capability-unit')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { level: 1, name: 'Health' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Capabilities' })).toBeInTheDocument();
     expect(screen.getByTestId('capability-unit')).toHaveAttribute('data-covered', 'true');
     expect(screen.getByTestId('capability-unit')).toHaveTextContent(
       'Unit tests, coveredVitest, pnpm run test',

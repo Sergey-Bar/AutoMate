@@ -8,22 +8,28 @@ test('renders stat card with title and value', () => {
   expect(screen.getByText('1,234')).toBeInTheDocument();
 });
 
-test('renders trend and description when provided', () => {
+test('renders the description when provided', () => {
   render(<StatCard title="Revenue" value="$10k" trend="up" description="Since last month" />);
   expect(screen.getByText('Since last month')).toBeInTheDocument();
-  // check for trend class or icon presence implicitly by relying on structure
-  const card = screen.getByText('Revenue').closest('div');
-  expect(card).toBeInTheDocument();
 });
 
-test('renders different trends', () => {
-  render(
-    <>
-      <StatCard title="A" value="1" trend="down" data-testid="trend-down" />
-      <StatCard title="B" value="2" trend="neutral" data-testid="trend-neutral" />
-    </>,
-  );
+test.each([
+  ['up', 'Trending up', 'text-success'],
+  ['down', 'Trending down', 'text-danger'],
+  ['neutral', 'No change', 'text-fg-muted'],
+] as const)('names the %s trend in text, not only in colour', (trend, label, tone) => {
+  render(<StatCard title="A" value="1" trend={trend} />);
+  const named = screen.getByText(label);
+  expect(named).toHaveClass('sr-only');
+  expect(named.parentElement).toHaveClass(tone);
+});
 
-  expect(screen.getByTestId('trend-down')).toBeInTheDocument();
-  expect(screen.getByTestId('trend-neutral')).toBeInTheDocument();
+test('renders no trend when none is given', () => {
+  render(<StatCard title="A" value="1" />);
+  expect(screen.queryByText(/Trending|No change/)).toBeNull();
+});
+
+test('sets the value in tabular figures, so a column of cards lines up', () => {
+  render(<StatCard title="A" value="98.4%" />);
+  expect(screen.getByText('98.4%')).toHaveClass('tabular-nums');
 });

@@ -83,7 +83,7 @@ export function inGroup(tool: RepoTool, group: GroupId): boolean {
 
 export function RunnerPage({ qa, api }: { qa: QaClient; api: ApiClient }): React.ReactElement {
   return (
-    <ProjectGate qa={qa} title="Runner">
+    <ProjectGate qa={qa} title="Launch">
       {(project, switcher) => (
         <RunnerBody qa={qa} api={api} project={project} switcher={switcher} />
       )}
@@ -114,7 +114,7 @@ function RunnerBody({
   return (
     <PageFrame data-testid="runner-page">
       <PageHeader
-        title="Runner"
+        title="Launch"
         subtitle={
           scan.status === 'ready'
             ? `${String(runnable.length)} runnable of ${String(scan.value.tools.length)} tools declared in ${project.name}`
@@ -428,7 +428,10 @@ function Activity({
       action={
         <Link
           to="/dashboard/runs"
-          className={cn(LINK, '-my-3 inline-flex min-h-11 items-center px-1 text-xs text-accent')}
+          className={cn(
+            LINK,
+            '-my-3 inline-flex min-h-11 items-center px-1 text-xs text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg',
+          )}
         >
           All runs
         </Link>

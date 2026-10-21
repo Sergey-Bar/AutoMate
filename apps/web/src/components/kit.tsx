@@ -18,10 +18,8 @@ import type { Verdict } from '../lib/insights.js';
  * ## Why these live in the application and not in `packages/ui`
  *
  * They encode one screen language — a fixed-viewport page of quiet panels with one large
- * number each — rather than a general primitive. `Card` and `StatCard` in the library are
- * glass, and glass inside a page made of panels stacks a blur on a blur, which the design
- * language refuses. These panels are opaque `surface-raised`, so the only glass on a page
- * is the navigation bar above it.
+ * number each — rather than a general primitive. Every panel is flat: one opaque plane
+ * step, a hairline, no shadow. Colour inside a panel is a verdict or nothing.
  *
  * ## The no-scroll rule, and where it is kept
  *
@@ -57,7 +55,7 @@ export function PageHeader({
   return (
     <header className="flex shrink-0 flex-wrap items-end justify-between gap-x-3 gap-y-2">
       <div className="min-w-0">
-        <h1 className="text-2xl font-light tracking-tight sm:text-3xl">{title}</h1>
+        <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{title}</h1>
         {subtitle === undefined ? null : (
           <div
             className="mt-0.5 max-w-measure truncate text-sm text-fg-muted"
@@ -89,13 +87,13 @@ export function Panel({
     <section
       aria-labelledby={id}
       className={cn(
-        'flex min-h-0 min-w-0 flex-col rounded-2xl border border-border bg-surface-raised p-3 shadow-elevation-1 sm:p-4',
+        'flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-surface p-4 sm:p-5',
         className,
       )}
       {...props}
     >
       <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
-        <h2 id={id} className="text-xs font-medium uppercase tracking-widest text-fg-muted">
+        <h2 id={id} className="text-xs font-medium uppercase tracking-wider text-fg-muted">
           {title}
         </h2>
         {action}
@@ -175,14 +173,14 @@ export function Kpi({
   return (
     <div
       className={cn(
-        'flex min-w-0 flex-col justify-between rounded-2xl border bg-surface-raised px-3 py-2 sm:px-4 sm:py-3',
-        hero ? 'border-border-strong shadow-elevation-2' : 'border-border shadow-elevation-1',
+        'flex min-w-0 flex-col justify-between rounded-xl border bg-surface px-4 py-3 sm:px-5 sm:py-4',
+        hero ? 'border-border-strong' : 'border-border',
       )}
       data-hero={hero ? '' : undefined}
       {...props}
     >
       <div
-        className="truncate text-[0.6875rem] font-medium uppercase tracking-widest text-fg-muted sm:text-xs"
+        className="truncate text-xs font-medium uppercase tracking-wider text-fg-muted"
         title={label}
       >
         {label}
@@ -193,8 +191,8 @@ export function Kpi({
             className={cn(
               'truncate tabular-nums tracking-tight',
               hero
-                ? 'text-3xl font-extralight sm:text-4xl xl:text-5xl'
-                : 'text-2xl font-light sm:text-3xl xl:text-4xl',
+                ? 'text-3xl font-semibold sm:text-4xl xl:text-5xl'
+                : 'text-2xl font-semibold sm:text-3xl',
             )}
             title={unit === undefined ? value : `${value} ${unit}`}
           >
@@ -362,7 +360,7 @@ export function Segmented<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className="inline-flex rounded-full border border-border bg-surface-muted p-1"
+      className="inline-flex rounded-lg border border-border bg-surface-muted p-0.5"
     >
       {options.map((option) => (
         <button
@@ -371,9 +369,9 @@ export function Segmented<T extends string>({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            'min-h-11 whitespace-nowrap rounded-full px-3 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
+            'min-h-11 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none sm:px-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus',
             option.value === value
-              ? 'bg-surface-raised text-fg shadow-elevation-1'
+              ? 'bg-surface text-fg ring-1 ring-border'
               : 'text-fg-muted hover:text-fg',
           )}
         >
@@ -384,22 +382,8 @@ export function Segmented<T extends string>({
   );
 }
 
-const STATUS_TONE = {
-  good: 'bg-success',
-  warn: 'bg-warning',
-  bad: 'bg-danger',
-  info: 'bg-fg-muted',
-} as const;
-
-/** A coloured dot, always beside a word that says the same thing. */
-export function StatusDot({ status }: { status: keyof typeof STATUS_TONE }): React.ReactElement {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn('inline-block h-2 w-2 shrink-0 rounded-full', STATUS_TONE[status])}
-    />
-  );
-}
+/** A coloured dot, always beside a word that says the same thing. One copy, in the library. */
+export { StatusDot } from '@automate/ui';
 
 /** A loading or failed state that keeps the page's shape rather than collapsing it. */
 export function Quiet({
