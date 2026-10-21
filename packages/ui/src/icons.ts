@@ -113,4 +113,12 @@ export {
   CircleAlert,
   CircleHelp,
   OctagonX,
+  /** The four sections, in the bottom tab bar: Overview, Runs, Insights, Map. */
+  LayoutGrid,
+  ListChecks,
+  Network,
+  /** A finding's next action: "Fix →", "Open →". */
+  ArrowRight,
+  /** The repo map's "show the blocking path" toggle. */
+  Route,
 } from 'lucide-react';

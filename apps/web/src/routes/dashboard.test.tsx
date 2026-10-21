@@ -105,7 +105,7 @@ describe('dashboard routes', () => {
     // what a bare install renders. The dashboard has a report state too, and
     // `Dashboard.test.tsx` is what covers it.
     await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument();
     expect(screen.queryByTestId('home-page')).not.toBeInTheDocument();
     // **A home page that asks you to fill in a form before it tells you anything is a
     // form.** The dashboard reports; the runs route asks for input. Both halves asserted,

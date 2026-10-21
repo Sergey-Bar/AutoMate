@@ -358,19 +358,19 @@ function RecoveryPanel({ insights }: { insights: QaInsights }): React.ReactEleme
         <dl className="m-0 grid shrink-0 grid-cols-3 gap-2 text-xs">
           <div>
             <dt className="text-fg-muted">Median</dt>
-            <dd className="m-0 tabular-nums text-lg font-light">
+            <dd className="m-0 tabular-nums text-lg font-semibold">
               {orDash(overall.medianMs, formatDuration)}
             </dd>
           </div>
           <div>
             <dt className="text-fg-muted">p90</dt>
-            <dd className="m-0 tabular-nums text-lg font-light">
+            <dd className="m-0 tabular-nums text-lg font-semibold">
               {orDash(overall.p90Ms, formatDuration)}
             </dd>
           </div>
           <div>
             <dt className="text-fg-muted">Open</dt>
-            <dd className="m-0 tabular-nums text-lg font-light">
+            <dd className="m-0 tabular-nums text-lg font-semibold">
               {String(suites.filter((suite) => suite.openSince !== null).length)}
             </dd>
           </div>

@@ -22,7 +22,7 @@ fails_.
 | Rule                                                                                                                                                                 | What enforces it                                                                                                                                                                                      |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Colour is a token. A literal hex in a `.ts` or `.tsx` file is a build failure.                                                                                       | `apps/web/src/theme-resolution.test.ts` scans **both** `packages/ui/src` and `apps/web/src`, resolves each utility against a real Tailwind compile, and fails on any class that generates nothing     |
-| `backdrop-filter` is an error. Phase 1 ships no glass at all.                                                                                                        | `eslint.config.js` — `GLASS_SELECTOR`, spread into every block that sets `no-restricted-syntax`, because a standalone block silently replaced the double-assertion rule the first time it was written |
+| `backdrop-filter` is an error, with no allowlist. The plane is flat and monochrome: no glass, no page wash, and the accent has no hue.                               | `eslint.config.js` — `GLASS_SELECTOR`, spread into every block that sets `no-restricted-syntax`, because a standalone block silently replaced the double-assertion rule the first time it was written |
 | `animate-in`, `fade-in-*`, `zoom-in-*` and `slide-in-from-*` do not exist — no plugin is installed, and sixteen class names written against one compiled to nothing. | `PLUGIN_PROVIDED_UTILITIES` in `theme-resolution.test.ts`. Use `animate-fade-in`, `animate-fade-out`, `animate-zoom-in-95`, `animate-zoom-out-95`                                                     |
 | `lucide-react` is a dependency of `packages/ui` and **not** of `apps/web`, so an application component cannot import it                                              | pnpm's isolated `node_modules`. Import icons from `@automate/ui`; the list is `packages/ui/src/icons.ts`, and adding one is a line a reviewer reads                                                   |
 | The two font binaries are committed once, in `packages/ui/src/assets/fonts/`, each with a sha256 and an upstream beside it                                           | `packages/ui/src/tokens/fonts.test.ts`, in both directions — the recorded digest, and no binary in the directory without a row                                                                        |
@@ -428,11 +428,11 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   | Package                     | Floor       |
   | --------------------------- | ----------- |
   | `apps/api`                  | 95/86/95/97 |
-  | `apps/web`                  | 96/88/96/98 |
+  | `apps/web`                  | 98/91/98/99 |
   | `apps/runner`               | 70/58/66/72 |
   | `apps/worker`               | 63/57/69/65 |
   | `packages/shared-contracts` | 99/98/97/99 |
-  | `packages/ui`               | 67/84/68/66 |
+  | `packages/ui`               | 70/86/71/69 |
   | `packages/db`               | 72/67/55/73 |
   | `tools/migrate-cli`         | 59/42/85/60 |
 

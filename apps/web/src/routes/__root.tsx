@@ -1,6 +1,6 @@
 import React from 'react';
 import { Outlet, createRootRoute, redirect } from '@tanstack/react-router';
-import { NavBar } from '../components/NavBar.js';
+import { BottomTabBar, NavBar, SectionTabs } from '../components/NavBar.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 import { GlobalCommandPalette } from '../components/GlobalCommandPalette.js';
 
@@ -37,11 +37,15 @@ function RootComponent() {
    */
   return (
     <ThemeProvider>
-      <div className="flex h-dvh flex-col overflow-hidden bg-surface text-fg">
+      <div className="flex h-dvh flex-col overflow-hidden bg-surface-sunken text-fg">
         <NavBar />
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:px-6">
-          <Outlet />
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4 sm:px-6 sm:py-6">
+          <SectionTabs />
+          <div className="flex min-h-0 flex-1 flex-col">
+            <Outlet />
+          </div>
         </main>
+        <BottomTabBar />
       </div>
       <GlobalCommandPalette />
     </ThemeProvider>

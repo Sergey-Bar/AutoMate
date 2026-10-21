@@ -5,7 +5,7 @@ export * from './components/Toggle/Toggle.js';
 export * from './components/EmptyState/EmptyState.js';
 export * from './lib/utils.js';
 /*
- * The glass policy, and nothing else.
+ * No token module is exported.
  *
  * There used to be a `tokens/` barrel here that also exported a `tokens` object and a
  * `tailwindPreset` carrying seven token groups. The preset had no importer anywhere in
@@ -15,12 +15,9 @@ export * from './lib/utils.js';
  * gone. `colors.ts` and `motion.ts` are read directly by `theme.test.ts` and
  * `motion.test.ts`, which is where they belong.
  *
- * `glass.ts` is re-exported because it is not a value table: it is the *rules* — a
- * fill floor, two scheduled ranges, a radius ceiling and the list of `backdrop-*`
- * utilities a component may write — and `eslint.config.js`, `theme.test.ts` and
- * `theme-resolution.test.ts` all import it by name.
+ * The glass policy module that used to be exported here is gone with the glass: the
+ * plane is flat and `backdrop-filter` is an error everywhere.
  */
-export * from './tokens/glass.js';
 
 export * from './components/Card/Card.js';
 export * from './components/Badge/Badge.js';
@@ -58,6 +55,8 @@ export * from './components/Popover/Popover.js';
 export * from './components/DefinitionList/DefinitionList.js';
 export * from './components/Meter/Meter.js';
 export * from './components/Sparkline/Sparkline.js';
+// A verdict as a mark, always paired with a word. See the header in its file.
+export * from './components/StatusDot/StatusDot.js';
 // The icon list. Exported so an application component can draw a shape without
 // taking a second dependency edge on `lucide-react` to do it — see the header in
 // `icons.ts` for the measured reason that matters here.

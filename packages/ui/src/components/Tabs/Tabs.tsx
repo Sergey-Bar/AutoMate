@@ -44,7 +44,8 @@ export const TabsList = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement
         ref={ref}
         role="tablist"
         className={cn(
-          'inline-flex h-10 items-center justify-center rounded-md bg-bg-muted p-1 text-text-secondary',
+          // An underline row, not a pill: the selected tab is the one with a rule under it.
+          'inline-flex items-center gap-1 border-b border-border text-fg-muted',
           className,
         )}
         {...props}
@@ -108,8 +109,8 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
         }}
         onKeyDown={handleKeyDown}
         className={cn(
-          'inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:pointer-events-none disabled:opacity-50',
-          isSelected && 'bg-bg-base text-text-primary shadow-sm',
+          '-mb-px inline-flex min-h-11 items-center justify-center whitespace-nowrap border-b-2 border-transparent px-3 text-sm font-medium transition-colors hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus disabled:pointer-events-none disabled:opacity-50',
+          isSelected && 'border-accent text-fg',
           className,
         )}
         {...props}

@@ -58,7 +58,7 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
   if (isLoading) {
     return (
       <PageFrame data-testid="analytics-loading">
-        <PageHeader title="Analytics" />
+        <PageHeader title="Trends" />
         <Quiet>Loading analytics...</Quiet>
       </PageFrame>
     );
@@ -67,7 +67,7 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
   if (error) {
     return (
       <PageFrame>
-        <PageHeader title="Analytics" />
+        <PageHeader title="Trends" />
         <EmptyState
           headingLevel={2}
           data-testid="analytics-error"
@@ -81,7 +81,7 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
   if (!data) {
     return (
       <PageFrame>
-        <PageHeader title="Analytics" />
+        <PageHeader title="Trends" />
         <EmptyState
           headingLevel={2}
           data-testid="analytics-empty"
@@ -143,13 +143,13 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
   return (
     <PageFrame data-testid="analytics-page">
       <PageHeader
-        title="Analytics"
+        title="Trends"
         subtitle="All-time figures, then the chosen window day by day"
         actions={<Segmented label="Window" options={WINDOWS} value={days} onChange={setDays} />}
       />
       <section
         aria-label="Run figures"
-        className="grid shrink-0 grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6"
+        className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6"
       >
         <Kpi data-testid="stat-total-runs" label="Runs · all time" value={String(data.totalRuns)} />
         <Kpi

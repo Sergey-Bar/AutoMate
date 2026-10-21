@@ -178,10 +178,31 @@ function qaWithScore(overrides: Partial<QaClient> = {}): QaClient {
 }
 
 describe('the dashboard', () => {
+  it('leads with the verdict, then what is wrong beside what is good', async () => {
+    renderDashboard(qaWithScore());
+    const verdict = await screen.findByTestId('readiness-verdict');
+    expect(verdict).toHaveTextContent('Caution');
+    const wrong = await screen.findByTestId('findings-wrong');
+    const items = within(wrong).getAllByRole('listitem');
+    // The readiness reason first, then the week's bad news, then the gap queue by worth.
+    expect(items[0]).toHaveTextContent('2% of tests were flaky');
+    expect(items[1]).toHaveTextContent('1 new flaky test');
+    expect(items[2]).toHaveTextContent('Add two');
+    expect(within(items[2] as HTMLElement).getByRole('link')).toHaveAttribute(
+      'href',
+      '/dashboard/gaps/project-1',
+    );
+    expect(screen.getByTestId('findings-good')).toHaveTextContent('The latest quality gate passed');
+    // The verdict sits above the detail in document order.
+    const figures = screen.getByRole('region', { name: 'Key figures' });
+    expect(
+      verdict.compareDocumentPosition(figures) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
   it('reports the six figures, each with its change against the window before', async () => {
     renderDashboard(qaWithScore(), makeApi({ getQuarantine: vi.fn(async () => []) }));
     await waitFor(() => expect(screen.getByTestId('kpi-health')).toHaveTextContent('72'));
-    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
     expect(screen.getByTestId('dashboard-subject')).toHaveTextContent('Automate · /repos/automate');
     expect(screen.getByTestId('kpi-health')).toHaveTextContent('limited by security at 0.00');
     // 80% → 90% is ten points better, and says so in words as well as colour.
@@ -335,7 +356,7 @@ describe('the dashboard', () => {
   it('shows the onboarding screen for an empty registry, and for an unknown project id', async () => {
     renderDashboard(makeQa({ listProjects: vi.fn(async () => []) }));
     await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
-    expect(screen.getByRole('heading', { level: 1, name: 'Dashboard' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Overview' })).toBeInTheDocument();
   });
 
   it('routes to an explicit project and refuses one that is not registered', async () => {

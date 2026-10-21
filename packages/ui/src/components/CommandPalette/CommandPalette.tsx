@@ -8,7 +8,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { Search } from 'lucide-react';
-import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 export interface CommandAction {
@@ -150,7 +149,7 @@ export const CommandPalette = forwardRef<HTMLDivElement, CommandPaletteProps>(
           aria-label="Command palette"
           className={cn(
             'w-full max-w-xl overflow-hidden rounded-xl border border-border-default animate-zoom-in-95 duration-200',
-            GLASS_SURFACE_CLASSES,
+            'bg-surface-raised shadow-elevation-3',
             className,
           )}
           {...props}

@@ -1,20 +1,17 @@
 import { forwardRef, type HTMLAttributes } from 'react';
-import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 /**
- * A glass panel.
+ * A flat panel: one opaque plane step and a hairline, no shadow.
  *
- * The one component whose whole purpose is to be a panel sitting on something else, and
- * so the one where the material reads. `border border-border` is kept rather than dropped:
- * the design language has two borders because WCAG 1.4.11 covers some of what they draw
- * and not the rest, and a card's edge is the one that delineates it.
+ * `border border-border` is the decorative edge, below 3:1 on purpose — a card is
+ * grouped content, not a control, and a mid-grey line around every rectangle is noise.
  */
 const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('rounded-lg border border-border text-fg', GLASS_SURFACE_CLASSES, className)}
+      className={cn('rounded-xl border border-border bg-surface text-fg', className)}
       {...props}
     />
   ),

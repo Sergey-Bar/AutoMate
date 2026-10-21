@@ -93,7 +93,7 @@ export function ScorePage({
           footer="weighted geometric mean"
         />
         {/* The limiter, on the same screen as the number it explains. */}
-        <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-accent bg-surface-raised px-4 py-3 sm:col-span-2">
+        <div className="flex min-w-0 flex-col justify-between rounded-xl border border-accent bg-surface-raised px-4 py-3 sm:col-span-2">
           <div className="text-xs font-medium uppercase tracking-widest text-fg-muted">
             <span className="sm:hidden">Capped by</span>
             <span className="hidden sm:inline">What is capping this score</span>

@@ -117,7 +117,7 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     const labels = screen.getAllByRole('option').map((option) => option.textContent);
     expect(labels).toEqual(
       // No 'Sign Out': the install is open and there is no session to end.
-      expect.arrayContaining(['Go to Dashboard', 'Go to Runs', 'Toggle Theme']),
+      expect.arrayContaining(['Go to Overview', 'Go to Runs', 'Go to Map', 'Toggle Theme']),
     );
     expect(labels).not.toContain('Sign Out');
   });
@@ -134,8 +134,8 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
     await screen.findByRole('combobox');
     await user.keyboard('{ArrowDown}{Enter}');
 
-    // Index 0 is "Go to Dashboard"; ArrowDown moves to index 1, the next destination.
-    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/insights' });
+    // Index 0 is "Go to Overview"; ArrowDown moves to index 1, the next destination.
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard/runs' });
   });
 
   it('dismisses on Escape and returns focus to the element that opened it', async () => {

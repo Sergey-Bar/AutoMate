@@ -1,21 +1,10 @@
 import { forwardRef, type HTMLAttributes } from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
-import { GLASS_SURFACE_CLASSES } from '../../tokens/glass.js';
 import { cn } from '../../lib/utils.js';
 
 /**
- * Only the neutral toast is glass.
- *
- * The four status variants are already translucent — `bg-danger/10` and its siblings — but
- * they are translucent *status colour* over an unknown backdrop, and a status fill is
- * carrying meaning rather than surface, so it keeps `shadow-lg` and an opaque elevation.
- * Swapping the neutral fill for the material and leaving the statuses alone is the line
- * the design language draws: glass describes a surface, a hue describes a state, and a
- * person reading `bg-danger/10` through a blurred backdrop is being told something the
- * blur then makes harder to read.
- *
- * `shadow-lg` moved out of the base and into the four statuses so the default variant is
- * not left with two competing elevations.
+ * The neutral toast is the raised plane step at overlay elevation. The four status
+ * variants tint their own fill, because a status fill carries meaning rather than surface.
  */
 const toastVariants = cva(
   /*
@@ -39,7 +28,7 @@ const toastVariants = cva(
   {
     variants: {
       variant: {
-        default: `border-border text-fg ${GLASS_SURFACE_CLASSES}`,
+        default: 'border-border bg-surface-raised text-fg shadow-elevation-2',
         danger: 'border-danger/50 bg-danger/10 text-danger shadow-lg',
         success: 'border-success/50 bg-success/10 text-success shadow-lg',
         warning: 'border-warning/50 bg-warning/10 text-warning shadow-lg',
