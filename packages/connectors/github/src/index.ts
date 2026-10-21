@@ -97,7 +97,7 @@ export const githubAdapter: ConnectorAdapter = {
       }
 
       const value = await executeWithRetry(
-        async () => {
+        async (signal) => {
           const response = await fetch(`${API}/${path}`, {
             method: operation.method,
             headers: {
@@ -107,7 +107,7 @@ export const githubAdapter: ConnectorAdapter = {
               ...(operation.method === 'POST' ? { 'content-type': 'application/json' } : {}),
             },
             ...(operation.method === 'POST' ? { body: JSON.stringify(body) } : {}),
-            signal: request.signal,
+            signal,
           });
           if (!response.ok) {
             // A 4xx is a statement about the *request* and nothing was created, so it is a
@@ -122,7 +122,12 @@ export const githubAdapter: ConnectorAdapter = {
           return response.json();
         },
         // From the manifest, which is where the operation's side-effecting claim lives.
-        { retries: 2, signal: request.signal, idempotent: spec.idempotent },
+        {
+          retries: 2,
+          signal: request.signal,
+          idempotent: spec.idempotent,
+          attemptTimeoutMs: spec.timeoutMs,
+        },
       );
 
       return { status: 'ok', data: value.value, attempts: value.attempts };

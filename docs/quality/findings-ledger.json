@@ -4323,6 +4323,29 @@
         }
       ],
       "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
+    },
+    {
+      "id": "MNT-11",
+      "title": "Every connector manifest declared a per-operation timeout and no adapter applied it",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "The GitHub, Jira and Slack manifests each declare `timeoutMs: 10_000` per operation, and `operationSpec` returns it, but every adapter called `fetch` with only the caller's optional `request.signal`. A remote that accepted the connection and never answered therefore held the operation for the HTTP client's own defaults — minutes — and `executeWithRetry` could repeat that up to three times. A manifest field that reads as a guarantee and is enforced nowhere is the shape this ledger keeps recording. Minor because no product path invokes a connector yet; it would have shipped with the first one that did.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read the three adapters and `packages/connectors/sdk/src/index.ts`; `timeoutMs` was read only by the manifest test. A GitHub call against a `fetch` that never settles stayed pending past the declared 10 s.",
+      "evidence": [
+        {
+          "path": "packages/connectors/sdk/src/index.ts",
+          "asserts": "`executeWithRetry` takes `attemptTimeoutMs` and hands each attempt a signal that aborts on the caller's cancellation or on that deadline, cleared when the attempt settles."
+        },
+        {
+          "path": "packages/connectors/github/src/index.test.ts",
+          "asserts": "`gives up on a remote that never answers after the operation's own timeout` advances fake time 10 s against a stalled `fetch` and requires `github_transport_failed`; the cancellation test now proves a caller abort reaches the request in flight."
+        }
+      ],
+      "resolution": "The manifest's timeout is applied once, in the SDK, to every attempt of every adapter."
     }
   ]
 }

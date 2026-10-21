@@ -33,6 +33,7 @@ function stubFetchSequence(responses: Array<{ ok: boolean; status: number; body:
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -53,10 +54,48 @@ describe('github adapter', () => {
   });
 
   it('passes the abort signal through, so a cancelled request really is cancelled', async () => {
-    const calls = stubFetchSequence([{ ok: true, status: 200, body: {} }]);
+    // The fetch gets the attempt's signal, which follows the caller's: cancelling the
+    // caller while the request is in flight cancels the request.
+    let sent: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      (_url: string, init?: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          sent = init?.signal ?? undefined;
+          sent?.addEventListener('abort', () => reject(sent?.reason), { once: true });
+        }),
+    );
     const controller = new AbortController();
-    await githubAdapter.execute({ ...request, signal: controller.signal }, 'ghp_token');
-    expect(calls[0]?.init?.signal).toBe(controller.signal);
+    const pending = githubAdapter.execute({ ...request, signal: controller.signal }, 'ghp_token');
+    await Promise.resolve();
+    controller.abort();
+    const result = await pending;
+    expect(sent?.aborted).toBe(true);
+    expect(result.status).toBe('error');
+  });
+
+  it("gives up on a remote that never answers after the operation's own timeout", async () => {
+    // The manifest declared 10 s and nothing applied it, so a stalled remote held the
+    // operation for the HTTP client's own defaults, with no caller signal to stop it.
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        'fetch',
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+              once: true,
+            });
+          }),
+      );
+      const pending = githubAdapter.execute(request, 'ghp_token');
+      await vi.advanceTimersByTimeAsync(10_000);
+      const result = await pending;
+      expect(result.status).toBe('error');
+      expect(result.error?.code).toBe('github_transport_failed');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('retries a 503 and reports the attempt it succeeded on', async () => {
