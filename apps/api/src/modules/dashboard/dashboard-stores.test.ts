@@ -267,6 +267,38 @@ describe('DrizzleQuarantineStore', () => {
     expect(approvals).toHaveLength(1);
   });
 
+  it('does not record a decision another writer overtook between the read and the write', async () => {
+    // Two operators decide the same pending entry at once. Both read `pending`; the
+    // first commits `rejected`; the second's guarded UPDATE matches nothing. The store
+    // used to insert `quarantine.approved` anyway and answer `resolved` — an audit
+    // trail and a client both saying the entry was approved while the row says not.
+    const id = await quarantineOne('contended');
+    const db = drizzle(client, { schema });
+    const overtaken = new Proxy(db, {
+      get(target, property, receiver) {
+        if (property !== 'transaction') return Reflect.get(target, property, receiver);
+        return async (...args: Parameters<typeof db.transaction>) => {
+          await client.query(
+            "UPDATE quarantine SET status = 'rejected', resolved_at = now() WHERE id = $1",
+            [id],
+          );
+          return target.transaction(...args);
+        };
+      },
+    });
+    const racing = new DrizzleQuarantineStore(overtaken as never);
+
+    const outcome = await racing.resolve(
+      id,
+      ResolveQuarantineBodySchema.parse({ status: 'approved', resolution: 'fixed' }),
+      actor,
+    );
+
+    expect(outcome).toEqual({ kind: 'illegal_transition', from: 'rejected', to: 'approved' });
+    const actions = (await auditRowsFor(id)).map((row) => row.action);
+    expect(actions).not.toContain('quarantine.approved');
+  });
+
   it('reports a missing entry rather than inventing one', async () => {
     await expect(
       quarantineStore.resolve(

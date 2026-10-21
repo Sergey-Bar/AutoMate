@@ -347,6 +347,8 @@ describe('a valid production configuration', () => {
     productionEnv({
       DATABASE_URL: syntheticConnectionString(),
       WORKSPACE_ID: WORKSPACE,
+      // Not the default, so a lifetime that ignores the setting is visible.
+      SESSION_TTL_HOURS: '1',
       ...OBJECT_STORE,
     });
     composed = await import('./index.js');
@@ -369,6 +371,21 @@ describe('a valid production configuration', () => {
     // what narrows it, and it costs nothing.
     return (async () => composed?.app.request(path, { ...init, headers }))();
   }
+
+  it('gives the session cookie the lifetime SESSION_TTL_HOURS configures', async () => {
+    // The persistent session backend read the setting, and the login route was handed a
+    // literal 24 hours. With SESSION_TTL_HOURS=1 the server forgot a session after an
+    // hour while the browser kept presenting its cookie for a day.
+    const response = await composed?.app.request('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // The login credential is AUTOMATE_API_KEY; `resolveAuthSecrets` names it the
+      // installation key.
+      body: JSON.stringify({ apiKey: API_KEY }),
+    });
+    expect(response?.status, await response?.clone().text()).toBe(200);
+    expect(response?.headers.get('set-cookie') ?? '').toMatch(/Max-Age=3600(;|$)/);
+  });
 
   it('composes, and exports a fetchable app and a durable execution store', () => {
     expect(composed).toBeDefined();
