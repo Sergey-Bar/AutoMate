@@ -3,7 +3,7 @@
 Every path a package's Vitest coverage config removes from measurement needs a
 row here. The gate that keeps this honest is
 `scripts/lib/coverage-exclusions.test.mjs`, run by `pnpm test:integration`: it
-reads each `vitest.config.ts`, subtracts the shared policy in `vitest.shared.ts`,
+reads each `vitest.config.ts`, subtracts the shared policy in `.config/vitest.shared.ts`,
 and fails if anything is left that this file does not account for.
 
 **An exclusion is a claim that some code does not need testing.** That claim is
@@ -13,7 +13,7 @@ with it — rather than living as a bare string in a config where it is invisibl
 
 ## The shared policy
 
-`vitest.shared.ts` excludes, for every package: `*.test.*`, `*.spec.*`,
+`.config/vitest.shared.ts` excludes, for every package: `*.test.*`, `*.spec.*`,
 `__tests__/**`, `*.test-d.ts`, `*.d.ts`, and `**/node_modules/**`. These are not
 listed below because they are not per-package decisions — they are the definition
 of "source under test".
@@ -43,7 +43,7 @@ person to have the same idea should find the reasoning rather than repeat it.
 
 | Glob                                            | Where it was proposed                        | Why it was refused                                                                                                                                                 |
 | ----------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `src/**/index.ts`                               | `packages/shared-contracts/vitest.config.ts` | Contradicted the stated policy in `vitest.shared.ts`, and the config is now on `standardCoverage` like every other package. `index.ts` is measured.                |
+| `src/**/index.ts`                               | `packages/shared-contracts/vitest.config.ts` | Contradicted the stated policy in `.config/vitest.shared.ts`, and the config is now on `standardCoverage` like every other package. `index.ts` is measured.        |
 | `src/routeTree.gen.ts`                          | `apps/web/vitest.config.ts`                  | The file does not exist. Excluding a path that is not there is indistinguishable from excluding one that is, which is how a real exclusion gets lost in the noise. |
 | The 19 `@automate/*#test` `outputs: []` entries | `turbo.json`                                 | These are not coverage exclusions, they are cache declarations, and they cancelled the `coverage/**` output the ratchet reads. Removed.                            |
 

@@ -17,7 +17,7 @@ services:
 
   migrate:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/db-migrate.Dockerfile
     environment:
       DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
@@ -62,7 +62,7 @@ services:
 
   api:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/api.Dockerfile
     environment:
       NODE_ENV: production
@@ -114,7 +114,7 @@ services:
 
   worker:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/worker.Dockerfile
     environment:
       NODE_ENV: production
@@ -149,7 +149,7 @@ services:
 
   runner:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/runner.Dockerfile
     environment:
       NODE_ENV: production
@@ -181,7 +181,7 @@ services:
 
   web:
     build:
-      context: .
+      context: ../..
       dockerfile: infra/docker/web.Dockerfile
     # No VITE_API_URL. Vite inlines `VITE_*` at build time, so a runtime value
     # here could never reach the bundle, and `apps/web/src/lib/api.ts` uses

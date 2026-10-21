@@ -597,10 +597,13 @@ function checkLanguageAndTitle(pages) {
 /** @returns {Check} */
 function checkGovernanceAndLabelling() {
   const required = [
-    ['SECURITY.md', 'a disclosure path and a stated response window'],
-    ['CODE_OF_CONDUCT.md', 'the conduct expected of a contributor'],
-    ['SUPPORT.md', 'the line between a bug and a capability request'],
-    ['CONTRIBUTING.md', 'the review budget, the evidence rule and the not_configured convention'],
+    ['.github/SECURITY.md', 'a disclosure path and a stated response window'],
+    ['.github/CODE_OF_CONDUCT.md', 'the conduct expected of a contributor'],
+    ['.github/SUPPORT.md', 'the line between a bug and a capability request'],
+    [
+      '.github/CONTRIBUTING.md',
+      'the review budget, the evidence rule and the not_configured convention',
+    ],
     ['LICENSE', 'the licence the code is offered under'],
     ['.github/CODEOWNERS', 'who owns which part of the tree'],
   ];

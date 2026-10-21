@@ -33,7 +33,7 @@ Three legitimate ways to keep one authority, in descending order of strength:
 | Controlled vocabularies (`GATE_STATUSES`, …) | `packages/db/src/schema/vocabularies.ts` — a leaf module importing nothing | any schema file |
 | Which tables are workspace-scoped | `docs/quality/tenancy-scope.json`, enforced by `pnpm tenancy:check` | an agent prompt, a checklist, a review comment |
 | API contracts | Zod schemas in `packages/shared-contracts` | the client, a hand-written mirror, an OpenAPI document |
-| Coverage floors | `coverage-baseline.json` | any `.md` file, any agent file, any skill |
+| Coverage floors | `docs/quality/coverage-baseline.json` | any `.md` file, any agent file, any skill |
 | Gate tiers and required tools | `scripts/gate-tooling.json` | prose, a workflow, a comment |
 | Review severities, categories, rules | `.github/review-rules/rules.json` | an agent prompt, a checklist, a PR template |
 | Confirmed defects | `docs/quality/findings-ledger.json` | a conversation, a status message, a plan document |

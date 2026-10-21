@@ -43,7 +43,7 @@ standard the product cannot meet.
 
 This applies in every space this project uses — issues, pull requests, discussions, and
 the commit log — and to a person acting in any of them. Reports go to the maintainer
-through the private route in [SECURITY.md](./SECURITY.md) when they concern a person
+through the private route in [.github/SECURITY.md](SECURITY.md) when they concern a person
 rather than the code.
 
 ## Enforcement

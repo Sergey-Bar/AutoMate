@@ -12,7 +12,7 @@
  * correctly reporting a *true* statement about the wrong number.
  *
  * The only record that survives the pull request is history, so the comparison is
- * against the base commit's `coverage-baseline.json` rather than against a second
+ * against the base commit's `docs/quality/coverage-baseline.json` rather than against a second
  * file in the tree — a second file is editable in the same commit and would be
  * lowered in the same keystroke.
  */
@@ -143,7 +143,7 @@ export function baseBaseline(options) {
   if (source === null) {
     return {
       baseline: null,
-      reason: `\`git show ${options.ref}:coverage-baseline.json\` produced nothing, so there is no base to compare against`,
+      reason: `\`git show ${options.ref}:docs/quality/coverage-baseline.json\` produced nothing, so there is no base to compare against`,
     };
   }
   try {

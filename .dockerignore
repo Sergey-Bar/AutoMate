@@ -21,7 +21,7 @@ var/
 .env
 .env.*
 !.env.example
-!.env.compose.example
+!infra/compose/.env.compose.example
 *.log
 *.db
 *.db-shm

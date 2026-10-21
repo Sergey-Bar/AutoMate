@@ -97,7 +97,9 @@ if (existsSync(testSummaryPath)) {
 }
 
 // ─── coverage ───────────────────────────────────────────────────────────────
-const baseline = JSON.parse(readFileSync(path.join(root, 'coverage-baseline.json'), 'utf8'));
+const baseline = JSON.parse(
+  readFileSync(path.join(root, 'docs/quality/coverage-baseline.json'), 'utf8'),
+);
 /**
  * The package with the lowest recorded floor.
  *
@@ -148,7 +150,7 @@ if (unconfigured.length > 0) {
 const duplication = run(process.execPath, [
   path.join(packageDirectory('jscpd'), 'run-jscpd.js'),
   '--config',
-  '.jscpd.json',
+  '.config/jscpd.json',
 ]);
 record(
   'duplication',

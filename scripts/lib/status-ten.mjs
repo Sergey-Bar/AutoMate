@@ -843,10 +843,10 @@ function pointTwelve(ctx) {
   const governanceDeclared = doctor && /checkGovernanceAndLabelling/.test(doctorSource);
   const governanceNow = governanceDeclared
     ? [
-        'SECURITY.md',
-        'CODE_OF_CONDUCT.md',
-        'SUPPORT.md',
-        'CONTRIBUTING.md',
+        '.github/SECURITY.md',
+        '.github/CODE_OF_CONDUCT.md',
+        '.github/SUPPORT.md',
+        '.github/CONTRIBUTING.md',
         'LICENSE',
         '.github/CODEOWNERS',
       ].filter((file) => !ctx.has(file))

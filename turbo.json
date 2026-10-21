@@ -7,21 +7,20 @@
     "turbo.json",
     "tsconfig*.json",
     "eslint.config.js",
-    ".prettierrc",
     ".prettierignore",
     "vitest.config.ts",
-    "vitest.shared.ts",
+    ".config/vitest.shared.ts",
     "playwright.config.ts",
-    "commitlint.config.js",
-    "coverage-baseline.json",
+    ".config/commitlint.config.js",
+    "docs/quality/coverage-baseline.json",
     "docs/quality/complexity-baseline.json",
     "docs/quality/findings-ledger.json",
     "docs/quality/findings-status.json",
     "docs/migration/capability-register.md",
     "scripts/gate-tooling.json",
-    ".semgrep.yml",
-    ".gitleaks.toml",
-    ".jscpd.json"
+    ".config/semgrep.yml",
+    ".config/gitleaks.toml",
+    ".config/jscpd.json"
   ],
   "tasks": {
     "build": {

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { standardCoverage, STANDARD_TEST_TIMEOUT_MS } from '../../vitest.shared.js';
+import { standardCoverage, STANDARD_TEST_TIMEOUT_MS } from '../../.config/vitest.shared.js';
 
 export default defineConfig({
   test: {
@@ -13,12 +13,12 @@ export default defineConfig({
     // This config used to be hand-rolled: its own `all: true`, its own reporters,
     // its own thresholds at 95/90/95/95, and an `src/**/index.ts` exclusion.
     //
-    // That exclusion contradicted the stated policy in `vitest.shared.ts`, which
+    // That exclusion contradicted the stated policy in `.config/vitest.shared.ts`, which
     // says barrels are deliberately *not* excluded because packages that keep
     // their code in `src/index.ts` otherwise report 0/0. Two authorities, one of
     // them contradicting the other, is how a floor ends up meaning nothing. The
     // floor for every package now lives in one place: its row in
-    // `coverage-baseline.json`, enforced by `pnpm coverage:ratchet`.
+    // `docs/quality/coverage-baseline.json`, enforced by `pnpm coverage:ratchet`.
     coverage: standardCoverage(process.cwd()),
   },
 });

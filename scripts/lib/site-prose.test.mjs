@@ -20,7 +20,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
  * regenerates it.** Neither is a matter of taste. The definitions are read out of
  * `docs/migration/capability-register.md` rather than restated here, because a second copy of
  * a vocabulary is the defect this repository records as `no-second-authority` — the same
- * reason `scripts/skill-scan.mjs` derives its vendored list from `skills-lock.json` rather
+ * reason `scripts/skill-scan.mjs` derives its vendored list from `.kilo/skills-lock.json` rather
  * than holding a literal.
  */
 const register = readFileSync(

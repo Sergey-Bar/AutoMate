@@ -53,7 +53,7 @@ for.
 `https://www.ui-skills.com/` is a **registry of design-engineering agent skills**
 (`npx ui-skills`, an MCP server, and `skills/registry.txt`). `AGENTS.md` already documents
 how to vendor a third-party skill into `.kilo/skills/` and already ships four, each with a
-row in `skills-lock.json` recording its upstream and a content hash.
+row in `.kilo/skills-lock.json` recording its upstream and a content hash.
 
 **That is the highest-leverage move available, and it is the sanctioned one.** A skill is
 prose an agent obeys; it adds no dependency, no token layer and no build step. `pnpm
@@ -189,7 +189,7 @@ language, code fences containing markup. Every one gets a baseline row with the 
 is acceptable here, or the skill does not land. A skill that cannot pass the gate without a
 suppression is a skill that should not be vendored.
 
-`skills-lock.json` gains a row per skill with its upstream path and computed hash. **No
+`.kilo/skills-lock.json` gains a row per skill with its upstream path and computed hash. **No
 existing row changes**: a hash answers *did the file change*, not *is it safe*, which is why
 the baseline is a second file rather than the first.
 
@@ -424,7 +424,7 @@ waves intended, this says what landed.
 
 | Wave | What is now in the tree | The gate that says so |
 | --- | --- | --- |
-| **W0** | Twelve design-craft skills vendored (four → sixteen in `skills-lock.json`). `scripts/skill-scan.mjs` no longer holds a literal list of vendored names — it derives them from the lock, and `scripts/lib/skill-scan.test.mjs` fails if the two disagree in either direction. One new baseline row with a stated reason. | `pnpm skill-scan` green; the derived-list test was run red first against the four-name array. |
+| **W0** | Twelve design-craft skills vendored (four → sixteen in `.kilo/skills-lock.json`). `scripts/skill-scan.mjs` no longer holds a literal list of vendored names — it derives them from the lock, and `scripts/lib/skill-scan.test.mjs` fails if the two disagree in either direction. One new baseline row with a stated reason. | `pnpm skill-scan` green; the derived-list test was run red first against the four-name array. |
 | **W1** | The five dead token tables deleted, `tailwindPreset` and the `tokens` barrel with them. `theme.css` now declares the type ladder at a stated `--automate-type-ratio: 1.2`, the six-step line-height and letter-spacing scales, `--spacing`, the radius scale, six named stacking layers and `--max-w-measure`. `fonts.css` publishes `font-sans`/`font-mono` so they resolve to the committed binaries. | `theme.test.ts` 75 tests; 19 were red before the stylesheet was written. `pnpm docs:dead-exports` green. |
 | **W2** | One focus idiom on `--automate-accent`, on the rendered DOM. Eleven components changed, including `Tabs`' `ring-brand-500` (a Tailwind default) and four that drew no indicator. 44×44 on the icon-only controls and the named navigation targets. `z-10`/`z-50` replaced by `z-chrome`/`z-modal`/`z-popover`. | `Accessibility.test.tsx` 112 tests in `packages/ui`, 24 in `apps/web`, each with control arms; `theme-resolution.test.ts` fails on a bare `z-<number>`. |
 | **W3** | `tabular-nums` on every figure; `leading-none` gone from five components; `text-balance`/`text-pretty`/`max-w-measure` on prose; a `numeric` prop on `TableCell`; the Cockpit's unmeasured cell redrawn as an outline rather than a solid bar. | Rendered-DOM assertions with named offenders; the `webSourceFiles()` reader was found walking three levels when it meant four and the control arm now exists. |
@@ -535,7 +535,7 @@ that is cheaper than three test files sharing a fate.
    cut for a specific reason: they are reference *prose* with no frontmatter, and the only
    discovery path in this repository is `name` + `description`, so vendoring them would have
    meant writing a wrapper — which is a modification, not a copy, and would have made the
-   hash in `skills-lock.json` a hash of my wrapper.
+   hash in `.kilo/skills-lock.json` a hash of my wrapper.
 2. **W8 was largely already done, and the discovery was wrong.** §1.4 says the documentation
    site "has no landing-page work" and that `site/index.md` is VitePress default. It is not:
    `theme/Home.vue` renders the six-link evidence chain, `Layout.vue` mounts it through the

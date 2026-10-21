@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time. A bug here is a claim that something the product or a
         gate says it does, it does not. **Security issues do not belong here** — see
-        `SECURITY.md` and use private reporting instead.
+        `.github/SECURITY.md` and use private reporting instead.
   - type: textarea
     id: what-happened
     attributes:

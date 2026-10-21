@@ -2,7 +2,7 @@
 
 > For an agent or an engineer working _in_ this tree.
 
-**What this is not.** Not a contributor guide — [`CONTRIBUTING.md`](CONTRIBUTING.md) is,
+**What this is not.** Not a contributor guide — [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) is,
 and it leads with the four properties of this repository and the three-commit testing
 rule. Not a design document — [`site/guide/design-language.md`](site/guide/design-language.md)
 is, and it carries the plane, the accent, the type and the motion with every measured
@@ -189,7 +189,7 @@ installs the scanner in the `security` job and moves the tier together; the cond
 a CI run that printed a `risk_assessment` with `is_complete: true`.
 
 The **sixteen** vendored skills carry an upstream source repository and a content hash in
-`skills-lock.json`. A hash answers _did the file change_ and not _is the file safe_,
+`.kilo/skills-lock.json`. A hash answers _did the file change_ and not _is the file safe_,
 which is why both exist.
 
 ### The agent's configuration, and one planning system
@@ -197,14 +197,14 @@ which is why both exist.
 `.kilo/` is the canonical project config root, and the whole of it is inside
 `.prettierignore`.
 
-| Path                      | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.kilo/kilo.jsonc`        | Project config. Four lines today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `.kilo/agent/*.md`        | **The eleven personas**, in Kilo's format: `mode`, `steps`, `color`, and `permission`. The three read-only ones carry `permission: edit: deny`, so "DO NOT edit files" is enforced by the harness rather than by prose — a guard you can forget to call is weaker than a permission you cannot call.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `.kilo/skills/*/SKILL.md` | **The twenty-one project skills.** Five authored here — `ledger-row`, `evidence-test`, `no-second-authority`, `gate-tiering`, `capability-evidence` — and sixteen vendored: four from `vercel-labs/agent-skills` and `supabase/agent-skills`, and twelve design-craft skills from `emilkowalski/skills`, `jakubkrehel/skills`, `ibelick/ui-skills`, `zeke/swiss-design-skill`, `MengTo/Skills`, `prototyper-ui` and `addyosmani/web-quality-skills`. **`scripts/skill-scan.mjs` derives the vendored list from `skills-lock.json` rather than holding a literal**, and `scripts/lib/skill-scan.test.mjs` fails if the two disagree in either direction — a hand-written list said `4 authored, 4 vendored` over a tree of twenty-one directories, because the number came from the array and the skills came from the lock. |
-| `.kilo/command/*.md`      | **Three commands**, because the other two layers are only half a workflow without them: `/gate` (which gate applies, and can it pass today), `/close` (close a ledger row, or say why not), `/boundary` (add a table to the tenancy register, or diagnose a regression). Each composes a skill with the gate that decides it; none is a wrapper around one `pnpm` command.                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `.kilo/plans/`            | **The one planning system.** The only one of the three that is tracked in git.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| `.kilo/worktrees/`        | Agent Manager worktrees.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Path                      | What it is                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.kilo/kilo.jsonc`        | Project config. Four lines today.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `.kilo/agent/*.md`        | **The eleven personas**, in Kilo's format: `mode`, `steps`, `color`, and `permission`. The three read-only ones carry `permission: edit: deny`, so "DO NOT edit files" is enforced by the harness rather than by prose — a guard you can forget to call is weaker than a permission you cannot call.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `.kilo/skills/*/SKILL.md` | **The twenty-one project skills.** Five authored here — `ledger-row`, `evidence-test`, `no-second-authority`, `gate-tiering`, `capability-evidence` — and sixteen vendored: four from `vercel-labs/agent-skills` and `supabase/agent-skills`, and twelve design-craft skills from `emilkowalski/skills`, `jakubkrehel/skills`, `ibelick/ui-skills`, `zeke/swiss-design-skill`, `MengTo/Skills`, `prototyper-ui` and `addyosmani/web-quality-skills`. **`scripts/skill-scan.mjs` derives the vendored list from `.kilo/skills-lock.json` rather than holding a literal**, and `scripts/lib/skill-scan.test.mjs` fails if the two disagree in either direction — a hand-written list said `4 authored, 4 vendored` over a tree of twenty-one directories, because the number came from the array and the skills came from the lock. |
+| `.kilo/command/*.md`      | **Three commands**, because the other two layers are only half a workflow without them: `/gate` (which gate applies, and can it pass today), `/close` (close a ledger row, or say why not), `/boundary` (add a table to the tenancy register, or diagnose a regression). Each composes a skill with the gate that decides it; none is a wrapper around one `pnpm` command.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `.kilo/plans/`            | **The one planning system.** The only one of the three that is tracked in git.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `.kilo/worktrees/`        | Agent Manager worktrees.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 `.kilo/agent/` is the same eleven personas as `.github/agents/*.agent.md`, in the
 format Kilo reads, and the content is one copy: the thirteen review categories in
@@ -221,7 +221,8 @@ tool. A third-party skill is vendored, not copied by hand:
 ```bash
 npx --yes skills@latest add <owner>/<repo> --skill <name> -a kilo --copy -y
 # then move the folder from .agents/skills/<name> into .kilo/skills/<name>,
-# so the project has one skill root rather than two.
+# so the project has one skill root rather than two. The CLI writes its lock entry to
+# a root skills-lock.json; move that entry into .kilo/skills-lock.json and delete the root file.
 ```
 
 Do not run `skills update` here: it writes to `.agents/skills/`, which would
@@ -323,6 +324,8 @@ run rather than on more code:
 ## Project Structure
 
 ```
+.config/              Tool configs kept off the root: semgrep, gitleaks, jscpd, commitlint, shared Vitest
+.github/              CI, issue forms, and CONTRIBUTING / SECURITY / SUPPORT / CODE_OF_CONDUCT
 .kilo/                The canonical project config root
   agent/              The eleven reviewer personas, in Kilo's format
   skills/             The twenty-one project skills (five authored, sixteen vendored)
@@ -370,7 +373,7 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - Use `prefer-const` — enforced as `"error"`.
 - Use `.js` extensions in relative imports (ESM requirement): `import { foo } from './bar.js'`.
 - Gate scripts in `scripts/` are plain `.mjs` with JSDoc types. They **are**
-  typechecked: `tsconfig.scripts.json` sets `allowJs`, `checkJs`, `strict`, and
+  typechecked: `scripts/tsconfig.json` sets `allowJs`, `checkJs`, `strict`, and
   includes `scripts/**/*.mjs` deliberately broadly, because "a gate script that
   is excluded from type checking is a gate script whose wrong argument count
   nothing catches". Index a parsed-JSON field through
@@ -421,10 +424,10 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 
 - **Framework**: Vitest 4 with `globals: true`.
 - **Coverage floors are enforced by `pnpm coverage:ratchet`, not by per-package Vitest
-  `thresholds`.** `vitest.shared.ts` sets `STANDARD_THRESHOLDS` (90/80/90/90) and
+  `thresholds`.** `.config/vitest.shared.ts` sets `STANDARD_THRESHOLDS` (90/80/90/90) and
   explicitly declines to apply them per package, because four packages sit well below
   and a gate that blocks every run gets raised until it means nothing. The ratchet
-  records the real floor per package in `coverage-baseline.json` and fails only on
+  records the real floor per package in `docs/quality/coverage-baseline.json` and fails only on
   regression, so the floor only moves up. Current floors, as
   `statements/branches/functions/lines`:
 
@@ -460,7 +463,7 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   reason in the exclusion register.
 - **Write the test, run it with the defect still present, watch it fail for the reason you
   expect, then fix it.** A test only written against the fixed code is not evidence. See
-  [`CONTRIBUTING.md`](CONTRIBUTING.md) — three times in this programme's history a suite
+  [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md) — three times in this programme's history a suite
   was fully green while checking the wrong thing, and none of them was caught by reading
   the code carefully.
 

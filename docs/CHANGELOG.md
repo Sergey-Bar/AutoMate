@@ -110,7 +110,7 @@ gap notes below.
 and `SEM-4` were recorded `open` while their fixes were verifiably in the tree. The ledger's
 own standard is a run, so the number was taken from CI before the ledger was edited:
 `Static analysis passed: semgrep and gitleaks reported nothing.` — semgrep 1.178.0 against
-`.semgrep.yml` on `1129d26`, in the `Security and license audit` job of
+`.config/semgrep.yml` on `1129d26`, in the `Security and license audit` job of
 [run 36962862652](https://github.com/Sergey-Bar/AutoMate/actions/runs/36962862652).
 **Zero findings.**
 
@@ -122,7 +122,7 @@ own standard is a run, so the number was taken from CI before the ledger was edi
 - `SEM-4` — the 6 `no-unbounded-list-in-query` findings now route through three guards that
   throw rather than truncate: `oneEventBatch` and `oneBatch` in
   `apps/api/src/execution/drizzle-execution-store.ts`, `oneBatchOf` in
-  `apps/api/src/repositories/drizzle-run-repository.ts`. `.semgrep.yml` carries the
+  `apps/api/src/repositories/drizzle-run-repository.ts`. `.config/semgrep.yml` carries the
   narrowed discriminator, and `scripts/lib/semgrep-rules.test.mjs` proves each rule still
   fires on a hazard fixture and reports no safe twin.
 

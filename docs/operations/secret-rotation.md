@@ -125,11 +125,11 @@ chat request fails visibly instead of appearing to succeed.
 1. Update the secret in your `.env` file or secret store.
 2. Recreate the containers:
    ```bash
-   docker compose -f docker-compose.unified.yml up -d --force-recreate
+   docker compose -f infra/compose/docker-compose.unified.yml up -d --force-recreate
    ```
 3. `GET /api/v1/ready` on the published API port, and check the API logs for
    `startup-policy` refusals.
 
-Never bake a secret into an image. `docker-compose.unified.yml` reads
+Never bake a secret into an image. `infra/compose/docker-compose.unified.yml` reads
 `POSTGRES_PASSWORD` from the environment with a `:?` guard, so a compose run with no
 value fails rather than starting a database with an empty password.

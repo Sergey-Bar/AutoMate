@@ -22,7 +22,7 @@
   // `eslint.config.js` imports — which entered this program when
   // `scripts/complexity-eslint.config.mjs` began importing that config, so the gate's
   // own configuration is checked rather than trusted.
-  "include": ["scripts/**/*.mjs", "scripts/**/*.d.mts", "vitest.shared.ts", "vitest.config.ts"],
+  "include": ["**/*.mjs", "**/*.d.mts", "../.config/vitest.shared.ts", "../vitest.config.ts"],
 
   "compilerOptions": {
     // `.mjs` scripts run directly under Node, not through a bundler, so the

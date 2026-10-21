@@ -14,7 +14,7 @@ test('a flag argument is not read as a directory', () => {
   // the only thing standing between a new package and an unscanned security gate.
   const directories = semgrepDirectories();
   assert.ok(!directories.includes('**/dist'));
-  assert.ok(!directories.includes('.semgrep.yml'));
+  assert.ok(!directories.includes('.config/semgrep.yml'));
   assert.ok(!directories.includes('scan'));
   assert.ok(!directories.some((entry) => entry.startsWith('--')));
 });

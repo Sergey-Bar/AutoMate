@@ -12,7 +12,7 @@ const root = process.cwd();
  * Deliberately provider-specific rather than a bare high-entropy class: a rule
  * that matches "any 40 base64 characters" flags every checksum, content digest
  * and compiled hash in the tree, so it is switched off and stops finding
- * anything real. `.gitleaks.toml` covers the broader sweep when gitleaks is
+ * anything real. `.config/gitleaks.toml` covers the broader sweep when gitleaks is
  * installed; this scan is the dependency-free floor that always runs.
  *
  * @type {Array<[string, RegExp]>}
@@ -90,8 +90,8 @@ function isAllowlistedPath(file) {
     file.startsWith('packages/db/drizzle/') ||
     /\.(lock|snap)$/.test(file) ||
     file === 'pnpm-lock.yaml' ||
-    file === '.semgrep.yml' ||
-    file === '.gitleaks.toml' ||
+    file === '.config/semgrep.yml' ||
+    file === '.config/gitleaks.toml' ||
     SYNTHETIC_CREDENTIAL_FILES.has(file)
   );
 }

@@ -6,7 +6,7 @@ import { runs } from '@automate/db';
 /**
  * A semgrep probe fixture. Not application code, never imported, never executed.
  *
- * Its only job is to make the rules in `.semgrep.yml` fire, so that a rewrite
+ * Its only job is to make the rules in `.config/semgrep.yml` fire, so that a rewrite
  * which silences a rule fails `scripts/lib/semgrep-rules.test.mjs`. Three rules in
  * that file have already been rewritten into silence by a change that looked
  * correct, and each time the suite stayed green.

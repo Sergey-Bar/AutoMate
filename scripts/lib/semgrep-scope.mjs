@@ -32,7 +32,7 @@
 export const SEMGREP_SCOPE = [
   'scan',
   '--config',
-  '.semgrep.yml',
+  '.config/semgrep.yml',
   '--error',
   '--exclude',
   '**/node_modules',
@@ -96,7 +96,7 @@ export const SEMGREP_SCOPE = [
  */
 const NON_DIRECTORY_ENTRIES = new Set([
   'scan',
-  '.semgrep.yml',
+  '.config/semgrep.yml',
   '**/node_modules',
   '**/dist',
   '**/coverage',

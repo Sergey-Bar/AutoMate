@@ -70,9 +70,9 @@ PostgreSQL stack, and [sending results](site/guide/sending-results.md) shows the
 
 ## Contributing
 
-Start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Before a pull request, run `pnpm verify`
+Start with [`.github/CONTRIBUTING.md`](.github/CONTRIBUTING.md). Before a pull request, run `pnpm verify`
 (or `pnpm verify:local` on a machine without `semgrep` and `gitleaks`). Security reports go
-through [`SECURITY.md`](SECURITY.md).
+through [`.github/SECURITY.md`](.github/SECURITY.md).
 
 ## License
 

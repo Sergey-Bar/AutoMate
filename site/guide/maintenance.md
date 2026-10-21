@@ -60,5 +60,5 @@ defect found becomes a ledger row with a failing test before it is fixed.
 
 ## Releases
 
-`CHANGELOG.md` records each release. A release is tagged only from a `main` that passes
+`docs/CHANGELOG.md` records each release. A release is tagged only from a `main` that passes
 the full chain, and its notes list the ledger rows it closed.

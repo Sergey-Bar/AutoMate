@@ -4,7 +4,7 @@
  * The previous version had two ways to check nothing:
  *
  *  1. `baseline[name] ?? {}` — a package tracked by the ratchet but missing
- *     from `coverage-baseline.json` got an empty metric set, so the loop body
+ *     from `docs/quality/coverage-baseline.json` got an empty metric set, so the loop body
  *     never ran and the package passed silently.
  *  2. Both the package list and the baseline were hand-maintained and covered
  *     9 of the 23 workspace packages that have a Vitest config. The other 14
@@ -29,7 +29,7 @@ import {
 } from './lib/coverage-floor-ratchet.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const baselinePath = path.join(root, 'coverage-baseline.json');
+const baselinePath = path.join(root, 'docs/quality/coverage-baseline.json');
 const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'));
 
 /** Directories that are never workspace members. */
@@ -48,7 +48,7 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 
 /**
- * The four metrics, in the order `AGENTS.md` and `coverage-baseline.json` both
+ * The four metrics, in the order `AGENTS.md` and `docs/quality/coverage-baseline.json` both
  * spell them, so the job-summary table reads in the same order as the file a
  * reader would otherwise have to open.
  */
@@ -123,7 +123,9 @@ for (const relativePath of missingFromBaseline) {
   );
 }
 for (const name of missingFromWorkspace) {
-  failures.push(`${name}: coverage-baseline.json names a package the workspace does not contain`);
+  failures.push(
+    `${name}: docs/quality/coverage-baseline.json names a package the workspace does not contain`,
+  );
 }
 
 for (const relativePath of workspacePackages) {
@@ -196,7 +198,7 @@ for (const relativePath of workspacePackages) {
   }
   const summary = JSON.parse(readFileSync(summaryPath, 'utf8')).total;
   // A report of 0/0 is a gate measuring nothing while printing a number. It is
-  // the failure mode `vitest.shared.ts` calls out when it explains why `index.ts`
+  // the failure mode `.config/vitest.shared.ts` calls out when it explains why `index.ts`
   // is not excluded, and it reaches the ratchet through the other end: a package
   // whose only source is its own test file.
   const measured = summary?.statements?.total ?? 0;
@@ -273,7 +275,12 @@ if (workspacePackages.length === 0 || checked.length === 0) {
 const base = defaultBaseRef(root);
 const { baseline: baseFloors, reason: baseReason } = baseBaseline({
   ref: base.ref,
-  read: (ref) => readFileAtRef(root, ref, 'coverage-baseline.json'),
+  // The baseline moved from the root to `docs/quality/` in 2.3.x; a base commit from
+  // before the move holds it at the old path, and comparing against nothing there
+  // would let the move PR itself lower a floor unseen.
+  read: (ref) =>
+    readFileAtRef(root, ref, 'docs/quality/coverage-baseline.json') ||
+    readFileAtRef(root, ref, 'coverage-baseline.json'),
 });
 const floorFindings = loweredFloors(baseFloors, baseline);
 

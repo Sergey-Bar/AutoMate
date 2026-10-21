@@ -155,7 +155,7 @@ test('the vendored list is non-empty and frozen', () => {
 });
 
 /**
- * The vendored list and `skills-lock.json` are the same list, and only one of them
+ * The vendored list and `.kilo/skills-lock.json` are the same list, and only one of them
  * can be the authority.
  *
  * `VENDORED` used to be a hand-maintained array of four names beside a lock file that
@@ -166,12 +166,12 @@ test('the vendored list is non-empty and frozen', () => {
  * provenance from a list that can drift is a gate reporting something nobody checked,
  * which is the shape this file's own header complains about.
  */
-test('the vendored list is derived from skills-lock.json rather than restated', () => {
-  const lock = JSON.parse(readFileSync(path.join(repoRoot, 'skills-lock.json'), 'utf8'));
+test('the vendored list is derived from .kilo/skills-lock.json rather than restated', () => {
+  const lock = JSON.parse(readFileSync(path.join(repoRoot, '.kilo/skills-lock.json'), 'utf8'));
   assert.deepEqual(
     [...VENDORED].sort(),
     Object.keys(lock.skills).sort(),
-    'VENDORED and skills-lock.json disagree, so the provenance line is counting one list ' +
+    'VENDORED and .kilo/skills-lock.json disagree, so the provenance line is counting one list ' +
       'and the scanner is reading another',
   );
 });
@@ -180,7 +180,7 @@ test('every vendored skill has a directory and an upstream under SKILL_ROOT', ()
   for (const name of VENDORED) {
     assert.ok(
       existsSync(path.join(SKILL_ROOT, name, 'SKILL.md')),
-      `${name} is in skills-lock.json but there is no SKILL.md for it`,
+      `${name} is in .kilo/skills-lock.json but there is no SKILL.md for it`,
     );
   }
 });
@@ -188,11 +188,11 @@ test('every vendored skill has a directory and an upstream under SKILL_ROOT', ()
 test('no directory under SKILL_ROOT is missing from the lock', () => {
   // The other direction, and the one a hand-written list cannot hold: a skill folder
   // that nobody vendored is an instruction surface with no upstream and no hash, which
-  // is the one thing `skills-lock.json` exists to rule out.
+  // is the one thing `.kilo/skills-lock.json` exists to rule out.
   const dirs = readdirSync(SKILL_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
-  const lock = JSON.parse(readFileSync(path.join(repoRoot, 'skills-lock.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(path.join(repoRoot, '.kilo/skills-lock.json'), 'utf8'));
   for (const name of dirs) {
     if (Object.keys(lock.skills).includes(name)) continue;
     // Authored skills are this repository's own and carry no upstream by design; what
@@ -201,14 +201,14 @@ test('no directory under SKILL_ROOT is missing from the lock', () => {
     assert.match(
       body,
       /^---[\s\S]*?\n---/,
-      `${name} is neither in skills-lock.json nor a skill with frontmatter, so it is ` +
+      `${name} is neither in .kilo/skills-lock.json nor a skill with frontmatter, so it is ` +
         'neither vendored nor discoverable',
     );
   }
 });
 
 test('the authored count is the tree minus the lock, not a literal', () => {
-  const lock = JSON.parse(readFileSync(path.join(repoRoot, 'skills-lock.json'), 'utf8'));
+  const lock = JSON.parse(readFileSync(path.join(repoRoot, '.kilo/skills-lock.json'), 'utf8'));
   const dirs = readdirSync(SKILL_ROOT, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);

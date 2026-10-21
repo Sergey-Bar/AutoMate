@@ -31,7 +31,7 @@ and it is how a request becomes visible before anybody builds it.
 - **A defect** → an issue, with the command that reproduces it. `pnpm status:10` and
   `pnpm review:pr` both name the command that decides most of the claims in this
   repository, so a report that starts with one of those is already half triaged.
-- **A security issue** → **not** an issue. See [SECURITY.md](./SECURITY.md); the private
+- **A security issue** → **not** an issue. See [.github/SECURITY.md](SECURITY.md); the private
   route and the response window are there.
 - **A QA gap** → an issue tagged as such, naming the domain. Four of the five execution
   domains answer an explicit `501 NOT_CONFIGURED`, and a domain that is not configured

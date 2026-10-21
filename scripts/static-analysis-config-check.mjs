@@ -1,10 +1,10 @@
 /**
  * Structural validation for the static-analysis configs.
  *
- * `.semgrep.yml` and `.gitleaks.toml` were both committed and both inert:
+ * `.config/semgrep.yml` and `.config/gitleaks.toml` were both committed and both inert:
  *
  *  - two semgrep rules were unparseable, so nothing matched;
- *  - `.gitleaks.toml` allowlisted `[A-Za-z0-9+/]{40,}` in every `*.test.ts`,
+ *  - `.config/gitleaks.toml` allowlisted `[A-Za-z0-9+/]{40,}` in every `*.test.ts`,
  *    which is a blanket exemption for the exact values the scanner exists to
  *    find.
  *
@@ -30,7 +30,7 @@ function fail(file, message) {
   failures.push(`${file}: ${message}`);
 }
 
-const semgrepFile = '.semgrep.yml';
+const semgrepFile = '.config/semgrep.yml';
 const semgrepSource = readFileSync(path.join(root, semgrepFile), 'utf8');
 
 /**
@@ -95,7 +95,7 @@ for (const rule of rules) {
     );
 }
 
-const gitleaksFile = '.gitleaks.toml';
+const gitleaksFile = '.config/gitleaks.toml';
 const gitleaksSource = readFileSync(path.join(root, gitleaksFile), 'utf8');
 
 /** Every `'''…'''` literal from the allowlist section onwards. */
@@ -282,7 +282,7 @@ function opensArray(line) {
 /**
  * A TOML key may not be both a value and a table.
  *
- * `.gitleaks.toml` had `paths = [...]` and then `[allowlist.paths]` with bare keys
+ * `.config/gitleaks.toml` had `paths = [...]` and then `[allowlist.paths]` with bare keys
  * beneath it. TOML rejects that combination outright, so **gitleaks could never
  * load the file**: the gitleaks half of `pnpm security:static` failed on its own
  * configuration before scanning a line, on every host that had the binary

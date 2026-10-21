@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { standardCoverage } from '../../vitest.shared.js';
+import { standardCoverage } from '../../.config/vitest.shared.js';
 
 export default defineConfig({
   test: {

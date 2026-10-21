@@ -1,7 +1,7 @@
 /**
  * Runs the static-analysis scanners, when they are available.
  *
- * `.semgrep.yml` and `.gitleaks.toml` were committed and never invoked, so both
+ * `.config/semgrep.yml` and `.config/gitleaks.toml` were committed and never invoked, so both
  * could be wrong indefinitely without anything noticing. This is the only step
  * that actually executes them.
  *
@@ -86,7 +86,7 @@ const structural = spawnSync(
 );
 if (structural.status !== 0) process.exit(structural.status ?? 1);
 
-const GITLEAKS_ARGS = ['detect', '--config', '.gitleaks.toml', '--no-banner', '--redact'];
+const GITLEAKS_ARGS = ['detect', '--config', '.config/gitleaks.toml', '--no-banner', '--redact'];
 
 /**
  * @typedef {object} ScanResult

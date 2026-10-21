@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { STANDARD_TEST_TIMEOUT_MS, standardCoverage } from '../../vitest.shared.js';
+import { STANDARD_TEST_TIMEOUT_MS, standardCoverage } from '../../.config/vitest.shared.js';
 
 export default defineConfig({
   test: {

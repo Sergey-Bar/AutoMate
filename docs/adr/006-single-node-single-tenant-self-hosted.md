@@ -63,7 +63,7 @@ recorded 2026-10-21).
   `PUBLIC_APP_URL` defaulting to the local web origin.
 - `scripts/lib/render-gate-phase.mjs` and `tests/performance/rendering-budget.json` — the
   derived tier and the unrecorded baseline behind it.
-- `docs/quality/coverage-exclusions.md` and `coverage-baseline.json` — the
+- `docs/quality/coverage-exclusions.md` and `docs/quality/coverage-baseline.json` — the
   per-package floors the ratchet compares against.
 - `pnpm status:10` — §17's twelve points, with `not_configured` as a first-class
   outcome rather than a failure.

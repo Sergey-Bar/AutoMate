@@ -8,7 +8,7 @@
  * enforcement is real and has been all along.
  *
  * The gap was that **no compose file supplied the five variables**, so the documented
- * production stack could not have booted: `docker-compose.unified.yml` set
+ * production stack could not have booted: `infra/compose/docker-compose.unified.yml` set
  * `NODE_ENV: production` on the API with none of them, and the policy would have thrown
  * at startup. `compose.dev.yml` ran a MinIO service that nothing referenced and nothing
  * waited on. The policy was correct and the deployment contradicted it, which is the

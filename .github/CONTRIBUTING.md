@@ -27,7 +27,7 @@ both, and on `verify` growing past twenty steps.
 
 ### 2. A rule that silently stops matching is a defect
 
-`.semgrep.yml` has a fixture suite (`scripts/lib/semgrep-rules.test.mjs`) that runs each
+`.config/semgrep.yml` has a fixture suite (`scripts/lib/semgrep-rules.test.mjs`) that runs each
 rule over a known hazard and asserts it still fires — because six mechanisms in that file
 once read as exclusions and were not, and a rule that loads while matching nothing is
 indistinguishable from a rule that works.
