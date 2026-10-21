@@ -177,7 +177,7 @@ test('no product source file imports from a test-support directory', () => {
 
   /** @type {string[]} */
   const offences = [];
-  for (const relativeRoot of ['apps', 'packages', 'tools', 'scripts', 'e2e', 'tests']) {
+  for (const relativeRoot of ['apps', 'packages', 'tools', 'scripts', 'tests']) {
     for (const file of productSourceFiles(relativeRoot)) {
       for (const specifier of importSpecifiers(readFileSync(file, 'utf8'))) {
         if (!/(^|\/)test-support\//.test(specifier)) continue;

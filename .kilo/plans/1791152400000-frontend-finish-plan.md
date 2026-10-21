@@ -271,7 +271,7 @@ From `animation-vocabulary` and `apple-design`, without a JS runtime:
    `CommandPalette` and `EmptyState` all write `animate-*` and all of them resolve, because
    W-something once fixed that — this wave gives them the *right* motion rather than any.
 5. `fixing-motion-performance` over the result: compositor-only properties, no layout
-   thrash, and the glass stack-depth ceiling from `performance/rendering-budget.json`
+   thrash, and the glass stack-depth ceiling from `tests/performance/rendering-budget.json`
    re-checked after every change that could deepen it.
 
 **Gate.** `pnpm --filter @automate/ui test src/tokens/motion.test.ts`, the rendering-budget
@@ -315,7 +315,7 @@ Each screen is its own step with its own before-and-after screenshots in
 2. **`run-detail.tsx`** — where a person decides whether a release is safe. Glass stays off
    the evidence region, permanently, and the rule says so.
 3. **`quarantine.tsx`** — a filter surface whose content changes on every keystroke. The INP
-   reading in `performance/rendering-budget.json` is the one most likely to catch a
+   reading in `tests/performance/rendering-budget.json` is the one most likely to catch a
    re-render this plan causes.
 4. **`gaps.tsx`, `score.tsx`, `analytics.tsx`** — the remaining routes.
 5. **Empty, loading and error states**, as one pass over every route rather than per route:
@@ -508,7 +508,7 @@ whatever was listening on 3000. On this host that was an unrelated process, whic
 
 `GLASS-4` records it. The useful part is the correction: **the first fix made the lane worse on
 every machine.** Making `playwright.config.ts`'s port configurable and leaving
-`e2e/support/config.ts` hardcoded meant the suite started its API on 3111 and posted every login
+`tests/e2e/support/config.ts` hardcoded meant the suite started its API on 3111 and posted every login
 to 3000. The original was a hazard on a busy machine; the fix was a hazard everywhere, introduced
 by the fix. Only after the first two were unified did the third surface — and it surfaced as an
 error message about the product.

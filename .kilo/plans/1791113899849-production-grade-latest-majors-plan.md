@@ -291,7 +291,7 @@ at `index.ts:133-140`, and record the SLOs the render and perf budgets already n
 10.7 **Tier raises, each with its measurement in the same commit:** `security:static` →
 `pr-blocking` (the evidence exists — zero findings, semgrep 1.178.0, run `36962862652`);
 `test:render` → `pr-blocking` only once `pnpm render:baseline` has run on the reference hardware;
-`test:performance` only once `performance/thresholds.json` is `recorded: true`.
+`test:performance` only once `tests/performance/thresholds.json` is `recorded: true`.
 10.8 **Retire what nothing writes.** C-6's 21 dormant tables (`locator_suggestions` first — it
 has no `updated_at`, so a row in it is permanently current by construction), and the 28
 workspace-scoped tables with no hard boundary (`P-20`), which `pnpm tenancy:check` currently

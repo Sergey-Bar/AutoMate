@@ -38,7 +38,7 @@ const counts = tally(reports);
  * was the recorded, deliberate act it needed to be.
  *
  * The condition is met and the arming is unconditional now. Point 3 was the last
- * `fail`, and it was closed by writing `e2e/product/durable-path.spec.ts` — a real
+ * `fail`, and it was closed by writing `tests/e2e/product/durable-path.spec.ts` — a real
  * artefact, not a reclassification — with a `playwright.config.ts` project of its own so
  * it cannot become a green no-op. `scripts/lib/status-ten.test.mjs` asserts every stage
  * marker is present **in that file**, so the point cannot go back to passing on a spec

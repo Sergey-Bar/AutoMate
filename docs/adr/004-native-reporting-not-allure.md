@@ -30,8 +30,8 @@ dashboard aggregate over a warehouse copy.
 
 - **A number nobody measured is not reported as a number.** Where a budget has no
   recorded run, the state is `not_configured` with a reason — the three-outcome rule
-  from the roadmap's §5.3. `performance/thresholds.json` and
-  `performance/rendering-budget.json` both carry `recorded: false` for this reason,
+  from the roadmap's §5.3. `tests/performance/thresholds.json` and
+  `tests/performance/rendering-budget.json` both carry `recorded: false` for this reason,
   and their gates compare against nothing rather than against an estimate.
 - **Gate verdicts are derived, not typed.** `apps/api/src/execution/quality-gate.ts`
   evaluates the policy; a run with no tests evaluates to `unknown` with

@@ -160,8 +160,8 @@ describe('the format scripts cover the tree', () => {
     // checking the performance gate's files.
     const considered = coveredFiles(FORMAT_GLOBS);
     for (const file of [
-      'performance/smoke.js',
-      'performance/thresholds.json',
+      'tests/performance/smoke.js',
+      'tests/performance/thresholds.json',
       'packages/shared-contracts/README.md',
       'packages/ui/DESIGN-MAP.md',
       '.github/agents/principal-architect.agent.md',

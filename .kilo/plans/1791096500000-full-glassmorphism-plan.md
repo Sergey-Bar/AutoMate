@@ -77,7 +77,7 @@ Its rationale is also the sentence this plan has to answer rather than erase:
 ### 1.3 `PERF-1` — widened, in one commit, with the code
 
 `scripts/lib/render-gate-phase.mjs` computes the permitted tier from
-`performance/rendering-budget.json`, and `gate-tooling.test.mjs` fails if `scripts/gate-tooling.json`
+`tests/performance/rendering-budget.json`, and `gate-tooling.test.mjs` fails if `scripts/gate-tooling.json`
 disagrees, **in both directions**. Under G-2 the baseline stays `recorded: false` and `test:render`
 stays `pr-reporting` — the state the gate was built to permit — and `PERF-1`'s summary is widened to
 name two things it did not before:
@@ -206,7 +206,7 @@ months from now should be able to see both.
 
 ### G1 — The axe spec, before any glass
 
-`e2e/accessibility/routes.spec.ts`, 13 routes, **both themes**, axe zero serious and zero critical,
+`tests/e2e/accessibility/routes.spec.ts`, 13 routes, **both themes**, axe zero serious and zero critical,
 plus a state matrix for loading/empty/error/partial. It is generated from the routes it visits, not
 hand-maintained. This also discharges `W11.4` conditions (a) and (b).
 
