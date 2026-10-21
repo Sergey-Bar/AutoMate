@@ -2,6 +2,39 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.3.0 — 2026-10-21 — maintenance and public documentation
+
+A full maintenance pass: a measured baseline, a code review of every package, thirteen
+defects fixed test-first, dependency updates, a cleaner layout and documentation written
+for QA engineers and SDETs. Every fix has a row in `docs/quality/findings-ledger.json`.
+
+### Fixed
+
+- **MNT-1 (Critical)** — the runner capped every job's deadline at the 30 s lease left at
+  claim time, so any suite longer than about 30 s ended `timed_out`.
+- **MNT-2** — a timed-out or cancelled generic command could hang its runner slot; both
+  adapters now end the whole process group and escalate to SIGKILL.
+- **MNT-3** — a generic command that failed after its workspace existed leaked it.
+- **MNT-4** — the runner's log cap counted characters, not bytes.
+- **MNT-5** — repository-map nodes failed WCAG 2.5.3 Label in Name (found by axe 4.14).
+- **MNT-6** — an overtaken quarantine decision was audited and reported as `resolved`.
+- **MNT-7** — the login rate limiter never forgot a window, so memory grew without bound.
+- **MNT-8** — the session cookie ignored `SESSION_TTL_HOURS`.
+- **MNT-9** — the runs list showed "no runs" while a run streamed test events.
+- **MNT-10** — runs the lease reaper ended were left without completion times.
+- **MNT-11** — connector operations never applied their declared timeout.
+- **MNT-12** — `unify:preflight` passed when git could not run.
+- **MNT-13** — a ledger evidence test was run by nothing; a gate now checks every one.
+
+### Changed
+
+- 33 dependencies updated within their majors, and jsdom 24 → 30. One obsolete override
+  removed; the other three re-tested and kept.
+- `e2e/` and `performance/` moved under `tests/`, `runners/` under `infra/`.
+- `locator_suggestions` gains `updated_at` (migration `0026`).
+- New README, a QA/SDET guide on the documentation site, a README per package, issue
+  forms and a pull request template. README version badges are now checked by a test.
+
 ## Unreleased — v3.0 groundwork
 
 ### Changed
