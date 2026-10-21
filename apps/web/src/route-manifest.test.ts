@@ -67,9 +67,13 @@ describe('route manifest', () => {
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
   });
 
+  it('has no login route: the install is open (ADR-006)', () => {
+    expect(routeManifest.map((route): string => route.path)).not.toContain('/login');
+    expect(isApplicationPath('/login')).toBe(false);
+  });
+
   it('puts every routed path in exactly one section', () => {
     for (const route of routeManifest) {
-      if (route.id === 'login') continue;
       const matches = SECTIONS.filter((section) => section.id === route.section);
       expect(matches, `${route.path} belongs to ${String(matches.length)} sections`).toHaveLength(
         1,

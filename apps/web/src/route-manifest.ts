@@ -27,8 +27,7 @@ interface ManifestEntry {
   readonly path: string;
   readonly label: string;
   readonly visible: boolean;
-  /** `null` only for `login`, which is not routed (ADR-006) and is kept for the e2e sweep. */
-  readonly section: SectionId | null;
+  readonly section: SectionId;
   readonly tab?: string;
 }
 
@@ -133,7 +132,6 @@ export const routeManifest = [
     section: 'map',
     tab: 'Toolbox',
   },
-  { id: 'login', path: '/login', label: 'Login', visible: false, section: null },
 ] as const satisfies readonly ManifestEntry[];
 
 export type ManifestRoute = (typeof routeManifest)[number];

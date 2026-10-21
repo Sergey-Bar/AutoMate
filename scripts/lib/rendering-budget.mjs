@@ -214,7 +214,7 @@ export function auditRenderingBudget(baseline, measurement) {
         'performance/rendering-budget.json records no routes and the measurement ' +
           'reported none, so there is nothing to compare and everything passes. A ' +
           'rendering budget with no routes is not a budget. The four primary routes ' +
-          'are /login, /dashboard/runs, /dashboard/runs/:runId and ' +
+          'are /dashboard, /dashboard/runs, /dashboard/runs/:runId and ' +
           '/dashboard/quarantine.',
       ],
       routes: 0,

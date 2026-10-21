@@ -1,6 +1,6 @@
 {
   "$comment": [
-    "Rendering ceilings for the four primary flows: login, the Command Center, run",
+    "Rendering ceilings for the four primary flows: the Overview, the runs list, run",
     "detail and quarantine. A **baseline**, not a live observation — `pnpm test:render`",
     "measures a real browser and compares against this.",
     "",
@@ -69,8 +69,8 @@
   "reason": "Never measured. Every timing ceiling below is null because no run on the reference hardware has populated it, so the timing half of this budget currently protects nothing. This is the same defect the ledger records as RF-9 for performance/thresholds.json, adopted here deliberately so the rendering budget does not ship as an unvalidated estimate — except that this file refuses to pretend. The timings stay null and the gate stays in its measurement phase rather than being given numbers that mean nothing. Populate with `pnpm render:baseline` on the reference hardware the plan's D10 commits to, and raise `test:render` to `pr-blocking` in the same commit. Tracked as PERF-1. The `glassStackDepth` ceilings are the exception: they are not timings, they are 0 because the plane is flat, and they are compared today.",
   "recordedOn": null,
   "routes": {
-    "/login": {
-      "$why": "The first paint a person sees. Chrome only, and opaque like everything else: a non-zero glass depth here is a chrome regression.",
+    "/dashboard": {
+      "$why": "The Overview: the first paint a person sees, and the screen that answers \"can I ship\". It replaced /login, which no longer exists (ADR-006). Opaque like everything else, so the glass depth is 0.",
       "glassStackDepth": 0,
       "lcpMs": null,
       "inpMs": null,

@@ -185,15 +185,17 @@ const sessionExpiredListeners = new Set<SessionExpiredListener>();
  */
 let sessionExpiryHandled = false;
 
-function defaultSessionExpiredResponder(returnPath: string): void {
-  if (typeof window === 'undefined') return;
-  // Already there: reloading would only reproduce the same state.
-  if (window.location.pathname === '/login') return;
-  // A full navigation rather than a client-side one. The auth status is module
-  // state in `useAuth`, and a soft route change would leave the stale
-  // "authenticated" value in place — the guard would consider the session live
-  // and render the dashboard again on the way to the login page.
-  window.location.assign(`/login?return=${encodeURIComponent(returnPath)}`);
+/**
+ * The default action on expiry: stay put.
+ *
+ * The install is open (ADR-006) and there is no login route. This used to be a full
+ * navigation to `/login`, which rendered an empty page and stranded the reader; a 401
+ * now surfaces as the failing screen's own error state, and subscribers still hear
+ * about it once. A deployment that puts a login in front of the product registers its
+ * own responder with `setSessionExpiredResponder`.
+ */
+function defaultSessionExpiredResponder(_returnPath: string): void {
+  // Intentionally empty.
 }
 
 let sessionExpiredResponder: SessionExpiredListener = defaultSessionExpiredResponder;

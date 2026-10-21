@@ -31,18 +31,22 @@ import { expect, test, type Page } from '@playwright/test';
 import { phaseFor } from '../../scripts/lib/render-gate-phase.mjs';
 import { auditRenderingBudget, measurementProblems } from '../../scripts/lib/rendering-budget.mjs';
 import { postReporterEvent, uniqueRunId } from '../support/api.js';
-import { WEB_BASE } from '../support/config.js';
 import { authenticate, signInAndVisit } from '../support/session.js';
 
 /**
- * The four primary flows the plan names, and the four routes the budget file carries.
+ * The four primary flows, and the four routes the budget file carries.
+ *
+ * `/dashboard` — the Overview — is the first paint a person sees. It replaced `/login`,
+ * which no longer exists (ADR-006): that route rendered nothing, and its wait for an
+ * `auth-loading` element that never appears passed vacuously, so the budget measured an
+ * empty page.
  *
  * `/dashboard/runs/:runId` is a pattern rather than a path because the budget key is
  * the pattern: a budget keyed by run id would need a new entry per run and would
  * measure nothing. `pattern: 'run'` is how this test knows to substitute a real one.
  */
 const PRIMARY_ROUTES = [
-  { key: '/login', pattern: null },
+  { key: '/dashboard', pattern: null },
   { key: '/dashboard/runs', pattern: null },
   { key: '/dashboard/runs/:runId', pattern: 'run' },
   { key: '/dashboard/quarantine', pattern: null },
@@ -327,24 +331,19 @@ test.describe('rendering budget', () => {
       try {
         await installObservers(target);
 
-        if (route.key === '/login') {
-          await target.goto(`${WEB_BASE}/login`);
-          await expect(target.getByTestId('auth-loading')).toBeHidden();
+        await authenticate(context, request);
+        const routePath =
+          route.pattern === 'run' ? `/dashboard/runs/${runId}` : (route.key as string);
+        await signInAndVisit(target, routePath);
+        // One interaction, so the route has an `event` entry and INP is a
+        // measurement rather than an absence. Quarantine filters on input, so typing
+        // there is the interaction the plan's INP reading is actually about.
+        if (route.key === '/dashboard/quarantine') {
+          const filter = target.locator('input[type="search"], input[type="text"]').first();
+          if ((await filter.count()) > 0) await filter.fill('a');
         } else {
-          await authenticate(context, request);
-          const routePath =
-            route.pattern === 'run' ? `/dashboard/runs/${runId}` : (route.key as string);
-          await signInAndVisit(target, routePath);
-          // One interaction, so the route has an `event` entry and INP is a
-          // measurement rather than an absence. Quarantine filters on input, so typing
-          // there is the interaction the plan's INP reading is actually about.
-          if (route.key === '/dashboard/quarantine') {
-            const filter = target.locator('input[type="search"], input[type="text"]').first();
-            if ((await filter.count()) > 0) await filter.fill('a');
-          } else {
-            await target.mouse.move(10, 10);
-            await target.mouse.click(10, 10);
-          }
+          await target.mouse.move(10, 10);
+          await target.mouse.click(10, 10);
         }
 
         await target.waitForLoadState('networkidle');
