@@ -1,387 +1,68 @@
 <div align="center">
   <h1>Automate</h1>
-  <p><strong>A local-first control plane for test evidence, run intelligence, and isolated automation.</strong></p>
+  <p><strong>A self-hosted QA control plane: one home for your test evidence, quality gates and flaky tests.</strong></p>
   <p>
-    <a href="https://nodejs.org/"><img alt="Node.js 24.21" src="https://img.shields.io/badge/Node.js-24.21-5FA04E?logo=node.js"></a>
-    <a href="https://pnpm.io/"><img alt="pnpm 10.30.2" src="https://img.shields.io/badge/pnpm-10.30.2-F69220?logo=pnpm&logoColor=white"></a>
-    <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5.9" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white"></a>
+    <a href="https://github.com/Sergey-Bar/AutoMate/actions/workflows/unified-ci.yml"><img alt="CI" src="https://github.com/Sergey-Bar/AutoMate/actions/workflows/unified-ci.yml/badge.svg?branch=main"></a>
+    <a href="https://sergey-bar.github.io/AutoMate/"><img alt="Docs" src="https://img.shields.io/badge/docs-site-2EA44F"></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-2EA44F.svg"></a>
+    <img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?logo=node.js">
+    <img alt="pnpm 11" src="https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white">
+    <img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white">
   </p>
 </div>
 
-> **Current maturity: a working local install, honestly scoped.** The reporter → reporting →
-> dashboard vertical slice runs against real PostgreSQL and is covered end to end by the
-> E2E suite. Production OCI execution, production publication, credential rotation, and
-> destructive data migration are intentionally not enabled yet, and the capability table
-> below says which is which rather than rounding up.
+Automate is a local-first QA control plane. Send it the report your test runner already
+writes — Playwright, JUnit, k6 or OWASP ZAP — and it keeps the run, every test's status
+and retry history, and the original bytes as evidence, then shows it all in a live
+dashboard.
 
-Automate is a local-first QA control plane. It normalizes test results from any producer
-into shared contracts, persists run evidence, exposes live updates, and provides a React
-dashboard for exploring runs, analytics, quarantine, and quality gates.
+![The runs view](docs/assets/runs.png)
 
-Independent runners, AI-provider gateways, connectors, and isolated execution for browser,
-API, load, security, and mobile tools are **boundaries that exist and are not yet product
-flows**. The authoritative per-capability status is
-[`docs/migration/capability-register.md`](docs/migration/capability-register.md); this
-README's table is a summary of it, not a substitute for it.
+## What you get
 
-## Why Automate?
+- **One result model for every producer.** Retries are recorded as `flaky`, not as passes.
+- **Quality gates** that answer `unknown` or `not_configured` instead of quietly passing.
+- **Quarantine** for flaky tests, with a required reason and an audit trail — set aside, never hidden.
+- **Live run updates** over server-sent events, and a runner that executes declared commands outside the API process.
 
-<!--
-  Kept first and kept short on purpose.
+## Why it is interesting to an SDET
 
-  **This README is for someone deciding whether to look at the code, not for someone
-  who already has.** Everything below "Quick start" is for the second person, and the
-  order used to put the project's argument above the thing that gets it running — so
-  the first screen of a repository whose whole thesis is "evidence before claims" was
-  a paragraph of claims.
-
-  What moved and why:
-
-  - The four-line pitch is here, because it is the only thing worth reading before
-    running anything.
-  - "What makes this repository unusual" moved to `CONTRIBUTING.md`, where it is
-    actionable rather than decorative — each of those five points is something a
-    contributor can trip over, and they are all rules the gates enforce.
-  - The full capability table moved to `docs/migration/capability-register.md`, which
-    is its authority and which `pnpm site:doctor` check 2 asserts is what
-    `site/pages/capabilities.md` publishes. A summary table in a README goes stale in
-    a way nothing notices; a generated page does not.
-  - The run/attempt/evidence diagram is the one thing kept here, because a reader
-    deciding whether this is the repository they want has to be able to see the shape
-    of it without clicking.
--->
-
-QA teams commonly stitch together reporters, CI logs, dashboards, spreadsheets, and separate execution tools. Automate focuses on the evidence and control layer between them:
-
-- **One canonical result model** for Playwright, JUnit, legacy reporters, and future producers.
-- **Run-centric analytics** with duration, status, trends, quarantine, and quality-gate policies.
-- **Live run updates** over authenticated Server-Sent Events (SSE).
-- **Revocable installation sessions** with HttpOnly cookies and installation-scoped credentials.
-- **Clear runner boundaries** so customer automation code never executes inside the dashboard process.
-- **Evidence before claims** — mock behavior is documented as mock, not presented as production parity.
-
-**A run is a chain, not a green tick:** job → lease → attempt → normalized result →
-artifact → SHA-256. Each link can be missing, and saying which is the product's whole
-job. The [front page of the documentation site](site/index.md) draws the chain; the
-[architecture reference](site/architecture.md) carries the detail behind each link.
-
-## The shape of it
-
-```mermaid
-flowchart LR
-    Producer["Playwright / JUnit / legacy events"] --> Reporter["Reporter adapters and ingestion"]
-    Reporter --> Contracts["Canonical run, test, step, and evidence contracts"]
-    Contracts --> DB[("PostgreSQL via Drizzle")]
-    Contracts --> Bus["Process-local realtime bus"]
-    Bus --> SSE["Authenticated SSE stream"]
-    SSE --> Web["React RunExplorer dashboard"]
-
-    Runner["Runner SDK and OCI boundary"] --> Control["Orchestration and runner routes"]
-    Control --> Contracts
-
-    AI["Kilo and Ollama gateway adapters"] -. "GET /api/v1/chat/models, POST completions" .-> Control
-    Connectors["GitHub, Jira, and Slack adapters"] -. "not production-wired" .-> Control
-```
-
-### Where the evidence comes from
-
-The chain is a diagram; this is the table that goes with it, and it is a **summary**.
-The authority is
-[`docs/migration/capability-register.md`](docs/migration/capability-register.md) — 42
-rows, 26 of which are not `real`. `pnpm site:doctor` check 5 fails if any page here or
-in the site claims a capability the register does not mark `real`, so the table below
-and that file cannot drift apart silently.
-
-| Layer                          | Current state                                                                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Reporter ingestion             | **Implemented** — canonical, versioned, and legacy events; Playwright JSON and JUnit upload                                                                     |
-| Run persistence                | **Implemented** — Drizzle/PostgreSQL with an explicit in-memory development fallback                                                                            |
-| RunExplorer and dashboard APIs | **Implemented** — run detail, tests, suites, analytics, quarantine, and quality gates                                                                           |
-| Realtime                       | **Partial** — versioned SSE and replay boundary exist; API composition currently uses a process-local bus                                                       |
-| Authentication                 | **Partial** — revocable sessions and Drizzle storage exist; multi-instance and retention evidence remain                                                        |
-| Runner and orchestration       | **Boundary only** — SDK, state machine, leases, and OCI files exist; production execution is not proven                                                         |
-| AI chat                        | **Partial** — `/api/v1/chat/*` streams a completion through the `AiGateway` port; an unconfigured installation answers a coded 503 rather than failing to start |
-| Connectors                     | **Boundary only** — GitHub, Jira, and Slack adapters exist without durable, provider-backed product flows                                                       |
-| Deployment                     | **Local only** — loopback Compose assets exist; there is no approved production topology                                                                        |
-
-Three rows in the register are **waiting on a measurement, not on code**, and one of them
-is the reason this repository's own site is not online: `SITE-1`.
+The repository is built the way it asks you to test: every fix starts as a test watched
+failing first, coverage and complexity are **ratchets** that can only improve, and every
+confirmed defect is a row in a machine-checked
+[findings ledger](docs/quality/findings-ledger.json). See
+[how this repository tests itself](site/guide/testing-strategy.md) and
+[how it is maintained](site/guide/maintenance.md).
 
 ## Quick start
 
-### Prerequisites
-
-- Node.js `24.x`
-- pnpm `10.30.2`
-- Docker Engine is optional and only required for the Compose workflow
-
-Install the workspace:
+Requires Node.js 24 and pnpm 11 (`corepack enable` provides it).
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm --filter @automate/api dev        # terminal 1 — see the guide for the three env vars
+pnpm --filter @automate/unified-web dev  # terminal 2 — then open http://localhost:5173
 ```
 
-### Run the zero-database sample
-
-The API listens on `127.0.0.1:3000` by default, and the web development proxy
-resolves its target from that same `PORT` — so you do not have to set one. To use
-a different port, set it in **both** terminals below, before starting either.
-
-**Terminal 1 — API (PowerShell)**
-
-```powershell
-$env:NODE_ENV='development'
-$env:AUTOMATE_API_KEY='local-installation-key-32-characters'
-$env:COOKIE_SECRET='local-cookie-secret-32-characters-long'
-$env:REPORTER_SECRET='local-reporter-secret-32-characters'
-pnpm --filter @automate/api dev
-```
-
-**Terminal 1 — API (macOS/Linux)**
-
-```bash
-NODE_ENV=development \
-AUTOMATE_API_KEY=local-installation-key-32-characters \
-COOKIE_SECRET=local-cookie-secret-32-characters-long \
-REPORTER_SECRET=local-reporter-secret-32-characters \
-pnpm --filter @automate/api dev
-```
-
-**Terminal 2 — Web**
-
-```bash
-pnpm --filter @automate/unified-web dev
-```
-
-Then:
-
-1. Open `http://localhost:5173`.
-2. Sign in with `local-installation-key-32-characters`.
-3. Verify the API at `http://127.0.0.1:3000/api/v1/health`.
-
-This mode intentionally uses in-memory run and dashboard state. Restarting the API clears it.
-
-### Run the local Compose stack
-
-The Compose topology adds PostgreSQL, MinIO, API, web, and an edge proxy.
-
-**PowerShell**
-
-```powershell
-$env:REHEARSAL_MODE='local'
-docker compose -f infra/compose/compose.dev.yml build
-docker compose -f infra/compose/compose.dev.yml up -d
-```
-
-**macOS/Linux**
-
-```bash
-REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml build
-REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml up -d
-```
-
-| Surface          | Address                  |
-| ---------------- | ------------------------ |
-| Edge application | `http://127.0.0.1:58080` |
-| Web direct       | `http://127.0.0.1:53173` |
-| API direct       | `http://127.0.0.1:53000` |
-| PostgreSQL       | `127.0.0.1:55432`        |
-| MinIO API        | `http://127.0.0.1:59000` |
-| MinIO console    | `http://127.0.0.1:59001` |
-
-The compose file uses `pull_policy: never`; the external images must be available locally. See [`docs/deployment.md`](docs/deployment.md) for shutdown, volume cleanup, and deployment boundaries.
-
-## Configuration
-
-The API validates `process.env` through [`packages/config`](packages/config). The workspace scripts do not load `.env` files automatically, so provide variables through your shell, process manager, or the Compose stack.
-
-| Variable                           |    Required | Purpose                                                      |
-| ---------------------------------- | ----------: | ------------------------------------------------------------ |
-| `NODE_ENV`                         |  Production | Enables production startup policy                            |
-| `HOST`, `PORT`                     |          No | API bind address; defaults to `127.0.0.1:3000`               |
-| `PUBLIC_APP_URL`                   |  Production | Public web origin used for secure-cookie policy              |
-| `DATABASE_URL`                     |  Production | PostgreSQL connection used by Drizzle                        |
-| `COOKIE_SECRET`                    |  Production | Session-token hashing and cookie integrity                   |
-| `VAULT_SECRET`                     |  Production | Versioned vault encryption secret                            |
-| `AUTOMATE_API_KEY`                 | Recommended | Installation bootstrap and API-key authentication            |
-| `REPORTER_SECRET`                  | Recommended | Authentication for reporter event ingestion                  |
-| `WORKSPACE_ID`                     |          No | Explicit workspace boundary; defaults to `default-workspace` |
-| `KILO_GATEWAY_URL`, `KILO_API_KEY` |          No | Kilo Gateway adapter; the key is required with the URL       |
-| `OLLAMA_BASE_URL`                  |          No | Direct local Ollama adapter                                  |
-| `SESSION_TTL_HOURS`                |          No | Session lifetime; defaults to `24`                           |
-| `AUDIT_RETENTION_DAYS`             |          No | Audit retention policy; defaults to `365`                    |
-
-Use [`.env.example`](.env.example) as the variable inventory. Never commit real secrets.
-
-## Repository map
-
-| Path                                              | Responsibility                                                                                                                               |
-| ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/api`                                        | Hono control-plane API, ingestion, reporting, auth, dashboard, orchestration, and runner routes                                              |
-| `apps/web`                                        | React 19 dashboard, TanStack Router routes, run explorer, analytics, quarantine, and quality-gate views                                      |
-| `apps/runner`                                     | Rootless runner process boundary; the OCI images are stubs and the manifests carry `null` digests, so the register marks `runner.oci` `mock` |
-| `packages/shared-contracts`                       | Canonical Zod schemas for reporting, realtime, orchestration, sessions, and runner traffic                                                   |
-| `packages/reporter`                               | Producer adapters and normalized reporter protocols                                                                                          |
-| `packages/reporting`                              | Framework-independent evidence, KPI, and quality-gate policies                                                                               |
-| `packages/realtime`                               | Versioned event envelopes, replay, and transport boundaries                                                                                  |
-| `packages/orchestration`                          | Automation inventory, schedules, jobs, state transitions, and retry policy                                                                   |
-| `packages/automation`                             | Kilo and Ollama gateway ports/adapters, served at `/api/v1/chat/*`                                                                           |
-| `packages/runner-sdk`                             | Runner identity, heartbeat, job, lease, and event protocol                                                                                   |
-| `packages/auth`, `packages/config`, `packages/db` | Identity/session rules, typed configuration, Drizzle schema, and migrations                                                                  |
-| `packages/connectors`                             | GitHub, Jira, and Slack connector SDKs                                                                                                       |
-| `runners`                                         | Pinned OCI execution definitions for future tool workloads                                                                                   |
-| `tools/migrate-cli`                               | Deterministic migration planning, rehearsal, and reconciliation primitives                                                                   |
-| `tests`, `e2e`                                    | Contract, integration, vertical-slice, and browser tests                                                                                     |
-| `infra`                                           | Local Compose, Docker, nginx, and deployment assets                                                                                          |
-| `docs`                                            | Architecture, migration evidence, deployment, provider, API, and database guidance                                                           |
-
-## Common commands
-
-All commands run from the repository root.
-
-| Command                  | Purpose                                                                     |
-| ------------------------ | --------------------------------------------------------------------------- |
-| `pnpm dev`               | Start API and web with the variables already present in the environment     |
-| `pnpm build`             | Build every workspace package and app                                       |
-| `pnpm test`              | Run the Vitest unit/integration suites                                      |
-| `pnpm typecheck`         | Run strict TypeScript checks                                                |
-| `pnpm lint`              | Run ESLint with zero warnings allowed                                       |
-| `pnpm verify`            | Run the full build, test, typecheck, and lint gate                          |
-| `pnpm test:contract`     | Validate canonical and compatibility contracts                              |
-| `pnpm test:integration`  | Run repository integration tests                                            |
-| `pnpm test:e2e`          | Run the Playwright suite with managed API/web servers                       |
-| `pnpm test:e2e:vertical` | Run the authenticated reporter → reporting → SSE vertical slice             |
-| `pnpm security:verify`   | Run the local dependency, secret, and policy checks                         |
-| `pnpm unify:preflight`   | Enforce repository boundaries and prevent legacy/generated-file regressions |
-| `pnpm db:check`          | Validate the Drizzle migration graph                                        |
-| `pnpm db:generate`       | Generate a forward migration after schema changes                           |
-
-`pnpm migrate:apply` remains intentionally blocked for destructive writes until resumable waves, native backups, and restore verification are enabled.
-
-## API surface
-
-All versioned application endpoints are under `/api/v1`.
-
-| Route family                                 | Purpose                                                    |
-| -------------------------------------------- | ---------------------------------------------------------- |
-| `GET /api/v1/health`                         | Liveness endpoint                                          |
-| `POST /api/v1/auth/*`                        | Login, session inspection, and logout                      |
-| `POST /api/v1/reporter/events`               | Versioned and legacy reporter event ingestion              |
-| `POST /api/v1/reporter/results`              | Canonical result ingestion and duplicate/conflict handling |
-| `POST /api/v1/reporter/upload`               | Playwright JSON or JUnit XML upload                        |
-| `GET /api/v1/reporting/*`                    | Canonical run results and KPI projections                  |
-| `GET /api/v1/runs`                           | Persisted run listing                                      |
-| `GET /api/v1/dashboard/*`                    | Run explorer, analytics, quarantine, and quality gates     |
-| `GET /api/v1/events`                         | Authenticated `text/event-stream` for `run:updated` events |
-| `/api/v1/runner/v1/*`                        | Runner enrollment, synchronization, and event batches      |
-| `/api/v1/automations`, `/schedules`, `/jobs` | Orchestration boundary                                     |
-
-Reporter events use their own `REPORTER_SECRET`. Control-plane routes require an installation API key or a valid session cookie. Runner routes use runner-specific credentials.
-
-## Testing and CI
-
-The repository treats tests as part of the capability contract:
-
-- Vitest 4 powers unit and integration tests, with **no per-package thresholds** — see
-  [Coverage](#coverage) for why the ratchet is the gate instead.
-- Playwright owns the API/browser vertical slice and the product E2E suite.
-  `pnpm test:e2e` **empties the durable tables before it runs** and refuses to do so
-  against anything that is not a loopback host or a database named with `test`/`e2e`/`ci`,
-  so the suite is re-runnable against the same database — which is what a developer needs
-  after making a change.
-- Root Turborepo tasks enforce dependency and coverage boundaries.
-- `.github/workflows/unified-ci.yml` runs formatting, lint, typecheck, tests, security
-  checks, migration checks, E2E, and builds. Release-gate and nightly workflows cover the
-  broader migration and platform checks.
-- **`main` is protected.** Ten of those jobs are required, enforced on administrators, with
-  force-push and branch deletion disabled. Verified by being caught by it.
-
-### Coverage
-
-There is no per-package Vitest threshold, and that is deliberate rather than an
-omission. Four packages sit well below the 90/80/90/90 that `STANDARD_THRESHOLDS`
-states, and a threshold that blocks every run gets raised until it means nothing.
-
-The gate is `pnpm coverage:ratchet`, which compares each package's measured
-coverage against `coverage-baseline.json` and **fails only on a regression**. The
-floor therefore only moves up, and lowering one to make room is not available as a
-way to pass. A newly-measured file has to be genuinely covered on the same pull
-request.
-
-`vitest.shared.ts` holds the measurements and the reasoning; `AGENTS.md` holds the
-per-package floors.
-
-Run the local gate before opening a pull request:
-
-```bash
-pnpm verify
-pnpm test:e2e
-pnpm security:verify
-```
-
-## Security and production boundaries
-
-- Production startup requires `DATABASE_URL`, `COOKIE_SECRET`, and `VAULT_SECRET`.
-- Session cookies are HttpOnly, SameSite=Lax, and Secure when the public origin uses HTTPS.
-- Reporter payloads and uploaded paths are validated and bounded before persistence.
-- Secrets belong in a secret manager or local environment, never in Git.
-- Migration apply and production cutover fail closed until their explicit gates are satisfied.
-- OCI images must be built, digest-pinned, and independently verified before they can be considered deployable.
-- This repository does not currently claim production readiness, multi-instance SSE durability, or a production secret-rotation procedure.
+[Getting started](site/guide/getting-started.md) has the full steps, including the
+PostgreSQL stack, and [sending results](site/guide/sending-results.md) shows the one
+`curl` that gets a report from CI into a run.
 
 ## Documentation
 
-The **[documentation site](site/index.md)** is the published form of all of this. It is
-built from the product's own palette — `site/.vitepress/theme/custom.css` imports
-`packages/ui/src/tokens/theme.css` rather than copying it, and `pnpm site:doctor` check 8
-fails if it ever does.
-
-**The site is not deployed.** Nothing in this repository publishes it, and the address
-that would serve it returns nothing. That is recorded as `SITE-1` in the findings ledger
-with an owner and a removal condition, rather than left as a link that 404s. Until it is,
-the markdown files _are_ the documentation.
-
-| Document                                                                            | Use it for                                                                             |
-| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [Getting started](site/guide/getting-started.md)                                    | Getting the stack up and running                                                       |
-| [The design language](site/guide/design-language.md)                                | The plane, the accent, the type, the motion, and the numbers each one has to clear     |
-| [Architecture](site/architecture.md)                                                | The runtime, the evidence chain, and the tenancy boundary                              |
-| [Operations](site/operations.md)                                                    | Running it, and the retry and artifact policies                                        |
-| [`Capability register`](docs/migration/capability-register.md)                      | The current source of truth for what is real, partial, missing, deferred, or obsolete  |
-| [`Findings ledger`](docs/quality/findings-ledger.json)                              | Every confirmed defect, with evidence, band, and removal condition                     |
-| [`Migration decision record`](docs/migration/phase-0-decision-record.md)            | Scope, evidence, approvals, and implementation status                                  |
-| [`Unified migration specification`](docs/migration/unified-repository-migration.md) | Target architecture, data model, runtime topology, and migration rules                 |
-| [`Architecture ADR`](docs/architecture/unified-platform.md)                         | Original architecture proposal; superseded where the migration decision record differs |
-| [`Deployment`](docs/deployment.md)                                                  | Local Compose topology and release boundary                                            |
-| [`AI provider support matrix`](docs/ai-provider-support-matrix.md)                  | Kilo/Ollama capability and routing decisions                                           |
-| [`Reporter API route`](apps/api/src/routes/reporter.ts)                             | Versioned, legacy, canonical, and upload endpoint behavior                             |
-| [`Shared contracts`](packages/shared-contracts/src)                                 | Canonical reporting, realtime, orchestration, session, and runner schemas              |
-| [`Drizzle migrations`](packages/db/drizzle)                                         | PostgreSQL migration graph and schema history                                          |
-| [`Parity matrix`](docs/parity-matrix.md)                                            | Capability-by-capability migration evidence                                            |
-| [`Changelog`](CHANGELOG.md)                                                         | Current unified implementation summary                                                 |
-| [`AGENTS.md`](AGENTS.md)                                                            | Repository-specific engineering and validation rules                                   |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md)                                                | The five rules this repository actually holds contributors to, and how to satisfy them |
+| Read                                                         | For                                                      |
+| ------------------------------------------------------------ | -------------------------------------------------------- |
+| [Core concepts](site/guide/concepts.md)                      | Runs, attempts, results and evidence                     |
+| [Quality gates and quarantine](site/guide/quality-gates.md)  | How a run is judged, and how flaky tests are handled     |
+| [Architecture](site/architecture.md)                         | The runtime, the evidence chain and the tenancy boundary |
+| [Capability register](docs/migration/capability-register.md) | What is implemented, partial or not built yet            |
+| [Documentation index](docs/README.md)                        | Everything else, including ADRs and quality records      |
 
 ## Contributing
 
-**[`CONTRIBUTING.md`](CONTRIBUTING.md) is the place to start.** It leads with the five
-properties that make this repository unusual, each one with the command that enforces it,
-and then the three-commit rule that this project's testing depends on.
-
-The short version:
-
-1. Branch from `main` and keep changes focused.
-2. **Write the test, run it with the defect still present, watch it fail for the reason
-   you expect, then fix it.** Three times in this programme's history a suite was fully
-   green while checking the wrong thing, and none of them was caught by reading the code
-   carefully.
-3. Run `pnpm verify` — or `pnpm verify:local` on a host without `semgrep` and `gitleaks`,
-   which runs the same chain with those two scanners recorded as `not_configured`. It is
-   never run in CI, where the scanners are installed and enforced.
-4. Use Conventional Commit subjects enforced by the root tooling.
-5. Do not weaken tests, delete failing cases, or describe mock behavior as
-   production-ready.
+Start with [`CONTRIBUTING.md`](CONTRIBUTING.md). Before a pull request, run `pnpm verify`
+(or `pnpm verify:local` on a machine without `semgrep` and `gitleaks`). Security reports go
+through [`SECURITY.md`](SECURITY.md).
 
 ## License
 
