@@ -128,11 +128,11 @@
     },
     {
       "name": "@vitejs/plugin-react",
-      "version": "4.7.0"
+      "version": "6.1.2"
     },
     {
       "name": "@vitest/coverage-v8",
-      "version": "4.1.12"
+      "version": "5.0.5"
     },
     {
       "name": "ajv",
@@ -260,7 +260,7 @@
     },
     {
       "name": "vite",
-      "version": "6.4.4"
+      "version": "8.3.4"
     },
     {
       "name": "vitepress",
@@ -268,7 +268,7 @@
     },
     {
       "name": "vitest",
-      "version": "4.1.12"
+      "version": "5.0.5"
     },
     {
       "name": "vitest-axe",
