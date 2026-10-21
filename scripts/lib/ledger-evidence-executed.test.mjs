@@ -20,11 +20,13 @@ import test from 'node:test';
  */
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
+/** @param {string} relative */
 const read = (relative) => readFileSync(path.join(ROOT, relative), 'utf8');
 
 /** @returns {string[]} */
 function citedTests() {
   const ledger = JSON.parse(read('docs/quality/findings-ledger.json'));
+  /** @type {Set<string>} */
   const cited = new Set();
   for (const row of ledger.findings) {
     for (const evidence of row.evidence ?? []) {
@@ -54,6 +56,7 @@ function runByPackageVitest(file) {
 /** The `node --test` operands of every root script. */
 function nodeTestOperands() {
   const scripts = JSON.parse(read('package.json')).scripts ?? {};
+  /** @type {string[]} */
   const operands = [];
   for (const command of Object.values(scripts)) {
     for (const segment of String(command).split('&&')) {
