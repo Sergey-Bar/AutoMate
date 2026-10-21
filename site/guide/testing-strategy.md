@@ -70,9 +70,9 @@ a regression, so it can only move one way.
 
 | Ratchet              | Command                 | Recorded in                               |
 | -------------------- | ----------------------- | ----------------------------------------- |
-| Coverage per package | `pnpm coverage:ratchet` | `coverage-baseline.json`                  |
+| Coverage per package | `pnpm coverage:ratchet` | `docs/quality/coverage-baseline.json`     |
 | Cognitive complexity | `pnpm complexity`       | `docs/quality/complexity-baseline.json`   |
-| Duplication          | `pnpm duplication`      | `.jscpd.json`                             |
+| Duplication          | `pnpm duplication`      | `.config/jscpd.json`                      |
 | Rendering budget     | `pnpm test:render`      | `tests/performance/rendering-budget.json` |
 | Load thresholds      | `pnpm test:performance` | `tests/performance/thresholds.json`       |
 
@@ -89,4 +89,4 @@ prints the whole picture in one table.
 ## Where to read next
 
 - [How this project is maintained](maintenance.md) — the ledger, the cadence, the review.
-- `CONTRIBUTING.md` in the repository — the same rules, as a checklist for a pull request.
+- `.github/CONTRIBUTING.md` in the repository — the same rules, as a checklist for a pull request.

@@ -109,7 +109,7 @@ A scanner that _ran_ and reported something still fails with the flag set. Only 
 scanner that could not run at all is recorded as unavailable.
 :::
 
-See `CONTRIBUTING.md` for the rules, including the one that matters most: write the
+See `.github/CONTRIBUTING.md` for the rules, including the one that matters most: write the
 test, run it with the defect still present, watch it fail for the reason you
 expect, and only then fix it.
 

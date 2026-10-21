@@ -31,7 +31,7 @@
     "db:generate": "pnpm --filter @automate/db db:generate",
     "db:migrate": "pnpm --filter @automate/db db:migrate",
     "db:check": "pnpm --filter @automate/db exec drizzle-kit check",
-    "compose:config": "docker compose -f docker-compose.unified.yml config",
+    "compose:config": "docker compose -f infra/compose/docker-compose.unified.yml config",
     "migrate:plan": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js plan",
     "migrate:validate": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js validate",
     "migrate:rehearse": "pnpm build && node ./scripts/migration-rehearse.mjs",
@@ -58,8 +58,8 @@
     "security:static": "node ./scripts/static-analysis.mjs",
     "security:config-check": "node ./scripts/static-analysis-config-check.mjs",
     "security:secrets:self-test": "node ./scripts/secret-scan.mjs --self-test",
-    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "duplication": "jscpd --config .jscpd.json",
+    "typecheck:scripts": "tsc -p scripts/tsconfig.json",
+    "duplication": "jscpd --config .config/jscpd.json",
     "complexity": "node ./scripts/complexity-gate.mjs",
     "review:rules": "node scripts/review/review-rules-check.mjs",
     "review:pr": "node scripts/review/review-pr.mjs",
@@ -102,5 +102,14 @@
   "engines": {
     "node": ">=24.0.0 <25",
     "pnpm": "11.28.4"
+  },
+  "prettier": {
+    "semi": true,
+    "singleQuote": true,
+    "trailingComma": "all",
+    "tabWidth": 2,
+    "printWidth": 100,
+    "endOfLine": "lf",
+    "arrowParens": "always"
   }
 }

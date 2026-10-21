@@ -9,11 +9,11 @@ const cwd = process.cwd();
  * The measurement behind this module.
  *
  * `pnpm security:static` spawned both scanners with `spawnSync` and no timeout, and
- * `semgrep scan --config .semgrep.yml` over a *single* small package
+ * `semgrep scan --config .config/semgrep.yml` over a *single* small package
  * (`apps/worker/src`) produced no output and no exit in 15 minutes. The gate was
  * killed at 30 and at 50 minutes. That is worse than a red gate: it hid the state the
  * gate exists to report, which is the 27 historical gitleaks findings
- * `.gitleaks.toml` deliberately leaves red.
+ * `.config/gitleaks.toml` deliberately leaves red.
  *
  * So the ceiling is the feature, and these cases use a child that genuinely never
  * returns rather than a stub — a stub that returns immediately would pass a

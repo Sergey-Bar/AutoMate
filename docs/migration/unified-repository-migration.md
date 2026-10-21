@@ -625,7 +625,7 @@ Replace the parity matrix with a generated, evidence-backed capability register.
 
 After the canonical Compose/edge proxy passes smoke tests, delete:
 
-- `docker-compose.yml`, `docker-compose.unified.yml`, and `docker-compose.test.yml` after their valid behavior is moved under `infra/compose/`.
+- `docker-compose.yml`, `infra/compose/docker-compose.unified.yml`, and `docker-compose.test.yml` after their valid behavior is moved under `infra/compose/`.
 - redundant root/docker/nginx configurations after consolidation under `infra/nginx/`.
 - `scripts/first-boot.sh`, `scripts/first-boot.ps1`, `docker/init-entrypoint.sh`.
 - obsolete `scripts/perf-smoke.ts` and legacy `perf/automate-smoke.js`, `perf/dashboard-smoke.js`, `perf/dashboard-load.js` after equivalent current scenarios are defined.

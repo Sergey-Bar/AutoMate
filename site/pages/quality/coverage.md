@@ -2,7 +2,7 @@
 
 <!-- generated: do not edit this block by hand -->
 
-Generated from `coverage-baseline.json` — the **floors** the ratchet compares
+Generated from `docs/quality/coverage-baseline.json` — the **floors** the ratchet compares
 against, not a measured run. A floor only moves up, so this page cannot report
 a number that has not been earned.
 

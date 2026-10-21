@@ -188,7 +188,7 @@ describe('documented credentials are usable by the policy', () => {
   /** Files that hand a real secret value to a process, or tell an operator to set one. */
   const SOURCES = [
     '.env.example',
-    '.env.compose.example',
+    'infra/compose/.env.compose.example',
     'playwright.config.ts',
     'scripts/performance-server.mjs',
     'tests/performance/smoke.js',

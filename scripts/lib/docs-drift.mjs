@@ -20,7 +20,7 @@
  * carried a table of per-package coverage floors that was wrong in all eight rows, by 2
  * to 20 points, because a floor moves every time a package gains tests and a hand-typed
  * copy has no reason to move with it. Every other detector here reads a value the code
- * decides — a port, a command, a capability status; this one reads `coverage-baseline.json`,
+ * decides — a port, a command, a capability status; this one reads `docs/quality/coverage-baseline.json`,
  * which is the same shape of fix applied to the one number the agents' own instructions
  * most often reason from.
  *
@@ -168,7 +168,12 @@ const PNPM_BUILTINS = new Set([
  * reported a clean repository. It is the narrowest possible version of the failure
  * this file is about: a gate that has measured nothing and says so with a `pass`.
  */
-const FRONT_DOORS = new Set(['README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'CHANGELOG.md']);
+const FRONT_DOORS = new Set([
+  'README.md',
+  'AGENTS.md',
+  '.github/CONTRIBUTING.md',
+  'docs/CHANGELOG.md',
+]);
 
 /**
  * The generated status pages, which report rather than instruct.
@@ -233,7 +238,7 @@ export const ASSERTIONS = [
   },
   {
     id: 'coverage-floors',
-    rule: 'a coverage floor quoted in prose is the one `coverage-baseline.json` records',
+    rule: 'a coverage floor quoted in prose is the one `docs/quality/coverage-baseline.json` records',
     check: checkCoverageFloors,
     gap: '',
   },
@@ -587,7 +592,7 @@ function checkAdrs(env) {
  * A markdown table row naming a package in backticks beside a `a/b/c/d` tuple.
  *
  * Narrower than it looks, because the tuple is four integers separated by slashes and
- * the first cell is a backticked path that is a key in `coverage-baseline.json`. No
+ * the first cell is a backticked path that is a key in `docs/quality/coverage-baseline.json`. No
  * other table in this repository has both, so the pattern cannot fire on prose that
  * merely looks numeric — which is the crying-olf outcome every detector above records
  * having once produced.
@@ -605,7 +610,7 @@ function checkCoverageFloors(env) {
     if (real === undefined || real === claimed) return [];
     return [
       `${document.path}: quotes \`${pkg}\`'s coverage floor as ${claimed}, and ` +
-        `\`coverage-baseline.json\` records ${real}. A floor printed in prose is a copy, ` +
+        `\`docs/quality/coverage-baseline.json\` records ${real}. A floor printed in prose is a copy, ` +
         'and the ratchet moves the original every time a package gains tests.',
     ];
   });
@@ -755,7 +760,7 @@ function driftDocuments(read, files) {
 function deriveCoverageFloors(read) {
   /** @type {Map<string, string>} */
   const floors = new Map();
-  const baseline = read('coverage-baseline.json');
+  const baseline = read('docs/quality/coverage-baseline.json');
   if (baseline === '') return floors;
   for (const [pkg, recorded] of Object.entries(JSON.parse(baseline))) {
     if (typeof recorded !== 'object' || recorded === null) continue;
@@ -817,7 +822,7 @@ function derivePorts(read) {
   // was correct and the derivation was stale, which is the shape of failure this
   // repository prefers to have.
   const e2eConfig = read('tests/e2e/support/config.ts');
-  const compose = read('docker-compose.unified.yml');
+  const compose = read('infra/compose/docker-compose.unified.yml');
   for (const source of [config, playwright]) {
     for (const match of source.matchAll(/\b(?:DEFAULT_PORT|apiPort|webPort)\s*=\s*(\d{2,5})\b/g)) {
       ports.add(match[1] ?? '');
@@ -883,7 +888,9 @@ function deriveEnvVars(read, files) {
       names.add(match[1] ?? '');
     }
   }
-  for (const match of read('docker-compose.unified.yml').matchAll(/^\s+([A-Z][A-Z0-9_]+):/gm)) {
+  for (const match of read('infra/compose/docker-compose.unified.yml').matchAll(
+    /^\s+([A-Z][A-Z0-9_]+):/gm,
+  )) {
     names.add(match[1] ?? '');
   }
   return new Set([...names].filter((name) => name !== ''));

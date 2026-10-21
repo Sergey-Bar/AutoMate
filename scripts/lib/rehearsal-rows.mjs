@@ -86,7 +86,7 @@ export function parseSealedRows(stdout) {
  * One field of an encoded row, or a failure naming the row.
  *
  * Narrowing in one place rather than a bare `!== undefined` per field: the check has to be
- * *and* a type narrowing for `tsconfig.scripts.json` to accept the result, and a check that
+ * *and* a type narrowing for `scripts/tsconfig.json` to accept the result, and a check that
  * narrows nothing is a check the compiler cannot see.
  *
  * @param {Record<string, string | number | undefined>} parsed

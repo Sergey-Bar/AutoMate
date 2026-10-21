@@ -6,7 +6,7 @@ import test from 'node:test';
 import { semgrepDirectories } from './semgrep-scope.mjs';
 
 /**
- * Every rewritten rule in `.semgrep.yml` must still fire.
+ * Every rewritten rule in `.config/semgrep.yml` must still fire.
  *
  * A rule that stops firing is worse than one that cries wolf: the finding it does
  * report is the evidence a reviewer uses to decide the rule works. And this file
@@ -37,8 +37,8 @@ import { semgrepDirectories } from './semgrep-scope.mjs';
  */
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const CONFIG = path.join(REPO_ROOT, '.semgrep.yml');
-const PROBE = path.join(REPO_ROOT, '.semgrep-probe');
+const CONFIG = path.join(REPO_ROOT, '.config/semgrep.yml');
+const PROBE = path.join(REPO_ROOT, '.config', 'semgrep-probe');
 
 /**
  * The seven rewritten rules, each with the file that holds its hazard.
@@ -316,7 +316,7 @@ test('the probe directory is outside every scanned path, so it cannot fail an or
   const scope = semgrepDirectories();
   for (const directory of scope) {
     assert.ok(
-      !directory.startsWith('.semgrep-probe'),
+      !directory.startsWith('.config'),
       `the semgrep scope includes ${directory}, so the probe fixtures would be scanned ` +
         'by security:static and every run would fail on a deliberate hazard',
     );

@@ -10,7 +10,7 @@
  * This module compares two sources of truth and fails when they disagree:
  *
  *   - the configs: every `exclude` glob in a package's `coverage` object that is
- *     not part of the shared policy in `vitest.shared.ts`;
+ *     not part of the shared policy in `.config/vitest.shared.ts`;
  *   - the register: `docs/quality/coverage-exclusions.md`.
  *
  * Both directions matter. A new exclusion with no row is an unrecorded claim; a
@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 const REGISTER_PATH = path.join(root, 'docs', 'quality', 'coverage-exclusions.md');
-const SHARED_CONFIG_PATH = path.join(root, 'vitest.shared.ts');
+const SHARED_CONFIG_PATH = path.join(root, '.config/vitest.shared.ts');
 
 const WORKSPACE_ROOTS = ['apps', 'packages', 'tools', 'tests'];
 const SKIPPED_DIRECTORIES = new Set(['.turbo', 'coverage', 'dist', 'node_modules']);
@@ -142,12 +142,12 @@ export function parseRegister(markdown) {
   return { rows, unparsed };
 }
 
-/** The globs `vitest.shared.ts` applies to every package. */
+/** The globs `.config/vitest.shared.ts` applies to every package. */
 function sharedPolicyGlobs() {
   const source = readFileSync(SHARED_CONFIG_PATH, 'utf8');
   const block = source.match(/exclude:\s*\[([\s\S]*?)\n {4}\],/);
   if (block === null) {
-    throw new Error('vitest.shared.ts no longer declares a coverage exclude list');
+    throw new Error('.config/vitest.shared.ts no longer declares a coverage exclude list');
   }
   return new Set([...block[1].matchAll(/'([^']+)'/g)].map((m) => /** @type {string} */ (m[1])));
 }

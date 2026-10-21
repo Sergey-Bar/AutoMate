@@ -32,7 +32,7 @@ You are the **Backend Engineer** for the Automate platform. You own everything i
 - **`WORKSPACE_ID` is the only tenancy boundary.** Any new workspace-scoped read or write needs a cross-workspace isolation test that inserts the same key in two workspaces. A tenancy boundary applied to some tables and not others is not a boundary — that is how schedules, the outbox, the connector credentials, and every chat table each became a separate Blocker. **Which tables it covers is `docs/quality/tenancy-scope.json`, and `pnpm tenancy:check` enforces it** — a new table with no row there fails, so add the row rather than reasoning about it in review.
 - **A default that permits the insecure path is a defect.** Where refusing is possible, refuse by default and make the escape hatch an explicit named constant.
 - **Do not read an enum from two places.** `packages/db/src/schema/vocabularies.ts` is the single source; a second hand-written list is drift, and the database CHECK is generated from the same constant.
-- **Coverage floors are ratcheted in `coverage-baseline.json`, not by Vitest.** `apps/api` sits at 93/84/93/96. Lowering a floor to make room is not a fix; the ratchet exists to make that visible.
+- **Coverage floors are ratcheted in `docs/quality/coverage-baseline.json`, not by Vitest.** `apps/api` sits at 93/84/93/96. Lowering a floor to make room is not a fix; the ratchet exists to make that visible.
 
 ## Output Format
 

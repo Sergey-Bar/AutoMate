@@ -127,9 +127,9 @@ test('the shared timeout is headroom, not a target', () => {
   // A raised ceiling only stays meaningful while it is read. If this number
   // approaches the largest observed test, the tests have moved their cost
   // somewhere it can be made cheaper and the constant should follow it down.
-  const shared = readFileSync(path.join(REPO_ROOT, 'vitest.shared.ts'), 'utf8');
+  const shared = readFileSync(path.join(REPO_ROOT, '.config/vitest.shared.ts'), 'utf8');
   const declared = /STANDARD_TEST_TIMEOUT_MS = ([\d_]+)/.exec(shared);
-  assert.ok(declared, 'STANDARD_TEST_TIMEOUT_MS must be declared in vitest.shared.ts');
+  assert.ok(declared, 'STANDARD_TEST_TIMEOUT_MS must be declared in .config/vitest.shared.ts');
   assert.equal(Number((declared[1] ?? '').replaceAll('_', '')), 60_000);
   // And the reasoning has to travel with it, or the next person to raise it
   // back to 5s has nothing to weigh.

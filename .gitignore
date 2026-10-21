@@ -20,14 +20,14 @@ storybook-static/
 
 # Environment
 # `.env.*` covers every real environment file, so the two placeholder files have
-# to be excepted by name. `.env.compose.example` was added with the compose
+# to be excepted by name. `infra/compose/.env.compose.example` was added with the compose
 # secret guards and was silently excluded by this rule, which would have left
 # `${VAR:?set VAR}` in the compose files with no documented way to satisfy them.
 .env
 .env.*
 !.env.example
 !.env.production.example
-!.env.compose.example
+!infra/compose/.env.compose.example
 
 # OS
 .DS_Store
@@ -69,10 +69,10 @@ nul
 #
 # **`skills/` and `agent/` are in the repository because gates read them.** Both were
 # ignored, and both are read by something under version control:
-# `skills-lock.json` at the root describes twenty-one skill directories by upstream and
+# `.kilo/skills-lock.json` at the root describes twenty-one skill directories by upstream and
 # content hash, and `scripts/skill-scan.test.mjs` reads `.kilo/skills` to check that the
 # lock and the tree agree. With the directory ignored, that test failed on CI with
-# "animation-vocabulary is in skills-lock.json but there is no SKILL.md for it" — a gate
+# "animation-vocabulary is in .kilo/skills-lock.json but there is no SKILL.md for it" — a gate
 # pointed at a directory that is not in the repository, measuring nothing and failing.
 # `pnpm skill-scan` scans the prompt surface, so a surface absent from the repository is
 # a surface no reviewer ever sees.

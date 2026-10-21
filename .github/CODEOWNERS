@@ -20,14 +20,14 @@
 #
 # Secrets, crypto, and the tenancy boundary. A change to any of these is a Blocker or a
 # Critical by default, which is the review ruleset's own definition rather than a local
-# habit — `SECURITY.md` names all three as reportable.
+# habit — `.github/SECURITY.md` names all three as reportable.
 
 /apps/api/src/infrastructure/vault-crypto.ts   @sergey-bar
 /apps/api/src/infrastructure/                 @sergey-bar
 /packages/auth/                                @sergey-bar
 /packages/config/                              @sergey-bar
 /packages/db/                                  @sergey-bar
-SECURITY.md                                    @sergey-bar
+.github/SECURITY.md                                    @sergey-bar
 
 # ── The API surface ─────────────────────────────────────────────────────────
 #
@@ -62,7 +62,7 @@ SECURITY.md                                    @sergey-bar
 #
 # `scripts/` and the workflow files are the quality record itself, and a change to a
 # gate needs a test for the failure mode the gate exists to catch. See
-# CODE_OF_CONDUCT.md on why narrowing a noisy check is a legitimate change and deleting
+# .github/CODE_OF_CONDUCT.md on why narrowing a noisy check is a legitimate change and deleting
 # one is not.
 
 /scripts/                                      @sergey-bar

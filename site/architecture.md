@@ -90,6 +90,6 @@ route manifest is machine-checked: a route registered but absent from the canoni
 list is a failure, so the client and the server cannot disagree about what exists.
 
 Coverage is gated by a **ratchet**, not by per-package thresholds. Four packages sit
-below the thresholds `vitest.shared.ts` states, and a gate that blocks every run gets
+below the thresholds `.config/vitest.shared.ts` states, and a gate that blocks every run gets
 raised until it means nothing. The ratchet fails on a regression, so a floor can only
 move up.

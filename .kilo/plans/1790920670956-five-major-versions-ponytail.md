@@ -9,7 +9,7 @@ not an assertion.
 
 | Measure | Value |
 |---|---|
-| Version today | `2.2.0`, **not tagged** (`CHANGELOG.md:5-11`) — release gate's OCI half is red |
+| Version today | `2.2.0`, **not tagged** (`docs/CHANGELOG.md:5-11`) — release gate's OCI half is red |
 | TypeScript | 93,160 lines; `apps/api` alone is 44,296 (47%) |
 | `scripts/` | **19,047 lines**, of which **6,463 (34%) are self-tests of the gates** |
 | Root scripts | 63 declared, 42 tiered `pr-blocking`; `verify` chains 15 steps against a budget of 20 |
@@ -37,9 +37,9 @@ tenancy migrations are on disk: `0015_schedule_workspace_scope.sql`, `0017_outbo
 `0020_connector_credentials_tenant.sql`.
 
 RF-5 is still `debt`/`Major`. Seven documents still assert the opposite — `AGENTS.md:194`,
-`docs/migration/unified-repository-migration.md:24`, `site/operations.md:61-64`, `CHANGELOG.md:158-160`,
-`SECURITY.md:66-68`, `docs/adr/003:41-43`, `docs/adr/006:44-45`, `gate-tooling.json:229`.
-`SECURITY.md:66` — *"a tenancy vulnerability becomes reportable the moment W7 enters scope"* — is
+`docs/migration/unified-repository-migration.md:24`, `site/operations.md:61-64`, `docs/CHANGELOG.md:158-160`,
+`.github/SECURITY.md:66-68`, `docs/adr/003:41-43`, `docs/adr/006:44-45`, `gate-tooling.json:229`.
+`.github/SECURITY.md:66` — *"a tenancy vulnerability becomes reportable the moment W7 enters scope"* — is
 live now and the doc says it is not.
 
 Nothing machine-checks it: `.github/review-rules/merge-gate.json:32` sets
@@ -113,7 +113,7 @@ process-local inventory and runner control plane become durable; the production 
    reading process memory instead of the table it already has.
 6. **Isolation for `tool.playwright`.** Results come from a pinned image in an isolated runner, not
    from the reporter path.
-7. **Tag the release.** `CHANGELOG.md:5-11` — 2.2.0 was not tagged because the OCI half of the
+7. **Tag the release.** `docs/CHANGELOG.md:5-11` — 2.2.0 was not tagged because the OCI half of the
    release gate was red. With task 3 and the `59bc019` repair, `pnpm verify:release` is green and a
    tag exists. **That tag is this version's real proof.**
 
@@ -235,13 +235,13 @@ record the new floor deliberately, not by accident.
 4. **`test:e2e` → `pr-blocking`.** `findings-status.json` records `E2E-3: "fixed"`, and
    `gate-tooling.json` states the graduation condition is exactly that. The condition is met and the
    tier has not moved — the same shape as RF-5.
-5. **`security:static` → `pr-blocking`.** SEM-2 records **zero** blocking findings from `.semgrep.yml`
-   (run `36962862652`, semgrep 1.178.0). `CHANGELOG.md:39-41` says the graduation condition *"is now
+5. **`security:static` → `pr-blocking`.** SEM-2 records **zero** blocking findings from `.config/semgrep.yml`
+   (run `36962862652`, semgrep 1.178.0). `docs/CHANGELOG.md:39-41` says the graduation condition *"is now
    met on the evidence rather than on a promise, but moving the tier is a separate recorded act with
    its own test behind it, and this release does not make it."* Make it.
 6. **Q-1, all four clauses.**
    - **Mutation ≥ 75%** — Stryker with a `mutation-baseline.json` ratcheted exactly like
-     `coverage-baseline.json`, so the score cannot be lowered silently. Five packages (see Open
+     `docs/quality/coverage-baseline.json`, so the score cannot be lowered silently. Five packages (see Open
      Questions) with a per-package time budget; `--changed` on PRs.
    - **Property/fuzz per invariant** — fast-check, on the two places where a naive join genuinely
      collides: **P-3**'s canonical serialisation (`digestRunOutcome` is key-order independent by
@@ -263,7 +263,7 @@ record the new floor deliberately, not by accident.
    W15 (tiering inside the D6 budget), W17 (site-doctor's ten checks) and W2 (worker→runner on
    PostgreSQL) to `wave-gates.json`, each with a row that can go green.
 10. **Delete `verify:local`.** It sets the host-scanner opt-in, which makes `security:static` exit 0
-    **without scanning**. `CHANGELOG.md:100-102` calls that green *"the exact failure this repository's
+    **without scanning**. `docs/CHANGELOG.md:100-102` calls that green *"the exact failure this repository's
     gate design exists to prevent."* Keep the opt-in **variable** — the policy and
     `host-scanners.test.mjs` need it. Delete the wrapper that applies it wholesale to `verify`.
 11. **UI-1.** `status:10` point 4 moves to `pass` via v4.0's axe route gate plus a state-coverage
@@ -278,7 +278,7 @@ record the new floor deliberately, not by accident.
 
 **Thesis:** `WORKSPACE_ID` stops being a configuration value and becomes a boundary you can test.
 
-**Breaking change:** multi-tenant becomes a supported posture. `SECURITY.md:66` goes live — it went
+**Breaking change:** multi-tenant becomes a supported posture. `.github/SECURITY.md:66` goes live — it went
 live five migrations ago, and the document still says it has not.
 
 ### Tasks, in order
@@ -316,7 +316,7 @@ tooling.
 
 | Target | Lines | Why it is on the list |
 |---|---:|---|
-| `site-doctor.mjs` + `build-site-pages.mjs` + `site-ten-page.mjs` + `site/` | 1,607 | `docs.yml` builds the site and has **no `deploy-pages` step and no `pages: write`**, so it is built on every push to `main` and never goes live (`CHANGELOG.md:176-181`). Either deploy it or delete it. |
+| `site-doctor.mjs` + `build-site-pages.mjs` + `site-ten-page.mjs` + `site/` | 1,607 | `docs.yml` builds the site and has **no `deploy-pages` step and no `pages: write`**, so it is built on every push to `main` and never goes live (`docs/CHANGELOG.md:176-181`). Either deploy it or delete it. |
 | `quality-baseline.mjs` | 266 | A nightly aggregate of gates that already run per-PR. |
 | `unify-preflight.mjs` | 359 | 36 boundary checks guarding a migration that shipped in 2.0.0. Its obsolete-branch list (`publish-docker.yml`) is the last live use. |
 | `merge-gate` branch/commit/budget checks + `ruleset.mjs` + `review-pr.mjs` | ~863 | GitHub branch protection, with ten required checks, already enforces this for free. **Keep the ledger half** (`checkLedger`) — that is the part with teeth. |
@@ -324,7 +324,7 @@ tooling.
 | 21 dormant tables + their migrations | — | v7.0, per C-6. |
 
 **Kept regardless of Stage 1, each with a named catch:** the coverage ratchet, the complexity
-ratchet, the findings ledger and `findings:check`, the gate-tooling manifest, the `.semgrep.yml`
+ratchet, the findings ledger and `findings:check`, the gate-tooling manifest, the `.config/semgrep.yml`
 ruleset, the secret scan, `db:check`, `migrate:validate`, the real-PostgreSQL integration and E2E
 lanes, `merge-gate`'s ledger check, and one test per gate that has a recorded false negative.
 

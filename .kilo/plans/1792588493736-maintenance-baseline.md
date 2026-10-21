@@ -51,7 +51,7 @@ TypeScript 7 (`DEP-4`), Effect 4 (`DEP-3`), `@types/node` 26 (`RUNTIME-1`), Stor
 
 - Working tree clean; `.omo/` and `.sisyphus/` are already absent from this clone.
 - All eight files in `.kilo/plans/` were already tracked.
-- `.semgrep-probe/` is the fixture `scripts/lib/semgrep-rules.test.mjs` reads, and
+- `.config/semgrep-probe/` is the fixture `scripts/lib/semgrep-rules.test.mjs` reads, and
   `local/` is the tracked `automate-local` tool: both stay.
 - Five feature branches named in the plan (`feat/operational-product`,
   `feat/dashboard-redesign`, `fix/ui-qa-sweep`, `feat/responsive-launcher`,

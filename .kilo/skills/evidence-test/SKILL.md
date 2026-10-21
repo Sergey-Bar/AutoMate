@@ -1,13 +1,13 @@
 ---
 name: evidence-test
-description: 'Use when writing any test — Vitest unit, Playwright e2e, or node:test for scripts — or when fixing a failing test, raising coverage, or reviewing whether a test actually proves anything. Enforces the red-first rule from AGENTS.md and CONTRIBUTING.md: write the test, run it with the defect still present, watch it fail for the expected reason, then fix.'
+description: 'Use when writing any test — Vitest unit, Playwright e2e, or node:test for scripts — or when fixing a failing test, raising coverage, or reviewing whether a test actually proves anything. Enforces the red-first rule from AGENTS.md and .github/CONTRIBUTING.md: write the test, run it with the defect still present, watch it fail for the expected reason, then fix.'
 ---
 
 # Writing a test that is evidence
 
 > **Write the test, run it with the defect still present, watch it fail for the reason you expect, then fix it. A test only written against the fixed code is not evidence.**
 
-`CONTRIBUTING.md` records why this is a rule rather than a preference: **three times in this programme's history a suite was fully green while checking the wrong thing**, and none of them was caught by reading the code carefully.
+`.github/CONTRIBUTING.md` records why this is a rule rather than a preference: **three times in this programme's history a suite was fully green while checking the wrong thing**, and none of them was caught by reading the code carefully.
 
 A test that cannot fail is worse than no test, because it is counted.
 
@@ -34,9 +34,9 @@ If step 4 does not produce your predicted failure, stop. One of these is true an
 
 ## Coverage floors are ratcheted, not declared per package
 
-`vitest.shared.ts` sets `STANDARD_THRESHOLDS` and **deliberately declines to apply them per package**, because four packages sit well below and a gate that blocks every run gets raised until it means nothing.
+`.config/vitest.shared.ts` sets `STANDARD_THRESHOLDS` and **deliberately declines to apply them per package**, because four packages sit well below and a gate that blocks every run gets raised until it means nothing.
 
-`coverage-baseline.json` holds the real floor per package, and `pnpm coverage:ratchet` fails only on a regression, so the floor only moves up. **Read the current floors from that file** — they change, and no file in this repository restates them, on purpose.
+`docs/quality/coverage-baseline.json` holds the real floor per package, and `pnpm coverage:ratchet` fails only on a regression, so the floor only moves up. **Read the current floors from that file** — they change, and no file in this repository restates them, on purpose.
 
 A newly measured file must be genuinely covered on the same PR.
 

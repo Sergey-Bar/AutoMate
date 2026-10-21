@@ -87,10 +87,10 @@ for (const relativePath of [
 }
 add(
   'canonical unified compose exists',
-  existsSync(abs('docker-compose.unified.yml')),
-  existsSync(abs('docker-compose.unified.yml')) ? 'present' : 'missing',
+  existsSync(abs('infra/compose/docker-compose.unified.yml')),
+  existsSync(abs('infra/compose/docker-compose.unified.yml')) ? 'present' : 'missing',
 );
-const unifiedCompose = read('docker-compose.unified.yml');
+const unifiedCompose = read('infra/compose/docker-compose.unified.yml');
 for (const service of ['postgres:', 'migrate:', 'api:', 'worker:', 'runner:', 'web:']) {
   add(
     `unified compose defines ${service.replace(':', '')}`,

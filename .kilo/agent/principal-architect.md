@@ -33,7 +33,7 @@ Delegate with the `task` tool using `subagent_type`. The read-only three (Code R
 
 - **There is no TanStack Query and no `apps/web/src/store/`.** Data flows through hand-written fetch wrappers in `src/lib/api.ts` into custom hooks in `src/hooks/`. Anything planning a query cache is planning a library this project does not have.
 - **`WORKSPACE_ID` is the only tenancy boundary.** Any new workspace-scoped read or write needs a cross-workspace isolation test. Five tables each needed a tenancy migration; a boundary applied to some tables and not others is not a boundary.
-- **Coverage floors are ratcheted in `coverage-baseline.json`,** not enforced per package by Vitest, and they only move up.
+- **Coverage floors are ratcheted in `docs/quality/coverage-baseline.json`,** not enforced per package by Vitest, and they only move up.
 - **The review vocabulary is fixed.** `.github/review-rules/rules.json` declares 18 rules across 13 categories with 5 severities, and `scripts/review/ruleset.mjs` keeps the file and the emitters in agreement in both directions. A plan that adds a new kind of check needs a row there before an emitter can produce it.
 - **`scripts/gate-tooling.json` classifies every root script** into `pr-blocking`, `pr-reporting`, `nightly`, `release`, or `never-in-ci`, and `gate-tooling.test.mjs` enforces it. A new gate without a tier is unclassified, and `verify` has a 20-step budget (D6).
 - **No row is blocked on evidence today.** RF-5 (a migration rehearsal), RF-9 (a k6 run) and PERF-1 (a rendering baseline) were, and each closed on a recorded run. A plan that claims to close a row like that by writing more code is lying.

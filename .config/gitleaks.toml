@@ -24,7 +24,7 @@
 #
 # Re-examining is cheap and needs no new code:
 #
-#   gitleaks detect --config .gitleaks.toml --report-format json --report-path gl.json
+#   gitleaks detect --config .config/gitleaks.toml --report-format json --report-path gl.json
 #
 # A finding that is not one of the documented placeholders is a real one.
 #
@@ -101,7 +101,7 @@ paths = [
   '''(^|/)\.env\.example$''',
   '''(^|/)\.env\.compose\.example$''',
   '''^packages/db/drizzle/''',
-  # **`.semgrep-probe/` holds credential-shaped literals on purpose.**
+  # **`.config/semgrep-probe/` holds credential-shaped literals on purpose.**
   #
   # The fixtures in there exist so `no-hardcoded-secret-literal` has something to fire
   # on. `scripts/lib/semgrep-rules.test.mjs` runs each rule over them and asserts it

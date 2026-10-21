@@ -278,7 +278,7 @@ test('each detector fires on the shape of claim it exists to catch', () => {
   assert.ok(floor !== undefined, 'apps/api must have a recorded floor, or this arm proves nothing');
   assert.deepEqual(findingsFor('coverage-floors', 'AGENTS.md', `| \`apps/api\` | 93/84/93/96 |`), [
     `AGENTS.md: quotes \`apps/api\`'s coverage floor as 93/84/93/96, and ` +
-      `\`coverage-baseline.json\` records ${floor}. A floor printed in prose is a copy, ` +
+      `\`docs/quality/coverage-baseline.json\` records ${floor}. A floor printed in prose is a copy, ` +
       'and the ratchet moves the original every time a package gains tests.',
   ]);
   assert.deepEqual(
@@ -296,7 +296,7 @@ test('each detector fires on the shape of claim it exists to catch', () => {
   assert.deepEqual(
     findingsFor('coverage-floors', 'AGENTS.md', '| `packages/ui` | 59/74/62/59 |'),
     [
-      `AGENTS.md: quotes \`packages/ui\`'s coverage floor as 59/74/62/59, and \`coverage-baseline.json\` records ${uiFloor}. A floor printed in prose is a copy, and the ratchet moves the original every time a package gains tests.`,
+      `AGENTS.md: quotes \`packages/ui\`'s coverage floor as 59/74/62/59, and \`docs/quality/coverage-baseline.json\` records ${uiFloor}. A floor printed in prose is a copy, and the ratchet moves the original every time a package gains tests.`,
     ],
     'the real `AGENTS.md` tuple, so the arm fails if the detector stops matching the shape it exists for',
   );

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import { STANDARD_TEST_TIMEOUT_MS, standardCoverage } from '../../vitest.shared.js';
+import { STANDARD_TEST_TIMEOUT_MS, standardCoverage } from '../../.config/vitest.shared.js';
 
 const coverage = standardCoverage(process.cwd());
 
@@ -81,9 +81,9 @@ export default defineConfig({
         'dist/**',
       ],
     },
-    // No `thresholds` here on purpose. `vitest.shared.ts` records why: the
+    // No `thresholds` here on purpose. `.config/vitest.shared.ts` records why: the
     // authoritative floor for every package is its row in
-    // `coverage-baseline.json`, enforced by `pnpm coverage:ratchet`. A second,
+    // `docs/quality/coverage-baseline.json`, enforced by `pnpm coverage:ratchet`. A second,
     // per-package threshold set can only disagree with the first.
   },
 });

@@ -16,7 +16,7 @@
  *     judgement, not a measurement.
  *   - `docs/quality/findings-ledger.json` — what is known to be wrong. The row
  *     count and the open bands come from the ledger itself.
- *   - `coverage-baseline.json` — the per-package coverage floors the ratchet
+ *   - `docs/quality/coverage-baseline.json` — the per-package coverage floors the ratchet
  *     compares against. Reading the *floor* rather than a measured run is
  *     deliberate: the floors only move up, so a page generated from them cannot
  *     report a number that has not been earned.
@@ -349,7 +349,9 @@ function findingsPage() {
 // ── Coverage ───────────────────────────────────────────────────────────────
 
 function coveragePage() {
-  const baseline = JSON.parse(readFileSync(path.join(root, 'coverage-baseline.json'), 'utf8'));
+  const baseline = JSON.parse(
+    readFileSync(path.join(root, 'docs/quality/coverage-baseline.json'), 'utf8'),
+  );
   const floorOf = (/** @type {any} */ entry) =>
     entry === null || entry === undefined
       ? null
@@ -365,7 +367,7 @@ function coveragePage() {
 
   return [
     '',
-    'Generated from `coverage-baseline.json` — the **floors** the ratchet compares',
+    'Generated from `docs/quality/coverage-baseline.json` — the **floors** the ratchet compares',
     'against, not a measured run. A floor only moves up, so this page cannot report',
     'a number that has not been earned.',
     ...regenerationFooter(),

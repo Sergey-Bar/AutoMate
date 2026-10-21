@@ -6,7 +6,7 @@
  * supply-chain input. NVIDIA's own research over a 31,132-skill dataset found
  * **26.1% of skills contain vulnerabilities and 5.2% show likely malicious
  * intent**. The four vendored skills in `.kilo/skills/` carry an upstream
- * provenance record in `skills-lock.json` (source repository and content hash),
+ * provenance record in `.kilo/skills-lock.json` (source repository and content hash),
  * but a hash answers "did the file change" and not "is the file safe" — so the
  * content is scanned as well as versioned.
  *
@@ -86,7 +86,7 @@ const repoRoot = path.resolve(import.meta.dirname, '..');
 export const SKILL_ROOT = path.join(repoRoot, '.kilo', 'skills');
 
 /**
- * The vendored skills, by name — **derived from `skills-lock.json`, never restated.**
+ * The vendored skills, by name — **derived from `.kilo/skills-lock.json`, never restated.**
  *
  * This was a hand-written array of four names. The lock file beside it records every
  * vendored skill with its upstream and a content hash, so the two were two authorities
@@ -103,7 +103,7 @@ export const SKILL_ROOT = path.join(repoRoot, '.kilo', 'skills');
  */
 export const VENDORED = Object.freeze(
   Object.keys(
-    JSON.parse(readFileSync(path.join(repoRoot, 'skills-lock.json'), 'utf8')).skills,
+    JSON.parse(readFileSync(path.join(repoRoot, '.kilo/skills-lock.json'), 'utf8')).skills,
   ).sort(),
 );
 
@@ -348,7 +348,7 @@ export function main() {
     lines.push(`  degraded analyzers   ${completeness.degraded.join(', ')}`);
   }
   lines.push(
-    `  provenance           ${authoredSkillCount()} authored, ${VENDORED.length} vendored; source + hash in skills-lock.json`,
+    `  provenance           ${authoredSkillCount()} authored, ${VENDORED.length} vendored; source + hash in .kilo/skills-lock.json`,
   );
 
   if (!verdict.ok && newFindings.length === 0) {

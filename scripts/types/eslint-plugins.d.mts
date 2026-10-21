@@ -3,7 +3,7 @@
  *
  * `eslint-plugin-security` and `eslint-plugin-jsx-a11y` are plain CommonJS with no
  * bundled `.d.ts`, and neither has a `@types` package on npm. Under `checkJs` — which
- * `tsconfig.scripts.json` enables for the gate scripts — importing them without a
+ * `scripts/tsconfig.json` enables for the gate scripts — importing them without a
  * declaration is `TS7016: Could not find a declaration file for module`, and an
  * untyped import is worse than none: the plugin's options object would accept
  * anything.

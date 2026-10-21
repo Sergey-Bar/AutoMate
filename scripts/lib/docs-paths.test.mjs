@@ -22,7 +22,7 @@ const FORMATTER = path.join(REPO_ROOT, 'scripts', 'format-generated.mjs');
 const SITE_PAGES = path.join(REPO_ROOT, 'site', 'pages');
 const REGISTER = path.join(REPO_ROOT, 'docs', 'migration', 'capability-register.md');
 const LEDGER = path.join(REPO_ROOT, 'docs', 'quality', 'findings-ledger.json');
-const BASELINE = path.join(REPO_ROOT, 'coverage-baseline.json');
+const BASELINE = path.join(REPO_ROOT, 'docs/quality/coverage-baseline.json');
 
 /**
  * The generated pages the copy-based check reproduces.
@@ -53,7 +53,7 @@ const COPIED_PAGES = ['capabilities.md', 'quality/findings.md', 'quality/coverag
  * — were corrected to point at `packages/automation/src/ai-gateway.ts` and its
  * adapters. What remains exempt is only the past-tense half.
  */
-const DOCS = ['README.md', 'AGENTS.md', 'CONTRIBUTING.md', 'CHANGELOG.md'];
+const DOCS = ['README.md', 'AGENTS.md', '.github/CONTRIBUTING.md', 'docs/CHANGELOG.md'];
 
 /**
  * Documents whose claims are about a repository this one no longer contains.
@@ -352,7 +352,7 @@ test('the generated status pages are current, or a reader is reading a stale cla
     mkdirSync(path.join(temporary, 'docs', 'quality'), { recursive: true });
     copyFileSync(REGISTER, path.join(temporary, 'docs', 'migration', 'capability-register.md'));
     copyFileSync(LEDGER, path.join(temporary, 'docs', 'quality', 'findings-ledger.json'));
-    copyFileSync(BASELINE, path.join(temporary, 'coverage-baseline.json'));
+    copyFileSync(BASELINE, path.join(temporary, 'docs/quality/coverage-baseline.json'));
 
     const output = runGeneratorIn(temporary);
 

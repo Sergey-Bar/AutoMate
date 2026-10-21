@@ -30,7 +30,7 @@ non-breaking groundwork and may ship as `3.1.0`.
 
 | Measure | Value | Source |
 |---|---|---|
-| Version | `2.2.0`, `## Unreleased — v3.0 groundwork` open | `package.json:3`, `CHANGELOG.md:5` |
+| Version | `2.2.0`, `## Unreleased — v3.0 groundwork` open | `package.json:3`, `docs/CHANGELOG.md:5` |
 | In-flight tree | **72 files, +4385 / −577**, uncommitted, 4 plan files staged | `git diff --stat HEAD` |
 | Node | `24.21.0`; `engines.node` `>=24 <25`; 6 Dockerfiles; `NODE_VERSION: 24.x` in 4 workflows | `infra/docker/*.Dockerfile`, `.github/workflows/*.yml:23` |
 | pnpm | `10.30.2`, `packageManagerStrictVersion: true`, `onlyBuiltDependencies`, 5 dated `overrides` | `package.json:7`, `pnpm-workspace.yaml:35-90` |
@@ -38,7 +38,7 @@ non-breaking groundwork and may ship as `3.1.0`.
 | ESLint | `^9.21.0` — **v9 reached EOL 2026-08-06** | `pnpm-workspace.yaml:93-94` |
 | Vite | `^6.4.3`, with `overrides: 'vitepress>vite': ^6.4.3` forcing an unsupported combination | `pnpm-workspace.yaml:90,118` |
 | Effect | `^3.21.2` declared, **zero imports**; 4.0.0 stable shipped **2026-09-30** | `apps/api/package.json:27` |
-| PostgreSQL | `postgres:16-alpine` in **8 places** (2 compose, 4 `unified-ci`, 2 `nightly`) | `docker-compose.unified.yml:3` et al. |
+| PostgreSQL | `postgres:16-alpine` in **8 places** (2 compose, 4 `unified-ci`, 2 `nightly`) | `infra/compose/docker-compose.unified.yml:3` et al. |
 | PGlite | `^0.5.8` in `apps/api`, `packages/db`, `tests/integration` | 3 `package.json` |
 | `verify` | **15 steps against a budget of 20** | `package.json:53`, `gate-tooling.json:30` |
 | Open ledger rows | 6 `open` (C-4, RF-5, RF-9, RF-11, PERF-1, RF-6d), 7 `debt` (X-3, D-4, C-6, UI-1, Q-1, CAP-1, SITE-1) | re-derive at execution time |
@@ -137,7 +137,7 @@ not a migration.
 
 ### Phase 4 — TypeScript 5.9 → 6.0 → 7.0 *(two commits, never one)*
 
-4.0 Grep first, across every `tsconfig*.json` including `tsconfig.scripts.json`:
+4.0 Grep first, across every `tsconfig*.json` including `scripts/tsconfig.json`:
 `"importsNotUsedAsValues"`, `"keyofStringsOnly"`, `"out"`, `"prepend"`, `"charset"`,
 `"ignoreDeprecations"`, `"noImplicitUseStrict"`, `"moduleResolution": "node"`. TS 7 hard-errors
 all of these and **`ignoreDeprecations` itself stops being accepted**.
@@ -155,7 +155,7 @@ typescript-eslint (and `drizzle-kit`, and any Compiler-API consumer) cannot run 
 4.3 TS 7 default changes: `rootDir` now `./` (inner source dirs must be explicit) and **`types`
 now `[]`** — every package relying on ambient `@types/node` must list it, or it silently stops
 seeing `process`, `Buffer` and the timers.
-4.4 **The largest unknown is `tsconfig.scripts.json`** — `allowJs` + `checkJs` + `strict` over
+4.4 **The largest unknown is `scripts/tsconfig.json`** — `allowJs` + `checkJs` + `strict` over
 `scripts/**/*.mjs`. If the Go compiler diverges there, keep those files on the 6 binary and
 record why; do not weaken the check.
 4.5 Graduate the dual install when typescript-eslint supports the TS 7 API (targeted 7.1).
@@ -247,7 +247,7 @@ gets a row.
 9.1 **Precondition: RF-5 `fixed`.** `pnpm migrate:rehearse` has never run. If it has not, this
 phase does not start — that is the row's own condition (b), already machine-checked by
 `docs/quality/wave-gates.json`.
-9.2 `postgres:16-alpine` → `18-alpine` in 8 places: `docker-compose.unified.yml:3`,
+9.2 `postgres:16-alpine` → `18-alpine` in 8 places: `infra/compose/docker-compose.unified.yml:3`,
 `infra/compose/compose.dev.yml:3`, `unified-ci.yml` ×4, `nightly.yml` ×2.
 9.3 **PGlite must move with it.** `^0.5.8` in `apps/api`, `packages/db` and `tests/integration`.
 PGlite tracks a PostgreSQL major; a PGlite/PG mismatch is a silent semantic gap that no gate
@@ -346,7 +346,7 @@ faster. A speedup asserted without them is the exact failure this repository doc
   before scripts and will refuse a version under a day old. Offline or network-restricted hosts
   will fail in a new place; set the value explicitly in 2.3 rather than discovering it.
 - **TypeScript 7 has no programmatic API.** The dual install in 4.2 is mandatory, not optional,
-  and `tsconfig.scripts.json` typechecking `.mjs` through the Go compiler is the single largest
+  and `scripts/tsconfig.json` typechecking `.mjs` through the Go compiler is the single largest
   unknown in this programme.
 - **Vite 8 + the VitePress override is an unsupported combination this programme makes worse.**
   Resolve it deliberately in 6.2; do not let `--frozen-lockfile` decide.

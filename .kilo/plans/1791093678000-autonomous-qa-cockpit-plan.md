@@ -235,7 +235,7 @@ runner image can execute the tool. It is not the same as "is the tool free".
 | CodeRabbit | `stars >= 10` | Stars need the GitHub API and `connectors.core` is `mock`. So `stars: number \| 'unknown'`, fetched opportunistically, and **`unknown` does not evaluate the rule as false** — it produces a `skipped` row saying the star count could not be read. A rule that silently skips on an API error is a rule that fires on some installs and not others with no way to tell which. |
 | SonarQube | no detected static-analysis tool | Must say *Free Tier / Community Build* and note the language limits, or it recommends something that will not analyse the user's stack. |
 | Trivy | no detected SAST or dependency scanner | Must note it also scans dependencies and images, not just source. |
-| Stryker | no detected mutation tool | **This one is not only a suggestion.** `W11.5` condition (b) asks for a `mutation-baseline.json` with a ratchet of the same shape as `coverage-baseline.json`. So Stryker lands as *the product's own gate* — which is the first time in this programme a customer-facing suggestion and an internal debt row are the same piece of work. |
+| Stryker | no detected mutation tool | **This one is not only a suggestion.** `W11.5` condition (b) asks for a `mutation-baseline.json` with a ratchet of the same shape as `docs/quality/coverage-baseline.json`. So Stryker lands as *the product's own gate* — which is the first time in this programme a customer-facing suggestion and an internal debt row are the same piece of work. |
 | Playwright | **no e2e family in any ecosystem** | Evaluated over all ecosystems, not `primary`. |
 
 **Output:** `GET /api/v1/projects/:id/stack` → `{ confirmed, suggested, notSuggested }`.

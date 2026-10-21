@@ -9,7 +9,7 @@
     "A hash answers 'did the file change', not 'is the file safe'. That is why the",
     "upstream URL and the version string are recorded next to it: replacing the",
     "file with something else requires editing this row, which is a diff somebody",
-    "reads. It is the same reasoning `skills-lock.json` carries for the vendored",
+    "reads. It is the same reasoning `.kilo/skills-lock.json` carries for the vendored",
     "skills, and it is why both exist.",
     "",
     "Latin subset only. `unicode-range` in `fonts.css` is the other half of that",

@@ -24,7 +24,7 @@ import {
  */
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
-const COMPOSE_FILES = ['docker-compose.unified.yml', 'infra/compose/compose.dev.yml'];
+const COMPOSE_FILES = ['infra/compose/docker-compose.unified.yml', 'infra/compose/compose.dev.yml'];
 
 /** @param {string[]} problems @param {RegExp} pattern */
 function has(problems, pattern) {
@@ -233,10 +233,13 @@ test('the production stack really does declare the object store', () => {
   // Belt and braces, and deliberately explicit rather than derived: this asserts the
   // specific wiring rather than only the absence of a finding, so a change that made
   // the contract vacuously true — no production service at all — still fails.
-  const text = readFileSync(path.join(REPO_ROOT, 'docker-compose.unified.yml'), 'utf8');
+  const text = readFileSync(
+    path.join(REPO_ROOT, 'infra/compose/docker-compose.unified.yml'),
+    'utf8',
+  );
   const keys = environmentKeys(text, 'api');
   for (const name of REQUIRED_OBJECT_STORE_VARIABLES) {
-    assert.ok(keys.has(name), `docker-compose.unified.yml api must declare ${name}`);
+    assert.ok(keys.has(name), `infra/compose/docker-compose.unified.yml api must declare ${name}`);
   }
   assert.equal(
     keys.has('NODE_ENV'),
