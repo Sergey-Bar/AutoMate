@@ -129,15 +129,13 @@ export function summarizeHealth({
   const news = digest.map((item, index) => ({ item, finding: fromDigest(item, index) }));
   const queue = [...(gaps?.gaps ?? [])]
     .sort((left, right) => right.potential - left.potential || left.cell.localeCompare(right.cell))
-    .map(
-      (gap): Finding => ({
-        id: `gap-${gap.cell}`,
-        tone: 'warn',
-        title: gap.cheapestClosure,
-        evidence: `${gap.cell} · +${(gap.potential * 100).toFixed(0)} pts`,
-        action: { label: 'Fix', to: '/dashboard/gaps/$projectId', params: { projectId } },
-      }),
-    );
+    .map((gap): Finding => ({
+      id: `gap-${gap.cell}`,
+      tone: 'warn',
+      title: gap.cheapestClosure,
+      evidence: `${gap.cell} · +${(gap.potential * 100).toFixed(0)} pts`,
+      action: { label: 'Fix', to: '/dashboard/gaps/$projectId', params: { projectId } },
+    }));
 
   const wrong = [
     ...reasons

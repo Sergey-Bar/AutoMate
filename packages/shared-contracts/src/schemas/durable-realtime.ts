@@ -35,8 +35,7 @@ export const DurableSseEventTypeSchema = z.enum(DURABLE_SSE_EVENT_TYPES);
 
 export type DurableOutboxEventType = z.infer<typeof DurableOutboxEventTypeSchema>;
 export type DurableSseEventType =
-  | z.infer<typeof DurableSseEventTypeSchema>
-  | typeof DURABLE_SSE_COMPATIBILITY_EVENT;
+  z.infer<typeof DurableSseEventTypeSchema> | typeof DURABLE_SSE_COMPATIBILITY_EVENT;
 
 export const DurableSseRecordSchema = z.object({
   sequence: z.number().int().positive(),

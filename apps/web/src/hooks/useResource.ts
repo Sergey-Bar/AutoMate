@@ -15,9 +15,7 @@ import React from 'react';
  * So the states are declared once, here, and every screen inherits all three.
  */
 export type Resource<T> =
-  | { status: 'loading' }
-  | { status: 'ready'; value: T }
-  | { status: 'error'; message: string };
+  { status: 'loading' } | { status: 'ready'; value: T } | { status: 'error'; message: string };
 
 /**
  * Loads one resource, ignoring a response that arrives after unmount.

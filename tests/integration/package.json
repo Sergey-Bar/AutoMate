@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@automate/db": "workspace:*",
-    "@electric-sql/pglite": "^0.5.8",
-    "drizzle-orm": "catalog:",
-    "@automate/shared-contracts": "workspace:*"
+    "@automate/shared-contracts": "workspace:*",
+    "@electric-sql/pglite": "^0.5.10",
+    "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

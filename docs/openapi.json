@@ -1113,7 +1113,7 @@
               "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
               "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
               "createdAt": { "type": "string" },
-              "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+              "expiresAt": { "type": ["string", "null"] },
               "legalHold": { "type": "boolean" },
               "metadata": {
                 "default": {},
@@ -1159,7 +1159,7 @@
           "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "createdAt": { "type": "string" },
-          "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "expiresAt": { "type": ["string", "null"] },
           "legalHold": { "type": "boolean" },
           "metadata": {
             "default": {},
@@ -1222,8 +1222,8 @@
               "timed_out"
             ]
           },
-          "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "startedAt": { "type": ["string", "null"] },
+          "finishedAt": { "type": ["string", "null"] },
           "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
           "error": {
             "anyOf": [
@@ -2298,7 +2298,7 @@
                       "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
                       "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                       "createdAt": { "type": "string" },
-                      "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "expiresAt": { "type": ["string", "null"] },
                       "legalHold": { "type": "boolean" },
                       "metadata": {
                         "default": {},
@@ -2830,8 +2830,8 @@
               "timed_out"
             ]
           },
-          "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "startedAt": { "type": ["string", "null"] },
+          "finishedAt": { "type": ["string", "null"] },
           "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
           "error": {
             "anyOf": [
@@ -2874,8 +2874,8 @@
                     "timed_out"
                   ]
                 },
-                "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "startedAt": { "type": ["string", "null"] },
+                "finishedAt": { "type": ["string", "null"] },
                 "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
                 "error": {
                   "anyOf": [
@@ -3162,7 +3162,7 @@
               "at": {
                 "type": "string",
                 "format": "date-time",
-                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
               },
               "total": { "type": "number", "minimum": 0, "maximum": 100 },
               "cappedBy": {
@@ -3705,7 +3705,7 @@
           "occurredAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
           },
           "payload": {
             "default": {},
@@ -3722,7 +3722,7 @@
         "properties": {
           "key": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "minLength": 1 },
-          "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "file": { "type": ["string", "null"] },
           "runs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
           "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "flips": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -4176,8 +4176,8 @@
                     "timed_out"
                   ]
                 },
-                "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "startedAt": { "type": ["string", "null"] },
+                "finishedAt": { "type": ["string", "null"] },
                 "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
                 "error": {
                   "anyOf": [
@@ -4220,8 +4220,8 @@
                           "timed_out"
                         ]
                       },
-                      "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                      "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "startedAt": { "type": ["string", "null"] },
+                      "finishedAt": { "type": ["string", "null"] },
                       "durationMs": {
                         "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
                       },
@@ -4845,7 +4845,7 @@
                               "maximum": 9007199254740991
                             },
                             "createdAt": { "type": "string" },
-                            "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                            "expiresAt": { "type": ["string", "null"] },
                             "legalHold": { "type": "boolean" },
                             "metadata": {
                               "default": {},
@@ -5071,7 +5071,7 @@
           "recoveries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
           "medianMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
           "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
-          "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "openSince": { "type": ["string", "null"] }
         },
         "required": ["suite", "recoveries", "medianMs", "p90Ms", "openSince"],
         "additionalProperties": false
@@ -5171,8 +5171,8 @@
                     "timed_out"
                   ]
                 },
-                "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "startedAt": { "type": ["string", "null"] },
+                "finishedAt": { "type": ["string", "null"] },
                 "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
                 "error": {
                   "anyOf": [
@@ -5215,8 +5215,8 @@
                           "timed_out"
                         ]
                       },
-                      "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                      "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "startedAt": { "type": ["string", "null"] },
+                      "finishedAt": { "type": ["string", "null"] },
                       "durationMs": {
                         "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
                       },
@@ -5345,9 +5345,9 @@
           },
           "createdAt": { "type": "string" },
           "updatedAt": { "type": "string" },
-          "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "completedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "startedAt": { "type": ["string", "null"] },
+          "completedAt": { "type": ["string", "null"] },
+          "finishedAt": { "type": ["string", "null"] },
           "runner": {
             "anyOf": [
               {
@@ -5362,7 +5362,7 @@
                     "type": "string",
                     "enum": ["healthy", "degraded", "draining", "offline", "revoked"]
                   },
-                  "lastHeartbeatAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                  "lastHeartbeatAt": { "type": ["string", "null"] },
                   "capabilities": {
                     "default": [],
                     "type": "array",
@@ -5417,7 +5417,7 @@
                 "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
                 "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "createdAt": { "type": "string" },
-                "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "expiresAt": { "type": ["string", "null"] },
                 "legalHold": { "type": "boolean" },
                 "metadata": {
                   "default": {},
@@ -5629,7 +5629,7 @@
               "additionalProperties": false
             }
           },
-          "collectingSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+          "collectingSince": { "type": ["string", "null"] }
         },
         "required": ["projectId", "days", "points", "collectingSince"],
         "additionalProperties": false
@@ -5721,7 +5721,7 @@
               "properties": {
                 "key": { "type": "string", "minLength": 1 },
                 "title": { "type": "string", "minLength": 1 },
-                "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "file": { "type": ["string", "null"] },
                 "runs": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
                 "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                 "flips": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
@@ -5739,14 +5739,14 @@
               "properties": {
                 "key": { "type": "string", "minLength": 1 },
                 "title": { "type": "string", "minLength": 1 },
-                "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "file": { "type": ["string", "null"] },
                 "samples": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
                 "p50Ms": { "type": "number", "minimum": 0 },
                 "p95Ms": { "type": "number", "minimum": 0 },
                 "previousP50Ms": {
                   "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
                 },
-                "changePct": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+                "changePct": { "type": ["number", "null"] },
                 "daily": {
                   "type": "array",
                   "items": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] }
@@ -5799,7 +5799,7 @@
                   "recoveries": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                   "medianMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
                   "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
-                  "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                  "openSince": { "type": ["string", "null"] }
                 },
                 "required": ["recoveries", "medianMs", "p90Ms", "openSince"],
                 "additionalProperties": false
@@ -5815,7 +5815,7 @@
                       "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }]
                     },
                     "p90Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
-                    "openSince": { "anyOf": [{ "type": "string" }, { "type": "null" }] }
+                    "openSince": { "type": ["string", "null"] }
                   },
                   "required": ["suite", "recoveries", "medianMs", "p90Ms", "openSince"],
                   "additionalProperties": false
@@ -5898,7 +5898,7 @@
           "at": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
           },
           "total": { "type": "number", "minimum": 0, "maximum": 100 },
           "cappedBy": {
@@ -6913,7 +6913,7 @@
           "runId": { "type": "string", "minLength": 1 },
           "status": { "type": "string", "enum": ["running", "passed", "failed", "interrupted"] },
           "startedAt": { "type": "string", "minLength": 1 },
-          "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "finishedAt": { "type": ["string", "null"] },
           "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
           "branch": { "type": "string" },
           "commitSha": { "type": "string" },
@@ -7635,7 +7635,7 @@
                       "checksum": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
                       "sizeBytes": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
                       "createdAt": { "type": "string" },
-                      "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                      "expiresAt": { "type": ["string", "null"] },
                       "legalHold": { "type": "boolean" },
                       "metadata": {
                         "default": {},
@@ -7994,7 +7994,7 @@
             "type": "string",
             "enum": ["healthy", "degraded", "draining", "offline", "revoked"]
           },
-          "lastHeartbeatAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "lastHeartbeatAt": { "type": ["string", "null"] },
           "capabilities": {
             "default": [],
             "type": "array",
@@ -8108,8 +8108,8 @@
               "timed_out"
             ]
           },
-          "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-          "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "startedAt": { "type": ["string", "null"] },
+          "finishedAt": { "type": ["string", "null"] },
           "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
           "error": {
             "anyOf": [
@@ -8152,8 +8152,8 @@
                     "timed_out"
                   ]
                 },
-                "startedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
-                "finishedAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+                "startedAt": { "type": ["string", "null"] },
+                "finishedAt": { "type": ["string", "null"] },
                 "durationMs": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
                 "error": {
                   "anyOf": [
@@ -8367,7 +8367,7 @@
             "additionalProperties": false
           },
           "token": { "type": "string", "minLength": 1 },
-          "expiresAt": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "expiresAt": { "type": ["string", "null"] },
           "createdAt": { "type": "string" }
         },
         "required": ["runnerId", "manifest", "token", "expiresAt"],
@@ -8498,12 +8498,12 @@
           "from": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
           },
           "to": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
           },
           "previousTotal": { "type": "number", "minimum": 0, "maximum": 100 },
           "currentTotal": { "type": "number", "minimum": 0, "maximum": 100 },
@@ -8661,12 +8661,12 @@
         "properties": {
           "key": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "minLength": 1 },
-          "file": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "file": { "type": ["string", "null"] },
           "samples": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
           "p50Ms": { "type": "number", "minimum": 0 },
           "p95Ms": { "type": "number", "minimum": 0 },
           "previousP50Ms": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] },
-          "changePct": { "anyOf": [{ "type": "number" }, { "type": "null" }] },
+          "changePct": { "type": ["number", "null"] },
           "daily": {
             "type": "array",
             "items": { "anyOf": [{ "type": "number", "minimum": 0 }, { "type": "null" }] }
