@@ -24,8 +24,8 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** A committed scenario plus its thresholds. Absent until the P-wave lands. */
-const SCENARIO = path.join(root, 'performance', 'smoke.js');
-const THRESHOLDS = path.join(root, 'performance', 'thresholds.json');
+const SCENARIO = path.join(root, 'tests', 'performance', 'smoke.js');
+const THRESHOLDS = path.join(root, 'tests', 'performance', 'thresholds.json');
 const BASE_URL = process.env['PERF_BASE_URL'] ?? 'http://127.0.0.1:3000';
 
 /** @returns {string | null} */
@@ -75,21 +75,23 @@ const expected = Object.values(recorded.release ?? {}).flatMap((group) =>
   Array.isArray(group) ? group : [],
 );
 if (expected.length === 0) {
-  console.error('Performance gate failed: performance/thresholds.json records no thresholds.');
+  console.error(
+    'Performance gate failed: tests/performance/thresholds.json records no thresholds.',
+  );
   process.exit(1);
 }
 const missingThresholds = expected.filter((threshold) => !scenario.includes(threshold));
 if (missingThresholds.length > 0) {
   console.error(
-    'Performance gate failed: performance/smoke.js does not carry every threshold recorded ' +
-      'in performance/thresholds.json.',
+    'Performance gate failed: tests/performance/smoke.js does not carry every threshold recorded ' +
+      'in tests/performance/thresholds.json.',
   );
   for (const threshold of missingThresholds) console.error(`  not in the scenario: ${threshold}`);
   console.error('  k6 evaluates the scenario, so the scenario is what must hold the real numbers.');
   process.exit(1);
 }
 console.info(
-  `All ${String(expected.length)} recorded thresholds are present in performance/smoke.js: ` +
+  `All ${String(expected.length)} recorded thresholds are present in tests/performance/smoke.js: ` +
     `${expected.join(', ')}`,
 );
 

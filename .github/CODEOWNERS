@@ -55,8 +55,8 @@ SECURITY.md                                    @sergey-bar
 
 /apps/runner/                                  @sergey-bar
 /apps/worker/                                  @sergey-bar
-/runners/                                      @sergey-bar
-/performance/                                  @sergey-bar
+/infra/runners/                                @sergey-bar
+/tests/performance/                            @sergey-bar
 
 # ── The gates and their own repository ──────────────────────────────────────
 #
@@ -69,7 +69,6 @@ SECURITY.md                                    @sergey-bar
 /.github/workflows/                            @sergey-bar
 /.github/review-rules/                         @sergey-bar
 /tests/                                        @sergey-bar
-/e2e/                                          @sergey-bar
 /playwright.config.ts                          @sergey-bar
 /turbo.json                                    @sergey-bar
 /vitest.shared.ts                              @sergey-bar

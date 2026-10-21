@@ -218,7 +218,7 @@ drawer still slides. `0.01ms` rather than `0s`: a zero duration can suppress the
 `backdrop-filter` is an **error** in every `.ts` and `.tsx` file, with no allowlist
 (`eslint.config.js`, proved live by `scripts/lib/eslint-plugin-compatibility.test.mjs`).
 `theme.css` declares no glass token and no page wash, `theme-resolution.test.ts` fails on
-any `backdrop-*` class, and `performance/rendering-budget.json` holds the glass stack
+any `backdrop-*` class, and `tests/performance/rendering-budget.json` holds the glass stack
 depth at **0** on every primary route, measured from computed style in a real browser.
 
 Glass shipped for a while against a measured contrast rule. It was removed because a

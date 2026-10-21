@@ -1,11 +1,11 @@
 /**
  * Brings up the API against a real PostgreSQL, for the performance gate.
  *
- * `performance/smoke.js` measures three endpoints, and until now the only way to
+ * `tests/performance/smoke.js` measures three endpoints, and until now the only way to
  * produce a target for them was to start the stack by hand. `pnpm
  * test:performance` was wired into no workflow, no `verify`, and no
  * `verify:release`, so nothing in this repository ever executed a threshold —
- * and `observed_on_reference_hardware` in `performance/thresholds.json` is
+ * and `observed_on_reference_hardware` in `tests/performance/thresholds.json` is
  * still `null` for every metric because no run has ever populated it.
  *
  * Two things have to be true before a k6 number means anything, and this script

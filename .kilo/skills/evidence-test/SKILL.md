@@ -69,7 +69,7 @@ Four tables each needed a tenancy migration for exactly this reason, and the mig
 |---|---|
 | `apps/**`, `packages/**` source | colocated `*.test.ts` / `*.test.tsx` |
 | `scripts/**` (dependency-free, not typechecked) | `scripts/lib/*.test.mjs`, run with `node --test` |
-| User-facing flows, and anything needing PostgreSQL | `e2e/**/*.spec.ts` under Playwright |
+| User-facing flows, and anything needing PostgreSQL | `tests/e2e/**/*.spec.ts` under Playwright |
 | Migration graph and data model | `tests/integration/**` against PGlite with every migration applied |
 
 Run one file scoped:

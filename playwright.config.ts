@@ -8,7 +8,7 @@ import {
   RUNNER_REGISTRATION_SECRET,
   WEB_BASE,
   WEB_PORT,
-} from './e2e/support/config.js';
+} from './tests/e2e/support/config.js';
 
 /**
  * The ports and URLs the suite's servers bind.
@@ -21,7 +21,7 @@ import {
  * The ports and URLs the suite binds, imported rather than restated.
  *
  * `API_BASE`, `WEB_BASE`, `API_PORT` and `WEB_PORT` all come from
- * `e2e/support/config.ts`, which reads `E2E_API_PORT` and `E2E_WEB_PORT`.
+ * `tests/e2e/support/config.ts`, which reads `E2E_API_PORT` and `E2E_WEB_PORT`.
  *
  * **This file used to hold `apiPort = 3000` beside those literals,** and that is a second
  * copy of one value: the server and the client could be moved apart, and when they were,
@@ -29,11 +29,11 @@ import {
  * other. The header in that module says why the ports are overridable; the reason they are
  * safe to override is that this file reads the same numbers.
  *
- * @see e2e/support/config.ts
+ * @see tests/e2e/support/config.ts
  */
 const apiPort = API_PORT;
 const apiUrl = API_BASE;
-// The web port now lives in `e2e/support/config.ts` as part of `WEB_BASE`, so there is
+// The web port now lives in `tests/e2e/support/config.ts` as part of `WEB_BASE`, so there is
 // one place that says where the browser goes. `webPort` was left behind as an unused
 // local, which is the same class of drift as the two copies of the key: a value that
 // nobody reads, left in the file to look like it still does something.
@@ -100,10 +100,10 @@ function listSpecFiles(relativeRoot: string): string[] {
   return found;
 }
 
-const specFiles = listSpecFiles('e2e');
+const specFiles = listSpecFiles('tests/e2e');
 if (specFiles.length === 0) {
   throw new Error(
-    'No *.spec.ts files were found under e2e/. A Playwright run with no ' +
+    'No *.spec.ts files were found under tests/e2e/. A Playwright run with no ' +
       'specs reports success without executing anything.',
   );
 }
@@ -186,7 +186,7 @@ function selectProjects<T extends { name?: string }>(projects: T[]): T[] {
 }
 
 export default defineConfig({
-  testDir: './e2e',
+  testDir: './tests/e2e',
   testMatch: '**/*.spec.ts',
   fullyParallel: false,
   // **`globalSetup` is back, for the opposite reason it was removed.**
@@ -207,7 +207,7 @@ export default defineConfig({
   //
   // It refuses to run against anything that is not a loopback host or a database whose
   // name contains test/e2e/ci, because it truncates.
-  globalSetup: './e2e/support/reset-queue.mjs',
+  globalSetup: './tests/e2e/support/reset-queue.mjs',
   forbidOnly: Boolean(process.env['CI']),
   retries: process.env['CI'] ? 1 : 0,
   workers: 1,
@@ -310,7 +310,7 @@ export default defineConfig({
       // spec, and the suite quietly drops from 19 tests to 6 while still reporting
       // success — which is precisely the green no-op the derivation exists to prevent.
       testMatch: productSpecFiles.map((file) =>
-        path.relative(path.join(configDir, 'e2e'), file).replaceAll('\\', '/'),
+        path.relative(path.join(configDir, 'tests', 'e2e'), file).replaceAll('\\', '/'),
       ),
       use: { ...devices['Desktop Chrome'] },
     },

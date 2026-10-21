@@ -39,12 +39,12 @@ console.info(`OCI build using ${runtime}`);
 const built = {};
 
 for (const name of RUNNER_NAMES) {
-  const context = path.join(root, 'runners', name);
+  const context = path.join(root, 'infra', 'runners', name);
   const result = spawnSync(runtime, ['build', '-t', imageRefOf(name), context], {
     stdio: 'inherit',
   });
   if (result.status !== 0) {
-    console.error(`OCI build failed for runners/${name}`);
+    console.error(`OCI build failed for infra/runners/${name}`);
     process.exit(result.status ?? 1);
   }
 
@@ -54,7 +54,7 @@ for (const name of RUNNER_NAMES) {
   const inspected = inspectImage(runtime, imageRefOf(name));
   if (inspected === null || inspected.id === '') {
     console.error(
-      `OCI build produced runners/${name} but the runtime cannot inspect ` +
+      `OCI build produced infra/runners/${name} but the runtime cannot inspect ` +
         `${imageRefOf(name)}. Refusing to record a build that cannot be verified.`,
     );
     process.exit(1);

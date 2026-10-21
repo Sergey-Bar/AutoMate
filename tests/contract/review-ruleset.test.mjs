@@ -164,7 +164,7 @@ describe('path globs decide where a rule applies', () => {
 
   it('applies a directory-scoped glob only inside that directory', () => {
     const rule = ruleById(ruleset, 'performance.threshold');
-    expect(ruleAppliesTo(rule, 'performance/smoke.js')).toBe(true);
+    expect(ruleAppliesTo(rule, 'tests/performance/smoke.js')).toBe(true);
     expect(ruleAppliesTo(rule, 'apps/api/src/routes/execution.ts')).toBe(true);
     expect(ruleAppliesTo(rule, 'packages/reporter/src/index.ts')).toBe(false);
   });
