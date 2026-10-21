@@ -2,10 +2,12 @@ import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptions } from 'n
 import { createHash } from 'node:crypto';
 import { readdir, readFile, writeFile, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import {
   RunnerConfigurationError,
   RunnerInfrastructureError,
+  terminateProcessTree,
   type ExecutionArtifact,
   type ExecutionContext,
   type ExecutionProvider,
@@ -133,7 +135,7 @@ export class GenericSpawnAdapter implements ExecutionProvider {
     this.repoRoot = resolve(options.repoRoot);
     this.workspaceRoot = resolve(options.workspaceRoot);
     this.spawnProcess = options.spawnProcess ?? defaultSpawn;
-    this.terminateProcess = options.terminateProcess ?? defaultTerminate;
+    this.terminateProcess = options.terminateProcess ?? terminateProcessTree;
     this.environment = options.environment ?? process.env;
     this.redactions = [...new Set(options.redactions ?? [])];
   }
@@ -166,6 +168,25 @@ export class GenericSpawnAdapter implements ExecutionProvider {
     );
 
     const workspacePath = await this.prepareWorkspace(context.jobId);
+    // The runner only learns `workspacePath` from a *returned* result, so a throw from
+    // here on — a binary that does not exist, an oversized artifact — would leave the
+    // directory and its logs behind on every run. This adapter created it, so this
+    // adapter removes it when it cannot hand it over.
+    try {
+      return await this.runInWorkspace(spec, launch, cwd, workspacePath, context);
+    } catch (error) {
+      await rmDir(workspacePath);
+      throw error;
+    }
+  }
+
+  private async runInWorkspace(
+    spec: GenericCommand,
+    launch: ReturnType<typeof resolveSpawn>,
+    cwd: string,
+    workspacePath: string,
+    context: ExecutionContext,
+  ): Promise<ExecutionResult> {
     const redactions = [...new Set([...this.redactions, ...(context.redactions ?? [])])];
 
     const child = this.spawnProcess(launch.command, launch.args, {
@@ -406,11 +427,6 @@ function defaultSpawn(
   return spawn(command, [...args], { ...options, shell: false, stdio: 'pipe' });
 }
 
-async function defaultTerminate(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.pid === undefined || child.exitCode !== null) return;
-  child.kill('SIGTERM');
-}
-
 async function rmDir(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true });
 }
@@ -537,23 +553,31 @@ function contentType(path: string): string {
 
 /** Bounded stdout/stderr capture. */
 function collectLogs(child: ChildProcessWithoutNullStreams, maxBytes: number) {
-  let stdout = '';
-  let stderr = '';
-  let stdoutBytes = 0;
-  let stderrBytes = 0;
-  child.stdout?.on('data', (chunk: Buffer | string) => {
-    const text = chunk.toString();
-    if (stdoutBytes >= maxBytes) return;
-    const accepted = text.slice(0, maxBytes - stdoutBytes);
-    stdout += accepted;
-    stdoutBytes += Buffer.byteLength(accepted);
-  });
-  child.stderr?.on('data', (chunk: Buffer | string) => {
-    const text = chunk.toString();
-    if (stderrBytes >= maxBytes) return;
-    const accepted = text.slice(0, maxBytes - stderrBytes);
-    stderr += accepted;
-    stderrBytes += Buffer.byteLength(accepted);
-  });
-  return { stdout: () => stdout, stderr: () => stderr };
+  // Bytes, not characters. `text.slice(0, n)` counts UTF-16 code units, so non-ASCII
+  // output stored up to three times the cap, and decoding each chunk on its own split
+  // any multibyte character that straddled two chunks. The chunks are kept as bytes,
+  // cut at the cap, and decoded once.
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  const capture = (target: Buffer[]) => {
+    let taken = 0;
+    return (chunk: Buffer | string): void => {
+      if (taken >= maxBytes) return;
+      const bytes = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+      const accepted = bytes.subarray(0, maxBytes - taken);
+      target.push(accepted);
+      taken += accepted.byteLength;
+    };
+  };
+  child.stdout?.on('data', capture(stdout));
+  child.stderr?.on('data', capture(stderr));
+  return {
+    stdout: () => decodeCapped(stdout),
+    stderr: () => decodeCapped(stderr),
+  };
+}
+
+/** Decodes captured bytes, dropping a character the cap cut in half. */
+function decodeCapped(chunks: Buffer[]): string {
+  return new StringDecoder('utf8').write(Buffer.concat(chunks));
 }
