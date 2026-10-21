@@ -31,14 +31,7 @@ export const MAP_VIEWS: readonly MapView[] = ['flow', 'packages'];
 
 export type NodeStatus = 'good' | 'warn' | 'bad' | 'unknown' | 'muted';
 export type NodeKind =
-  | 'repo'
-  | 'package'
-  | 'tools'
-  | 'report'
-  | 'code'
-  | 'layer'
-  | 'tool'
-  | 'verdict';
+  'repo' | 'package' | 'tools' | 'report' | 'code' | 'layer' | 'tool' | 'verdict';
 
 export interface Evidence {
   label: string;

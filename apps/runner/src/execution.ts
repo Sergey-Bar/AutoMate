@@ -26,13 +26,7 @@ const require = createRequire(import.meta.url);
 const eventLineSchema = ExecutionEventLineSchema;
 
 export type ExecutionStatus =
-  | 'succeeded'
-  | 'passed'
-  | 'failed'
-  | 'cancelled'
-  | 'timed_out'
-  | 'config_failed'
-  | 'infra_failed';
+  'succeeded' | 'passed' | 'failed' | 'cancelled' | 'timed_out' | 'config_failed' | 'infra_failed';
 
 export interface ExecutionContext {
   jobId: string;

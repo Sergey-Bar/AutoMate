@@ -94,20 +94,9 @@ export type ArtifactKind =
   | 'attachment'
   | 'other';
 export type DomainName =
-  | 'browser'
-  | 'api'
-  | 'mobile'
-  | 'performance'
-  | 'security'
-  | 'accessibility'
-  | 'other';
+  'browser' | 'api' | 'mobile' | 'performance' | 'security' | 'accessibility' | 'other';
 export type DomainStatus =
-  | 'passed'
-  | 'failed'
-  | 'warning'
-  | 'unknown'
-  | 'not_configured'
-  | 'not_implemented';
+  'passed' | 'failed' | 'warning' | 'unknown' | 'not_configured' | 'not_implemented';
 
 export interface CreateRunInput {
   externalId?: string | null;

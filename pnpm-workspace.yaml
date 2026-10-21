@@ -141,41 +141,42 @@ overrides:
   # Added by `pnpm audit --fix` on 2026-10-20, one entry per advisory it reported. Drop each when
   # its parent takes the fix.
   #
-  # esbuild, moderate and low, through drizzle-kit and vitest. Reviewed 2026-10-21: both still
-  # needed — without the first the install does not resolve, without the second `pnpm audit`
-  # reports a low esbuild advisory. Review by 2026-11-21.
+  # esbuild, moderate, through drizzle-kit. Reviewed 2026-10-21: still needed — without it the
+  # install does not resolve. Review by 2026-11-21.
+  #
+  # Removed 2026-10-21: `esbuild@>=0.27.3 <0.28.1: ^0.28.1`, through vitest. With vitest at
+  # 4.1.12 the install resolves and `pnpm audit` reports nothing without it.
   esbuild@<=0.24.2: ^0.25.0
-  esbuild@>=0.27.3 <0.28.1: ^0.28.1
   # uuid, moderate, through storybook. Reviewed 2026-10-21: still needed — without it
   # `pnpm audit` reports a moderate uuid advisory. Review by 2026-11-21.
   uuid@<11.1.1: ^11.1.1
 
 catalog:
   '@eslint/js': ^10.0.1
-  '@playwright/test': ^1.63.0
-  '@sentry/node': ^11.0.0
-  '@sentry/react': ^11.0.0
-  '@sentry/vite-plugin': ^5.4.0
+  '@playwright/test': ^1.64.1
+  '@sentry/node': ^11.8.0
+  '@sentry/react': ^11.8.0
+  '@sentry/vite-plugin': ^5.4.1
   '@tailwindcss/vite': ^4.3.3
-  '@testing-library/dom': ^10.1.0
-  '@testing-library/react': ^16.3.2
-  '@types/node': ^24.19.1
-  '@types/pg': ^8.15.6
-  '@types/react': ^19.2.14
-  '@types/react-dom': ^19.2.3
-  '@vitest/coverage-v8': ^4.1.11
-  drizzle-kit: ^0.31.9
-  drizzle-orm: ^0.45.2
-  eslint: ^10.12.0
+  '@testing-library/dom': ^10.4.2
+  '@testing-library/react': ^16.3.3
+  '@types/node': ^24.19.2
+  '@types/pg': ^8.23.1
+  '@types/react': ^19.3.0
+  '@types/react-dom': ^19.3.0
+  '@vitest/coverage-v8': ^4.1.12
+  drizzle-kit: ^0.31.11
+  drizzle-orm: ^0.45.4
+  eslint: ^10.13.0
   jsdom: ^24.1.3
-  lucide-react: ^1.59.0
-  pg: ^8.20.0
-  prettier: ^3.6.2
-  react: ^19.0.0
-  react-dom: ^19.0.0
+  lucide-react: ^1.60.0
+  pg: ^8.23.1
+  prettier: ^3.9.10
+  react: ^19.3.1
+  react-dom: ^19.3.1
   tailwindcss: ^4.3.3
   typescript: ^6.0.3
-  typescript-eslint: ^8.71.0
+  typescript-eslint: ^8.72.0
   vite: ^6.4.4
-  vitest: ^4.1.11
-  zod: ^4.4.3
+  vitest: ^4.1.12
+  zod: ^4.6.7

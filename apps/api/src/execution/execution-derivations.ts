@@ -120,8 +120,7 @@ export interface PlannedEvent {
 }
 
 export type BatchPlan =
-  | { kind: 'conflict'; results: EventApplyResult[] }
-  | { kind: 'ready'; events: PlannedEvent[] };
+  { kind: 'conflict'; results: EventApplyResult[] } | { kind: 'ready'; events: PlannedEvent[] };
 
 export interface BatchContext {
   inputs: readonly ExecutionEventInput[];

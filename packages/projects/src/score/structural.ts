@@ -14,10 +14,7 @@ import type { ScoreCategory } from '../vocabulary.js';
  * score impact rather than by how alarming the wording is.
  */
 export type StructuralKind =
-  | 'green_but_empty'
-  | 'uncovered_surface'
-  | 'dominant_cell'
-  | 'single_layer_dependency';
+  'green_but_empty' | 'uncovered_surface' | 'dominant_cell' | 'single_layer_dependency';
 
 export interface StructuralFinding {
   kind: StructuralKind;

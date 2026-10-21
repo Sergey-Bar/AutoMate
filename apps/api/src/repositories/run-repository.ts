@@ -167,13 +167,7 @@ export interface RunRecord {
  * found no match.
  */
 export type TestStatus =
-  | 'running'
-  | 'passed'
-  | 'failed'
-  | 'flaky'
-  | 'skipped'
-  | 'timed_out'
-  | 'queued';
+  'running' | 'passed' | 'failed' | 'flaky' | 'skipped' | 'timed_out' | 'queued';
 
 export interface TestRecord {
   id: string;
