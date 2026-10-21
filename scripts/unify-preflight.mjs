@@ -252,7 +252,7 @@ add(
 add('root Playwright config exists', existsSync(abs('playwright.config.ts')), 'required');
 add(
   'duplicate Playwright config is absent',
-  !existsSync(abs('e2e/integration/playwright.config.ts')),
+  !existsSync(abs('tests/e2e/integration/playwright.config.ts')),
   'child config must be removed',
 );
 
@@ -325,7 +325,7 @@ add(
   'workflows use the root Playwright command',
   workflowFiles.length > 0 &&
     !workflowText.includes('npx playwright') &&
-    !workflowText.includes('working-directory: e2e/integration'),
+    !workflowText.includes('working-directory: tests/e2e/integration'),
   workflowFiles.length === 0
     ? 'no workflows to check'
     : workflowText.includes('npx playwright')

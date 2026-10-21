@@ -33,10 +33,10 @@ test('every application is named explicitly', () => {
 
 test('test files are scanned', () => {
   // A blanket test exclusion is how a real secret in a fixture goes unnoticed.
-  // Asserted positively — the two directories that hold tests must be in scope —
+  // Asserted positively — the directory that holds every suite outside a package,
+  // `tests/e2e` included, must be in scope —
   // rather than by pattern-matching a nine-element literal for a string no entry
   // could contain, which proves nothing.
-  assert.ok(SEMGREP_SCOPE.includes('e2e'));
   assert.ok(SEMGREP_SCOPE.includes('tests'));
 });
 

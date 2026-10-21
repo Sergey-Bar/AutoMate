@@ -59,7 +59,7 @@ function isRecord(value) {
  * whether a real run has ever happened. Anything other than a literal `true` is
  * `measurement`: a string, a missing key, or a `0` all mean nobody has measured.
  *
- * @param {unknown} baseline parsed `performance/rendering-budget.json`
+ * @param {unknown} baseline parsed `tests/performance/rendering-budget.json`
  * @returns {'measurement' | 'threshold'}
  */
 export function phaseFor(baseline) {
@@ -70,7 +70,7 @@ export function phaseFor(baseline) {
 /**
  * Every way a declared tier disagrees with the baseline, as findings.
  *
- * @param {unknown} baseline parsed `performance/rendering-budget.json`
+ * @param {unknown} baseline parsed `tests/performance/rendering-budget.json`
  * @param {string} tier the tier `scripts/gate-tooling.json` gives `test:render`
  * @returns {string[]}
  */
@@ -82,7 +82,7 @@ export function tierProblems(baseline, tier) {
 
   if (phase === 'measurement') {
     return [
-      '`test:render` is tiered `pr-blocking` while performance/rendering-budget.json ' +
+      '`test:render` is tiered `pr-blocking` while tests/performance/rendering-budget.json ' +
         'has no recorded measurement, so the required check can never pass. A required ' +
         'check that is permanently red blocks every pull request, trains reviewers to ' +
         'ignore red, and hides the failures that matter. Until a real run on reference ' +
@@ -92,7 +92,7 @@ export function tierProblems(baseline, tier) {
   }
 
   return [
-    'performance/rendering-budget.json records `recorded: true`, so the rendering ' +
+    'tests/performance/rendering-budget.json records `recorded: true`, so the rendering ' +
       'budget is a real gate and `test:render` must be tiered `pr-blocking`. Leaving ' +
       'it below that is a gate nobody is required to satisfy, which is worse than the ' +
       'two-phase rollout it replaced: the comparison is real, and nothing enforces it.',

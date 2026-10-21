@@ -100,8 +100,8 @@ process-local inventory and runner control plane become durable; the production 
 2. **Give the OCI gate a ledger row.** Commit `59bc019` repaired the release gate's OCI half and
    has no row — RF-6's own class: *"a gate with no row is a gate that can be skipped silently."*
    Add it, with `59bc019`, `b6691ed`, `b878212` as evidence.
-3. **Real runner images.** `runners/playwright/Dockerfile` installs Playwright and the browser;
-   `runners/k6/Dockerfile` copies the scenario; `runners/zap/Dockerfile` copies the config. Each
+3. **Real runner images.** `infra/runners/playwright/Dockerfile` installs Playwright and the browser;
+   `infra/runners/k6/Dockerfile` copies the scenario; `infra/runners/zap/Dockerfile` copies the config. Each
    keeps `USER 65532:65532`. `oci-checks.mjs` already asserts non-root, uid agreement,
    `network: "none"` and `readOnly: true` — so the images must satisfy isolation the manifest
    already declares. **This is what moves `runner.oci` from `mock` to `real`.**
@@ -144,7 +144,7 @@ Accessibility does not disappear: it moves from product claim to CI gate.
    derives availability from the registry, so `/api/v1/features` follows automatically.
    `capability-register.mjs:53` enforces that every domain has a `quality.<domain>` row, so the two
    register rows go `obsolete` in the same commit. **Add accessibility as a pr-blocking route gate:**
-   `e2e/accessibility/routes.spec.ts` using the `expectNoBlockingAxeViolations` that already exists
+   `tests/e2e/accessibility/routes.spec.ts` using the `expectNoBlockingAxeViolations` that already exists
    and is used by exactly **one** component test today — this is UI-1's removal condition (a).
 2. **`packages/tool-sdk`** — BK-1's entry criterion, which `X-3`'s removalCondition names as
    currently absent. One package: operation declaration, dispatch, result normalisation, error
@@ -152,7 +152,7 @@ Accessibility does not disappear: it moves from product claim to CI gate.
    idempotency fix, and `operationSpec` / `requireString` / `optionalObject` already exist. Do not
    build a parallel.
 3. **k6 adapter + threshold model** → closes `tool.k6` (`missing`), `quality.load` and
-   `quality.performance` (`deferred`). `performance/thresholds.json` and `scripts/performance-gate.mjs`
+   `quality.performance` (`deferred`). `tests/performance/thresholds.json` and `scripts/performance-gate.mjs`
    already hold the threshold model; the adapter parses k6's JSON output into run results.
 4. **ZAP adapter + SARIF projection** → closes `tool.zap` (`missing`) and `quality.security`
    (`deferred`). The only genuinely new parser in this version.
@@ -221,7 +221,7 @@ record the new floor deliberately, not by accident.
 ### Tasks — each is an evidence-then-raise pair, never a raise alone
 
 1. **RF-9.** Run k6 on the reference hardware — ADR-006: a self-hosted single-node install, **not** a
-   GitHub runner. Record observed p95/p99/error-rate in `performance/thresholds.json`, set
+   GitHub runner. Record observed p95/p99/error-rate in `tests/performance/thresholds.json`, set
    `recorded: true`, tighten thresholds to the measured value, move `test:performance` to
    `pr-blocking` **in the same commit**. `render-gate-phase.mjs` already implements this
    derive-don't-choose shape; apply it here.

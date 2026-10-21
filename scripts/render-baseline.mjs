@@ -17,7 +17,7 @@
  * way — a gate's baseline writer is a node script, not a flag bolted onto somebody
  * else's CLI.
  *
- * **Run it deliberately.** This rewrites `performance/rendering-budget.json` from a
+ * **Run it deliberately.** This rewrites `tests/performance/rendering-budget.json` from a
  * live measurement, and the recorded numbers are the floor every later change has to
  * beat. That is why it is `never-in-ci`: a gate that can rewrite its own threshold in
  * the same commit is a gate that agrees with the tree instead of the code. Read the
@@ -37,7 +37,7 @@ if (status !== 0) {
   // The spec reports what it measured and where it wrote it; this only adds the part
   // a reader needs afterwards, which is that the diff is theirs to judge.
   console.error(
-    'render:baseline: the run did not complete, so performance/rendering-budget.json ' +
+    'render:baseline: the run did not complete, so tests/performance/rendering-budget.json ' +
       'was not updated. A baseline that was not measured must not be recorded.',
   );
   process.exit(status);

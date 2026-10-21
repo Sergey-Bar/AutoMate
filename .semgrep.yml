@@ -3,7 +3,7 @@
 # Scope. Until this was extended, `scripts/static-analysis.mjs` ran semgrep over
 # `apps/api/src` only — so the three applications most likely to be exploited from
 # a browser or a subprocess (web, runner, worker) and all of `packages/`,
-# `tools/`, `scripts/` and `e2e/` were unexamined by the security gate. A gate
+# `tools/`, `scripts/` and `tests/e2e/` were unexamined by the security gate. A gate
 # whose scope is one directory out of nine reports a number that says almost
 # nothing, and reads as a passing result.
 #

@@ -3,7 +3,7 @@
  *
  * This is the one artefact `scripts/lib/status-ten.mjs` point 3 names: a spec whose
  * existence *is* the claim that the product works on a database rather than in a Map.
- * Every other spec in `e2e/product` asserts one link; this one asserts the links hold
+ * Every other spec in `tests/e2e/product` asserts one link; this one asserts the links hold
  * together, which is a different failure mode — a system where every stage passes alone
  * and the chain does not is exactly the system a per-stage suite reports as healthy.
  *
@@ -70,7 +70,7 @@ test.describe('the durable path', () => {
     // The session the browser holds is real and the API accepts it.
     //
     // **What is deliberately *not* asserted here: that an anonymous caller is refused.**
-    // `e2e/product/open-access.spec.ts` records why — the install is open by design
+    // `tests/e2e/product/open-access.spec.ts` records why — the install is open by design
     // (ADR-006: one tenant, one operator, self-hosted, `WORKSPACE_ID` the only tenancy
     // boundary in the system), so `GET /api/v1/runs` answers 200 without a credential.
     // The first draft of this spec asserted a 401 there, and it failed, and the failure
@@ -158,7 +158,7 @@ test.describe('the durable path', () => {
         events: [
           {
             // `RunEventEnvelopeSchema.version` is `z.literal(QA_CONTRACT_VERSION)`. Read from
-            // `e2e/support/config.ts`'s neighbours rather than written as a literal, because a
+            // `tests/e2e/support/config.ts`'s neighbours rather than written as a literal, because a
             // hardcoded version in a spec is a string that goes stale silently and then
             // fails as a 400 the reader has to trace back to a constant.
             version: QA_CONTRACT_VERSION,
@@ -406,7 +406,7 @@ const LEASE_EXPIRY_BUDGET_MS = 45_000;
  *
  * There is no route that releases a lease, deliberately — one that could would be the
  * command-injection primitive `P-70` removed — so the loop could not have been fixed from
- * inside a spec. `e2e/support/reset-queue.ts` empties the queue once per run instead, and
+ * inside a spec. `tests/e2e/support/reset-queue.ts` empties the queue once per run instead, and
  * with that a single claim is both sufficient and a **stronger** assertion: if the first
  * claim is not this test's run, something else queued work, and that is worth failing on
  * rather than quietly working around.

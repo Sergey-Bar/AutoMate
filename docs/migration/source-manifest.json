@@ -72,7 +72,7 @@
         "sha256": "ccbeaaa510c913f72d672ece82c8f851dee442a2fb7e257a27c89d01d1b50c2e"
       },
       {
-        "path": "e2e/integration/package.json",
+        "path": "tests/e2e/integration/package.json",
         "sha256": "cbcc6a6864e535c1052a9c793c399007eab7ee32ba517b1c5fce21863aa9e1ca"
       },
       {

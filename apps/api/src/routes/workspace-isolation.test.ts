@@ -185,7 +185,7 @@ describe('the composed API refuses unauthenticated access everywhere it should',
 // The describe that stood here asserted the API "refuses rather than opens when no key
 // is configured in production", and there is no longer an open branch to be careful
 // with: the install is open by design. What replaces it is the contract in
-// `e2e/product/open-access.spec.ts`, asserted against a real database rather than
+// `tests/e2e/product/open-access.spec.ts`, asserted against a real database rather than
 // against an in-process app — which is the only place a claim about who may read a
 // run is worth something.
 

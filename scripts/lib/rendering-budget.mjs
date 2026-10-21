@@ -1,7 +1,7 @@
 /**
  * The rendering budget's rules, as a pure function.
  *
- * `performance/rendering-budget.json` is a **ratchet baseline**, and this module is
+ * `tests/performance/rendering-budget.json` is a **ratchet baseline**, and this module is
  * the comparison. It is split out from the Playwright spec for the same reason
  * `findings-ledger.mjs` and `coverage-floor-ratchet.mjs` are split out from their
  * CLIs: the browser half needs a browser and a database, so it cannot be run on every
@@ -18,7 +18,7 @@
  * lands *before* the effect, not after.
  *
  * The one rule this module exists to enforce, and cannot be got around: **a ceiling
- * that was never measured is not a ceiling.** `performance/thresholds.json` carries
+ * that was never measured is not a ceiling.** `tests/performance/thresholds.json` carries
  * `recorded: false` with three nulls and is, by the ledger's own RF-9 row, a gate
  * that protects nothing. Repeating that shape here would be the same defect wearing a
  * new filename, so an unmeasured baseline is a **finding**, not a pass. The baseline
@@ -187,7 +187,7 @@ function routeProblems(route, reading, budget) {
     return [
       ...problems,
       `${route}: no ceiling is recorded for this route. Add it to ` +
-        'performance/rendering-budget.json deliberately.',
+        'tests/performance/rendering-budget.json deliberately.',
     ];
   }
   const observed = isRecord(reading) ? reading : {};
@@ -222,7 +222,7 @@ function routeProblems(route, reading, budget) {
  * same reason: a one-directional check is a check that can be defeated by editing one
  * of the two documents.
  *
- * @param {unknown} baseline parsed `performance/rendering-budget.json`
+ * @param {unknown} baseline parsed `tests/performance/rendering-budget.json`
  * @param {unknown} measurement `{ routes: { [route]: { lcpMs, inpMs, cls, longTasks } } }`
  * @returns {{ findings: string[], routes: number }}
  */
@@ -233,9 +233,9 @@ export function auditRenderingBudget(baseline, measurement) {
   if (baseline['recorded'] !== true) {
     return {
       findings: [
-        'performance/rendering-budget.json has no recorded measurement, so this gate ' +
+        'tests/performance/rendering-budget.json has no recorded measurement, so this gate ' +
           'has measured nothing. A budget that was never observed is an intention, ' +
-          'not a ceiling — the same defect as performance/thresholds.json before it ' +
+          'not a ceiling — the same defect as tests/performance/thresholds.json before it ' +
           'was populated. Record a real run on reference hardware and set recorded: true.',
       ],
       routes: 0,
@@ -256,7 +256,7 @@ export function auditRenderingBudget(baseline, measurement) {
   if (routes.size === 0) {
     return {
       findings: [
-        'performance/rendering-budget.json records no routes and the measurement ' +
+        'tests/performance/rendering-budget.json records no routes and the measurement ' +
           'reported none, so there is nothing to compare and everything passes. A ' +
           'rendering budget with no routes is not a budget. The four primary routes ' +
           'are /dashboard, /dashboard/runs, /dashboard/runs/:runId and ' +
@@ -271,7 +271,7 @@ export function auditRenderingBudget(baseline, measurement) {
   for (const route of [...routes].sort()) {
     if (!(route in observed)) {
       findings.push(
-        `${route}: recorded in performance/rendering-budget.json but not measured. ` +
+        `${route}: recorded in tests/performance/rendering-budget.json but not measured. ` +
           'Dropping a route drops its ceiling, which is a lowering with no diff to it.',
       );
       continue;

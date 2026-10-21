@@ -14,8 +14,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
-const record = JSON.parse(readFileSync(path.join(root, 'performance', 'thresholds.json'), 'utf8'));
-const scenario = readFileSync(path.join(root, 'performance', 'smoke.js'), 'utf8');
+const record = JSON.parse(
+  readFileSync(path.join(root, 'tests', 'performance', 'thresholds.json'), 'utf8'),
+);
+const scenario = readFileSync(path.join(root, 'tests', 'performance', 'smoke.js'), 'utf8');
 const observed = record.observed_on_reference_hardware;
 
 /**
