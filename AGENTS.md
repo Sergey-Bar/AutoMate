@@ -481,9 +481,10 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   read or write needs a cross-workspace isolation test.
   **`docs/quality/tenancy-scope.json` is which tables that covers** — one row per table,
   each committing its scope, its observed column state, and the reason. `pnpm tenancy:check`
-  fails on an unclassified table or on one that loses a hard boundary; it reports the 28
-  workspace-scoped tables that do not have one rather than failing, because that debt is
-  tracked as `P-20` and a permanently red gate stops catching the regressions.
+  fails on an unclassified table or on one that loses a hard boundary. Every workspace-scoped
+  table has one since `0028_workspace_hard_boundaries.sql` (`MNT-17`): `workspace_id` NOT NULL,
+  a `restrict` key onto `workspaces`, and an index leading with it. A new workspace-scoped table
+  ships the same way, with a cross-workspace isolation test if anything reads or writes it.
 
 ### Git / PR Workflow
 
