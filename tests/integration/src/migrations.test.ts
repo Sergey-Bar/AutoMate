@@ -167,6 +167,7 @@ describe('migration graph', () => {
       '0023_project_registry',
       '0024_project_quality_gate',
       '0025_scan_snapshots',
+      '0026_locator_suggestions_updated_at',
     ]);
   });
 

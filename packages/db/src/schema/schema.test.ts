@@ -304,6 +304,14 @@ describe('dashboard schema — locatorSuggestions', () => {
   it('has table name "locator_suggestions"', () => {
     expect(tname(locatorSuggestions)).toBe('locator_suggestions');
   });
+
+  it('records when a suggestion last changed, because its status is mutable', () => {
+    // C-6: the one table whose `status` moves (pending → accepted | rejected | expired)
+    // and that had no `updatedAt` at all, so a decision on it could not be dated.
+    expect(cols(locatorSuggestions)).toContain('updatedAt');
+    expect(locatorSuggestions.updatedAt.notNull).toBe(true);
+    expect(locatorSuggestions.updatedAt.hasDefault).toBe(true);
+  });
 });
 
 describe('dashboard schema — failureClusters', () => {
