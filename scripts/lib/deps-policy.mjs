@@ -313,7 +313,7 @@ export function isConfigurationFile(file, root) {
  *
  * A **quoted string equal to the package name, inside a configuration file**.
  * Configuration references packages by string rather than by import:
- * `packages/ui/.storybook/main.ts` lists `'@storybook/addon-essentials'` in its
+ * `packages/ui/.storybook/main.ts` lists `'@storybook/addon-docs'` in its
  * `addons` array, and that package is a real dependency of that package. An
  * import-only matcher reports it unused, and the first thing a reviewer does with a
  * false positive is distrust the whole report.

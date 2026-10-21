@@ -71,16 +71,16 @@
       "version": "11.8.0"
     },
     {
-      "name": "@storybook/addon-essentials",
-      "version": "8.6.14"
+      "name": "@storybook/addon-docs",
+      "version": "10.6.3"
     },
     {
       "name": "@storybook/react",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "@storybook/react-vite",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "@tailwindcss/vite",
@@ -232,7 +232,7 @@
     },
     {
       "name": "storybook",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "tailwind-merge",

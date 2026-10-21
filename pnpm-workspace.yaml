@@ -148,9 +148,8 @@ overrides:
   # Removed 2026-10-21: `esbuild@>=0.27.3 <0.28.1: ^0.28.1`, through vitest. With vitest at
   # 4.1.12 the install resolves and `pnpm audit` reports nothing without it.
   esbuild@<=0.24.2: ^0.25.0
-  # uuid, moderate, through storybook. Reviewed 2026-10-21: still needed — without it
-  # `pnpm audit` reports a moderate uuid advisory. Review by 2026-11-21.
-  uuid@<11.1.1: ^11.1.1
+  # Removed 2026-10-21: `uuid@<11.1.1: ^11.1.1`, through storybook. Storybook 10 no longer
+  # depends on `uuid`, so nothing in the tree resolves it and the override matched nothing.
 
 catalog:
   '@eslint/js': ^10.0.1
