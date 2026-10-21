@@ -178,11 +178,31 @@ async function collectFiles(root: string): Promise<string[]> {
   return result.sort();
 }
 
-async function defaultTerminate(child: ChildProcessWithoutNullStreams): Promise<void> {
-  if (child.pid === undefined || child.exitCode !== null) return;
+/** How long a process group is given to honour SIGTERM before it is killed outright. */
+export const TERMINATE_GRACE_MS = 2_000;
+
+/**
+ * Stops a spawned command **and everything it started**, and does not take no for an
+ * answer.
+ *
+ * Both adapters spawn the command as a process-group leader (`detached` on POSIX), so a
+ * signal to the leader alone leaves its children running — and a child that inherited
+ * the stdout pipe keeps `'close'` from ever firing, so the job never returns and its slot
+ * is never freed. The group is signalled instead, and after {@link TERMINATE_GRACE_MS}
+ * it is sent SIGKILL whether or not the leader has gone, because a grandchild that
+ * ignores SIGTERM outlives a leader that does not. On Windows `taskkill /t /f` already
+ * ends the whole tree forcibly.
+ */
+export async function terminateProcessTree(
+  child: ChildProcessWithoutNullStreams,
+  graceMs: number = TERMINATE_GRACE_MS,
+): Promise<void> {
+  if (child.pid === undefined) return;
+  const pid = child.pid;
   if (process.platform === 'win32') {
+    if (child.exitCode !== null) return;
     await new Promise<void>((resolveTermination) => {
-      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+      const killer = spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
         shell: false,
         stdio: 'ignore',
         windowsHide: true,
@@ -195,10 +215,32 @@ async function defaultTerminate(child: ChildProcessWithoutNullStreams): Promise<
     });
     return;
   }
+  signalGroup(pid, child, 'SIGTERM');
+  // `'close'` fires once the leader has exited *and* every holder of its pipes has
+  // gone, which is exactly "the group honoured SIGTERM". Without it, the group is
+  // killed — and only then, so a group id the kernel may already have reused is not
+  // signalled for nothing.
+  const closed = await new Promise<boolean>((settle) => {
+    const timer = setTimeout(() => settle(false), graceMs);
+    timer.unref();
+    child.once('close', () => {
+      clearTimeout(timer);
+      settle(true);
+    });
+  });
+  if (!closed) signalGroup(pid, child, 'SIGKILL');
+}
+
+function signalGroup(
+  pid: number,
+  child: ChildProcessWithoutNullStreams,
+  signal: 'SIGTERM' | 'SIGKILL',
+): void {
   try {
-    process.kill(-child.pid, 'SIGTERM');
+    process.kill(-pid, signal);
   } catch {
-    child.kill('SIGTERM');
+    // ESRCH: the group is already gone. Anything else: fall back to the leader.
+    if (child.exitCode === null) child.kill(signal);
   }
 }
 
@@ -220,7 +262,7 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
     this.allowedProjects = new Set(options.allowedProjects);
     this.allowedTargets = new Set(options.allowedTargetUrls.map((value) => new URL(value).origin));
     this.spawnProcess = options.spawnProcess ?? defaultSpawn;
-    this.terminateProcess = options.terminateProcess ?? defaultTerminate;
+    this.terminateProcess = options.terminateProcess ?? terminateProcessTree;
     this.playwrightCliPath = options.playwrightCliPath ?? require.resolve('@playwright/test/cli');
     const modulePath = fileURLToPath(import.meta.url);
     const compiledReporter = resolve(dirname(modulePath), 'playwright-reporter.js');
