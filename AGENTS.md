@@ -234,9 +234,10 @@ from a different machine — and they name packages that no longer exist
 nothing checks them, which is exactly why nothing noticed. **`.kilo/plans/` is the
 authority**; the other two can be deleted whenever nobody wants their session history.
 
-Seventeen of the eighteen files in `.kilo/plans/` are currently untracked, so a plan
-written in one session is invisible in the next. Committing them is a deliberate act,
-not an automatic one.
+Every file in `.kilo/plans/` is tracked, and `scripts/lib/docs-paths.test.mjs` checks
+the paths each one cites. A plan left uncommitted is invisible to the next session, so
+committing it is part of writing it. This paragraph states no count on purpose: it once
+said "seventeen of the eighteen are untracked" over a directory of eight tracked files.
 
 ### The findings ledger
 
@@ -413,7 +414,8 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - **Routing**: TanStack Router with file-based routes in `src/routes/`.
 - **Validation**: Zod schemas parse API responses on the client side.
 - **UI components**: Tailwind CSS 4 + `packages/ui` library.
-- **Icons**: `lucide-react`.
+- **Icons**: from `@automate/ui` (`packages/ui/src/icons.ts`). `lucide-react` is a
+  dependency of `packages/ui` only, so `apps/web` cannot import it directly.
 
 ### Testing
 
