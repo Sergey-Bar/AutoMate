@@ -96,7 +96,7 @@
     },
     {
       "name": "@testing-library/jest-dom",
-      "version": "6.9.1"
+      "version": "7.0.1"
     },
     {
       "name": "@testing-library/react",
