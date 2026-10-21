@@ -221,7 +221,8 @@ tool. A third-party skill is vendored, not copied by hand:
 ```bash
 npx --yes skills@latest add <owner>/<repo> --skill <name> -a kilo --copy -y
 # then move the folder from .agents/skills/<name> into .kilo/skills/<name>,
-# so the project has one skill root rather than two.
+# so the project has one skill root rather than two. The CLI writes its lock entry to
+# a root skills-lock.json; move that entry into .kilo/skills-lock.json and delete the root file.
 ```
 
 Do not run `skills update` here: it writes to `.agents/skills/`, which would
