@@ -401,7 +401,10 @@ export class PostgresExecutionStore implements ExecutionStore {
            SET attempt = $2, phase = $3, outcome = $4, status = $5,
                runner_id = NULL, error_code = 'RUNNER_LOST',
                error_message = 'Runner lease expired', updated_at = $6,
-               completed_at = CASE WHEN $3 = 'runner_lost' THEN $6 ELSE completed_at END
+               -- A run the reaper ends is ended: dated like \`completeJob\` dates one,
+               -- whether it ended lost or cancelled. A requeued run is not ended.
+               completed_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE completed_at END,
+               finished_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE finished_at END
            WHERE id = $1::uuid`,
           [
             row.run_id,

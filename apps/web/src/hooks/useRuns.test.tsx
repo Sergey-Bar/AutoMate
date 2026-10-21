@@ -2,7 +2,14 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunEventEnvelope } from '@automate/shared-contracts';
 import { isRunActive, useRuns } from './useRuns.js';
-import { deferred, fetchAborting, makeApi, makePhaseEvent, makeRun } from '../test-utils.js';
+import {
+  abortError,
+  deferred,
+  fetchAborting,
+  makeApi,
+  makePhaseEvent,
+  makeRun,
+} from '../test-utils.js';
 import type { ApiClient, RunEventSubscription } from '../lib/api.js';
 
 describe('useRuns', () => {
@@ -47,6 +54,56 @@ describe('useRuns', () => {
 
     act(() => subscription?.onEvent(makePhaseEvent({ runId: 'run-2' })));
     await waitFor(() => expect(result.current.runs[0]?.id).toBe('run-2'));
+    expect(api.getRuns).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps loading through a busy stream and lands the list, instead of showing no runs', async () => {
+    // Every `test.*` event refetched the list, and each refetch aborted the one in
+    // flight. The aborted initial load cleared `isLoading` on its way out, so while a
+    // run streamed test events faster than one round trip the page showed the "no
+    // runs" empty state, and no response ever landed until the stream went quiet.
+    let subscription: RunEventSubscription | undefined;
+    const pending: Array<ReturnType<typeof deferred<ReturnType<typeof makeRun>[]>>> = [];
+    const run = makeRun({ id: 'run-1', phase: 'running' });
+    const api = makeApi({
+      getRuns: vi.fn(({ signal }: { signal?: AbortSignal } = {}) => {
+        const request = deferred<ReturnType<typeof makeRun>[]>();
+        signal?.addEventListener('abort', () => request.reject(abortError()), { once: true });
+        pending.push(request);
+        return request.promise;
+      }),
+      subscribeToRunEvents: vi.fn((value) => {
+        subscription = value;
+        return () => undefined;
+      }),
+    });
+    const { result } = renderHook(() => useRuns(api));
+    const testEvent = (sequence: number) =>
+      ({
+        version: '1',
+        eventId: `event-${String(sequence)}`,
+        sequence,
+        runId: 'run-1',
+        occurredAt: '2026-10-21T00:00:00.000Z',
+        type: 'test.completed',
+        payload: { testId: `test-${String(sequence)}`, attempt: 1, status: 'passed' },
+      }) as unknown as RunEventEnvelope;
+
+    for (let sequence = 1; sequence <= 5; sequence += 1) {
+      await act(async () => {
+        subscription?.onEvent(testEvent(sequence));
+        await Promise.resolve();
+      });
+      expect(result.current.isLoading, `after event ${String(sequence)}`).toBe(true);
+    }
+
+    await act(async () => {
+      for (const request of pending) request.resolve([run]);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(result.current.runs).toEqual([run]));
+    expect(result.current.isLoading).toBe(false);
+    // Coalesced, not one request per event: the initial load plus one follow-up.
     expect(api.getRuns).toHaveBeenCalledTimes(2);
   });
 

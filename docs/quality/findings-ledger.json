@@ -4323,6 +4323,52 @@
         }
       ],
       "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
+    },
+    {
+      "id": "MNT-9",
+      "title": "While a run streamed test events, the runs list aborted every load it started and showed the empty state",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`useRuns` refetched the whole list on every `test.*`, `artifact.created` and `gate.evaluated` event, and on any event for a run it did not know — which is every event while the first load is still in flight. Each refetch called `beginLoad()`, aborting the request in flight. The aborted initial load then left through its `finally` and cleared `isLoading`, so the page rendered \"no runs\" over an empty array. A run streaming test events faster than one `GET /api/v1/runs` round trip therefore kept the list from ever landing: on first paint the dashboard said there were no runs, and afterwards it stopped updating until the stream went quiet.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `hooks/useRuns.ts` against `use-request-lifecycle.ts`; a test emitting five `test.completed` events during the initial load saw `isLoading` false after the first.",
+      "evidence": [
+        {
+          "path": "apps/web/src/hooks/useRuns.ts",
+          "asserts": "Event-driven refreshes go through `requestRefresh`, which waits behind a load in flight and runs one follow-up for every event that arrived meanwhile. `isLoading` is cleared by a load that succeeded or failed, never by one that was cancelled."
+        },
+        {
+          "path": "apps/web/src/hooks/useRuns.test.tsx",
+          "asserts": "`keeps loading through a busy stream and lands the list, instead of showing no runs` requires `isLoading` to stay true across five events, the list to land, and exactly two requests."
+        }
+      ],
+      "resolution": "Coalesce instead of supersede for event-driven refreshes, and let only a settled load end the loading state. Reconnects and the offline poll still supersede, because their answer is the one wanted."
+    },
+    {
+      "id": "MNT-10",
+      "title": "A run the lease reaper ended as cancelled was left undated, and a lost one had no finish time",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`PostgresExecutionStore.reapExpiredLeases` set `completed_at` only when the new phase was `runner_lost` and never set `finished_at`. A run whose lease expired after a cancel request became `phase = cancelled`, `outcome = cancelled` with both timestamps NULL, and a `runner_lost` run had `completed_at` but no `finished_at` — while `completeJob` sets both. Duration, ordering and \"finished\" queries read those terminal runs as runs that never ended. The package had no test against a real database, so the SQL was only ever checked as text.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read the `UPDATE runs` in `reapExpiredLeases` beside `completeJob`; the new PGlite test read back NULL for both cases.",
+      "evidence": [
+        {
+          "path": "apps/worker/src/postgres-store.ts",
+          "asserts": "Both `completed_at` and `finished_at` are set when the reaper ends a run as `runner_lost` or `cancelled`, and neither when it requeues."
+        },
+        {
+          "path": "apps/worker/src/postgres-store.reap.test.ts",
+          "asserts": "The worker's first test against the real migration graph: the pool hands out a PGlite-backed client, and both terminal cases are read back dated."
+        }
+      ],
+      "resolution": "Dated like `completeJob` dates a run, and proved against the real schema rather than as SQL text."
     }
   ]
 }
