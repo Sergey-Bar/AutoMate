@@ -137,7 +137,15 @@ test('every shipped Dockerfile ends on the uid its manifest declares, and never 
       assert.fail(`${name}: no manifest`);
     }
     const dockerfile = readFileSync(
-      join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'runners', name, 'Dockerfile'),
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '..',
+        '..',
+        'infra',
+        'runners',
+        name,
+        'Dockerfile',
+      ),
       { encoding: 'utf8' },
     );
     const users = [...dockerfile.matchAll(/^USER\s+(\S+)\s*$/gim)].map((entry) => entry[1]);

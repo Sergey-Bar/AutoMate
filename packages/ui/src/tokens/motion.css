@@ -42,7 +42,7 @@
  * A spring is the right answer to "how does this feel on a 120 Hz display with a variable
  * frame budget". This is a QA console that runs on the hardware an installation gave it, is
  * read in sessions rather than used in bursts, and whose rendering budget is *recorded*
- * rather than assumed — `performance/rendering-budget.json`, where `PERF-1` in the ledger is
+ * rather than assumed — `tests/performance/rendering-budget.json`, where `PERF-1` in the ledger is
  * still open because nobody has run it on the reference hardware. A spring is the one
  * animation whose cost depends on the frame budget, and adding it while that number is
  * unrecorded would be adding the part that cannot be measured yet.

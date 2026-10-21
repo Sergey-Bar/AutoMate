@@ -356,7 +356,7 @@ jobs:
     #
     # The two-phase rollout, and why it was two phases:
     #
-    #  - **Measurement phase (until 2026-10-21).** `performance/rendering-budget.json` had
+    #  - **Measurement phase (until 2026-10-21).** `tests/performance/rendering-budget.json` had
     #    no recorded ceiling, so this job measured the four primary routes and published
     #    the numbers to the job summary without comparing them, and was not a required
     #    check — a required check that can never pass blocks every pull request and

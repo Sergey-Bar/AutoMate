@@ -31,7 +31,7 @@ buried in a risk section:
 
 | Requirement | Blocked by | Row |
 | --- | --- | --- |
-| "Fully autonomous — all matrices and metrics update automatically" | The three runner Dockerfiles are **stubs**. `runners/k6/Dockerfile` builds `grafana/k6:0.57.0` with an entrypoint of `k6 version`; `runners/zap/Dockerfile` builds the ZAP base with `zap.sh -version`. Nothing in this repository has ever produced a summary for an adapter to read. | `tool.k6` = `missing`, `tool.zap` = `missing`, `runner.oci` = `mock`, `tool.playwright` = `mock` |
+| "Fully autonomous — all matrices and metrics update automatically" | The three runner Dockerfiles are **stubs**. `infra/runners/k6/Dockerfile` builds `grafana/k6:0.57.0` with an entrypoint of `k6 version`; `infra/runners/zap/Dockerfile` builds the ZAP base with `zap.sh -version`. Nothing in this repository has ever produced a summary for an adapter to read. | `tool.k6` = `missing`, `tool.zap` = `missing`, `runner.oci` = `mock`, `tool.playwright` = `mock` |
 | "Real-time progress bar on **every** integrated tool" | Per-test events are emitted by **one** reporter, `apps/runner/src/playwright-reporter.ts`. JUnit, k6 and ZAP arrive through the upload door and are parsed *after* the run finishes. | — |
 | "Pause" | Does not exist anywhere. `rg '\bpause\b'` across every `.ts` finds only GC-pause prose in a doc comment. The control vocabulary is `run.start` + `run.stop` only. | — |
 | "If a public repository with 10+ stars, suggest CodeRabbit" | Reading stars needs the GitHub API. `connectors.core` is `mock`: *"Bounded adapters and SDK tests exist, but API composition, durable credentials, approvals, and artifacts are not wired."* | `connectors.core` |
@@ -143,8 +143,8 @@ cannot disagree with the event log.
   // phase:               startedAt, elapsedMs }
 ```
 
-`mode` comes from the runner's own manifest — `runners/playwright/manifest.json` declares
-`progress: 'per-test'`, `runners/k6` and `runners/zap` declare `progress: 'phase'`. **The manifest is
+`mode` comes from the runner's own manifest — `infra/runners/playwright/manifest.json` declares
+`progress: 'per-test'`, `infra/runners/k6` and `infra/runners/zap` declare `progress: 'phase'`. **The manifest is
 the authority, so a tool cannot acquire a progress bar it has no events for**, and adding one is a
 manifest row rather than a UI change.
 
@@ -178,7 +178,7 @@ extending `schedules` (which C-6's resolution records as raw SQL in
 `apps/worker/src/postgres-store.ts:388,467,590`) into a second dialect to express a semantic that
 does not exist yet. That is a speculative feature wearing a small diff.
 
-**What does not become automatic:** tool execution. `runners/*/Dockerfile` are stubs, so an
+**What does not become automatic:** tool execution. `infra/runners/*/Dockerfile` are stubs, so an
 autonomous loop over them produces green from nothing. `AUTO-1` records this as a Blocker on the
 *requirement*, not on the code — the code is correct and the inputs are absent.
 
@@ -292,7 +292,7 @@ number somebody has to be able to read.
    `/dashboard` already has six: loading, report, five-reads-failed, registry-error, onboarding, and
    the project named with no path recorded. The others do not. → `docs/quality/state-matrix.md`.
 2. **axe zero serious and zero critical on every route in both themes** — `W11.4` condition (a).
-   **Done.** `e2e/accessibility/routes.spec.ts` exists, generated from
+   **Done.** `tests/e2e/accessibility/routes.spec.ts` exists, generated from
    `apps/web/src/route-manifest.ts` so the list cannot drift from the routes, covering all
    eleven paths in both themes and in four forced data states — 66 tests, its own Playwright
    project, green against a real PostgreSQL and a real browser. `pnpm status:10` point 4 now
@@ -338,7 +338,7 @@ re-derivation is recorded in the row.
   matrix, so one exists; but 13 routes × 4 states kept in step by hand is a document that drifts the
   week after it lands. The axe spec below already enumerates every route and every state it visits,
   so the matrix is emitted from that list. Nothing to maintain, nothing to disagree with.
-- `e2e/accessibility/routes.spec.ts` — NEW, `W11.4` condition (a), both themes. It is the matrix's
+- `tests/e2e/accessibility/routes.spec.ts` — NEW, `W11.4` condition (a), both themes. It is the matrix's
   only writer, which is why there is no second list.
 - **Gate:** `pnpm status:10` point 4 flips `fail` → `pass` on the accessibility clause; axe zero
   serious and zero critical on all 13 routes in both themes.
@@ -372,7 +372,7 @@ red-first, and the runner step is the one that must not be skipped.
 
 ### W3 — Progress
 
-- `runners/*/manifest.json` — `progress: 'per-test' | 'phase'`. **Playwright only is `per-test`.**
+- `infra/runners/*/manifest.json` — `progress: 'per-test' | 'phase'`. **Playwright only is `per-test`.**
 - `apps/runner/src/playwright-reporter.ts` — emit the `test.queued` total.
 - `apps/api/src/routes/execution/progress.ts` — NEW, a pure projection over `run_events`, unit-tested
   with no database. Worth its own file precisely because it is the one piece of W3 that can be proved

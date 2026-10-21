@@ -61,7 +61,7 @@ recorded 2026-10-21).
   `agents.test.ts` pinning the difference.
 - `apps/api/src/config.ts` — `WORKSPACE_ID` as the tenancy boundary, and
   `PUBLIC_APP_URL` defaulting to the local web origin.
-- `scripts/lib/render-gate-phase.mjs` and `performance/rendering-budget.json` — the
+- `scripts/lib/render-gate-phase.mjs` and `tests/performance/rendering-budget.json` — the
   derived tier and the unrecorded baseline behind it.
 - `docs/quality/coverage-exclusions.md` and `coverage-baseline.json` — the
   per-package floors the ratchet compares against.

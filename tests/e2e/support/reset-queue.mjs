@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { assertTruncatable } from '../../scripts/lib/e2e-database-guard.mjs';
+import { assertTruncatable } from '../../../scripts/lib/e2e-database-guard.mjs';
 
 /**
  * Put the durable tables back to empty before an E2E run.
