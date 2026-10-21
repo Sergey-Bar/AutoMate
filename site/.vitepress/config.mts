@@ -2,7 +2,10 @@ import { defineConfig } from 'vitepress';
 
 export default defineConfig({
   title: 'Automate',
-  description: 'AI-orchestrated QA platform',
+  description:
+    'A self-hosted QA control plane for test evidence, quality gates and flaky-test quarantine',
+  // Mermaid diagrams on the guide pages are rendered as code blocks; the source is the
+  // diagram, and GitHub renders the same block natively.
   // A GitHub project page is served from `/<repo>/`, so the base has to be set or
   // every asset URL resolves one level too high and the site renders unstyled.
   //
@@ -34,6 +37,8 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Guide', link: '/guide/' },
+      { text: 'Send results', link: '/guide/sending-results' },
+      { text: 'How it is tested', link: '/guide/testing-strategy' },
       { text: 'Architecture', link: '/architecture' },
       { text: 'Operations', link: '/operations' },
       { text: 'Design', link: '/guide/design-language' },
@@ -62,6 +67,11 @@ export default defineConfig({
         items: [
           { text: 'Guide', link: '/guide/' },
           { text: 'Getting started', link: '/guide/getting-started' },
+          { text: 'Core concepts', link: '/guide/concepts' },
+          { text: 'Sending results', link: '/guide/sending-results' },
+          { text: 'Quality gates and quarantine', link: '/guide/quality-gates' },
+          { text: 'How this repository tests itself', link: '/guide/testing-strategy' },
+          { text: 'How this project is maintained', link: '/guide/maintenance' },
           { text: 'The design language', link: '/guide/design-language' },
         ],
       },
