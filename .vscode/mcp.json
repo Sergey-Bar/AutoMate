@@ -7,7 +7,7 @@
     },
     "k6": {
       "type": "stdio",
-      "command": "C:\\Users\\Sergey\\go\\bin\\mcp-k6.exe",
+      "command": "mcp-k6",
       "args": []
     },
     "a11y": {
