@@ -808,6 +808,8 @@ export const locatorSuggestions = pgTable('locator_suggestions', {
     .notNull()
     .default('pending'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  // Added in 0026. `status` moves and nothing recorded when (ledger C-6).
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
 // ─── failure_clusters ─────────────────────────────────────────────────────────
