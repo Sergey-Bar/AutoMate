@@ -11,9 +11,14 @@ import test from 'node:test';
  */
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
+/** @param {string} relative */
 const read = (relative) => readFileSync(path.join(ROOT, relative), 'utf8');
 
-/** The `major` or `major.minor` a badge names, by its label, or null when absent. */
+/**
+ * The `major` or `major.minor` a badge names, by its label, or null when absent.
+ *
+ * @param {string} readme @param {string} label @returns {string | null}
+ */
 export function badgeVersion(readme, label) {
   const match = new RegExp(`img\\.shields\\.io/badge/${label}-v?(\\d+(?:\\.\\d+)*)`, 'i').exec(
     readme,
@@ -21,7 +26,11 @@ export function badgeVersion(readme, label) {
   return match?.[1] ?? null;
 }
 
-/** Whether `stated` is a prefix of `actual`, component by component. */
+/**
+ * Whether `stated` is a prefix of `actual`, component by component.
+ *
+ * @param {string} stated @param {string} actual @returns {boolean}
+ */
 export function agrees(stated, actual) {
   const a = actual.replace(/^[\^~>=<\s]+/, '').split(/[.\s]/);
   return stated.split('.').every((part, index) => a[index] === part);
@@ -40,6 +49,7 @@ function facts() {
 
 test('every version badge in the README agrees with the file that owns the version', () => {
   const readme = read('README.md');
+  /** @type {string[]} */
   const problems = [];
   for (const [label, actual] of Object.entries(facts())) {
     const stated = badgeVersion(readme, label.replace('.', '\\.'));
