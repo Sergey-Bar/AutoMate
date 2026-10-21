@@ -77,9 +77,13 @@ const RETRYABLE_SLACK_ERRORS = new Set(['ratelimited', 'internal_error', 'servic
 function dispatchFor(
   manifest: ConnectorAdapter['manifest'],
   operation: string,
-): { operation: SlackOperation; idempotent: boolean } {
+): { operation: SlackOperation; idempotent: boolean; timeoutMs: number } {
   const spec = operationSpec(manifest, operation);
-  return { operation: OPERATIONS[operation], idempotent: spec.idempotent };
+  return {
+    operation: OPERATIONS[operation],
+    idempotent: spec.idempotent,
+    timeoutMs: spec.timeoutMs,
+  };
 }
 
 export const slackAdapter: ConnectorAdapter = {
@@ -97,14 +101,17 @@ export const slackAdapter: ConnectorAdapter = {
       // Both refusals happen before a request exists. An operation this adapter cannot
       // perform, or one whose input is incomplete, must not become a network call — the
       // old code sent `auth.test` in both cases and reported success.
-      const { operation, idempotent } = dispatchFor(slackAdapter.manifest, request.operation);
+      const { operation, idempotent, timeoutMs } = dispatchFor(
+        slackAdapter.manifest,
+        request.operation,
+      );
 
       const body: Record<string, unknown> = {};
       for (const field of operation.fields) body[field] = requireString(request.input, field);
       Object.assign(body, optionalObject(request.input, 'fields'));
 
       const value = await executeWithRetry(
-        async () => {
+        async (signal) => {
           const response = await fetch(`https://slack.com/api/${operation.method}`, {
             method: 'POST',
             headers: {
@@ -112,7 +119,7 @@ export const slackAdapter: ConnectorAdapter = {
               authorization: `Bearer ${secret}`,
             },
             body: JSON.stringify(body),
-            signal: request.signal,
+            signal,
           });
           if (!response.ok) throw new ConnectorHttpError(response.status, 'Slack request failed');
           const parsed: unknown = await response.json();
@@ -140,7 +147,7 @@ export const slackAdapter: ConnectorAdapter = {
           }
           return parsed;
         },
-        { retries: 2, signal: request.signal, idempotent },
+        { retries: 2, signal: request.signal, idempotent, attemptTimeoutMs: timeoutMs },
       );
 
       return { status: 'ok', data: value.value, attempts: value.attempts };
