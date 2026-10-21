@@ -52,7 +52,7 @@
     },
     {
       "name": "@hono/node-server",
-      "version": "1.19.17"
+      "version": "2.1.5"
     },
     {
       "name": "@playwright/test",
