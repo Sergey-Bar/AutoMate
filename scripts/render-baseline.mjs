@@ -27,32 +27,20 @@
  * the reference hardware the plan's D10 describes — a GitHub runner would record the
  * wrong ceiling just as honestly as a guess would.
  */
-import { spawnSync } from 'node:child_process';
-import path from 'node:path';
+import { runRenderBudget } from './lib/render-run.mjs';
 
-const root = path.resolve(import.meta.dirname, '..');
+// Measured against the built bundle, exactly as `pnpm test:render` measures it — a
+// ceiling recorded one way and compared another would be a ceiling on the difference.
+const status = runRenderBudget({ AUTOMATE_RENDER_BASELINE: '1' });
 
-const result = spawnSync('npx', ['playwright', 'test', '--project=rendering-budget'], {
-  cwd: root,
-  stdio: 'inherit',
-  shell: process.platform === 'win32',
-  env: { ...process.env, AUTOMATE_RENDER_BASELINE: '1' },
-});
-
-if (result.error !== undefined) {
-  console.error('render:baseline: could not start Playwright.');
-  console.error(result.error.message);
-  process.exit(1);
-}
-
-if (result.status !== 0) {
+if (status !== 0) {
   // The spec reports what it measured and where it wrote it; this only adds the part
   // a reader needs afterwards, which is that the diff is theirs to judge.
   console.error(
     'render:baseline: the run did not complete, so performance/rendering-budget.json ' +
       'was not updated. A baseline that was not measured must not be recorded.',
   );
-  process.exit(result.status ?? 1);
+  process.exit(status);
 }
 
 console.info(
