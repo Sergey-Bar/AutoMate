@@ -39,7 +39,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * uploaded. The filenames were also agent bookkeeping (`task-17-…`,
  * `task-29-…`) leaked into a product test; they are named for what they show.
  */
-const EVIDENCE_DIR = path.resolve(__dirname, '../../test-results/evidence');
+const EVIDENCE_DIR = path.resolve(__dirname, '../../../test-results/evidence');
 const EVIDENCE_DIR_T29 = path.join(EVIDENCE_DIR, 'vertical-slice');
 
 function saveEvidence(filename: string, data: unknown): void {
@@ -57,7 +57,7 @@ function saveEvidenceT29(filename: string, content: string): void {
 // ---------------------------------------------------------------------------
 
 // The API base, the web base and the installation key all come from
-// `e2e/support/config.ts`, which `playwright.config.ts` also imports. This file used to
+// `tests/e2e/support/config.ts`, which `playwright.config.ts` also imports. This file used to
 // restate all three, and the key it restated did not match the one the API was booted
 // with — so every authenticated call in this spec answered 401 and the suite was red for
 // a reason that had nothing to do with what it was asserting. One source, imported by
@@ -232,7 +232,7 @@ test('vertical slice — SSE /api/v1/events returns 200 text/event-stream', asyn
   // **No anonymous-refusal check here any more.** The install is open, so a stream with
   // no credential is served exactly as one with a credential is — and the previous
   // version asserted it was refused, which is a boundary the product does not have.
-  // The replacement contract lives in `e2e/product/open-access.spec.ts`.
+  // The replacement contract lives in `tests/e2e/product/open-access.spec.ts`.
 
   // Left dangling by design; the abort above already fired.
   await response.body?.cancel();

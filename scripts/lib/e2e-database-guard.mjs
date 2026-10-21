@@ -3,7 +3,7 @@ import { URL } from 'node:url';
 /**
  * Whether a `DATABASE_URL` is safe to truncate.
  *
- * Extracted from `e2e/support/reset-queue.ts` rather than living inside it, for one
+ * Extracted from `tests/e2e/support/reset-queue.ts` rather than living inside it, for one
  * reason: **the guard could never be exercised where it runs.** Playwright starts
  * `webServer` before `globalSetup`, so pointing the suite at an unreachable host fails in
  * the migration step and `globalSetup` never executes — which means a test written the

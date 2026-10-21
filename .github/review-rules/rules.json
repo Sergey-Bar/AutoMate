@@ -159,9 +159,9 @@
       "category": "Performance",
       "severity": "Critical",
       "source": "performance",
-      "pathGlobs": ["performance/**", "**/routes/**", "**/execution/**"],
+      "pathGlobs": ["tests/performance/**", "**/routes/**", "**/execution/**"],
       "rationale": "A measured threshold was breached, or the scenario and the recorded thresholds disagree. The second case is the worse one: a gate whose inputs have drifted apart measures nothing and reports success.",
-      "fix": "Fix the regression, or move the threshold with a reason in `performance/thresholds.json` — and update the scenario in the same change, so the two cannot disagree again."
+      "fix": "Fix the regression, or move the threshold with a reason in `tests/performance/thresholds.json` — and update the scenario in the same change, so the two cannot disagree again."
     },
     {
       "id": "container.image",
@@ -218,7 +218,7 @@
         "packages/ui/src/tokens/**",
         "apps/web/src/**"
       ],
-      "rationale": "**The plane is flat, and this rule is the reviewer half of that.** `backdrop-filter` is an error everywhere in `eslint.config.js` with an empty allowlist, `theme.css` declares no glass token and no page wash, and `performance/rendering-budget.json` holds the glass stack depth at 0 on every primary route. Those gates catch a class name or a computed style; this rule catches what they cannot — a translucent fill written as an alpha on a plane token (`bg-surface/70`), or an overlay whose content is read through a scrim.\n\n**The reasoning, carried forward from `no-glass-over-data`.** A backdrop-filter, or a translucent fill, on an element whose job is to hold evidence. The pixels behind a panel in this product are usually the evidence itself — a run log, a stack trace, a table of digests — so a lens over them makes legibility a function of what happens to be underneath, and two readers can see the same line differently. Major rather than Critical because the surface still renders and still reads at a glance; the cost is degraded legibility rather than a wrong answer. `pathGlobs` covers both trees in full because the property is not confined to the components that existed when this rule was written.",
+      "rationale": "**The plane is flat, and this rule is the reviewer half of that.** `backdrop-filter` is an error everywhere in `eslint.config.js` with an empty allowlist, `theme.css` declares no glass token and no page wash, and `tests/performance/rendering-budget.json` holds the glass stack depth at 0 on every primary route. Those gates catch a class name or a computed style; this rule catches what they cannot — a translucent fill written as an alpha on a plane token (`bg-surface/70`), or an overlay whose content is read through a scrim.\n\n**The reasoning, carried forward from `no-glass-over-data`.** A backdrop-filter, or a translucent fill, on an element whose job is to hold evidence. The pixels behind a panel in this product are usually the evidence itself — a run log, a stack trace, a table of digests — so a lens over them makes legibility a function of what happens to be underneath, and two readers can see the same line differently. Major rather than Critical because the surface still renders and still reads at a glance; the cost is degraded legibility rather than a wrong answer. `pathGlobs` covers both trees in full because the property is not confined to the components that existed when this rule was written.",
       "fix": "Paint the surface from an opaque plane step — `bg-surface` for a panel, `bg-surface-raised` for an overlay — and separate an overlay with `shadow-elevation-*`. A full-viewport scrim is the one allowed translucency: it darkens, nothing is read through it, and it still gets no backdrop-filter."
     },
     {

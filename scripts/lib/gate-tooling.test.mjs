@@ -566,7 +566,7 @@ test('the opt-in is reported as a finding when a CI file sets it', () => {
 });
 
 test("the rendering gate's tier follows its baseline, in both directions", () => {
-  // The two-phase rollout, enforced. `performance/rendering-budget.json` has no
+  // The two-phase rollout, enforced. `tests/performance/rendering-budget.json` has no
   // recorded measurement, so the job measures and reports and must not be a required
   // check; once someone records a real run, the comparison becomes a real gate and
   // the tier has to rise with it in the same commit.
@@ -586,7 +586,7 @@ test("the rendering gate's tier follows its baseline, in both directions", () =>
   assert.equal(typeof declared, 'string', 'test:render needs a tier in gate-tooling.json');
 
   const baseline = JSON.parse(
-    readFileSync(path.join(REPO_ROOT, 'performance', 'rendering-budget.json'), 'utf8'),
+    readFileSync(path.join(REPO_ROOT, 'tests', 'performance', 'rendering-budget.json'), 'utf8'),
   );
 
   assert.deepEqual(

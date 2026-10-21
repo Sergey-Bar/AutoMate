@@ -51,7 +51,7 @@ import {
   type BrowserContext,
   type Page,
 } from '@playwright/test';
-import { routeManifest } from '../../apps/web/src/route-manifest.js';
+import { routeManifest } from '../../../apps/web/src/route-manifest.js';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { postReporterEvent, reportTest, uniqueRunId } from '../support/api.js';
@@ -241,7 +241,7 @@ test.describe('accessibility', () => {
   test.beforeEach(
     async ({ context, request }: { context: BrowserContext; request: APIRequestContext }) => {
       // Minted once per worker and injected as a cookie, so the rate limit on
-      // `POST /api/v1/auth/login` is not spent per test — see `e2e/support/session.ts`.
+      // `POST /api/v1/auth/login` is not spent per test — see `tests/e2e/support/session.ts`.
       await authenticate(context, request);
     },
   );
@@ -306,6 +306,7 @@ const GLASS_EVIDENCE_DIR = path.join(
   import.meta.dirname,
   '..',
   '..',
+  '..',
   'test-results',
   'evidence',
   'glass',
@@ -331,7 +332,7 @@ let seeded = false;
  * coverage artifact has been ingested, which is the `unmeasured` case this evidence exists
  * to photograph.
  *
- * **The project may already exist, and that is not a failure.** `e2e/support/reset-queue.mjs`
+ * **The project may already exist, and that is not a failure.** `tests/e2e/support/reset-queue.mjs`
  * truncates six run-scoped tables and deliberately not `projects` — a registered project is
  * install state, not run data, and emptying it would make the suite assert something about
  * the API's boot path rather than about the screen. So the fixture registers, and on `409`
