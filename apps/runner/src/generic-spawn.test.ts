@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -657,6 +657,109 @@ describe('the default process path is the one product code uses', () => {
           },
         }),
       ).rejects.toBeInstanceOf(RunnerInfrastructureError);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('a run that cannot finish still gives its slot and its directory back', () => {
+  it('ends a timed-out command together with the children holding its output open', async () => {
+    // The leader ignores SIGTERM and its child inherited stdout. Signalling the leader
+    // alone left both running, `'close'` never fired, and `execute()` never returned —
+    // so the runner's slot stayed occupied for good and shutdown could not drain.
+    const { repo, workspace, cleanup } = await scaffold();
+    try {
+      const adapter = new GenericSpawnAdapter({
+        repoRoot: repo,
+        workspaceRoot: workspace,
+        artifactMaxBytes: 1024 * 1024,
+        logMaxBytes: 64 * 1024,
+      });
+      const grandchild = `require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'inherit' })`;
+      const leader = `${grandchild}; process.on('SIGTERM', () => {}); setTimeout(() => {}, 60000);`;
+      const started = Date.now();
+      const result = await adapter.execute({
+        jobId: 'job-stuck',
+        deadlineMs: 300,
+        signal: new AbortController().signal,
+        command: {
+          argv: [process.execPath, '-e', leader],
+          workingDirectory: '.',
+          artifactGlobs: [],
+          evidence: 'exit-code',
+        },
+      });
+      expect(result.status).toBe('timed_out');
+      expect(Date.now() - started).toBeLessThan(15_000);
+      await adapter.cleanup(result.workspacePath);
+    } finally {
+      await cleanup();
+    }
+  }, 30_000);
+
+  it('removes its workspace when the command cannot be started', async () => {
+    const { repo, workspace, cleanup } = await scaffold();
+    try {
+      const failing = new FakeChild();
+      const { adapter } = harness(repo, workspace, {
+        spawnProcess: () => {
+          setImmediate(() => failing.emit('error', new Error('spawn ENOENT')));
+          return failing as unknown as ChildProcessWithoutNullStreams;
+        },
+      });
+      await expect(
+        adapter.execute(context({ command: command(['automate-no-such-executable']) })),
+      ).rejects.toBeInstanceOf(RunnerInfrastructureError);
+      expect(await readdir(workspace)).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('removes its workspace when a declared artifact is over the size limit', async () => {
+    const { repo, workspace, cleanup } = await scaffold();
+    try {
+      await writeFile(path.join(repo, 'big.xml'), 'x'.repeat(2048), 'utf8');
+      const { adapter, finish } = harness(repo, workspace, { artifactMaxBytes: 1024 });
+      const running = adapter.execute(context({ command: command(['pytest'], ['big.xml']) }));
+      void finish(0);
+      await expect(running).rejects.toThrow();
+      expect(await readdir(workspace)).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
+describe('the log cap is a cap in bytes', () => {
+  it('stores at most logMaxBytes of non-ASCII output', async () => {
+    // `é` is two bytes and one UTF-16 code unit, so a cap applied with `slice` kept
+    // 1000 characters — 2000 bytes — of a 1000-byte budget.
+    const { repo, workspace, cleanup } = await scaffold();
+    try {
+      let spawned: FakeChild | null = null;
+      const { adapter } = harness(repo, workspace, {
+        logMaxBytes: 1000,
+        spawnProcess: () => {
+          const child = new FakeChild();
+          spawned = child;
+          setImmediate(() => {
+            child.stdout.write(Buffer.from('é'.repeat(1000)));
+            setImmediate(() => {
+              child.exitCode = 0;
+              child.emit('close', 0, null);
+            });
+          });
+          return child as unknown as ChildProcessWithoutNullStreams;
+        },
+      });
+      const result = await adapter.execute(
+        context({ command: { ...command(['pytest']), evidence: 'exit-code' } }),
+      );
+      expect(spawned).not.toBeNull();
+      expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(1000);
+      expect(result.stdout).toBe('é'.repeat(500));
     } finally {
       await cleanup();
     }

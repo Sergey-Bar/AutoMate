@@ -371,17 +371,18 @@ export class RunnerService {
         command === undefined ? stringValue(specification['playwrightProject']) : undefined;
       const targetUrl =
         stringValue(specification['targetUrl']) ?? stringValue(specification['baseUrl']);
-      const remainingLeaseMs = Math.max(
-        1,
-        new Date(claim.leaseExpiresAt).getTime() - this.now().getTime(),
-      );
       const result = await this.options.executor.execute({
         jobId: claim.jobId,
         targetUrl,
         project,
         playwrightProject: project,
         command,
-        deadlineMs: Math.min(claim.timeoutMs, remainingLeaseMs),
+        // The job's own timeout. The lease is *not* a bound on it: every heartbeat
+        // renews the lease, so its expiry at claim time says how long the runner may go
+        // silent, not how long a suite may run. A cancellation the heartbeat reports
+        // aborts `signal` below, and a lease that really was lost is refused at
+        // completion by its fencing token.
+        deadlineMs: claim.timeoutMs,
         signal: state.controller.signal,
         redactions: [...(this.options.redactions ?? [])],
         onEvent: async (event) => {
