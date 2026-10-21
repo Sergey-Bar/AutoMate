@@ -4513,6 +4513,56 @@
       "resolution": "One value at both call sites."
     },
     {
+      "id": "MNT-12",
+      "title": "The first step of `pnpm verify` passed its untracked-generated-paths check when git could not run",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`scripts/unify-preflight.mjs` read the git index through `gitFiles()`, whose `catch` returned `[]`. On a host where git could not run — no binary, no `.git` in a tarball or cache restore, a `safe.directory` refusal — the list was empty and `generated paths are untracked` printed PASS with detail `none`. It is step one of `pnpm verify`, so the chain began with a check that had checked nothing. `secret-scan.mjs` calls the same command without a catch and fails closed, which is the behaviour this one should have had.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `gitFiles()` and the check that consumed it; the new unit test injects a throwing git and an empty answer.",
+      "evidence": [
+        {
+          "path": "scripts/lib/tracked-files.mjs",
+          "asserts": "`trackedFiles` returns a `problem` when git cannot run and when it lists no files, never an empty success."
+        },
+        {
+          "path": "scripts/lib/tracked-files.test.mjs",
+          "asserts": "A throwing runner and an empty index each produce a problem; a readable index produces none."
+        },
+        {
+          "path": "scripts/unify-preflight.mjs",
+          "asserts": "`the git index is readable` is its own check, so a git failure fails the preflight."
+        }
+      ],
+      "resolution": "The read is a check of its own, and an empty index is a failure."
+    },
+    {
+      "id": "MNT-13",
+      "title": "GLASS-4 was closed on an evidence test that nothing ran",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`tests/e2e/support/ports-agree.test.mjs` is GLASS-4's proof that `playwright.config.ts` holds no literal port. Playwright collects only `*.spec.ts`, `test:integration` globs only `scripts/lib/*.test.mjs`, and no package owns the directory, so the file never ran. `pnpm findings:check` verifies that an evidence path exists, not that it executes, so the row stayed `fixed` with a guard that could not fire. A full sweep found it was the only such file.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Searched every root script, workflow and package for the file; `ledger-evidence-executed.test.mjs` then listed it as the one orphan among the cited tests.",
+      "evidence": [
+        {
+          "path": "scripts/lib/ledger-evidence-executed.test.mjs",
+          "asserts": "Every `*.test.*` cited as ledger evidence is run by a package's Vitest or by a root `node --test` operand. It failed naming `ports-agree.test.mjs` before the wiring."
+        },
+        {
+          "path": "package.json",
+          "asserts": "`test:integration` passes `tests/e2e/support/ports-agree.test.mjs` to `node --test`."
+        }
+      ],
+      "resolution": "The orphan is run, and a gate keeps the next one from being cited unrun."
+    },
+    {
       "id": "MNT-9",
       "title": "While a run streamed test events, the runs list aborted every load it started and showed the empty state",
       "band": "Major",
