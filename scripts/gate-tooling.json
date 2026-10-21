@@ -73,7 +73,7 @@
     "test:e2e": "pr-blocking",
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
-    "test:render": "pr-reporting",
+    "test:render": "pr-blocking",
     "status:10": "pr-blocking",
     "review:pr": "pr-reporting",
     "site:doctor": "pr-reporting",
@@ -186,7 +186,7 @@
     },
     "test:render": {
       "requires": [],
-      "why": "The rendering budget reads `PerformanceObserver` in a real browser, so it needs no binary beyond the Playwright one `test:e2e` already installs. **Tiered `pr-reporting` and not `pr-blocking`, and the tier is derived rather than chosen** — see `scripts/lib/render-gate-phase.mjs`, whose rule is asserted by `gate-tooling.test.mjs`. Today `performance/rendering-budget.json` has no recorded measurement, so the job measures the four primary routes and reports the numbers without comparing them. It is deliberately not a required check in this state: a required check that can never pass blocks every pull request, teaches reviewers to read red as noise, and hides the failures that matter. Once someone records a real run on the reference hardware D10 commits to (PERF-1), the comparison becomes a real gate and this tier becomes `pr-blocking` **in the same commit** — and the same test fails until it does, so graduating the gate cannot be forgotten or half-applied. Deliberately not in `verify`: it needs a browser and a database, and `verify` has a 20-step budget (D6). Its policy half is in `scripts/lib/rendering-budget.mjs` and is covered by `node --test` inside `test:integration`, so the comparison is checked on every PR even while the measurement is not."
+      "why": "**Graduated to `pr-blocking` on 2026-10-21, in the commit that recorded the baseline (PERF-1).** The rendering budget reads `PerformanceObserver` in a real browser, so it needs no binary beyond the Playwright one `test:e2e` already installs. `pnpm test:render` builds the web bundle and measures it under `vite preview` (`scripts/lib/render-run.mjs`); until 2026-10-21 it measured the Vite dev server, which charged the first route 8952 ms of LCP for on-demand compilation. The ceilings in `performance/rendering-budget.json` are recorded on the reference install and compared on the CI runner, which reads the same bundle about 1.7-2x slower, so each ceiling is `ceilingFor(observed)` from `scripts/lib/rendering-budget.mjs` (3x for LCP and INP with floors, +2 long tasks) rather than the reading itself. **The tier is derived rather than chosen**: `scripts/lib/render-gate-phase.mjs` requires `pr-blocking` whenever the baseline says `recorded: true`, and `gate-tooling.test.mjs` fails until this manifest agrees. Deliberately not in `verify`: it needs a browser and a database, and `verify` has a 20-step budget (D6)."
     },
     "render:baseline": {
       "requires": [],

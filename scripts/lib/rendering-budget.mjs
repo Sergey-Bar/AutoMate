@@ -49,6 +49,51 @@ function isRecord(value) {
 }
 
 /**
+ * How a recorded ceiling is derived from one observation, per metric.
+ *
+ * **The ceiling is not the observation.** The first version of `render:baseline` wrote
+ * the reading itself as the ceiling, which fails the next run that is one frame slower
+ * — and the ceilings are recorded on the reference install but *compared* on the CI
+ * runner, which measured LCP at 236–264 ms against 112–152 ms on the reference install
+ * for the same bundle on 2026-10-21 (about 1.7–2x). A ceiling with no headroom would make
+ * every pull request red for the difference between two machines.
+ *
+ * So each metric gets a multiplier and a floor:
+ *
+ *  - `factor` covers the hardware gap plus run-to-run noise. 3x over the reference
+ *    reading leaves ~1.7x over the slowest CI reading, so a doubling on CI still fails.
+ *  - `floor` exists for the readings that are quantised or legitimately zero. INP comes
+ *    from event timing in 8 ms steps and reads 0 on a route where the interaction
+ *    painted inside a frame; 3 x 0 is a ceiling nothing could meet. CLS is 0 on a stable
+ *    route for the same reason.
+ *  - `longTasks` is a count, so its headroom is additive rather than a multiple.
+ *
+ * Every value is rounded *up*, so rounding can only add headroom, never remove it.
+ */
+export const CEILING_RULES = {
+  lcpMs: { factor: 3, floor: 300, add: 0, step: 10 },
+  inpMs: { factor: 3, floor: 100, add: 0, step: 10 },
+  cls: { factor: 2, floor: 0.05, add: 0, step: 0.01 },
+  longTasks: { factor: 1, floor: 0, add: 2, step: 1 },
+};
+
+/**
+ * The ceiling recorded for one observed reading.
+ *
+ * @param {'lcpMs' | 'inpMs' | 'cls' | 'longTasks'} key
+ * @param {number} observed
+ * @returns {number}
+ */
+export function ceilingFor(key, observed) {
+  const rule = CEILING_RULES[key];
+  const raw = Math.max(observed * rule.factor + rule.add, rule.floor);
+  // `toFixed` before `ceil` so 0.05 / 0.01 does not become 5.000000000000001 and round
+  // up a whole step; the result is then snapped to the step's own decimal places.
+  const steps = Math.ceil(Number((raw / rule.step).toFixed(6)));
+  return Number((steps * rule.step).toFixed(4));
+}
+
+/**
  * A finite number, as a predicate rather than a boolean.
  *
  * The predicate is the whole point: without it every call site keeps an `unknown`, and

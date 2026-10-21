@@ -29,7 +29,12 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { phaseFor } from '../../scripts/lib/render-gate-phase.mjs';
-import { auditRenderingBudget, measurementProblems } from '../../scripts/lib/rendering-budget.mjs';
+import {
+  METRICS,
+  auditRenderingBudget,
+  ceilingFor,
+  measurementProblems,
+} from '../../scripts/lib/rendering-budget.mjs';
 import { postReporterEvent, uniqueRunId } from '../support/api.js';
 import { authenticate, signInAndVisit } from '../support/session.js';
 
@@ -398,7 +403,20 @@ test.describe('rendering budget', () => {
                 const previous =
                   ((baseline['routes'] as Record<string, Record<string, unknown>> | undefined) ??
                     {})[route.key] ?? {};
-                return [route.key, { ...previous, ...routes[route.key] }];
+                const observed = routes[route.key];
+                if (observed === undefined) {
+                  throw new Error(`${route.key} was not measured, so no ceiling can be recorded.`);
+                }
+                // The ceiling is derived from the reading by `ceilingFor`, never copied from
+                // it — see `CEILING_RULES` for why. The reading is kept beside it, so the
+                // diff a reviewer reads shows both the measurement and the headroom.
+                const ceilings = Object.fromEntries(
+                  METRICS.map((metric) => [
+                    metric.key,
+                    ceilingFor(metric.key, observed[metric.key]),
+                  ]),
+                );
+                return [route.key, { ...previous, ...ceilings, observed }];
               }),
             ),
           },

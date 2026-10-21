@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { METRICS, auditRenderingBudget, measurementProblems } from './rendering-budget.mjs';
+import {
+  CEILING_RULES,
+  METRICS,
+  auditRenderingBudget,
+  ceilingFor,
+  measurementProblems,
+} from './rendering-budget.mjs';
 
 /**
  * The point of this file is the same as `findings-ledger.test.mjs`: every rule is
@@ -251,4 +257,58 @@ test('the failure message names the metric and the reason, not just the number',
   const finding = findings.find((entry) => entry.includes('long tasks')) ?? '';
   assert.match(finding, /tasks over 50ms of main-thread work/);
   assert.match(finding, /not a budget/);
+});
+
+test('a recorded ceiling has headroom over the observation it came from', () => {
+  // The ceilings are recorded on the reference install and compared on the CI runner,
+  // which read the same bundle about 1.7-2x slower. A ceiling equal to the reading fails
+  // the first run that is one frame slower.
+  assert.equal(ceilingFor('lcpMs', 152), 460);
+  assert.equal(ceilingFor('inpMs', 32), 100, 'INP below the floor takes the floor');
+  assert.equal(ceilingFor('inpMs', 40), 120);
+  assert.equal(ceilingFor('longTasks', 1), 3, 'a count gets additive headroom');
+  assert.equal(ceilingFor('cls', 0.04), 0.08);
+});
+
+test('a reading of zero still records a ceiling something can meet', () => {
+  // INP reads 0 when the interaction painted inside a frame, and CLS reads 0 on a stable
+  // route. Multiplying either gives a ceiling of 0, and the next run's 8 ms fails it.
+  assert.equal(ceilingFor('inpMs', 0), 100);
+  assert.equal(ceilingFor('cls', 0), 0.05);
+  assert.equal(ceilingFor('longTasks', 0), 2);
+  assert.equal(ceilingFor('lcpMs', 0), 300);
+});
+
+test('rounding only ever adds headroom', () => {
+  for (const key of /** @type {const} */ (['lcpMs', 'inpMs', 'cls', 'longTasks'])) {
+    for (const observed of [0, 0.013, 1, 7, 33.3, 151.9, 999]) {
+      const rule = CEILING_RULES[key];
+      assert.ok(
+        ceilingFor(key, observed) >= observed * rule.factor + rule.add,
+        `${key} ${String(observed)} lost headroom to rounding`,
+      );
+    }
+  }
+});
+
+test('a measurement at the ceiling it produced passes, and one far over it fails', () => {
+  const observed = { lcpMs: 150, inpMs: 16, cls: 0, longTasks: 0 };
+  const ceilings = Object.fromEntries(
+    METRICS.map((metric) => [
+      metric.key,
+      ceilingFor(metric.key, observed[/** @type {keyof typeof observed} */ (metric.key)]),
+    ]),
+  );
+  const baseline = { recorded: true, routes: { '/dashboard': ceilings } };
+  assert.deepEqual(
+    auditRenderingBudget(baseline, measurementOf('/dashboard', observed)).findings,
+    [],
+  );
+  const regressed = { ...observed, lcpMs: ceilings['lcpMs'] + 1 };
+  assert.ok(
+    hasFinding(
+      auditRenderingBudget(baseline, measurementOf('/dashboard', regressed)).findings,
+      /LCP .* over its ceiling/,
+    ),
+  );
 });

@@ -13,19 +13,18 @@ its source, then run `pnpm site:generate`.
 | ---------------- | ---- |
 | `debt`           | 7    |
 | `false-positive` | 6    |
-| `fixed`          | 154  |
-| `open`           | 6    |
+| `fixed`          | 155  |
+| `open`           | 5    |
 
-## Open (6)
+## Open (5)
 
 | Band  | Open |
 | ----- | ---- |
-| Major | 2    |
+| Major | 1    |
 | Minor | 4    |
 
 | ID          | Band  | Finding                                                                                                         |
 | ----------- | ----- | --------------------------------------------------------------------------------------------------------------- |
-| `PERF-1`    | Major | The rendering budget exists and has never been measured, so the gate is red by design                           |
 | `REG-1`     | Major | A register row's status was asserted against a tree that had since moved, and the whole gate chain read green   |
 | `RUNTIME-1` | Minor | Node 26 is available and deliberately gated on an LTS date that has not arrived                                 |
 | `DEP-3`     | Minor | Effect 4.0.0 is unblocked at the bootstrap boundary, and its own test helper is the one part not available here |

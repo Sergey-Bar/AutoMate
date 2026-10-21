@@ -63,10 +63,10 @@ A number written into a document needs either a recomputation or nothing. The th
 
 ## The other recurring instance: a threshold, an SLO, and a capability status
 
-Two things in this repository are thresholds that nothing enforces, and they fail in the same way — a number stands in for a measurement. A third was the same until it was measured.
+One thing in this repository is a threshold that nothing enforces — a number standing in for a measurement. Two more were the same until they were measured.
 
-- **`performance/thresholds.json`** was the third: it carried `recorded: false` with three `null` observations, and `p(95)<500` passed anything under 500 ms on a machine nobody ran it on. RF-9 closed it on 2026-10-21 by recording a real run and tightening the thresholds to it — the remedy below, applied.
-- **`performance/rendering-budget.json`** has every ceiling `null`, so `pnpm test:render` measures four routes and compares nothing.
+- **`performance/thresholds.json`** carried `recorded: false` with three `null` observations, and `p(95)<500` passed anything under 500 ms on a machine nobody ran it on. RF-9 closed it on 2026-10-21 by recording a real run and tightening the thresholds to it — the remedy below, applied.
+- **`performance/rendering-budget.json`** had every ceiling `null`, so `pnpm test:render` measured four routes and compared nothing. PERF-1 closed it the same day.
 - **The capability register's five statuses** — `real`, `mock`, `missing`, `deferred`, `obsolete` — are typed by a human and recomputed by nothing. `scripts/capability-register.mjs` states outright that it "cannot judge" them; it verifies that cited paths exist and that the baseline is a real commit. 14 of 42 rows read `mock` and 2 read `missing`, and deleting the test behind a `real` row would not change its status. See the `capability-evidence` skill.
 
 The remedy is the same in all three cases: **derive the value, or record it as unverified.** Never write the number the measurement would have produced.
@@ -77,11 +77,7 @@ A skill can tell an agent how to configure Stryker, or which RED metrics matter,
 
 ## The related failure: a check that compares against nothing
 
-One gate in this repository is well-built and protects nothing, because the evidence was never recorded:
-
-- `performance/rendering-budget.json` — every ceiling `null`, `recorded: false`. PERF-1.
-
-`performance/thresholds.json` was the second, until RF-9 recorded a k6 run on the reference install and tightened `p(95)<500` to `p(95)<50`.
+Two gates in this repository were well-built and protected nothing, because the evidence was never recorded: `performance/thresholds.json` (RF-9) and `performance/rendering-budget.json` (PERF-1). Both closed on 2026-10-21 by recording a run on the reference install and tightening to it.
 
 A gate whose inputs were never measured is the same defect as no gate wearing a threshold's clothes. If you are asked to make one of these real, the answer is to **record the measurement on the reference hardware** (a self-hosted single-node install, per D10) and tighten the threshold to it — not to write plausible numbers so the gate goes green.
 

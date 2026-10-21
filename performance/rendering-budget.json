@@ -32,13 +32,13 @@
     "backdrop on every frame, and the whole of the glass argument is about that cost. The",
     "budget therefore has two halves and they are not the same kind of number:",
     "",
-    "  - `lcpMs`/`inpMs`/`cls`/`longTasks` are TIMINGS. They need reference hardware, so",
-    "    they are null and uncompared, and `recorded` stays false.",
+    "  - `lcpMs`/`inpMs`/`cls`/`longTasks` are TIMINGS. They were recorded on the reference",
+    "    install on 2026-10-21 and are compared on every pull request.",
     "  - `glassStackDepth` is a STRUCTURAL CEILING. It is not a timing and does not depend",
     "    on hardware — it is how deeply translucent surfaces nest on that route, which is a",
     "    property of the component tree rather than of the data. It is compared in every",
-    "    phase, including this one, because a budget that ships an unmeasured cost is the",
-    "    defect `RF-9` records. Adding glass without it would have been adding compositing",
+    "    phase, because a budget that ships an unmeasured cost is the defect `RF-9`",
+    "    recorded. Adding glass without it would have been adding compositing",
     "    work to four routes under a gate that watches none of it.",
     "",
     "**Depth, not a total, and the first run showed why.** Counting every element with a",
@@ -58,48 +58,76 @@
     "regression this spec reports by route. The depth counter is kept rather than deleted",
     "because a ban that nothing measures in a real browser is a ban on paper.",
     "",
-    "How to populate it: run `pnpm render:baseline` on the reference hardware the plan's",
-    "D10 commits to, which writes the measured values here with `recorded: true` and the",
-    "date. Review the diff before committing it — the point of recording the number once is",
-    "that the next change has to beat it. A GitHub runner is not that hardware: the",
-    "ceilings describe a self-hosted single-node install, so a run there would record the",
-    "wrong number just as honestly as a guess would."
+    "How it is populated: `pnpm render:baseline` on the reference install builds the web",
+    "bundle, serves it with `vite preview`, measures each route once, and writes the reading",
+    "to `observed` and `ceilingFor(observed)` to the metric keys. **A ceiling is never the",
+    "reading itself**: the ceilings are compared on the CI runner, which read the same bundle",
+    "about 1.7-2x slower than the reference install on 2026-10-21 (LCP 236-264 ms against",
+    "112-152 ms), so `CEILING_RULES` in scripts/lib/rendering-budget.mjs gives LCP and INP 3x",
+    "with floors of 300 ms and 100 ms, CLS 2x with a floor of 0.05, and long tasks +2. That",
+    "leaves ~1.7x over the slowest CI reading, so a doubling on CI still fails. Review the diff",
+    "before committing it — the point of recording the number once is that the next change",
+    "has to beat it."
   ],
-  "recorded": false,
-  "reason": "Never measured. Every timing ceiling below is null because no run on the reference hardware has populated it, so the timing half of this budget currently protects nothing. This is the same defect the ledger records as RF-9 for performance/thresholds.json, adopted here deliberately so the rendering budget does not ship as an unvalidated estimate — except that this file refuses to pretend. The timings stay null and the gate stays in its measurement phase rather than being given numbers that mean nothing. Populate with `pnpm render:baseline` on the reference hardware the plan's D10 commits to, and raise `test:render` to `pr-blocking` in the same commit. Tracked as PERF-1. The `glassStackDepth` ceilings are the exception: they are not timings, they are 0 because the plane is flat, and they are compared today.",
-  "recordedOn": null,
+  "recorded": true,
+  "reason": "Recorded by `pnpm render:baseline` on 2026-10-21 on the reference install — a self-hosted single node (Intel Core i7-13650HX, 31.7 GB, Windows 11 Pro), PostgreSQL 16 in Docker, the web bundle under `vite preview`. Each route's `observed` block is the reading; the metric keys are `ceilingFor(observed)`. Closes PERF-1, and `test:render` is `pr-blocking` in the same commit.",
+  "recordedOn": "2026-10-21",
   "routes": {
     "/dashboard": {
       "$why": "The Overview: the first paint a person sees, and the screen that answers \"can I ship\". It replaced /login, which no longer exists (ADR-006). Opaque like everything else, so the glass depth is 0.",
       "glassStackDepth": 0,
-      "lcpMs": null,
-      "inpMs": null,
-      "cls": null,
-      "longTasks": null
+      "lcpMs": 380,
+      "inpMs": 100,
+      "cls": 0.05,
+      "longTasks": 2,
+      "observed": {
+        "lcpMs": 124,
+        "inpMs": 32,
+        "cls": 0,
+        "longTasks": 0
+      }
     },
     "/dashboard/runs": {
       "$why": "The runs list. The heaviest of the four: every row is a run, and a slow one here is a dashboard that appears to hang. Opaque rows on an opaque plane, so the glass depth is 0.",
       "glassStackDepth": 0,
-      "lcpMs": null,
-      "inpMs": null,
-      "cls": null,
-      "longTasks": null
+      "lcpMs": 460,
+      "inpMs": 100,
+      "cls": 0.05,
+      "longTasks": 2,
+      "observed": {
+        "lcpMs": 152,
+        "inpMs": 16,
+        "cls": 0,
+        "longTasks": 0
+      }
     },
     "/dashboard/runs/:runId": {
       "$why": "Where a person decides whether a release is safe, so a rendering defect here is the most expensive one in the product. Evidence is never read through a translucent surface: the glass depth is 0.",
       "glassStackDepth": 0,
-      "lcpMs": null,
-      "inpMs": null,
-      "cls": null,
-      "longTasks": null
+      "lcpMs": 340,
+      "inpMs": 100,
+      "cls": 0.05,
+      "longTasks": 2,
+      "observed": {
+        "lcpMs": 112,
+        "inpMs": 24,
+        "cls": 0,
+        "longTasks": 0
+      }
     },
     "/dashboard/quarantine": {
       "$why": "The filter surface, and the only primary flow whose content changes on every keystroke — so its INP is the reading most likely to catch an unthrottled re-render. Opaque, glass depth 0.",
       "glassStackDepth": 0,
-      "lcpMs": null,
-      "inpMs": null,
-      "cls": null,
-      "longTasks": null
+      "lcpMs": 400,
+      "inpMs": 100,
+      "cls": 0.05,
+      "longTasks": 2,
+      "observed": {
+        "lcpMs": 132,
+        "inpMs": 0,
+        "cls": 0,
+        "longTasks": 0
+      }
     }
   }
 }
