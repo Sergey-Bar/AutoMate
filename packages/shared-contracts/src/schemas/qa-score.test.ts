@@ -30,30 +30,28 @@ const SCORE_SURFACES = ['backend', 'frontend', 'platform'] as const;
  * schema test failed whenever one was edited without the other).
  */
 const cells: readonly ScoreCell[] = SCORE_CATEGORIES.flatMap((category) =>
-  SCORE_SURFACES.map(
-    (surface): ScoreCell => ({
-      key: `${category}:${surface}`,
-      category,
-      surface,
-      score: 0.5,
-      presence: 1,
-      depth: 0.5,
-      stability: 1,
-      signal: 0.5,
-      excluded: false,
-      inputs: {
-        executedTests: 10,
-        targetTests: 20,
-        surfaceCoverage: null,
-        coverageTarget: null,
-        flakeRate: 0,
-        failedFingerprints: [],
-        flakyFingerprints: [],
-        hollowFingerprints: [],
-        qualifyingRuns: 3,
-      },
-    }),
-  ),
+  SCORE_SURFACES.map((surface): ScoreCell => ({
+    key: `${category}:${surface}`,
+    category,
+    surface,
+    score: 0.5,
+    presence: 1,
+    depth: 0.5,
+    stability: 1,
+    signal: 0.5,
+    excluded: false,
+    inputs: {
+      executedTests: 10,
+      targetTests: 20,
+      surfaceCoverage: null,
+      coverageTarget: null,
+      flakeRate: 0,
+      failedFingerprints: [],
+      flakyFingerprints: [],
+      hollowFingerprints: [],
+      qualifyingRuns: 3,
+    },
+  })),
 );
 
 const validScore: QaScore = {

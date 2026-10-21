@@ -117,15 +117,13 @@ function rubyCommands(
   candidates.push(['ruby.rake.test', ['bundle', 'exec', 'rake', 'test'], 0.5]);
 
   return candidates
-    .map(
-      ([id, argv, confidence]): CommandCandidate => ({
-        id,
-        argv: [...argv],
-        label: argv.join(' '),
-        category: categoryForScriptName('test'),
-        evidence: manifest,
-        confidence,
-      }),
-    )
+    .map(([id, argv, confidence]): CommandCandidate => ({
+      id,
+      argv: [...argv],
+      label: argv.join(' '),
+      category: categoryForScriptName('test'),
+      evidence: manifest,
+      confidence,
+    }))
     .sort((left, right) => right.confidence - left.confidence);
 }

@@ -21,10 +21,7 @@ const DEFAULT_PEEK_LIMIT = 100;
 const EMPTY = Buffer.alloc(0);
 
 export type SpoolIntegrityCode =
-  | 'SPOOL_FORMAT'
-  | 'SPOOL_WRONG_KEY'
-  | 'SPOOL_TAMPERED'
-  | 'SPOOL_TRUNCATED';
+  'SPOOL_FORMAT' | 'SPOOL_WRONG_KEY' | 'SPOOL_TAMPERED' | 'SPOOL_TRUNCATED';
 
 export class SpoolError extends Error {
   /**
