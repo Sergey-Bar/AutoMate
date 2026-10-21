@@ -138,10 +138,24 @@ describe('the repo map', () => {
     for (const column of ['Code', 'Layers', 'Tools', 'Reports', 'Verdict']) {
       expect(within(canvas).getByRole('list', { name: column })).toBeInTheDocument();
     }
-    expect(node('reports:tests')).toHaveAccessibleName('Tests, 1 report, failing');
-    expect(node('verdict')).toHaveAccessibleName('No-go, release readiness, failing');
-    expect(node('layer:unit')).toHaveAccessibleName('Unit, score unread, not measured');
+    expect(node('reports:tests')).toHaveAccessibleName(/^Tests\s*,\s*1 report\s*,\s*failing$/);
+    expect(node('verdict')).toHaveAccessibleName(/^No-go\s*,\s*release readiness\s*,\s*failing$/);
+    expect(node('layer:unit')).toHaveAccessibleName(/^Unit\s*,\s*score unread\s*,\s*not measured$/);
     expect(screen.getByTestId('map-legend')).toHaveTextContent('Failing');
+  });
+
+  it('takes each node’s name from what it shows, so the visible words are in the name', async () => {
+    // WCAG 2.5.3, Label in Name. An `aria-label` replaces the content as the name, and
+    // axe 4.14's `label-content-name-mismatch` failed every node: the visible text runs
+    // the label and the detail together, which the punctuated `aria-label` did not
+    // contain. A name computed from the content contains the visible text by
+    // construction, and the status word rides along as screen-reader-only text.
+    renderMap();
+    await screen.findByTestId('map-canvas');
+    for (const id of ['reports:tests', 'verdict', 'layer:unit']) {
+      expect(node(id)).not.toHaveAttribute('aria-label');
+    }
+    expect(node('reports:tests')).toHaveAccessibleName(/^Tests\s*,\s*1 report\s*,\s*failing$/);
   });
 
   it('switches between the flow and the packages view', async () => {
