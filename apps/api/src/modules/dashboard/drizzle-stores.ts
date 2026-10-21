@@ -248,15 +248,21 @@ export class DrizzleQuarantineStore implements QuarantineStore {
       return { kind: 'resolved', entry: mapEntry(row) };
     }
     const now = new Date();
-    await this.db.transaction(async (tx) => {
-      await tx
+    // The UPDATE is a compare-and-set on the status that was read, and its row count
+    // is the answer: zero means another writer decided this entry between the read
+    // above and this write. Nothing is recorded for a decision that did not happen,
+    // and the caller is told the state the row is actually in.
+    const applied = await this.db.transaction(async (tx) => {
+      const updated = await tx
         .update(quarantine)
         .set({
           status: body.status,
           resolutionType: body.resolutionType ?? null,
           resolvedAt: now,
         })
-        .where(and(eq(quarantine.id, id), eq(quarantine.status, from)));
+        .where(and(eq(quarantine.id, id), eq(quarantine.status, from)))
+        .returning({ id: quarantine.id });
+      if (updated.length === 0) return false;
       await tx.insert(auditEvents).values(
         auditRow(
           {
@@ -269,7 +275,16 @@ export class DrizzleQuarantineStore implements QuarantineStore {
           now,
         ),
       );
+      return true;
     });
+    if (!applied) {
+      const current = (
+        await this.db.select().from(quarantine).where(eq(quarantine.id, id)).limit(1)
+      )[0];
+      if (current === undefined) return { kind: 'not_found' };
+      if (current.status === body.status) return { kind: 'resolved', entry: mapEntry(current) };
+      return { kind: 'illegal_transition', from: current.status, to: body.status };
+    }
     return { kind: 'resolved', entry: { ...mapEntry(row), status: body.status } };
   }
 }

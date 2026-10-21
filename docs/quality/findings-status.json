@@ -179,6 +179,9 @@
     "DEP-4": "open",
     "DEP-5": "open",
     "RNR-1": "fixed",
-    "UX-DIALOG-1": "fixed"
+    "UX-DIALOG-1": "fixed",
+    "MNT-6": "fixed",
+    "MNT-7": "fixed",
+    "MNT-8": "fixed"
   }
 }

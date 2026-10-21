@@ -4323,6 +4323,75 @@
         }
       ],
       "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
+    },
+    {
+      "id": "MNT-6",
+      "title": "A quarantine decision another writer overtook was still audited and answered as `resolved`",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`DrizzleQuarantineStore.resolve` read the entry outside its transaction, checked the transition against the status it read, and then ran `UPDATE … WHERE id = $1 AND status = <read>` — a compare-and-set — without ever checking how many rows it changed. Two operators deciding the same pending entry at once both read `pending`; the first committed; the second's UPDATE matched nothing, and the store still inserted `quarantine.<status>` into `audit_events` and returned `resolved` with the status it had not written. The audit trail and the second client both recorded a decision the database did not hold, on the table whose status decides whether a test counts toward the pass rate.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `resolve` in `modules/dashboard/drizzle-stores.ts`; a PGlite test that commits `rejected` between the read and the write received `resolved` and an `approved` audit row.",
+      "evidence": [
+        {
+          "path": "apps/api/src/modules/dashboard/drizzle-stores.ts",
+          "asserts": "The guarded UPDATE `returning`s the row; with zero rows nothing is audited, the row is re-read, and the caller gets `illegal_transition` from the state it is actually in (or `resolved` if the other writer chose the same status)."
+        },
+        {
+          "path": "apps/api/src/modules/dashboard/dashboard-stores.test.ts",
+          "asserts": "`does not record a decision another writer overtook between the read and the write` commits a competing `rejected` immediately before the store's transaction and requires `illegal_transition` from `rejected` with no `quarantine.approved` audit row."
+        }
+      ],
+      "resolution": "The compare-and-set's row count is the answer, and a decision that did not happen is neither recorded nor reported."
+    },
+    {
+      "id": "MNT-7",
+      "title": "The login rate limiter never forgot a window, so an unauthenticated client minting new keys grew API memory without bound",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`createRateLimiter` keeps one window per key in a `Map` and only ever replaced an entry when the same key returned; nothing deleted an expired one. `POST /api/v1/auth/login` needs no credential and consumes a `key:` window per distinct API key guessed and an `ip:` window per distinct client address, so a client looping random keys added a permanent entry per request. **Not changed here, and recorded so it is not mistaken for fixed:** the per-IP dimension trusts `X-Forwarded-For` unconditionally. Distrusting it by default would put every user behind the shipped edge proxy into one shared bucket, so the right fix is a trusted-proxy setting, which is a configuration change with its own review; on an open install the per-key budget is the dimension that matters.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read `middleware/rate-limit.ts` and its use in `routes/auth.ts`; consuming 10 000 distinct keys and advancing past the window left 10 001 entries.",
+      "evidence": [
+        {
+          "path": "apps/api/src/middleware/rate-limit.ts",
+          "asserts": "Expired windows are swept at most once per window length, and live windows above `maxKeys` (default 10 000) are evicted oldest first."
+        },
+        {
+          "path": "apps/api/src/middleware/rate-limit.test.ts",
+          "asserts": "`forgets windows that have expired, so distinct keys cannot grow memory for ever` and `holds no more than its ceiling of live windows`; both failed before the fix."
+        }
+      ],
+      "resolution": "Bounded by expiry and by a ceiling. The `X-Forwarded-For` trust is named in the summary as the remaining half and is a configuration decision, not part of this fix."
+    },
+    {
+      "id": "MNT-8",
+      "title": "The session cookie lived 24 hours whatever SESSION_TTL_HOURS said",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`index.ts` derives `sessionTtlMs` from `SESSION_TTL_HOURS` and its own comment records that the literal it replaced was a defect (\"an operator who set `SESSION_TTL_HOURS=8` got eight hours in nothing\"). The persistent backend received the setting, but `createAuthRoutes` — which sets the cookie's `Max-Age` and the in-memory backend's lifetime — was still passed `24 * 60 * 60 * 1000`. With the setting at one hour the server forgot a session after an hour while the browser kept presenting it for a day.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read the two call sites in `apps/api/src/index.ts`; a production composition with `SESSION_TTL_HOURS=1` answered a login with `Max-Age=86400`.",
+      "evidence": [
+        {
+          "path": "apps/api/src/index.ts",
+          "asserts": "`createAuthRoutes` receives the configured `sessionTtlMs`, the same value the persistent backend does."
+        },
+        {
+          "path": "apps/api/src/index-production-composition.test.ts",
+          "asserts": "`gives the session cookie the lifetime SESSION_TTL_HOURS configures` logs in against the composed production app with `SESSION_TTL_HOURS=1` and requires `Max-Age=3600`."
+        }
+      ],
+      "resolution": "One value at both call sites."
     }
   ]
 }
