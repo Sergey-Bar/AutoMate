@@ -7,6 +7,7 @@ import {
   INSTALLATION_KEY,
   RUNNER_REGISTRATION_SECRET,
   WEB_BASE,
+  WEB_PORT,
 } from './e2e/support/config.js';
 
 /**
@@ -154,6 +155,36 @@ const isDedicated = (file: string): boolean => {
 const productSpecFiles = specFiles.filter((file) => !isDedicated(file));
 const durablePathSpecFiles = specFiles.filter((file) => file.endsWith('durable-path.spec.ts'));
 
+/**
+ * The rendering budget measures the bundle that ships, served by `vite preview`.
+ *
+ * Set by `scripts/lib/render-run.mjs` — the one path `pnpm test:render` and
+ * `pnpm render:baseline` share — after it has built the web bundle. The dev server
+ * compiles on demand, so the first route measured paid for the compile (8952 ms of LCP
+ * on `/dashboard`, against 264–284 ms on the next three, on 2026-10-21), and even warm
+ * it serves unminified React with development checks.
+ *
+ * In this mode **only** the budget project exists, and outside it the budget project
+ * does not: `pnpm test:e2e` runs every project, and a budget measured against the dev
+ * server and compared with ceilings recorded against the bundle would fail on the
+ * difference between the two servers rather than on the product.
+ */
+const renderServe = process.env['AUTOMATE_RENDER_SERVE'] === 'preview';
+const webServerCommand = renderServe
+  ? `pnpm --filter @automate/unified-web exec vite preview --host 127.0.0.1 --port ${String(WEB_PORT)} --strictPort`
+  : 'pnpm --filter @automate/unified-web exec vite --host 127.0.0.1';
+
+const RENDER_PROJECT = 'rendering-budget';
+
+/**
+ * The budget project alone in render mode, and every other project otherwise.
+ *
+ * @param projects every project this file declares
+ */
+function selectProjects<T extends { name?: string }>(projects: T[]): T[] {
+  return projects.filter((project) => (project.name === RENDER_PROJECT) === renderServe);
+}
+
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
@@ -249,13 +280,13 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'pnpm --filter @automate/unified-web exec vite --host 127.0.0.1',
+      command: webServerCommand,
       url: webUrl,
       reuseExistingServer: !process.env['CI'],
       timeout: 60_000,
     },
   ],
-  projects: [
+  projects: selectProjects([
     {
       // First on purpose: the queue is empty when it starts (`globalSetup` just emptied it),
       // which is what lets a real runner be certain the only job it can claim is its own.
@@ -287,8 +318,9 @@ export default defineConfig({
       // The rendering budget is a gate with its own command (`pnpm test:render`), not
       // part of `pnpm test:e2e`. It settles four routes on a timer, so folding it into
       // the product run would slow every PR to buy a number nothing there reads. Its
-      // assertions still run in CI, as their own job.
-      name: 'rendering-budget',
+      // assertions still run in CI, as their own job — and only there, against the
+      // built bundle: `selectProjects` keeps it out of every other run.
+      name: RENDER_PROJECT,
       testMatch: '**/performance/rendering-budget.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
@@ -323,7 +355,7 @@ export default defineConfig({
       // the race rather than papering over it.
       use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
     },
-  ],
+  ]),
 });
 
 // Reading a spec list at config time is only useful if the list is not empty.

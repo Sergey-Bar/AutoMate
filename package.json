@@ -26,7 +26,7 @@
     "test:e2e": "playwright test",
     "test:e2e:api": "playwright test --project=vertical-slice --grep \"API\"",
     "test:e2e:vertical": "playwright test --project=vertical-slice",
-    "test:render": "playwright test --project=rendering-budget",
+    "test:render": "node ./scripts/render-budget.mjs",
     "render:baseline": "node ./scripts/render-baseline.mjs",
     "db:generate": "pnpm --filter @automate/db db:generate",
     "db:migrate": "pnpm --filter @automate/db db:migrate",

@@ -325,6 +325,27 @@ test.describe('rendering budget', () => {
     /** @type {Record<string, number>} */
     const glass: Record<string, { surfaces: number; depth: number }> = {};
 
+    // **One unmeasured visit per route first.** Each measured visit below gets a fresh
+    // context, so its browser cache is cold — that is the first-visit cost and it is
+    // what the budget is about. What a fresh context cannot reset is the *server*: the
+    // first request to each API path pays for the API's own first queries and module
+    // initialisation, and whichever route happened to be measured first was charged
+    // for all of it. The warm-up pays that once, outside the measurement.
+    for (const route of PRIMARY_ROUTES) {
+      const context = await browser.newContext();
+      try {
+        await authenticate(context, request);
+        const warm = await context.newPage();
+        await signInAndVisit(
+          warm,
+          route.pattern === 'run' ? `/dashboard/runs/${runId}` : (route.key as string),
+        );
+        await warm.waitForLoadState('networkidle');
+      } finally {
+        await context.close();
+      }
+    }
+
     for (const route of PRIMARY_ROUTES) {
       const context = await browser.newContext();
       const target = await context.newPage();
