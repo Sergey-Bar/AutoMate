@@ -290,6 +290,39 @@ describe('RunnerService', () => {
     expect(executor.cleaned).toEqual([workspace]);
   });
 
+  it("gives the executor the job's own timeout, not the lease left at claim time", async () => {
+    // The lease is 30 s by default and every heartbeat renews it, so it says how long
+    // the runner may go *silent*, not how long a suite may run. Capping the deadline at
+    // the lease left when the job was claimed ended every suite longer than about 30 s
+    // as `timed_out`, with a healthy lease and a 30-minute timeout nowhere near.
+    const protocol = new FakeProtocol();
+    const shortLease = {
+      ...claim('job-long'),
+      timeoutMs: 600_000,
+      leaseExpiresAt: new Date(Date.now() + 1_000).toISOString(),
+    };
+    protocol.enqueue(shortLease);
+    const deadlines: number[] = [];
+    const executor = new FakeExecutor(async (context) => {
+      deadlines.push(context.deadlineMs);
+      return {
+        status: 'passed',
+        resultPath: '',
+        workspacePath: '',
+        artifacts: [],
+        stdout: '',
+        stderr: '',
+      };
+    });
+    const runner = service(protocol, executor);
+    const stop = setTimeout(() => runner.stop(), 10);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(deadlines).toEqual([600_000]);
+  });
+
   it('keeps cancellation and configuration failure distinct from product failure', async () => {
     const cancellationProtocol = new FakeProtocol();
     cancellationProtocol.enqueue(claim('job-cancel'));
