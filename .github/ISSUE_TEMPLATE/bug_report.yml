@@ -1,0 +1,58 @@
+name: Bug report
+description: Something the repository says it does, it does not.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. A bug here is a claim that something the product or a
+        gate says it does, it does not. **Security issues do not belong here** — see
+        `SECURITY.md` and use private reporting instead.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest sequence that shows it. Commands, routes, or a failing test are best.
+      placeholder: |
+        1. pnpm install --frozen-lockfile
+        2. ...
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit or version
+      description: '`git rev-parse --short HEAD`, or the release tag.'
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - API (apps/api)
+        - Web console (apps/web)
+        - Runner or worker
+        - Reporter / ingestion
+        - A gate or a script (scripts/)
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: register-row
+    attributes:
+      label: Capability register row (if any)
+      description: The row id in `docs/migration/capability-register.md` this contradicts, e.g. `reporting.lifecycle`.
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node and pnpm versions, and whether PostgreSQL or the in-memory store was in use.
