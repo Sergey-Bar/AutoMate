@@ -58,7 +58,10 @@ test('width and height accept a CSS length verbatim, so a caller can use a perce
   // measurement, a string for anything relative.
   render(<Skeleton width="60%" height="2rem" data-testid="s-length" />);
   const skeleton = screen.getByTestId('s-length');
-  expect(skeleton).toHaveStyle({ width: '60%', height: '2rem' });
+  // The inline declaration, not the computed style: jsdom 30 resolves `2rem` to `32px`
+  // in `getComputedStyle`, and the property under test is what the component *wrote*.
+  expect(skeleton.style.width).toBe('60%');
+  expect(skeleton.style.height).toBe('2rem');
 });
 
 test('is hidden from assistive technology, because a placeholder has nothing to say', () => {
