@@ -50,7 +50,7 @@ function measurementOf(route, observed = reading()) {
 }
 
 test('a baseline that was never measured is a finding, not a pass', () => {
-  // The RF-9 shape, deliberately refused. `performance/thresholds.json` ships exactly
+  // The RF-9 shape, deliberately refused. `tests/performance/thresholds.json` ships exactly
   // this and protects nothing; a rendering budget that did the same would be the same
   // defect under a new filename.
   const { findings } = auditRenderingBudget(

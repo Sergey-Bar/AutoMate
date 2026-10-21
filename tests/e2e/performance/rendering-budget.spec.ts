@@ -20,21 +20,21 @@
  * flaky measurement.
  *
  * `pnpm render:baseline` writes the measurements into
- * `performance/rendering-budget.json` with `recorded: true`. That is a deliberate,
+ * `tests/performance/rendering-budget.json` with `recorded: true`. That is a deliberate,
  * human-run act — the same contract as `complexity:baseline` and `coverage:baseline`,
  * and `never-in-ci` in `gate-tooling.json` for the same reason. A gate that rewrites
  * its own ceiling in the same commit is a gate that agrees with the tree.
  */
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
-import { phaseFor } from '../../scripts/lib/render-gate-phase.mjs';
+import { expect, test, type APIRequestContext, type Browser, type Page } from '@playwright/test';
+import { phaseFor } from '../../../scripts/lib/render-gate-phase.mjs';
 import {
   METRICS,
   auditRenderingBudget,
   ceilingFor,
   measurementProblems,
-} from '../../scripts/lib/rendering-budget.mjs';
+} from '../../../scripts/lib/rendering-budget.mjs';
 import { postReporterEvent, uniqueRunId } from '../support/api.js';
 import { authenticate, signInAndVisit } from '../support/session.js';
 
@@ -57,7 +57,51 @@ const PRIMARY_ROUTES = [
   { key: '/dashboard/quarantine', pattern: null },
 ] as const;
 
-const BUDGET_FILE = 'performance/rendering-budget.json';
+const BUDGET_FILE = 'tests/performance/rendering-budget.json';
+
+type PrimaryRoute = (typeof PRIMARY_ROUTES)[number];
+
+/** The URL a route is visited at: the run detail pattern needs a real run id. */
+function routePathFor(route: PrimaryRoute, runId: string): string {
+  return route.pattern === 'run' ? `/dashboard/runs/${runId}` : route.key;
+}
+
+/**
+ * **One unmeasured visit per route first.** Each measured visit gets a fresh context,
+ * so its browser cache is cold — that is the first-visit cost and it is what the budget
+ * is about. What a fresh context cannot reset is the *server*: the first request to each
+ * API path pays for the API's own first queries and module initialisation, and whichever
+ * route happened to be measured first was charged for all of it. The warm-up pays that
+ * once, outside the measurement.
+ */
+async function warmUp(browser: Browser, request: APIRequestContext, runId: string): Promise<void> {
+  for (const route of PRIMARY_ROUTES) {
+    const context = await browser.newContext();
+    try {
+      await authenticate(context, request);
+      const warm = await context.newPage();
+      await signInAndVisit(warm, routePathFor(route, runId));
+      await warm.waitForLoadState('networkidle');
+    } finally {
+      await context.close();
+    }
+  }
+}
+
+/**
+ * One interaction, so the route has an `event` entry and INP is a measurement rather
+ * than an absence. Quarantine filters on input, so typing there is the interaction the
+ * plan's INP reading is actually about.
+ */
+async function interact(target: Page, route: PrimaryRoute): Promise<void> {
+  if (route.key === '/dashboard/quarantine') {
+    const filter = target.locator('input[type="search"], input[type="text"]').first();
+    if ((await filter.count()) > 0) await filter.fill('a');
+    return;
+  }
+  await target.mouse.move(10, 10);
+  await target.mouse.click(10, 10);
+}
 
 /** What the page-side observers accumulate. Mirrors `METRICS` in the policy module. */
 interface RenderMetrics {
@@ -214,7 +258,7 @@ function reportMeasurements(
     '| --- | --- | --- | --- | --- | --- | --- |',
     rows,
     '',
-    '**Glass stack depth is** compared against `performance/rendering-budget.json` in this ' +
+    '**Glass stack depth is** compared against `tests/performance/rendering-budget.json` in this ' +
       'phase — it is a property of the component tree rather than a timing, so it does not ' +
       'wait for reference hardware. Glass surfaces is reported but not capped, because it ' +
       'scales with how much data is on screen and a ceiling on it would be a statement ' +
@@ -292,7 +336,7 @@ test.describe('rendering budget', () => {
     page,
     request,
   }) => {
-    const budgetPath = path.join(import.meta.dirname, '..', '..', BUDGET_FILE);
+    const budgetPath = path.join(import.meta.dirname, '..', '..', '..', BUDGET_FILE);
     const baseline = JSON.parse(readFileSync(budgetPath, 'utf8')) as Record<string, unknown>;
 
     const browser = page.context().browser();
@@ -330,26 +374,7 @@ test.describe('rendering budget', () => {
     /** @type {Record<string, number>} */
     const glass: Record<string, { surfaces: number; depth: number }> = {};
 
-    // **One unmeasured visit per route first.** Each measured visit below gets a fresh
-    // context, so its browser cache is cold — that is the first-visit cost and it is
-    // what the budget is about. What a fresh context cannot reset is the *server*: the
-    // first request to each API path pays for the API's own first queries and module
-    // initialisation, and whichever route happened to be measured first was charged
-    // for all of it. The warm-up pays that once, outside the measurement.
-    for (const route of PRIMARY_ROUTES) {
-      const context = await browser.newContext();
-      try {
-        await authenticate(context, request);
-        const warm = await context.newPage();
-        await signInAndVisit(
-          warm,
-          route.pattern === 'run' ? `/dashboard/runs/${runId}` : (route.key as string),
-        );
-        await warm.waitForLoadState('networkidle');
-      } finally {
-        await context.close();
-      }
-    }
+    await warmUp(browser, request, runId);
 
     for (const route of PRIMARY_ROUTES) {
       const context = await browser.newContext();
@@ -358,19 +383,8 @@ test.describe('rendering budget', () => {
         await installObservers(target);
 
         await authenticate(context, request);
-        const routePath =
-          route.pattern === 'run' ? `/dashboard/runs/${runId}` : (route.key as string);
-        await signInAndVisit(target, routePath);
-        // One interaction, so the route has an `event` entry and INP is a
-        // measurement rather than an absence. Quarantine filters on input, so typing
-        // there is the interaction the plan's INP reading is actually about.
-        if (route.key === '/dashboard/quarantine') {
-          const filter = target.locator('input[type="search"], input[type="text"]').first();
-          if ((await filter.count()) > 0) await filter.fill('a');
-        } else {
-          await target.mouse.move(10, 10);
-          await target.mouse.click(10, 10);
-        }
+        await signInAndVisit(target, routePathFor(route, runId));
+        await interact(target, route);
 
         await target.waitForLoadState('networkidle');
         await target.waitForTimeout(SETTLE_MS);
@@ -450,7 +464,7 @@ test.describe('rendering budget', () => {
         return [
           `${route}: no glass stack ceiling is recorded, and this run measured a depth of ` +
             `${String(measured.depth)} over ${String(measured.surfaces)} surface(s). Put the ` +
-            'depth in performance/rendering-budget.json.',
+            'depth in tests/performance/rendering-budget.json.',
         ];
       }
       return measured.depth > ceiling

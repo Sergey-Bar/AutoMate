@@ -155,9 +155,9 @@ test('a verdict is decided by the facts, not by the report: each probe is shown 
   // Point 3: the durable-path spec is absent. Add one naming every stage and both
   // spec clauses must pass.
   const withSpec = withFacts({
-    files: (relative) => [...context.files(relative), 'e2e/integration/durable-path.spec.ts'],
+    files: (relative) => [...context.files(relative), 'tests/e2e/integration/durable-path.spec.ts'],
     text: (relative) =>
-      relative === 'e2e/integration/durable-path.spec.ts'
+      relative === 'tests/e2e/integration/durable-path.spec.ts'
         ? [
             'migrate',
             'authenticate',
@@ -194,10 +194,12 @@ test('a verdict is decided by the facts, not by the report: each probe is shown 
   // So the real file is read here and every stage is required of *it*, by the same
   // markers `pointThree` searches for. Read from the tree rather than restated, so this
   // cannot pass while the spec regresses.
-  const durableSpec = context.files('e2e').find((file) => file.endsWith('durable-path.spec.ts'));
+  const durableSpec = context
+    .files('tests/e2e')
+    .find((file) => file.endsWith('durable-path.spec.ts'));
   assert.ok(
     durableSpec,
-    'e2e/product/durable-path.spec.ts is missing; point 3 cannot pass without it',
+    'tests/e2e/product/durable-path.spec.ts is missing; point 3 cannot pass without it',
   );
   const durableSource = context.text(durableSpec).toLowerCase();
   for (const stage of [

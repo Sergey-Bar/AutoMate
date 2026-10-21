@@ -8,7 +8,7 @@
  * is breached, which the script treats as a failure and anything else non-zero
  * as a run failure.
  *
- * The numbers are duplicated in `performance/thresholds.json` so a change to
+ * The numbers are duplicated in `tests/performance/thresholds.json` so a change to
  * either is visible in review. The scenario is the one k6 executes; the JSON is
  * the record.
  */

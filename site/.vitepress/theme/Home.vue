@@ -15,7 +15,7 @@
  * is a place a system can quietly drop something, so they are numbered rather than
  * decorative.
  *
- * The numbers are the measured floors in `performance/thresholds.json`, which is why
+ * The numbers are the measured floors in `tests/performance/thresholds.json`, which is why
  * two of them are `not_configured`. **A missing link says so.** A chain drawn with a
  * placeholder reading `0ms` would look complete, and looking complete is the failure
  * mode this page is about — so `RF-9` and `PERF-1` are visible here as two links that
