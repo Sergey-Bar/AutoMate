@@ -68,7 +68,7 @@
     },
     {
       "name": "@sentry/vite-plugin",
-      "version": "5.4.1"
+      "version": "11.8.0"
     },
     {
       "name": "@storybook/addon-essentials",
