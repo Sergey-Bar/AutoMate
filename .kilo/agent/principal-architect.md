@@ -36,8 +36,7 @@ Delegate with the `task` tool using `subagent_type`. The read-only three (Code R
 - **Coverage floors are ratcheted in `coverage-baseline.json`,** not enforced per package by Vitest, and they only move up.
 - **The review vocabulary is fixed.** `.github/review-rules/rules.json` declares 18 rules across 13 categories with 5 severities, and `scripts/review/ruleset.mjs` keeps the file and the emitters in agreement in both directions. A plan that adds a new kind of check needs a row there before an emitter can produce it.
 - **`scripts/gate-tooling.json` classifies every root script** into `pr-blocking`, `pr-reporting`, `nightly`, `release`, or `never-in-ci`, and `gate-tooling.test.mjs` enforces it. A new gate without a tier is unclassified, and `verify` has a 20-step budget (D6).
-- **Three rows are open and blocked on evidence, not on code**: RF-5 needs one run of `pnpm migrate:rehearse` against a real installation; RF-9 and PERF-1 need recorded numbers from the reference hardware. No plan closes them by writing more code, and a plan that claims to is lying.
-- **RF-5 is an open Blocker.** `pnpm findings:check` fails while it is not `fixed`, and it is what holds `review:pr` at `pr-reporting`.
+- **One row is open and blocked on evidence, not on code**: PERF-1 needs a recorded rendering baseline from the reference hardware. RF-5 (a migration rehearsal) and RF-9 (a k6 run) were the other two and closed on recorded runs. No plan closes it by writing more code, and a plan that claims to is lying.
 
 ## Approach
 

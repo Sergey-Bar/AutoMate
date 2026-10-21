@@ -13,19 +13,18 @@ its source, then run `pnpm site:generate`.
 | ---------------- | ---- |
 | `debt`           | 7    |
 | `false-positive` | 6    |
-| `fixed`          | 153  |
-| `open`           | 7    |
+| `fixed`          | 154  |
+| `open`           | 6    |
 
-## Open (7)
+## Open (6)
 
 | Band  | Open |
 | ----- | ---- |
-| Major | 3    |
+| Major | 2    |
 | Minor | 4    |
 
 | ID          | Band  | Finding                                                                                                         |
 | ----------- | ----- | --------------------------------------------------------------------------------------------------------------- |
-| `RF-9`      | Major | The performance gate compares real traffic to thresholds nobody ever measured                                   |
 | `PERF-1`    | Major | The rendering budget exists and has never been measured, so the gate is red by design                           |
 | `REG-1`     | Major | A register row's status was asserted against a tree that had since moved, and the whole gate chain read green   |
 | `RUNTIME-1` | Minor | Node 26 is available and deliberately gated on an LTS date that has not arrived                                 |
