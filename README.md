@@ -36,15 +36,25 @@ confirmed defect is a row in a machine-checked
 
 ## Quick start
 
-Requires Node.js 24 and pnpm 11 (`corepack enable` provides it).
+Requires Node.js 24 and pnpm 11 (`corepack enable` provides it). This runs on the
+in-memory store, so nothing else needs installing.
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm --filter @automate/api dev        # terminal 1 — see the guide for the three env vars
-pnpm --filter @automate/unified-web dev  # terminal 2 — then open http://localhost:5173
+
+# Terminal 1: the API
+NODE_ENV=development \
+AUTOMATE_API_KEY=local-installation-key-32-characters \
+COOKIE_SECRET=local-cookie-secret-32-characters-long \
+REPORTER_SECRET=local-reporter-secret-32-characters \
+pnpm --filter @automate/api dev
+
+# Terminal 2: the console
+pnpm --filter @automate/unified-web dev
 ```
 
-[Getting started](site/guide/getting-started.md) has the full steps, including the
+Open `http://localhost:5173`. Sign in with `local-installation-key-32-characters` if asked.
+[Getting started](site/guide/getting-started.md) has the PowerShell version and the
 PostgreSQL stack, and [sending results](site/guide/sending-results.md) shows the one
 `curl` that gets a report from CI into a run.
 
