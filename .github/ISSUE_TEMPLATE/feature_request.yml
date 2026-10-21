@@ -1,0 +1,33 @@
+name: Capability request
+description: Something no register row claims yet.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A capability request is a conversation about scope. The first change it leads to is
+        usually a row in `docs/migration/capability-register.md` marked `missing` or
+        `deferred` with a reason, so the request is visible before anybody builds it.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do as a QA engineer or SDET, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would solve it
+      description: The behaviour you want. A sketch of the API, the screen, or the command is enough.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How we would know it works
+      description: The test, gate, or measurement that would prove it. This repository does not mark a capability `real` without one.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
