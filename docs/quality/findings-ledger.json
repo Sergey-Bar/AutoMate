@@ -4485,9 +4485,17 @@
         {
           "path": "apps/api/src/middleware/rate-limit.test.ts",
           "asserts": "`forgets windows that have expired, so distinct keys cannot grow memory for ever` and `holds no more than its ceiling of live windows`; both failed before the fix."
+        },
+        {
+          "path": "apps/api/src/routes/auth.ts",
+          "asserts": "`defaultClientKey` uses the socket address unless `trustProxy`, and then the last `X-Forwarded-For` hop."
+        },
+        {
+          "path": "apps/api/src/routes/auth.test.ts",
+          "asserts": "A client rotating `X-Forwarded-For` without a trusted proxy hits 429 on the fourth guess; with a proxy, a prepended hop is ignored."
         }
       ],
-      "resolution": "Bounded by expiry and by a ceiling. The `X-Forwarded-For` trust is named in the summary as the remaining half and is a configuration decision, not part of this fix."
+      "resolution": "Bounded by expiry and by a ceiling. The `X-Forwarded-For` trust is named in the summary as the remaining half and is a configuration decision, not part of this fix.\n\n**The remaining half is closed too (2.3.x).** The per-address budget no longer trusts a client-chosen header. `defaultClientKey` keys it on the TCP peer unless `TRUST_PROXY=true`, and with a proxy it reads the **last** `X-Forwarded-For` hop, because nginx's `$proxy_add_x_forwarded_for` appends the peer it saw to whatever the client sent, so the first hop is still the client's choice. Both compose files set `TRUST_PROXY: 'true'` on the API, which sits behind nginx there. `does not let a client choose its own address with X-Forwarded-For` failed first (four rotating addresses all answered 401), and `reads the hop the proxy appended, not one the client prepended` pins the hop choice."
     },
     {
       "id": "MNT-8",

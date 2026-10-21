@@ -222,6 +222,9 @@ const EnvironmentSchema = z.object({
   KILO_API_KEY: secretSchema('KILO_API_KEY').optional(),
   OLLAMA_BASE_URL: z.string().url().optional(),
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(24),
+  // Whether a reverse proxy in front of the API sets X-Forwarded-For. Off unless said:
+  // without a proxy the header is client-chosen (ledger MNT-7).
+  TRUST_PROXY: z.enum(['true', 'false']).default('false'),
   SESSION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   SSE_REPLAY_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
@@ -273,6 +276,8 @@ export type AppConfig = {
   kiloApiKey?: string;
   ollamaBaseUrl?: string;
   sessionTtlHours: number;
+  /** `TRUST_PROXY`: read X-Forwarded-For for the client address. */
+  trustProxy: boolean;
   sessionRetentionDays: number;
   sseReplayRetentionHours: number;
   auditRetentionDays: number;
@@ -325,6 +330,7 @@ export function parseConfig(
     kiloApiKey: parsed.KILO_API_KEY,
     ollamaBaseUrl: parsed.OLLAMA_BASE_URL,
     sessionTtlHours: parsed.SESSION_TTL_HOURS,
+    trustProxy: parsed.TRUST_PROXY === 'true',
     sessionRetentionDays: parsed.SESSION_RETENTION_DAYS,
     sseReplayRetentionHours: parsed.SSE_REPLAY_RETENTION_HOURS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,

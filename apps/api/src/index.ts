@@ -379,6 +379,7 @@ const authRoutes = createAuthRoutes({
   installationKeyHash,
   sessionTtlMs,
   secureCookies: resolveSecureCookies(),
+  trustProxy: runtimeConfig.trustProxy,
   sessionBackend,
 });
 

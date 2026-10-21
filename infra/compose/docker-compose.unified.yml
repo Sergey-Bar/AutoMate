@@ -67,6 +67,8 @@ services:
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0
+      # nginx sits in front and appends the peer it saw to X-Forwarded-For (MNT-7).
+      TRUST_PROXY: 'true'
       PORT: '3000'
       DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate
       COOKIE_SECRET: ${COOKIE_SECRET:?set COOKIE_SECRET}
