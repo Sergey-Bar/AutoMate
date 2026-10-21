@@ -186,7 +186,7 @@ export function writeBuildRecord(record, at = BUILD_RECORD_PATH) {
  * @returns {{ manifest: RunnerManifest | null, problem: string | null }}
  */
 export function readManifest(name) {
-  const relative = path.join('runners', name, 'manifest.json');
+  const relative = path.join('infra', 'runners', name, 'manifest.json');
   const absolute = path.join(root, relative);
   if (!existsSync(absolute)) {
     return { manifest: null, problem: `missing ${relative.split(path.sep).join('/')}` };

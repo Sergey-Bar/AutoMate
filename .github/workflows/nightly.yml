@@ -221,7 +221,7 @@ jobs:
     # Tier 2 by design. `pnpm test:performance` was wired into no workflow, no
     # `verify`, and no `verify:release`, so the published thresholds had never
     # been executed by anything. Nightly is where a measurement belongs until
-    # the baseline in performance/thresholds.json is recorded and the numbers
+    # the baseline in tests/performance/thresholds.json is recorded and the numbers
     # are trustworthy enough to block a pull request.
     services:
       postgres:

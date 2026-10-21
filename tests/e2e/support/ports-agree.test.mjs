@@ -4,14 +4,14 @@ import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 /**
  * The E2E suite's two halves must agree about where the servers are.
  *
  * ## What happened
  *
- * `playwright.config.ts` held `apiPort = 3000` and `e2e/support/config.ts` held
+ * `playwright.config.ts` held `apiPort = 3000` and `tests/e2e/support/config.ts` held
  * `API_BASE = 'http://127.0.0.1:3000'` and `WEB_BASE = 'http://localhost:5173'` — three
  * literals for two ports. Making the config's port overridable, on its own, **made the suite
  * worse on every machine**: it started its API on 3111 and posted every login to whatever was
@@ -35,7 +35,7 @@ const configSource = () => readFileSync(path.join(repoRoot, 'playwright.config.t
 
 /** @returns {string} */
 const supportSource = () =>
-  readFileSync(path.join(repoRoot, 'e2e', 'support', 'config.ts'), 'utf8');
+  readFileSync(path.join(repoRoot, 'tests', 'e2e', 'support', 'config.ts'), 'utf8');
 
 test('the suite reads its ports from one place rather than restating them', () => {
   const config = configSource();
@@ -64,7 +64,7 @@ test('the suite reads its ports from one place rather than restating them', () =
   assert.match(
     support,
     /E2E_API_PORT/,
-    'e2e/support/config.ts no longer reads E2E_API_PORT, so the override has nowhere to come from.',
+    'tests/e2e/support/config.ts no longer reads E2E_API_PORT, so the override has nowhere to come from.',
   );
 });
 

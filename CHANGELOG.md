@@ -47,7 +47,7 @@ row** — RF-6's own words: _a gate with no row is a gate that can be skipped si
 
 **`RF-9` closed on a measurement.** k6 ran the committed scenario on the reference install
 (i7-13650HX, 31.7 GB, PostgreSQL 16 in Docker) on 2026-10-21: p95 5.47 ms, p99 6.32 ms,
-0 of 8049 requests failed. `performance/thresholds.json` records it with `recorded: true`,
+0 of 8049 requests failed. `tests/performance/thresholds.json` records it with `recorded: true`,
 and the thresholds moved from `p(95)<500` / `p(99)<1500` to `p(95)<50` / `p(99)<150`. The
 scenario now exports `p(99)`, which k6 evaluated but never wrote to the summary.
 `scripts/lib/performance-thresholds.test.mjs` holds the record to the thresholds.
@@ -186,7 +186,7 @@ points at rather than a tree built afterwards. **Both jobs are green.**
 1. **A flaky test**, described under `Fixed` above. The same commit had passed it in
    `Unit and coverage` earlier the same hour, so the record on file said green and the tree
    said otherwise.
-2. **A Dockerfile that could not build.** `runners/k6/Dockerfile` ran `chown` against a
+2. **A Dockerfile that could not build.** `infra/runners/k6/Dockerfile` ran `chown` against a
    base image that is already non-root, so `grafana/k6:0.57.0` refused it and the build
    died at step four of four. The `playwright` stub built, because `node:24-alpine` is
    root — which is why one of three worked and the defect read as a base-image quirk rather

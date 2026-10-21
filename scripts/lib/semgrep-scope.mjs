@@ -64,7 +64,8 @@ export const SEMGREP_SCOPE = [
   'packages',
   'tools',
   'scripts',
-  'e2e',
+  // `tests` holds every suite outside a package, the Playwright suite under
+  // `tests/e2e` included, so one entry covers them all.
   'tests',
   // The documentation site. `site/.vitepress` is where the VitePress config and
   // any build-time scripts live, and a build step that reads a file and hands it

@@ -13,7 +13,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 
-const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const REPOSITORY_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 
 export interface ServiceHandle {
   readonly name: string;

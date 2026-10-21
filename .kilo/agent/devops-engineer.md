@@ -31,7 +31,7 @@ This exists because four of the nine jobs in `unified-ci.yml` were red *by const
 
 A required check that can never pass blocks every pull request and teaches reviewers to read red as noise. Two gates are `pr-reporting` for exactly that reason, and both graduate **in a single commit** that supplies the missing half:
 
-- `test:render` measures LCP/INP/CLS but compares nothing, because `performance/rendering-budget.json` has no recorded run. `scripts/lib/render-gate-phase.mjs` derives the permitted tier from the data and `gate-tooling.test.mjs` fails until the manifest agrees — in **both** directions.
+- `test:render` measures LCP/INP/CLS but compares nothing, because `tests/performance/rendering-budget.json` has no recorded run. `scripts/lib/render-gate-phase.mjs` derives the permitted tier from the data and `gate-tooling.test.mjs` fails until the manifest agrees — in **both** directions.
 - `security:static` is `pr-reporting` with 543 blocking findings recorded as SEM-2, per rule, with a checkable graduation condition: zero blocking findings with the triage recorded.
 
 The matching rule for baseline writers: `*:baseline` scripts are `never-in-ci`. A baseline writer in a workflow is how a gate starts agreeing with the tree instead of with the code — that is why `render:baseline`, `complexity:baseline`, `coverage:baseline`, `findings:baseline`, `db:migrate`, and `migrate:apply` never appear in a workflow. `migrate:apply` is never in `verify` either: CI has no persistent database, so applying a migration there proves nothing and leaves a schema nobody keeps.
