@@ -108,7 +108,7 @@
     },
     {
       "name": "@types/better-sqlite3",
-      "version": "7.6.13"
+      "version": "9.6.0"
     },
     {
       "name": "@types/node",
