@@ -463,7 +463,9 @@ function pointFive(ctx) {
     .concat(ctx.files('apps'))
     .filter((file) => /\.(test|spec)\.tsx?$/.test(file) && /property|fuzz/i.test(file));
   const authz = ctx.files('docs').filter((file) => /authz/i.test(file));
-  const perf = /** @type {{ recorded?: unknown }} */ (ctx.json('performance/thresholds.json'));
+  const perf = /** @type {{ recorded?: unknown }} */ (
+    ctx.json('tests/performance/thresholds.json')
+  );
 
   return [
     ceiling !== null && ceiling <= 10
@@ -499,11 +501,11 @@ function pointFive(ctx) {
     perf?.recorded === true
       ? ok(
           'every performance budget is measured in CI',
-          'performance/thresholds.json records a run.',
+          'tests/performance/thresholds.json records a run.',
         )
       : broken(
           'every performance budget is measured in CI',
-          '`performance/thresholds.json` has no recorded measurement, so the k6 p95/p99 thresholds are ' +
+          '`tests/performance/thresholds.json` has no recorded measurement, so the k6 p95/p99 thresholds are ' +
             'estimates being compared against nothing. Ledger RF-9 tracks this.',
         ),
   ];

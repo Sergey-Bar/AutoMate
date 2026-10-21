@@ -20,7 +20,7 @@
  * flaky measurement.
  *
  * `pnpm render:baseline` writes the measurements into
- * `performance/rendering-budget.json` with `recorded: true`. That is a deliberate,
+ * `tests/performance/rendering-budget.json` with `recorded: true`. That is a deliberate,
  * human-run act — the same contract as `complexity:baseline` and `coverage:baseline`,
  * and `never-in-ci` in `gate-tooling.json` for the same reason. A gate that rewrites
  * its own ceiling in the same commit is a gate that agrees with the tree.
@@ -57,7 +57,7 @@ const PRIMARY_ROUTES = [
   { key: '/dashboard/quarantine', pattern: null },
 ] as const;
 
-const BUDGET_FILE = 'performance/rendering-budget.json';
+const BUDGET_FILE = 'tests/performance/rendering-budget.json';
 
 /** What the page-side observers accumulate. Mirrors `METRICS` in the policy module. */
 interface RenderMetrics {
@@ -214,7 +214,7 @@ function reportMeasurements(
     '| --- | --- | --- | --- | --- | --- | --- |',
     rows,
     '',
-    '**Glass stack depth is** compared against `performance/rendering-budget.json` in this ' +
+    '**Glass stack depth is** compared against `tests/performance/rendering-budget.json` in this ' +
       'phase — it is a property of the component tree rather than a timing, so it does not ' +
       'wait for reference hardware. Glass surfaces is reported but not capped, because it ' +
       'scales with how much data is on screen and a ceiling on it would be a statement ' +
@@ -450,7 +450,7 @@ test.describe('rendering budget', () => {
         return [
           `${route}: no glass stack ceiling is recorded, and this run measured a depth of ` +
             `${String(measured.depth)} over ${String(measured.surfaces)} surface(s). Put the ` +
-            'depth in performance/rendering-budget.json.',
+            'depth in tests/performance/rendering-budget.json.',
         ];
       }
       return measured.depth > ceiling

@@ -179,7 +179,7 @@ The unified repository is the only active development codebase. The pinned Dashb
 │   │   └── slack/
 │   ├── reporter/              # publishable Playwright reporter
 │   └── ui/                    # React/Tailwind primitives with real consumers
-├── runners/                   # pinned OCI images, not long-lived services
+├── infra/runners/                   # pinned OCI images, not long-lived services
 │   ├── generic/
 │   ├── playwright/
 │   ├── k6/
@@ -191,7 +191,7 @@ The unified repository is the only active development codebase. The pinned Dashb
 │   ├── contract/                 # producer/consumer and legacy-adapter fixtures
 │   ├── integration/              # PostgreSQL, object-store, auth, connector tests
 │   ├── tests/e2e/                      # one Playwright authority
-│   ├── performance/              # isolated k6 scenarios
+│   ├── tests/performance/              # isolated k6 scenarios
 │   └── fixtures/                 # sanitized source and migration fixtures
 ├── infra/
 │   ├── compose/                  # one dev and one production topology
@@ -1101,7 +1101,7 @@ Each phase should be implemented as focused changes with its own gate. Do not co
 3. Implement encrypted offline spool, monotonic events, idempotent replay, and terminal-state reconciliation.
 4. Implement the execution-provider port with rootless OCI as local default and an allowlisted process executor only for approved lightweight tools.
 5. Implement `tool-sdk` manifests, validate/prepare/execute/cancel/collect behavior, deadlines, progress, and artifact manifests.
-6. Add immutable `runners/playwright`, `runners/k6`, and `runners/zap` OCI images.
+6. Add immutable `infra/runners/playwright`, `infra/runners/k6`, and `infra/runners/zap` OCI images.
 7. Implement runner/job/lease/capacity/cancel views in the product dashboard.
 8. Test competing leases, API restart, network partition, stale events, duplicate replay, resource limits, hard kill, and artifact cleanup.
 9. Benchmark Testkube Agent and one Windmill/Argo pilot behind the execution-provider port; adopt at most one, never a second control plane.

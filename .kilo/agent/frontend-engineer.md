@@ -40,7 +40,7 @@ If you find yourself reaching for `useQuery`, `useMutation`, or a store import, 
 
 ## Rendering budget
 
-`pnpm test:render` measures LCP, INP, CLS, and long tasks on the four primary routes. It is deliberately `pr-reporting` and not `pr-blocking` today, because `performance/rendering-budget.json` has no recorded baseline — so it measures and compares nothing. That is the same defect the ledger records as PERF-1. Do not treat a green render job as evidence about performance, and do not raise the tier on its own: the tier and the recorded run graduate **in the same commit**, and `scripts/lib/render-gate-phase.mjs` plus `gate-tooling.test.mjs` fail until both happened.
+`pnpm test:render` measures LCP, INP, CLS, and long tasks on the four primary routes. It is deliberately `pr-reporting` and not `pr-blocking` today, because `tests/performance/rendering-budget.json` has no recorded baseline — so it measures and compares nothing. That is the same defect the ledger records as PERF-1. Do not treat a green render job as evidence about performance, and do not raise the tier on its own: the tier and the recorded run graduate **in the same commit**, and `scripts/lib/render-gate-phase.mjs` plus `gate-tooling.test.mjs` fail until both happened.
 
 ## Output Format
 

@@ -100,7 +100,7 @@ pnpm openapi:generate     # Regenerates docs/openapi.json (build first). Drift i
 
 `test:render` runs in **two phases, and the phase is derived from the data rather
 than chosen**. `scripts/lib/render-gate-phase.mjs` reads
-`performance/rendering-budget.json` and computes the tier `test:render` is allowed to
+`tests/performance/rendering-budget.json` and computes the tier `test:render` is allowed to
 have, and `gate-tooling.test.mjs` fails until `scripts/gate-tooling.json` agrees, in
 both directions:
 
@@ -347,8 +347,8 @@ packages/
   ui/                Shared Tailwind 4 component library
 tools/
   migrate-cli/       Migration utilities
-performance/         k6 scenarios and the recorded thresholds
-runners/             k6 / playwright / zap runner images (manifests only)
+tests/performance/         k6 scenarios and the recorded thresholds
+infra/runners/             k6 / playwright / zap runner images (manifests only)
 tests/
   contract/          Contract suite
   integration/       PGlite suites against the real migration graph

@@ -191,7 +191,7 @@ describe('documented credentials are usable by the policy', () => {
     '.env.compose.example',
     'playwright.config.ts',
     'scripts/performance-server.mjs',
-    'performance/smoke.js',
+    'tests/performance/smoke.js',
     'README.md',
     '.github/workflows/unified-ci.yml',
   ] as const;
@@ -219,7 +219,7 @@ describe('documented credentials are usable by the policy', () => {
  *
  * The shapes are not one shape. A `.env` file writes `NAME=value`, a Playwright config
  * writes `NAME: 'value'`, `scripts/performance-server.mjs` writes
- * `NAME: process.env['NAME'] ?? 'value'`, and `performance/smoke.js` reads
+ * `NAME: process.env['NAME'] ?? 'value'`, and `tests/performance/smoke.js` reads
  * `__ENV.NAME || 'value'`. A reader that only understood the first would report the
  * documentation as clean while the two script values were never looked at.
  *
@@ -243,7 +243,7 @@ describe('documented credentials are usable by the policy', () => {
  *
  * Those two keywords are excluded explicitly rather than by a pattern for "assigns",
  * because the forms in use are several: `NAME=`, `NAME:`, and `__ENV.NAME || '…'` in
- * `performance/smoke.js`. Requiring `=` or `:` would have declared that file secretless
+ * `tests/performance/smoke.js`. Requiring `=` or `:` would have declared that file secretless
  * and quietly turned the next assertion vacuous — the failure this whole test exists to
  * catch.
  *

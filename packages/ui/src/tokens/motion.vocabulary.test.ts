@@ -117,7 +117,7 @@ describe('motion is a stated vocabulary rather than a scattering of utilities', 
     // `opacity`, `transform` and `filter` are the three a compositor can handle without
     // laying out or repainting. `height`, `width`, `top`, `left`, `margin` and `padding` are
     // the four that force a layout pass on every frame, and `glassStackDepth` in
-    // `performance/rendering-budget.json` is the ceiling that already exists for the other
+    // `tests/performance/rendering-budget.json` is the ceiling that already exists for the other
     // half of this cost.
     const PROPERTIES = ['height', 'width', 'top', 'left', 'right', 'bottom', 'margin', 'padding'];
     const offenders = componentSources().flatMap((source) => {

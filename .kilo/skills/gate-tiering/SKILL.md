@@ -38,7 +38,7 @@ Every job needs a `timeout-minutes`. Every workflow needs a `concurrency` block.
 **A required check that can never pass blocks every pull request and teaches reviewers to read red as noise.** That is the reason two gates are deliberately weaker than you would guess:
 
 - **`security:static` is `pr-reporting`** with 543 blocking findings recorded per rule as SEM-2. It ran for the first time on 2026-09-30 and reported 1137 findings; one structurally broken rule accounted for ~1100 and is fixed, leaving 543 across six rules, 464 from `no-hardcoded-secret-literal`. The remedy for a security gate is **not** to stop running it — the job still runs and the tier still reports, and SEM-2 states the number. What changes is that the number is visible instead of hypothetical. Graduation condition: zero blocking findings, with the triage recorded per rule.
-- **`test:render` is `pr-reporting`** because `performance/rendering-budget.json` has no recorded run, so the job measures four routes and compares nothing. See `perf-baseline` below.
+- **`test:render` is `pr-reporting`** because `tests/performance/rendering-budget.json` has no recorded run, so the job measures four routes and compares nothing. See `perf-baseline` below.
 - **`test:e2e` is `pr-reporting`** until the last two of nineteen cases pass, named with their causes in E2E-3.
 - **`review:pr` is `pr-reporting`** because its ledger half fails today: RF-5 is an open Blocker.
 

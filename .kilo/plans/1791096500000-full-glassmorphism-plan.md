@@ -77,7 +77,7 @@ Its rationale is also the sentence this plan has to answer rather than erase:
 ### 1.3 `PERF-1` — widened, in one commit, with the code
 
 `scripts/lib/render-gate-phase.mjs` computes the permitted tier from
-`performance/rendering-budget.json`, and `gate-tooling.test.mjs` fails if `scripts/gate-tooling.json`
+`tests/performance/rendering-budget.json`, and `gate-tooling.test.mjs` fails if `scripts/gate-tooling.json`
 disagrees, **in both directions**. Under G-2 the baseline stays `recorded: false` and `test:render`
 stays `pr-reporting` — the state the gate was built to permit — and `PERF-1`'s summary is widened to
 name two things it did not before:
