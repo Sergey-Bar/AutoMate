@@ -117,7 +117,9 @@ test.describe('the repo map', () => {
     const verdict = page.locator('[data-node="verdict"]');
     await expect(verdict).toBeVisible({ timeout: 20_000 });
     // The node's name starts with its label, so "Go" cannot match inside "No-go".
-    await expect(verdict).toHaveAttribute('aria-label', new RegExp(`^${word},`, 'u'));
+    // The node's name is computed from what it shows (MNT-5), so the assertion reads the
+    // accessible name rather than an attribute the component no longer sets.
+    await expect(verdict).toHaveAccessibleName(new RegExp(`^${word}\\s*,`, 'u'));
   });
 });
 

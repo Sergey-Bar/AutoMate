@@ -4325,6 +4325,29 @@
       "resolution": "Fixed in the shared component, so every dialog in the product gained the close button, the backdrop dismissal and title-first focus at once: the toolbox tool dialog, the runner confirmation, the quarantine form and the runs launcher."
     },
     {
+      "id": "MNT-5",
+      "title": "Every repository-map node replaced its visible text with an `aria-label` that did not contain it, failing WCAG 2.5.3 Label in Name",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`RepoMap.tsx` gave each node button `aria-label: \"<label>, <detail>, <status>\"` over visible content that renders the label and the detail as two blocks. An `aria-label` replaces the content as the accessible name, so the name and the visible words disagreed — speech-input users saying what they see (\"click Code\") depend on the visible text being inside the name. axe 4.14, taken in the in-range dependency update, reports this as `label-content-name-mismatch` (serious), and the accessibility project of `pnpm test:e2e` failed on `/dashboard/map` in both themes. The component test asserted the `aria-label` string itself, so it pinned the defect rather than catching it.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "The `Product E2E` job on PR #52 failed `/dashboard/map` in the dark and light themes with `label-content-name-mismatch` on `button[data-node=\"code\"]`, `aria-label=\"Code, 516 source · 4...\"`; reading `RepoMap.tsx` showed the name was an `aria-label` over separately rendered text.",
+      "evidence": [
+        {
+          "path": "apps/web/src/components/map/RepoMap.tsx",
+          "asserts": "Node buttons carry no `aria-label`. The name is computed from the visible label and detail, with the separating comma and the status word as screen-reader-only text inside them."
+        },
+        {
+          "path": "apps/web/src/components/map/RepoMap.test.tsx",
+          "asserts": "`takes each node’s name from what it shows, so the visible words are in the name` requires no `aria-label` on three nodes and a name of label, detail and status. It failed before the fix on the attribute."
+        }
+      ],
+      "resolution": "The name comes from the content, so the visible words are in it by construction; the status is still spoken."
+    },
+    {
       "id": "MNT-1",
       "title": "Every job's deadline was capped at the 30 s lease left at claim time, so any suite longer than about 30 s ended `timed_out`",
       "band": "Critical",
