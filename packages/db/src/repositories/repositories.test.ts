@@ -5,7 +5,10 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as schema from '../schema/index.js';
-import { DrizzleInstallationKeyStore } from './installation-key-repository.js';
+import {
+  BootstrapKeyUnavailableError,
+  DrizzleInstallationKeyStore,
+} from './installation-key-repository.js';
 import { DrizzleSessionStore } from './session-repository.js';
 import { DrizzleOutboxRepository } from './outbox-repository.js';
 
@@ -273,6 +276,90 @@ describe('DrizzleInstallationKeyStore', () => {
       [installationId],
     );
     await expect(keys.ensureConfigured(input('7'.repeat(64)))).rejects.toThrow(/is revoked/);
+  });
+
+  async function unusableReason(installationId: string, keyHash: string): Promise<unknown> {
+    return keys.ensureBootstrap({ installationId, keyHash, displayPrefix: 'auto_' }).then(
+      () => 'resolved',
+      (error: unknown) => error,
+    );
+  }
+
+  it('refuses to hand back a revoked bootstrap key, naming the installation and the reason', async () => {
+    const installationId = '00000000-0000-4000-8000-000000000204';
+    await keys.ensureBootstrap({ installationId, keyHash: '9'.repeat(64), displayPrefix: 'auto_' });
+    await client.query(
+      'UPDATE installation_keys SET revoked_at = now() WHERE installation_id = $1',
+      [installationId],
+    );
+
+    const error = await unusableReason(installationId, 'f'.repeat(64));
+    expect(error).toBeInstanceOf(BootstrapKeyUnavailableError);
+    expect(error).toMatchObject({
+      name: 'BootstrapKeyUnavailableError',
+      reason: 'revoked',
+      installationId,
+    });
+    // And no replacement was minted behind the operator's back.
+    const rows = await client.query<{ key_hash: string }>(
+      'SELECT key_hash FROM installation_keys WHERE installation_id = $1',
+      [installationId],
+    );
+    expect(rows.rows.map((row) => row.key_hash)).toEqual(['9'.repeat(64)]);
+  });
+
+  it('names an expired key as expired, not as revoked', async () => {
+    const installationId = '00000000-0000-4000-8000-000000000205';
+    await keys.ensureBootstrap({ installationId, keyHash: 'c'.repeat(64), displayPrefix: 'auto_' });
+    await client.query(
+      "UPDATE installation_keys SET expires_at = now() - interval '1 day' WHERE installation_id = $1",
+      [installationId],
+    );
+
+    const error = await unusableReason(installationId, 'd'.repeat(64));
+    expect(error).toBeInstanceOf(BootstrapKeyUnavailableError);
+    expect(error).toMatchObject({ reason: 'expired', installationId });
+    expect(String((error as Error).message)).toContain(
+      `The bootstrap key for installation ${installationId} is expired`,
+    );
+  });
+
+  it('treats a key with a future expiry as usable and returns it unchanged', async () => {
+    const installationId = '00000000-0000-4000-8000-000000000206';
+    await keys.ensureBootstrap({
+      installationId,
+      keyHash: 'b1'.repeat(32),
+      displayPrefix: 'auto_',
+    });
+    await client.query(
+      "UPDATE installation_keys SET expires_at = now() + interval '1 day' WHERE installation_id = $1",
+      [installationId],
+    );
+    await expect(
+      keys.ensureBootstrap({ installationId, keyHash: 'b2'.repeat(32), displayPrefix: 'auto_' }),
+    ).resolves.toBe('b1'.repeat(32));
+  });
+
+  it("never returns another installation's key when the hash collides", async () => {
+    // `installation_keys_hash_idx` is unique across installations, so a second
+    // installation bootstrapping with the same hash conflicts on a row that is not
+    // its own. Returning that row's hash would hand one installation another's
+    // credential; it must refuse instead, and must not write a row.
+    const first = '00000000-0000-4000-8000-000000000207';
+    const second = '00000000-0000-4000-8000-000000000208';
+    const shared = 'ab'.repeat(32);
+    await keys.ensureBootstrap({ installationId: first, keyHash: shared, displayPrefix: 'auto_' });
+
+    const error = await unusableReason(second, shared);
+    expect(error).toBeInstanceOf(BootstrapKeyUnavailableError);
+    // Named for what happened. It used to fall back to 'revoked' for an installation that
+    // had no key at all, which sends an operator looking for a revocation that never was.
+    expect(error).toMatchObject({ installationId: second, reason: 'claimed_elsewhere' });
+    const rows = await client.query<{ count: number }>(
+      'SELECT count(*)::int AS count FROM installation_keys WHERE installation_id = $1',
+      [second],
+    );
+    expect(rows.rows[0]?.count).toBe(0);
   });
 });
 

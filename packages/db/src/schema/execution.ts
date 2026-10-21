@@ -204,6 +204,8 @@ export const executionJobs = pgTable(
     ),
     index('execution_jobs_claim_idx').on(table.state, table.availableAt, table.priority),
     index('execution_jobs_lease_expiry_idx').on(table.state, table.leaseExpiresAt),
+    // Created by 0021 (Q-51); declared so a regenerated snapshot keeps it.
+    index('execution_jobs_lease_owner_idx').on(table.leaseOwner),
     index('execution_jobs_workspace_idx').on(table.workspaceId),
     check('execution_jobs_attempt_check', sql`${table.attempt} > 0`),
     check('execution_jobs_timeout_check', sql`${table.timeoutMs} > 0`),

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -312,5 +313,207 @@ describe('migrateToPostgres', () => {
         dryRun: true,
       }),
     ).rejects.toThrow('Schema mismatch for runs: unknown columns unexpected_column');
+  });
+});
+
+describe('migrateToPostgres refusals and row-level failures', () => {
+  const TARGET = 'postgres://user:pass@localhost:5432/automate';
+
+  function sqlite(name: string, sql: string): string {
+    const filePath = join(tempDir, name);
+    const db = new Database(filePath);
+    db.exec(sql);
+    db.close();
+    return filePath;
+  }
+
+  const CONNECTOR_SQL = `
+    CREATE TABLE connector_configs (
+      id TEXT PRIMARY KEY, connector_name TEXT, enabled, credential_ref TEXT,
+      settings, updated_at TEXT
+    );
+  `;
+
+  it('refuses a source file that does not exist instead of creating one', async () => {
+    const missing = join(tempDir, 'missing.sqlite');
+    await expect(migrateToPostgres({ from: missing, to: TARGET, dryRun: true })).rejects.toThrow();
+    expect(existsSync(missing)).toBe(false);
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it('refuses every blocked identity table by name before reading anything', async () => {
+    const from = sqlite(
+      'blocked.sqlite',
+      'CREATE TABLE users (id TEXT PRIMARY KEY); CREATE TABLE saml_config (id TEXT PRIMARY KEY); CREATE TABLE runs (id TEXT PRIMARY KEY);',
+    );
+    await expect(migrateToPostgres({ from, to: TARGET, dryRun: false })).rejects.toThrow(
+      'Blocked source tables require an approved transformation: users, saml_config',
+    );
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.end).not.toHaveBeenCalled();
+  });
+
+  it('refuses a table that lacks one of its identity columns', async () => {
+    const from = sqlite(
+      'no-id.sqlite',
+      'CREATE TABLE tests (id TEXT, title TEXT, file TEXT, status TEXT);',
+    );
+    await expect(migrateToPostgres({ from, to: TARGET, dryRun: true })).rejects.toThrow(
+      'Schema mismatch for tests: missing id columns run_id',
+    );
+  });
+
+  it('ignores source tables it has no mapping for', async () => {
+    const from = sqlite(
+      'unmapped.sqlite',
+      `CREATE TABLE something_else (x TEXT); INSERT INTO something_else VALUES ('a');
+       CREATE TABLE defect_categories (id TEXT PRIMARY KEY, name TEXT, color TEXT, created_at TEXT);`,
+    );
+    const log = vi.fn();
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: true, log });
+    expect(report.tables).toEqual([
+      { table: 'defect_categories', rowCount: 0, inserted: 0, failed: 0 },
+    ]);
+    expect(log).toHaveBeenCalledWith('defect_categories: 0 rows');
+  });
+
+  it('logs through console.info when no log function is supplied', async () => {
+    const from = createFixtureDatabase();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      await migrateToPostgres({ from, to: TARGET, dryRun: true });
+      expect(info.mock.calls.map((call) => call[0])).toEqual([
+        'Dry run migration plan:',
+        'runs: 1 row',
+        'suites: 1 row',
+        'tests: 1 row',
+      ]);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it('converts SQLite boolean encodings to booleans and keeps NULL as null', async () => {
+    const from = sqlite(
+      'booleans.sqlite',
+      `${CONNECTOR_SQL}
+       INSERT INTO connector_configs VALUES ('a', 'github', 1, NULL, NULL, 't');
+       INSERT INTO connector_configs VALUES ('b', 'jira', 0, NULL, NULL, 't');
+       INSERT INTO connector_configs VALUES ('c', 'slack', 'true', NULL, NULL, 't');
+       INSERT INTO connector_configs VALUES ('d', 'x', '1', NULL, NULL, 't');
+       INSERT INTO connector_configs VALUES ('e', 'y', 'yes', NULL, NULL, 't');
+       INSERT INTO connector_configs VALUES ('f', 'z', NULL, NULL, '{"a":1}', 't');`,
+    );
+    await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+
+    const values = mocks.query.mock.calls[0]?.[1];
+    expect(Array.isArray(values)).toBe(true);
+    const rows: unknown[][] = [];
+    for (let index = 0; index < 6; index += 1) {
+      rows.push((values as unknown[]).slice(index * 6, index * 6 + 6));
+    }
+    // `enabled` is the third column, `settings` the fifth.
+    expect(rows.map((row) => row[2])).toEqual([true, false, true, true, false, null]);
+    expect(rows.map((row) => row[4])).toEqual([null, null, null, null, null, { a: 1 }]);
+  });
+
+  it('retries a failed batch row by row and records only the rows that fail', async () => {
+    const from = sqlite(
+      'partial-failure.sqlite',
+      `CREATE TABLE defect_categories (id TEXT PRIMARY KEY, name TEXT, color TEXT, created_at TEXT);
+       INSERT INTO defect_categories VALUES ('ok-1', 'a', '#fff', 't');
+       INSERT INTO defect_categories VALUES ('bad', 'b', '#fff', 't');
+       INSERT INTO defect_categories VALUES ('ok-2', 'c', '#fff', 't');`,
+    );
+    mocks.query.mockImplementation((_sql: string, values: unknown[]) => {
+      if (values.length > 4) return Promise.reject(new Error('batch failed'));
+      if (values[0] === 'bad') return Promise.reject(new Error('duplicate key value'));
+      return Promise.resolve({ rows: [], rowCount: 1 });
+    });
+    const log = vi.fn();
+
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log });
+
+    expect(report.tables).toEqual([
+      { table: 'defect_categories', rowCount: 3, inserted: 2, failed: 1 },
+    ]);
+    expect(report.errors).toEqual([
+      { table: 'defect_categories', id: 'bad', error: 'duplicate key value' },
+    ]);
+    // One batch attempt, then one attempt per row.
+    expect(mocks.query).toHaveBeenCalledTimes(4);
+    expect(log).toHaveBeenCalledWith('Migration completed with row errors:');
+    expect(log).toHaveBeenCalledWith('defect_categories:bad duplicate key value');
+    expect(mocks.end).toHaveBeenCalledOnce();
+  });
+
+  it('records a row whose JSON column holds a blob, with a composite id', async () => {
+    const from = sqlite(
+      'blob.sqlite',
+      `CREATE TABLE tests (id TEXT, run_id TEXT, title TEXT, file TEXT, status TEXT, tags);
+       INSERT INTO tests VALUES ('t1', 'r1', 'x', 'f', 'passed', X'00FF');`,
+    );
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+
+    expect(report.errors).toEqual([
+      { table: 'tests', id: 't1:r1', error: 'Expected JSON text in tags' },
+    ]);
+    expect(report.tables).toEqual([{ table: 'tests', rowCount: 1, inserted: 0, failed: 1 }]);
+    // The value is rejected while building the statement, so nothing is sent.
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it('records malformed JSON text as a row error', async () => {
+    const from = sqlite(
+      'bad-json.sqlite',
+      `${CONNECTOR_SQL}
+       INSERT INTO connector_configs VALUES ('c1', 'github', 1, NULL, '{not json', 't');`,
+    );
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    expect(report.errors).toHaveLength(1);
+    expect(report.errors[0]).toMatchObject({ table: 'connector_configs', id: 'c1' });
+    expect(report.errors[0]?.error).toMatch(/JSON/);
+  });
+
+  it('names a NULL identity column as <null> in the error report', async () => {
+    const from = sqlite(
+      'null-id.sqlite',
+      `CREATE TABLE trends (date TEXT, project TEXT, branch TEXT, total INTEGER);
+       INSERT INTO trends VALUES ('2026-01-01', 'web', NULL, 3);`,
+    );
+    mocks.query.mockRejectedValue(new Error('null value in column "branch"'));
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    expect(report.errors).toEqual([
+      { table: 'trends', id: '2026-01-01:web:<null>', error: 'null value in column "branch"' },
+    ]);
+  });
+
+  it('counts a row skipped by ON CONFLICT as not inserted', async () => {
+    const from = createFixtureDatabase();
+    mocks.query.mockResolvedValue({ rows: [], rowCount: null });
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    expect(report.tables.map((entry) => entry.inserted)).toEqual([0, 0, 0]);
+    expect(report.errors).toEqual([]);
+  });
+
+  it('records a non-Error rejection by its string form', async () => {
+    const from = sqlite(
+      'string-error.sqlite',
+      `CREATE TABLE defect_categories (id TEXT PRIMARY KEY, name TEXT, color TEXT, created_at TEXT);
+       INSERT INTO defect_categories VALUES ('d1', 'a', '#fff', 't');`,
+    );
+    mocks.query.mockRejectedValue('connection reset');
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    expect(report.errors).toEqual([
+      { table: 'defect_categories', id: 'd1', error: 'connection reset' },
+    ]);
+  });
+
+  it('keeps going table by table when every insert fails, then closes the pool', async () => {
+    const from = createFixtureDatabase();
+    mocks.query.mockRejectedValue(new Error('down'));
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    expect(report.errors.map((error) => error.table)).toEqual(['runs', 'suites', 'tests']);
+    expect(mocks.end).toHaveBeenCalledOnce();
   });
 });

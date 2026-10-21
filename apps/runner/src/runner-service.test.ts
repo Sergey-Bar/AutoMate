@@ -22,6 +22,7 @@ import {
   type JobClaim,
   type JobCompletion,
   type RunnerHeartbeat,
+  RunnerApiError,
 } from './protocol.js';
 import { RunnerService, type RunnerProtocol, type RunnerServiceOptions } from './runner-service.js';
 
@@ -724,5 +725,462 @@ describe('RunnerService spool retry budget', () => {
     for (const delays of [floor.delays, jittered.delays, ceiling.delays]) {
       expect(delays).toHaveLength(RETRY_BUDGET.maxAttempts - 1);
     }
+  });
+});
+
+function emptyResult(status: ExecutionResult['status'] = 'passed'): ExecutionResult {
+  return { status, resultPath: '', workspacePath: '', artifacts: [], stdout: '', stderr: '' };
+}
+
+/** A service whose run ends when the first completion is delivered. */
+async function runToCompletion(
+  protocol: FakeProtocol,
+  executor: ExecutionProvider,
+  overrides: Partial<RunnerServiceOptions> = {},
+): Promise<RunnerService> {
+  const runner = new RunnerService({
+    runnerId: 'runner-1',
+    capabilities: ['playwright'],
+    labels: [],
+    slots: 1,
+    pollIntervalMs: 1,
+    heartbeatIntervalMs: 60_000,
+    protocol,
+    executor,
+    spool: new MemorySpool(),
+    onError: vi.fn(),
+    sleep: immediateSleep,
+    ...overrides,
+  });
+  protocol.onComplete = () => runner.stop();
+  await runner.run();
+  return runner;
+}
+
+describe('RunnerService reporter event translation', () => {
+  it('maps Playwright reporter events onto canonical test events and drops the rest', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+    const occurredAt = new Date().toISOString();
+    const reporter = (eventId: string, type: string, payload: Record<string, unknown>) => ({
+      eventId,
+      sequence: 1,
+      type,
+      occurredAt,
+      payload,
+    });
+    const executor = new FakeExecutor(async (context) => {
+      const emit = context.onEvent;
+      if (!emit) throw new Error('the service must subscribe to reporter events');
+      await emit(
+        reporter('r-1', 'test.started', { testId: 't-1', title: 'logs in', file: 'a.spec.ts' }),
+      );
+      await emit(
+        reporter('r-2', 'test.completed', {
+          testId: 't-1',
+          status: 'timedOut',
+          durationMs: 31_000,
+          attempt: 2,
+          errors: [{ message: 'Timeout 30000ms exceeded' }],
+        }),
+      );
+      await emit(reporter('r-3', 'test.completed', { testId: 't-2', status: 'interrupted' }));
+      await emit(reporter('r-4', 'test.completed', { testId: 't-3', status: 'flaky' }));
+      await emit(reporter('r-5', 'test.completed', { testId: 't-4', status: 'bogus' }));
+      await emit(reporter('r-6', 'test.completed', { status: 'failed', errors: 'not a list' }));
+      await emit(reporter('r-7', 'run.progress', { status: 'passed' }));
+      return emptyResult();
+    });
+
+    await runToCompletion(protocol, executor);
+
+    const tests = protocol.events.filter((event) => event.type.startsWith('test.'));
+    expect(tests.map((event) => [event.type, event.payload])).toEqual([
+      [
+        'test.started',
+        expect.objectContaining({
+          testId: 't-1',
+          attempt: 1,
+          status: 'running',
+          title: 'logs in',
+          file: 'a.spec.ts',
+          startedAt: occurredAt,
+        }),
+      ],
+      [
+        'test.completed',
+        expect.objectContaining({
+          testId: 't-1',
+          attempt: 2,
+          status: 'timed_out',
+          durationMs: 31_000,
+          finishedAt: occurredAt,
+          error: { code: 'PLAYWRIGHT_TEST_FAILED', message: 'Timeout 30000ms exceeded' },
+        }),
+      ],
+      ['test.completed', expect.objectContaining({ testId: 't-2', status: 'cancelled' })],
+      ['test.completed', expect.objectContaining({ testId: 't-3', status: 'flaky', error: null })],
+      ['test.completed', expect.objectContaining({ testId: 't-4', status: 'unknown' })],
+      [
+        'test.completed',
+        expect.objectContaining({
+          // No testId in the reporter payload: the reporter's event id stands in for it.
+          testId: 'r-6',
+          status: 'failed',
+          durationMs: 0,
+          error: { code: 'PLAYWRIGHT_TEST_FAILED', message: 'Playwright test failed' },
+        }),
+      ],
+    ]);
+    expect(protocol.events.some((event) => JSON.stringify(event).includes('r-7'))).toBe(false);
+  });
+
+  it('records the branch and commit of the job on run.started, and maps succeeded to passed', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue({ ...claim(), spec: { ...claim().spec, branch: 'main', commit: 'abc123' } });
+
+    await runToCompletion(protocol, new FakeExecutor(async () => emptyResult('succeeded')));
+
+    const started = protocol.events.find((event) => event.type === 'run.started');
+    expect(started?.payload).toMatchObject({ branch: 'main', commit: 'abc123', phase: 'running' });
+    expect(protocol.completions[0]).toMatchObject({ status: 'passed', phase: 'complete' });
+  });
+});
+
+describe('RunnerService failure classification', () => {
+  it('completes an executor crash as an infrastructure failure carrying its message', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+
+    await runToCompletion(
+      protocol,
+      new FakeExecutor(() => Promise.reject(new Error('browser binary is missing'))),
+    );
+
+    expect(protocol.completions[0]).toMatchObject({
+      status: 'infra_failed',
+      phase: 'infra_failed',
+      error: { code: 'RUNNER_INFRA_FAILED', message: 'browser binary is missing' },
+    });
+    const completed = protocol.events.find((event) => event.type === 'run.completed');
+    expect(completed?.payload).toMatchObject({ phase: 'infra_failed', artifactIds: [] });
+  });
+
+  it('uses a generic message when the executor rejects with something that is not an Error', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+    const executor: ExecutionProvider = {
+      execute: () => Promise.reject(new Map([['not', 'an error']])),
+    };
+
+    await runToCompletion(protocol, executor);
+
+    expect(protocol.completions[0]?.error).toEqual({
+      code: 'RUNNER_INFRA_FAILED',
+      message: 'Runner execution failed',
+    });
+  });
+
+  it('refuses a malformed generic command as a configuration failure without executing it', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue({ ...claim(), spec: { configuration: { command: 'rm -rf /' } } });
+    const execute = vi.fn(async () => emptyResult());
+
+    await runToCompletion(protocol, { execute });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(protocol.completions[0]).toMatchObject({
+      status: 'config_failed',
+      error: { code: 'CONFIG_FAILED', message: 'Job command must be an object' },
+    });
+  });
+
+  it('reports a failed workspace cleanup without losing the completion', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue(claim());
+    const errors = vi.fn();
+    const executor: ExecutionProvider = {
+      execute: async () => ({ ...emptyResult(), workspacePath: '/workspace/job-1' }),
+      cleanup: () => Promise.reject(new Error('workspace is locked')),
+    };
+
+    await runToCompletion(protocol, executor, { onError: errors });
+
+    expect(protocol.completions).toHaveLength(1);
+    expect(errors).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'workspace is locked' }),
+    );
+  });
+});
+
+class CancellingProtocol extends FakeProtocol {
+  readonly heartbeats: Array<Parameters<RunnerProtocol['heartbeat']>[0]> = [];
+
+  override async heartbeat(
+    request?: Parameters<RunnerProtocol['heartbeat']>[0],
+  ): Promise<RunnerHeartbeat> {
+    if (request) this.heartbeats.push(request);
+    const base = await super.heartbeat();
+    return { ...base, cancelRequestedJobIds: request?.activeJobs ?? [] };
+  }
+}
+
+class FlakyClaimProtocol extends FakeProtocol {
+  claimFailure: unknown = new Error('claim endpoint is down');
+
+  override async claim(): Promise<JobClaim | null> {
+    const failure = this.claimFailure;
+    if (failure !== undefined) {
+      this.claimFailure = undefined;
+      throw failure;
+    }
+    return super.claim();
+  }
+}
+
+describe('RunnerService lifecycle', () => {
+  it('cancels a running job the heartbeat reports as cancel-requested', async () => {
+    const protocol = new CancellingProtocol();
+    protocol.enqueue(claim());
+    const executor = new FakeExecutor(async (context) => {
+      if (!context.signal.aborted) {
+        await new Promise<void>((resolveAbort) => {
+          context.signal.addEventListener('abort', () => resolveAbort(), { once: true });
+        });
+      }
+      return emptyResult('cancelled');
+    });
+
+    await runToCompletion(protocol, executor, { heartbeatIntervalMs: 0 });
+
+    expect(protocol.completions[0]).toMatchObject({ status: 'cancelled', phase: 'cancelled' });
+    expect(protocol.heartbeats).toContainEqual({
+      leaseId: 'lease-job-1',
+      activeJobs: ['job-1'],
+      metrics: { activeJobs: 1, slots: 1 },
+    });
+  });
+
+  it('is not ready after a failed poll, recovers on the next one, and is not ready once stopped', async () => {
+    const protocol = new FlakyClaimProtocol();
+    const errors: unknown[] = [];
+    let readyAfterFailure: boolean | undefined;
+    const runner = new RunnerService({
+      runnerId: 'runner-1',
+      capabilities: [],
+      labels: [],
+      slots: 1,
+      pollIntervalMs: 1,
+      heartbeatIntervalMs: 60_000,
+      protocol,
+      executor: passingExecutor(),
+      spool: new MemorySpool(),
+      onError: (error) => {
+        errors.push(error);
+        readyAfterFailure = runner.isReady();
+      },
+    });
+    expect(runner.isReady()).toBe(false);
+
+    const running = runner.run();
+    await until('runner recovers', () => runner.isReady());
+    runner.stop();
+    await running;
+
+    expect(errors).toEqual([expect.objectContaining({ message: 'claim endpoint is down' })]);
+    expect(readyAfterFailure).toBe(false);
+    expect(runner.isReady()).toBe(false);
+    expect(runner.cancel('no-such-job')).toBe(false);
+    expect(runner.activeJobIds()).toEqual([]);
+  });
+
+  it('logs an unhandled failure by name only when no error handler is supplied', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      for (const [failure, name] of [
+        [new TypeError('secret detail'), 'TypeError'],
+        ['a bare string', 'RUNNER_ERROR'],
+      ] as const) {
+        const protocol = new FlakyClaimProtocol();
+        protocol.claimFailure = failure;
+        const runner = new RunnerService({
+          runnerId: 'runner-1',
+          capabilities: [],
+          labels: [],
+          slots: 1,
+          pollIntervalMs: 1,
+          heartbeatIntervalMs: 60_000,
+          protocol,
+          executor: passingExecutor(),
+          spool: new MemorySpool(),
+        });
+        const running = runner.run();
+        await until('the failure is logged', () =>
+          logged.mock.calls.some((call) => call[0] === `runner job failed (${name})`),
+        );
+        runner.stop();
+        await running;
+      }
+      expect(logged.mock.calls.flat().join('\n')).not.toContain('secret detail');
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('does not poll at all when the external signal is already aborted', async () => {
+    const protocol = new FakeProtocol();
+    const claimSpy = vi.spyOn(protocol, 'claim');
+    const runner = service(protocol, passingExecutor());
+    const controller = new AbortController();
+    controller.abort();
+
+    await runner.run(controller.signal);
+
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
+  it('stops when the external signal aborts mid-run', async () => {
+    const protocol = new FakeProtocol();
+    const controller = new AbortController();
+    const runner = new RunnerService({
+      runnerId: 'runner-1',
+      capabilities: [],
+      labels: [],
+      slots: 1,
+      // Long enough that only the abort can end the wait between polls.
+      pollIntervalMs: 60_000,
+      heartbeatIntervalMs: 60_000,
+      protocol,
+      executor: passingExecutor(),
+      spool: new MemorySpool(),
+      onError: vi.fn(),
+    });
+
+    const running = runner.run(controller.signal);
+    await until('first poll completes', () => runner.isReady());
+    controller.abort();
+
+    await expect(running).resolves.toBeUndefined();
+    expect(runner.isReady()).toBe(false);
+  });
+});
+
+class RejectingCompletionProtocol extends FakeProtocol {
+  completionAttempts = 0;
+
+  constructor(private readonly failure: Error) {
+    super();
+  }
+
+  override async complete(): Promise<unknown> {
+    this.completionAttempts += 1;
+    throw this.failure;
+  }
+}
+
+describe('RunnerService delivery conflicts', () => {
+  it.each(['terminal_event', 'event_hash_mismatch', 'run_not_found'])(
+    'drops events the API permanently rejects as %s instead of retrying them',
+    async (status) => {
+      const spool = new MemorySpool();
+      const protocol = new FakeProtocol();
+      protocol.conflict = true;
+      protocol.conflictStatus = status;
+      protocol.enqueue(claim());
+      const errors: string[] = [];
+
+      await runToCompletion(protocol, passingExecutor(), {
+        spool,
+        onError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      });
+
+      expect(errors).toContain(`Runner spool entry permanently rejected (${status})`);
+      expect(protocol.completions).toHaveLength(1);
+      expect(spool.pending()).toBe(0);
+    },
+  );
+
+  it('keeps events queued on a sequence gap, which a later delivery can still fill', async () => {
+    const spool = new MemorySpool();
+    const protocol = new FakeProtocol();
+    protocol.conflict = true;
+    protocol.conflictStatus = 'sequence_gap';
+    protocol.enqueue(claim());
+    const errors: string[] = [];
+    const runner = service(
+      protocol,
+      passingExecutor(),
+      spool,
+      (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      { sleep: immediateSleep },
+    );
+
+    const running = runner.run();
+    await until('the conflict is reported', () =>
+      errors.includes('Runner spool entries are not acknowledged and stay queued'),
+    );
+    runner.stop();
+    await running;
+
+    expect(spool.pending()).toBeGreaterThan(0);
+    expect(errors.some((message) => message.includes('permanently rejected'))).toBe(false);
+  });
+
+  it.each([
+    { name: 'a 409', failure: new RunnerApiError(409, 'conflict') },
+    { name: 'a stale_lease code', failure: new RunnerApiError(410, 'stale_lease') },
+  ])('drops a completion the API refuses with $name as a stale lease', async ({ failure }) => {
+    const spool = new MemorySpool();
+    const protocol = new RejectingCompletionProtocol(failure);
+    protocol.enqueue(claim());
+    const errors: string[] = [];
+    const runner = service(
+      protocol,
+      passingExecutor(),
+      spool,
+      (error) => errors.push(error instanceof Error ? error.message : String(error)),
+      { sleep: immediateSleep },
+    );
+
+    const running = runner.run();
+    await until('the completion is dropped', () =>
+      errors.includes('Runner spool entry permanently rejected (stale_lease)'),
+    );
+    runner.stop();
+    await running;
+
+    expect(protocol.completionAttempts).toBe(1);
+    expect(spool.pending()).toBe(0);
+  });
+
+  it('retries a completion rejected for any other reason', async () => {
+    const protocol = new RejectingCompletionProtocol(new RunnerApiError(503, 'unavailable'));
+    protocol.enqueue(claim());
+    const runner = service(protocol, passingExecutor(), new MemorySpool(), vi.fn(), {
+      sleep: immediateSleep,
+    });
+
+    const running = runner.run();
+    await until('the completion is retried', () => protocol.completionAttempts >= 2);
+    runner.stop();
+    await running;
+
+    expect(protocol.completionAttempts).toBeGreaterThanOrEqual(2);
+  });
+
+  it('waits on the real clock between retries when no sleep seam is injected', async () => {
+    const protocol = new FakeProtocol();
+    protocol.failures = 2;
+    protocol.enqueue(claim());
+    const errors: string[] = [];
+
+    await runToCompletion(protocol, passingExecutor(), {
+      sleep: undefined,
+      retryPolicy: { maxAttempts: 5, baseDelayMs: 1, maxDelayMs: 2 },
+      onError: (error) => errors.push(error instanceof Error ? error.message : String(error)),
+    });
+
+    expect(errors.filter((message) => message === 'runner API is unreachable')).toHaveLength(2);
+    expect(protocol.completions).toHaveLength(1);
   });
 });

@@ -8,14 +8,18 @@ type Database = ReturnType<typeof createDbClient>;
 /** Thrown when the installation's only bootstrap key exists and is no longer usable. */
 export class BootstrapKeyUnavailableError extends Error {
   constructor(
-    readonly reason: 'revoked' | 'expired',
+    readonly reason: 'revoked' | 'expired' | 'claimed_elsewhere',
     readonly installationId: string,
   ) {
     super(
-      `The bootstrap key for installation ${installationId} is ${reason}, and no usable ` +
-        'key exists. A revoked or expired credential must not be returned to a caller ' +
-        'that would then use it to authenticate — this is an operator decision to issue a ' +
-        'new one, not something a caller can retry its way out of.',
+      reason === 'claimed_elsewhere'
+        ? `The configured key for installation ${installationId} is already the key of ` +
+            'another installation, so it cannot be returned for this one. Configure a ' +
+            'different key for this installation.'
+        : `The bootstrap key for installation ${installationId} is ${reason}, and no usable ` +
+            'key exists. A revoked or expired credential must not be returned to a caller ' +
+            'that would then use it to authenticate — this is an operator decision to issue a ' +
+            'new one, not something a caller can retry its way out of.',
     );
     this.name = 'BootstrapKeyUnavailableError';
   }
@@ -115,7 +119,8 @@ export class DrizzleInstallationKeyStore {
       // operator told to reissue a *revoked* key when the real problem is an expiry
       // window sends someone looking in the wrong place.
       throw new BootstrapKeyUnavailableError(
-        (await reasonUnusable(this.db, input.installationId)) ?? 'revoked',
+        // No row of our own at all: the conflict was on another installation's key.
+        (await reasonUnusable(this.db, input.installationId)) ?? 'claimed_elsewhere',
         input.installationId,
       );
     }

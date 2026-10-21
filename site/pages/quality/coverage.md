@@ -16,10 +16,10 @@ on a regression instead.
 | Package                      | Statements | Branches | Functions | Lines |
 | ---------------------------- | ---------- | -------- | --------- | ----- |
 | `apps/api`                   | 95.26      | 86.16    | 94.6      | 97.27 |
-| `apps/runner`                | 70.14      | 57.88    | 66.43     | 72.01 |
+| `apps/runner`                | 91.4       | 85.6     | 92.8      | 92.9  |
 | `apps/tui`                   | 70.4       | 64.51    | 89.47     | 73.25 |
 | `apps/web`                   | 97.6       | 91       | 97.7      | 98.6  |
-| `apps/worker`                | 63.21      | 56.74    | 69.02     | 64.88 |
+| `apps/worker`                | 96.1       | 91.3     | 97.3      | 97.5  |
 | `packages/auth`              | 100        | 100      | 100       | 100   |
 | `packages/automation`        | 94.57      | 85.5     | 89.65     | 96.52 |
 | `packages/config`            | 92         | 96.29    | 100       | 95    |
@@ -27,7 +27,7 @@ on a regression instead.
 | `packages/connectors/jira`   | 100        | 100      | 100       | 100   |
 | `packages/connectors/sdk`    | 100        | 100      | 100       | 100   |
 | `packages/connectors/slack`  | 100        | 100      | 100       | 100   |
-| `packages/db`                | 71.62      | 67.07    | 55.46     | 73.09 |
+| `packages/db`                | 95.9       | 91.2     | 98.5      | 96.3  |
 | `packages/orchestration`     | 92.5       | 100      | 100       | 91.89 |
 | `packages/projects`          | 91.75      | 72.29    | 91.54     | 95    |
 | `packages/realtime`          | 94.5       | 91.07    | 100       | 95.06 |
@@ -35,8 +35,8 @@ on a regression instead.
 | `packages/reporting`         | 95.34      | 98.73    | 96        | 94    |
 | `packages/runner-sdk`        | 93         | 90.04    | 100       | 93.58 |
 | `packages/shared-contracts`  | 99.27      | 97.72    | 97.22     | 99.25 |
-| `packages/ui`                | 69.7       | 86       | 71.1      | 69    |
+| `packages/ui`                | 89.6       | 86.5     | 96.5      | 90.4  |
 | `tests/integration`          | 88         | 68       | 96        | 87    |
-| `tools/migrate-cli`          | 59.12      | 41.89    | 85.48     | 59.83 |
+| `tools/migrate-cli`          | 95.6       | 91.6     | 98.3      | 95.5  |
 
 <!-- /generated -->
