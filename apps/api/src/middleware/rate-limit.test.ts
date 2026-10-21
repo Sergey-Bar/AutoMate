@@ -45,4 +45,22 @@ describe('createRateLimiter', () => {
     expect(limiter.consume('ip:a').remaining).toBe(1);
     expect(limiter.consume('ip:a').remaining).toBe(0);
   });
+
+  it('forgets windows that have expired, so distinct keys cannot grow memory for ever', () => {
+    // The login route is unauthenticated and keys a window on every distinct API key
+    // guessed. Nothing deleted an expired window, so a client looping random keys grew
+    // the process by one entry per request, permanently.
+    let clock = 0;
+    const limiter = createRateLimiter({ limit: 5, windowMs: 1_000, now: () => clock });
+    for (let index = 0; index < 10_000; index += 1) limiter.consume(`key:${String(index)}`);
+    clock = 2_000;
+    limiter.consume('key:after');
+    expect(limiter.size).toBeLessThan(100);
+  });
+
+  it('holds no more than its ceiling of live windows', () => {
+    const limiter = createRateLimiter({ limit: 5, windowMs: 60_000, now: () => 0, maxKeys: 50 });
+    for (let index = 0; index < 1_000; index += 1) limiter.consume(`key:${String(index)}`);
+    expect(limiter.size).toBeLessThanOrEqual(50);
+  });
 });
