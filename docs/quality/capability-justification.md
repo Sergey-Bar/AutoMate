@@ -63,7 +63,7 @@ whose product half was never built.
 | `failure_taxonomy_rules`     | classification rules           | needs `defect_categories` and the classifier                                 |
 | `failure_classifications`    | per-test classifications       | same                                                                         |
 | `test_failure_correlations`  | cross-test correlation         | the correlation job is not built                                             |
-| `locator_suggestions`        | repair suggestions             | **no `updatedAt` column at all**, which is why it is listed separately below |
+| `locator_suggestions`        | repair suggestions             | no reader or writer yet; its missing `updatedAt` was added in `0026` (below) |
 | `failure_clusters`           | clustering                     | needs the correlations                                                       |
 | `users`                      | local accounts                 | the install is open; there is no login                                       |
 | `roles`                      | authorisation                  | tenancy is `WORKSPACE_ID`, not roles                                         |
@@ -75,13 +75,13 @@ whose product half was never built.
 | `repair_attempts`            | self-healing                   | the repair loop is not built                                                 |
 | `agent_conflicts`            | merge conflicts                | not built                                                                    |
 
-### `locator_suggestions` has no `updatedAt`
+### `locator_suggestions` now records when it changed
 
-Recorded separately because it is the one place this file's own rule would be
-self-serving. A table with no `updatedAt` has no defined staleness, so any row in it
-is permanently current by construction. It is listed here rather than left
-unmentioned, and it is the one table on this list that should be dropped before it is
-built rather than after.
+It was recorded separately because it was the one table with a mutable `status` and
+no `updatedAt`, so any row in it was permanently current by construction.
+`0026_locator_suggestions_updated_at.sql` adds `updated_at` (`NOT NULL`, defaulting to
+the write time), and `schema.test.ts` pins it. The table is still dormant and stays on
+the list above for the same reason as the others.
 
 ## Four with test-only access
 
