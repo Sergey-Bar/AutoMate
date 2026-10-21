@@ -34,10 +34,15 @@ export const options = {
   },
   thresholds: {
     // Kept in step with performance/thresholds.json.
-    http_req_duration: ['p(95)<500', 'p(99)<1500'],
+    http_req_duration: ['p(95)<50', 'p(99)<150'],
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
   },
+  // `p(99)` is listed explicitly because k6's default trend stats stop at p(95): the
+  // threshold above is still evaluated, but `--summary-export` omits the value, so
+  // `observed_on_reference_hardware.http_req_duration_p99` could never be recorded from
+  // the file the gate writes.
+  summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   discardResponseBodies: false,
 };
 

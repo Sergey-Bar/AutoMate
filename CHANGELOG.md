@@ -43,6 +43,15 @@ built, against the image the runtime actually holds. **A gate that can never pas
 reviewers to read red as noise, so the repair is exactly the class of defect that needs a
 row** — RF-6's own words: _a gate with no row is a gate that can be skipped silently._
 
+### Fixed
+
+**`RF-9` closed on a measurement.** k6 ran the committed scenario on the reference install
+(i7-13650HX, 31.7 GB, PostgreSQL 16 in Docker) on 2026-10-21: p95 5.47 ms, p99 6.32 ms,
+0 of 8049 requests failed. `performance/thresholds.json` records it with `recorded: true`,
+and the thresholds moved from `p(95)<500` / `p(99)<1500` to `p(95)<50` / `p(99)<150`. The
+scenario now exports `p(99)`, which k6 evaluated but never wrote to the summary.
+`scripts/lib/performance-thresholds.test.mjs` holds the record to the thresholds.
+
 ## 2.2.0 — 2026-10-02
 
 A version bump, three ledger rows closed on a measurement rather than an assertion, four

@@ -295,18 +295,23 @@ pnpm db:check      # drizzle-kit check — journal and schema agree
 
 ### The findings that are waiting on a measurement, not on code
 
-Two rows in the ledger cannot be closed from a development host, and the reason
-is the same in each: the harness is complete and the _evidence_ is missing. They are
-listed here because a reader finding them in the ledger would otherwise re-derive
-why they are open.
+One row in the ledger cannot be closed from a development host: the harness is
+complete and the _evidence_ is missing. It is listed here because a reader finding it
+in the ledger would otherwise re-derive why it is open.
 
-| Row        | What is built                                                                                                                               | What is missing                                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **RF-9**   | `performance/thresholds.json` with a cross-check against the k6 scenario, so a changed threshold and an unchanged record each fail the gate | Observed numbers. `recorded: false`, so the gate protects drift from a baseline nobody measured                                                                                |
-| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks                                                      | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
+| Row        | What is built                                                                          | What is missing                                                                                                                                                                |
+| ---------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **PERF-1** | `pnpm test:render` and `pnpm render:baseline`, comparing LCP, INP, CLS, and long tasks | A recorded baseline **on the reference hardware** — a self-hosted single-node install. A GitHub runner is not it, which is why the job is `pr-reporting` and not `pr-blocking` |
 
-Neither is closable by writing more code, and neither should be closed on the strength
+It is not closable by writing more code, and it should not be closed on the strength
 of its harness. The blocker is evidence, not scope.
+
+**RF-9 was on this list and is not any more.** k6 ran on the reference install on
+2026-10-21; `performance/thresholds.json` records the observation with
+`recorded: true`, and the thresholds were tightened from `p(95)<500` / `p(99)<1500` to
+`p(95)<50` / `p(99)<150` — about 9x over the slowest observed p95.
+`scripts/lib/performance-thresholds.test.mjs` fails if the record goes back to
+`recorded: false` or a ceiling drifts more than 30x above its observation.
 
 **RF-5 was on this list and is not any more.** The tenancy wave (W7) landed in five
 migrations before the rehearsal it was gated on had run, so the row went back to an

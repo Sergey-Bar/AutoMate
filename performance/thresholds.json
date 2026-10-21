@@ -17,20 +17,30 @@
     "These are the floors for a self-hosted single-node install on the reference",
     "hardware, not a service-level agreement. They exist to catch a regression",
     "that a change to this repository introduced, which is the only claim the CI",
-    "gate can make."
+    "gate can make.",
+    "",
+    "**Tightened on 2026-10-21 from `p(95)<500` / `p(99)<1500` to the values below, after",
+    "the first recorded run.** The old numbers were estimates written before anything was",
+    "measured, at ~90x and ~240x the observed latency — a p95 of 400 ms would have passed",
+    "them. The new ceilings keep roughly 9x headroom over the slowest p95 observed on either",
+    "host (5.47 ms on the reference install; 2.09–3.21 ms across six nightly runs on",
+    "ubuntu-24.04, which is where the gate actually runs) and ~24x over the observed p99, so",
+    "scheduler noise does not fail the nightly while an order-of-magnitude regression does."
   ],
   "release": {
-    "http_req_duration": ["p(95)<500", "p(99)<1500"],
+    "http_req_duration": ["p(95)<50", "p(99)<150"],
     "http_req_failed": ["rate<0.01"],
     "checks": ["rate>0.99"]
   },
   "observed_on_reference_hardware": {
-    "$comment": "Recorded by `pnpm test:performance` on the reference container. Not a gate.",
-    "recorded": false,
-    "reason": "Never measured. The three metrics below are null because no run has populated them, so every number in `release` is an unvalidated estimate. Promote this block to a real observation before treating the thresholds as a regression signal rather than an intent.",
-    "http_req_duration_p95": null,
-    "http_req_duration_p99": null,
-    "http_req_failed_rate": null
+    "$comment": "Recorded by `pnpm test:performance` on the reference install, read from `var/performance-summary.json`. Not a gate: the `release` block is.",
+    "recorded": true,
+    "recordedOn": "2026-10-21",
+    "hardware": "Self-hosted single node: Intel Core i7-13650HX (14 cores / 20 threads), 31.7 GB RAM, Windows 11 Pro; PostgreSQL 16 (postgres:16-alpine) in Docker Desktop; API started by scripts/performance-server.mjs exactly as nightly.yml starts it; k6 v2.2.0.",
+    "reason": "Two consecutive runs of the committed scenario agreed to within 2% (p95 5.39 / 5.47 ms, p99 6.20 / 6.32 ms). The second is recorded. 8049 requests, 0 failed, every check passed. 41 iterations were dropped by k6 at the 50 iterations/s peak because `maxVUs: 50` is exactly the peak rate with a 1 s sleep per iteration; the nightly runs drop the same number, so the scenario is reproducible as committed and was not changed to hide it.",
+    "http_req_duration_p95": 5.47,
+    "http_req_duration_p99": 6.32,
+    "http_req_failed_rate": 0
   },
   "endpoints_covered": ["/api/v1/health", "/api/v1/features", "/api/v1/runs"],
   "endpoints_deliberately_not_covered": [
