@@ -170,7 +170,8 @@ jobs:
   quality-baseline:
     name: Quality baseline
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # 30, not 20: the build and the per-package coverage run come first now.
+    timeout-minutes: 30
     # `quality:baseline` existed and was wired nowhere. It is the aggregate the
     # weekly numbers in `docs/quality/` come from, so running it nightly is what
     # makes those numbers a measurement rather than a transcription. Tier `nightly`
@@ -192,6 +193,16 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install static-analysis scanners
         uses: ./.github/actions/install-scanners
+      # The aggregate reads what these two steps produce, in the order `verify` runs
+      # them. Without the build, the root Vitest run resolves workspace packages to
+      # `dist/` entries that do not exist and 172 suites fail to load; without the
+      # per-package `pnpm test`, no `coverage/coverage-summary.json` exists and
+      # `coverage:ratchet` fails on a missing input. Every nightly from 2026-10-13 to
+      # 2026-10-21 reported both as failures of the product rather than of the job.
+      - name: Build the workspace
+        run: pnpm build
+      - name: Per-package tests and coverage
+        run: pnpm test
       - name: Quality baseline
         run: pnpm quality:baseline
       - name: Upload the quality report
