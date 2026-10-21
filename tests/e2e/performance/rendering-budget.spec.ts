@@ -28,13 +28,13 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { phaseFor } from '../../scripts/lib/render-gate-phase.mjs';
+import { phaseFor } from '../../../scripts/lib/render-gate-phase.mjs';
 import {
   METRICS,
   auditRenderingBudget,
   ceilingFor,
   measurementProblems,
-} from '../../scripts/lib/rendering-budget.mjs';
+} from '../../../scripts/lib/rendering-budget.mjs';
 import { postReporterEvent, uniqueRunId } from '../support/api.js';
 import { authenticate, signInAndVisit } from '../support/session.js';
 
@@ -292,7 +292,7 @@ test.describe('rendering budget', () => {
     page,
     request,
   }) => {
-    const budgetPath = path.join(import.meta.dirname, '..', '..', BUDGET_FILE);
+    const budgetPath = path.join(import.meta.dirname, '..', '..', '..', BUDGET_FILE);
     const baseline = JSON.parse(readFileSync(budgetPath, 'utf8')) as Record<string, unknown>;
 
     const browser = page.context().browser();

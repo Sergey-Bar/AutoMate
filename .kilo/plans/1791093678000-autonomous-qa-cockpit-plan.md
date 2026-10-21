@@ -292,7 +292,7 @@ number somebody has to be able to read.
    `/dashboard` already has six: loading, report, five-reads-failed, registry-error, onboarding, and
    the project named with no path recorded. The others do not. → `docs/quality/state-matrix.md`.
 2. **axe zero serious and zero critical on every route in both themes** — `W11.4` condition (a).
-   **Done.** `e2e/accessibility/routes.spec.ts` exists, generated from
+   **Done.** `tests/e2e/accessibility/routes.spec.ts` exists, generated from
    `apps/web/src/route-manifest.ts` so the list cannot drift from the routes, covering all
    eleven paths in both themes and in four forced data states — 66 tests, its own Playwright
    project, green against a real PostgreSQL and a real browser. `pnpm status:10` point 4 now
@@ -338,7 +338,7 @@ re-derivation is recorded in the row.
   matrix, so one exists; but 13 routes × 4 states kept in step by hand is a document that drifts the
   week after it lands. The axe spec below already enumerates every route and every state it visits,
   so the matrix is emitted from that list. Nothing to maintain, nothing to disagree with.
-- `e2e/accessibility/routes.spec.ts` — NEW, `W11.4` condition (a), both themes. It is the matrix's
+- `tests/e2e/accessibility/routes.spec.ts` — NEW, `W11.4` condition (a), both themes. It is the matrix's
   only writer, which is why there is no second list.
 - **Gate:** `pnpm status:10` point 4 flips `fail` → `pass` on the accessibility clause; axe zero
   serious and zero critical on all 13 routes in both themes.

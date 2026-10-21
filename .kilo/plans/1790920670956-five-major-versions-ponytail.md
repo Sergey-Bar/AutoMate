@@ -144,7 +144,7 @@ Accessibility does not disappear: it moves from product claim to CI gate.
    derives availability from the registry, so `/api/v1/features` follows automatically.
    `capability-register.mjs:53` enforces that every domain has a `quality.<domain>` row, so the two
    register rows go `obsolete` in the same commit. **Add accessibility as a pr-blocking route gate:**
-   `e2e/accessibility/routes.spec.ts` using the `expectNoBlockingAxeViolations` that already exists
+   `tests/e2e/accessibility/routes.spec.ts` using the `expectNoBlockingAxeViolations` that already exists
    and is used by exactly **one** component test today — this is UI-1's removal condition (a).
 2. **`packages/tool-sdk`** — BK-1's entry criterion, which `X-3`'s removalCondition names as
    currently absent. One package: operation declaration, dispatch, result normalisation, error

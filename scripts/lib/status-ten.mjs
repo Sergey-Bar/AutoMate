@@ -2,7 +2,7 @@
  * The twelve points, as a measurement rather than an assertion.
  *
  * **It is a gate now.** It was a measurement until 2026-10-01, when its last `fail` was
- * closed by writing `e2e/product/durable-path.spec.ts`. The distinction that survives
+ * closed by writing `tests/e2e/product/durable-path.spec.ts`. The distinction that survives
  * is not "measurement" versus "gate" — it is what each verdict is *derived from*. Every
  * clause here reads committed files. None of them runs anything, which is why a claim
  * whose proof is a command is `not_configured` and never `pass`: this script cannot
@@ -352,7 +352,7 @@ function pointTwo(ctx) {
  */
 function pointThree(ctx) {
   const config = ctx.text('playwright.config.ts');
-  const durable = ctx.files('e2e').filter((file) => file.endsWith('durable-path.spec.ts'));
+  const durable = ctx.files('tests/e2e').filter((file) => file.endsWith('durable-path.spec.ts'));
   const stages = [
     'migrate',
     'authenticate',
@@ -373,7 +373,7 @@ function pointThree(ctx) {
     durable.length === 0
       ? broken(
           'a spec walks the durable chain',
-          'no `e2e/**/durable-path.spec.ts`. The chain §17 names is migrate → authenticate → enqueue ' +
+          'no `tests/e2e/**/durable-path.spec.ts`. The chain §17 names is migrate → authenticate → enqueue ' +
             '→ execute worker→runner → stream durable events → normalized evidence → cancel/retry → ' +
             'lost-lease recovery → release gate. **The chain has been walked** — running the existing ' +
             'E2E suite against a real PostgreSQL found and fixed seven defects, six of them blockers ' +
@@ -420,7 +420,7 @@ function pointThree(ctx) {
  * @returns {Clause[]}
  */
 function pointFour(ctx) {
-  const axe = ctx.files('e2e').filter((file) => /axe|accessib/i.test(file));
+  const axe = ctx.files('tests/e2e').filter((file) => /axe|accessib/i.test(file));
   const routes = ctx.files('apps/web/src/routes').filter((file) => file.endsWith('.tsx'));
 
   return [
@@ -428,7 +428,7 @@ function pointFour(ctx) {
       ? ok('an accessibility check runs against the routes', `${axe.join(', ')}.`)
       : broken(
           'an accessibility check runs against the routes',
-          'no accessibility spec under `e2e/`. `expectNoBlockingAxeViolations` exists in `apps/web` and is ' +
+          'no accessibility spec under `tests/e2e/`. `expectNoBlockingAxeViolations` exists in `apps/web` and is ' +
             'used by one component test, so a route that regresses is not covered.',
         ),
     unchecked(

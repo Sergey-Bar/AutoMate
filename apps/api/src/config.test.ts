@@ -235,8 +235,8 @@ describe('documented credentials are usable by the policy', () => {
  *
  * **An `import` or `export` line is not an assignment.** Treating one as an assignment is
  * how an import became a secret: `import { …, RUNNER_REGISTRATION_SECRET, … } from
- * './e2e/support/config.js'` reported
- * `RUNNER_REGISTRATION_SECRET=./e2e/support/config.js (23 characters)` — a finding about
+ * './tests/e2e/support/config.js'` reported
+ * `RUNNER_REGISTRATION_SECRET=./tests/e2e/support/config.js (23 characters)` — a finding about
  * a module path, produced by scanning every string on a line that merely named the
  * variable. The gate was right that a 23-character value fails the floor and wrong about
  * what the value was.
@@ -304,7 +304,7 @@ function assignmentsIn(text: string): Array<{ variable: SecretVariable; value: s
  * A named export from a repository file, evaluated.
  *
  * `playwright.config.ts` passes `AUTOMATE_API_KEY: INSTALLATION_KEY` — an identifier,
- * not a literal — because the value lives in one place (`e2e/support/config.ts`) and the
+ * not a literal — because the value lives in one place (`tests/e2e/support/config.ts`) and the
  * two files holding it disagreed, which is what made every authenticated E2E call answer
  * 401. `auditSource` measures the *value*, so it has to follow a reference to find it;
  * measuring the identifier instead reports `AUTOMATE_API_KEY=INSTALLATION_KEY (17
@@ -328,7 +328,7 @@ function referenceResolver(): (identifier: string) => string | undefined {
   const cache = new Map<string, string | undefined>();
   return (identifier) => {
     if (cache.has(identifier)) return cache.get(identifier);
-    const value = exportedConst(identifier, 'e2e/support/config.ts');
+    const value = exportedConst(identifier, 'tests/e2e/support/config.ts');
     cache.set(identifier, value);
     return value;
   };

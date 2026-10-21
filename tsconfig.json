@@ -3,6 +3,6 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["*.ts", "e2e/**/*.ts", "scripts/**/*.ts"],
+  "include": ["*.ts", "tests/e2e/**/*.ts", "scripts/**/*.ts"],
   "exclude": ["node_modules", "**/dist", "**/coverage"]
 }

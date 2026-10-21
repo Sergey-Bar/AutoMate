@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const supportDir = path.dirname(fileURLToPath(import.meta.url));
-export const EVIDENCE_DIR = path.resolve(supportDir, '../../test-results/evidence');
+export const EVIDENCE_DIR = path.resolve(supportDir, '../../../test-results/evidence');
 
 /** Write a JSON evidence file under `test-results/evidence/<subdir>/`. */
 export function saveEvidence(subdir: string, filename: string, data: unknown): string {

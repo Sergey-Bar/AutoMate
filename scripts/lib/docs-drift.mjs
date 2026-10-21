@@ -810,13 +810,13 @@ function derivePorts(read) {
   const config = read('packages/config/src/config.ts');
   const playwright = read('playwright.config.ts');
   // The web dev port moved here when the installation key's two disagreeing copies were
-  // merged: `e2e/support/config.ts` became the one place that says where the browser
+  // merged: `tests/e2e/support/config.ts` became the one place that says where the browser
   // goes, and `WEB_BASE` carries the port. Reading only `playwright.config.ts` left the
   // real port out of the derived set — which the `ports` detector then reported against
   // the README and the getting-started page, in a document that was right. The detector
   // was correct and the derivation was stale, which is the shape of failure this
   // repository prefers to have.
-  const e2eConfig = read('e2e/support/config.ts');
+  const e2eConfig = read('tests/e2e/support/config.ts');
   const compose = read('docker-compose.unified.yml');
   for (const source of [config, playwright]) {
     for (const match of source.matchAll(/\b(?:DEFAULT_PORT|apiPort|webPort)\s*=\s*(\d{2,5})\b/g)) {

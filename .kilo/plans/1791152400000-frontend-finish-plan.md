@@ -508,7 +508,7 @@ whatever was listening on 3000. On this host that was an unrelated process, whic
 
 `GLASS-4` records it. The useful part is the correction: **the first fix made the lane worse on
 every machine.** Making `playwright.config.ts`'s port configurable and leaving
-`e2e/support/config.ts` hardcoded meant the suite started its API on 3111 and posted every login
+`tests/e2e/support/config.ts` hardcoded meant the suite started its API on 3111 and posted every login
 to 3000. The original was a hazard on a busy machine; the fix was a hazard everywhere, introduced
 by the fix. Only after the first two were unified did the third surface — and it surfaced as an
 error message about the product.

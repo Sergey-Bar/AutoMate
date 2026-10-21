@@ -206,7 +206,7 @@ months from now should be able to see both.
 
 ### G1 — The axe spec, before any glass
 
-`e2e/accessibility/routes.spec.ts`, 13 routes, **both themes**, axe zero serious and zero critical,
+`tests/e2e/accessibility/routes.spec.ts`, 13 routes, **both themes**, axe zero serious and zero critical,
 plus a state matrix for loading/empty/error/partial. It is generated from the routes it visits, not
 hand-maintained. This also discharges `W11.4` conditions (a) and (b).
 

@@ -352,7 +352,7 @@ runners/             k6 / playwright / zap runner images (manifests only)
 tests/
   contract/          Contract suite
   integration/       PGlite suites against the real migration graph
-e2e/                 Playwright end-to-end tests
+  e2e/               Playwright end-to-end tests
 scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test suites
 ```
 

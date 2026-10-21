@@ -190,7 +190,7 @@ The unified repository is the only active development codebase. The pinned Dashb
 ├── tests/
 │   ├── contract/                 # producer/consumer and legacy-adapter fixtures
 │   ├── integration/              # PostgreSQL, object-store, auth, connector tests
-│   ├── e2e/                      # one Playwright authority
+│   ├── tests/e2e/                      # one Playwright authority
 │   ├── performance/              # isolated k6 scenarios
 │   └── fixtures/                 # sanitized source and migration fixtures
 ├── infra/
