@@ -173,21 +173,32 @@ export function attemptsOf(error: unknown): number {
  * that the policy would tell a rate-limited caller to fail rather than to wait.
  */
 export async function executeWithRetry<T>(
-  operation: () => Promise<T>,
+  operation: (attemptSignal?: AbortSignal) => Promise<T>,
   options: {
     retries: number;
     /** The manifest's claim. Absent means "not known to be safe", which is the safe default. */
     idempotent?: boolean;
     signal?: AbortSignal;
     sleep?: (ms: number) => Promise<void>;
+    /**
+     * The manifest's `timeoutMs` for the operation, applied to **each attempt**.
+     *
+     * Every manifest declared one and nothing applied it: the adapters passed only the
+     * caller's optional signal to `fetch`, so a remote that accepted the connection and
+     * never answered held the operation for undici's own defaults — minutes, times the
+     * attempts. The attempt's signal aborts on the caller's cancellation or on this
+     * deadline, whichever comes first.
+     */
+    attemptTimeoutMs?: number;
   },
 ): Promise<{ value: T; attempts: number }> {
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   let attempts = 0;
   while (true) {
     attempts += 1;
+    const attempt = attemptSignal(options.signal, options.attemptTimeoutMs);
     try {
-      return { value: await operation(), attempts };
+      return { value: await operation(attempt.signal), attempts };
     } catch (error) {
       const transient = error instanceof ConnectorHttpError && isRetryableStatus(error.status);
       // Absent `idempotent` is treated as false, not true: an adapter that forgets to
@@ -210,6 +221,36 @@ export async function executeWithRetry<T>(
         throw new Error('Connector operation cancelled', { cause: error });
       }
       await sleep(100 * 2 ** (attempts - 1));
+    } finally {
+      attempt.dispose();
     }
   }
+}
+
+/**
+ * One attempt's signal: the caller's, plus a deadline.
+ *
+ * A timer and a controller rather than `AbortSignal.timeout`, so the deadline is a
+ * timer a test can advance, and so it is cleared the moment the attempt settles
+ * instead of outliving it.
+ */
+function attemptSignal(
+  caller: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): { signal: AbortSignal | undefined; dispose: () => void } {
+  if (timeoutMs === undefined) return { signal: caller, dispose: () => undefined };
+  const controller = new AbortController();
+  const forward = (): void => controller.abort(caller?.reason);
+  if (caller?.aborted) forward();
+  else caller?.addEventListener('abort', forward, { once: true });
+  const timer = setTimeout(() => {
+    controller.abort(new DOMException(`Timed out after ${String(timeoutMs)} ms`, 'TimeoutError'));
+  }, timeoutMs);
+  return {
+    signal: controller.signal,
+    dispose: () => {
+      clearTimeout(timer);
+      caller?.removeEventListener('abort', forward);
+    },
+  };
 }

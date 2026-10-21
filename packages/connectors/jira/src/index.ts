@@ -121,7 +121,7 @@ export const jiraAdapter: ConnectorAdapter = {
     try {
       // Every refusal happens before a request exists. The old adapter sent a request for
       // all of these and reported `status: 'ok'` for the first two.
-      const { operation, idempotent } = dispatchFor(request.operation);
+      const { operation, idempotent, timeoutMs } = dispatchFor(request.operation);
       const base = requireBaseUrl(request.input);
       // `requireBaseUrl` has already refused anything that is not a non-null object —
       // it throws `input must be an absolute URL` or `input must be an object`
@@ -134,7 +134,7 @@ export const jiraAdapter: ConnectorAdapter = {
       const url = `${base}${API}${operation.path(fields)}`;
 
       const value = await executeWithRetry(
-        async () => {
+        async (signal) => {
           const response = await fetch(url, {
             method: operation.method,
             headers: {
@@ -143,7 +143,7 @@ export const jiraAdapter: ConnectorAdapter = {
               ...(body === undefined ? {} : { 'content-type': 'application/json' }),
             },
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-            signal: request.signal,
+            signal,
           });
           if (!response.ok) {
             // A 4xx is a statement about the *request* and nothing was created; a 5xx is a
@@ -155,7 +155,7 @@ export const jiraAdapter: ConnectorAdapter = {
           }
           return response.json();
         },
-        { retries: 2, signal: request.signal, idempotent },
+        { retries: 2, signal: request.signal, idempotent, attemptTimeoutMs: timeoutMs },
       );
 
       return { status: 'ok', data: value.value, attempts: value.attempts };
@@ -184,9 +184,17 @@ export const jiraAdapter: ConnectorAdapter = {
  *
  * @throws {ConnectorInputError} `unknown_operation`
  */
-function dispatchFor(operation: string): { operation: JiraOperation; idempotent: boolean } {
+function dispatchFor(operation: string): {
+  operation: JiraOperation;
+  idempotent: boolean;
+  timeoutMs: number;
+} {
   const spec = operationSpec(jiraAdapter.manifest, operation);
-  return { operation: OPERATIONS[operation], idempotent: spec.idempotent };
+  return {
+    operation: OPERATIONS[operation],
+    idempotent: spec.idempotent,
+    timeoutMs: spec.timeoutMs,
+  };
 }
 
 /**
