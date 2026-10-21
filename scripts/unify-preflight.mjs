@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findDisabledTests } from './disabled-tests.mjs';
+import { trackedFiles } from './lib/tracked-files.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** @type {Array<{name: string, ok: boolean, detail: string}>} */
@@ -40,20 +41,6 @@ const IGNORED_DIRECTORIES = new Set([
   'test-results',
   'var',
 ]);
-
-/** @returns {string[]} */
-function gitFiles() {
-  try {
-    return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-    })
-      .split(/\r?\n/)
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
 
 /**
  * @param {string} relativePath
@@ -117,7 +104,21 @@ add(
   unifiedCompose.includes('artifact_data:') ? 'present' : 'missing',
 );
 
-const tracked = gitFiles();
+// A git that cannot run used to read as an empty index, and the check below passed over
+// it. It is its own failed check now (`scripts/lib/tracked-files.mjs`).
+const index = trackedFiles(() =>
+  execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  }),
+);
+add(
+  'the git index is readable',
+  index.problem === null,
+  index.problem ?? `${String(index.files.length)} paths`,
+);
+const tracked = index.files;
 const generatedPattern =
   /(^|\/)(dist|build|coverage|test-results|playwright-report|blob-report|__pycache__|var)(\/|$)|(^|\/)(\.sisyphus|\.artifacts)(\/|$)|\.pyc$/;
 const generatedTracked = tracked.filter(
