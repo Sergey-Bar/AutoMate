@@ -54,31 +54,60 @@ export function useRuns(api = defaultApiClient) {
   const runsRef = useRef<Run[]>([]);
   const mountedRef = useRef(true);
   const { begin: beginLoad, cancelAll: cancelLoads } = useRequestLifecycle();
+  /** The load in flight, if any — what an event-driven refresh waits behind. */
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  /** An event asked for fresh data while a load was in flight. */
+  const refreshQueuedRef = useRef(false);
 
   const refresh = useCallback(
     async (showLoading = false) => {
       if (!mountedRef.current) return;
       if (showLoading) setIsLoading(true);
       const signal = beginLoad();
-      try {
-        const data = await api.getRuns({ signal });
-        if (!mountedRef.current) return;
-        runsRef.current = data;
-        setRuns(data);
-        setError(null);
-      } catch (caught) {
-        // A cancellation is something this hook asked for, so it is not a
-        // failure and must not replace a rendered list with an error.
-        if (isAbortError(caught)) return;
-        if (mountedRef.current) {
-          setError(caught instanceof Error ? caught : new Error('Failed to fetch runs'));
+      const load = (async () => {
+        try {
+          const data = await api.getRuns({ signal });
+          if (!mountedRef.current) return;
+          runsRef.current = data;
+          setRuns(data);
+          setError(null);
+          setIsLoading(false);
+        } catch (caught) {
+          // A cancellation is something this hook asked for, so it is not a
+          // failure and must not replace a rendered list with an error. Nor does
+          // it end the loading state: the request that superseded it will.
+          if (isAbortError(caught)) return;
+          if (mountedRef.current) {
+            setError(caught instanceof Error ? caught : new Error('Failed to fetch runs'));
+            setIsLoading(false);
+          }
         }
-      } finally {
-        if (showLoading && mountedRef.current) setIsLoading(false);
+      })();
+      inFlightRef.current = load;
+      await load;
+      if (inFlightRef.current !== load) return;
+      inFlightRef.current = null;
+      if (refreshQueuedRef.current && mountedRef.current) {
+        refreshQueuedRef.current = false;
+        void refresh();
       }
     },
     [api, beginLoad],
   );
+
+  /**
+   * A refresh an *event* asked for. Coalesced rather than superseding: a stream
+   * emitting test events faster than one round trip used to abort every request it
+   * started, so no list ever landed while a run was busy. One follow-up load after
+   * the one in flight answers every event that arrived meanwhile.
+   */
+  const requestRefresh = useCallback(() => {
+    if (inFlightRef.current !== null) {
+      refreshQueuedRef.current = true;
+      return;
+    }
+    void refresh();
+  }, [refresh]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -100,7 +129,7 @@ export function useRuns(api = defaultApiClient) {
           event.type.startsWith('test.') ||
           event.type === 'artifact.created' ||
           event.type === 'gate.evaluated';
-        if (needsRefresh) void refresh();
+        if (needsRefresh) requestRefresh();
       },
       onReconnect: () => void refresh(),
       onConnectionChange: (live) => {
@@ -134,7 +163,7 @@ export function useRuns(api = defaultApiClient) {
       unsubscribe();
       window.clearInterval(poll);
     };
-  }, [api, refresh, cancelLoads]);
+  }, [api, refresh, requestRefresh, cancelLoads]);
 
   return { runs, isLoading, error, isLive, refresh };
 }
