@@ -140,7 +140,6 @@ export function RepoMap({
     'data-node': node.id,
     'data-status': node.status,
     'data-dimmed': String(active !== null && !trace.nodes.has(node.id)),
-    'aria-label': `${node.label}, ${node.detail}, ${STATUS_WORD[node.status]}`,
     'aria-haspopup': 'dialog' as const,
     onClick: () => onStateChange({ ...state, node: node.id }),
     onFocus: () => setActive(node.id),
@@ -163,8 +162,14 @@ export function RepoMap({
     <>
       <StatusDot status={STATUS_DOT[node.status]} />
       <span className="min-w-0">
-        <span className="block truncate text-sm font-medium text-fg">{node.label}</span>
-        <span className="block truncate text-xs text-fg-muted">{node.detail}</span>
+        <span className="block truncate text-sm font-medium text-fg">
+          {node.label}
+          <span className="sr-only">,</span>
+        </span>
+        <span className="block truncate text-xs text-fg-muted">
+          {node.detail}
+          <span className="sr-only">{`, ${STATUS_WORD[node.status]}`}</span>
+        </span>
       </span>
     </>
   );
