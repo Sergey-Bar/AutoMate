@@ -14,7 +14,7 @@
     "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs"
   },
   "dependencies": {
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^13.0.3",
     "pg": "catalog:"
   },
   "devDependencies": {
