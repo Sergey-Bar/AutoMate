@@ -42,7 +42,11 @@ async function main(): Promise<void> {
     return;
   }
   if (options.command === 'validate') {
-    if (!options.plan) throw new Error('validate requires --plan');
+    if (!options.plan)
+      throw new Error(
+        'validate requires --plan <file>: it checks a plan written by migrate plan. ' +
+          'To check the migration journal against the schema, run pnpm db:check.',
+      );
     validatePlan(readPlan(options.plan));
     return;
   }

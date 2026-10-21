@@ -87,8 +87,8 @@ pnpm test:render          # Rendering budget: LCP, INP, CLS, long tasks on the f
 pnpm render:baseline      # RECORDS the rendering ceilings. Never in CI, by design
 pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm compose:config       # Resolves the canonical production compose file
-pnpm migrate:plan         # Builds the plan. Reads the repository, never a database
-pnpm migrate:validate     # Checks the migration graph against the journal
+pnpm migrate:plan         # Legacy SQLite import: plan a migration (needs --from --source-id --source-commit --target-commit --out)
+pnpm migrate:validate     # Legacy SQLite import: validate a written plan (needs --plan). The journal check is db:check
 pnpm smoke:local          # HTTP probes against a running stack
 pnpm smoke:rehearsal      # A LOCAL-TARGET GUARD, not a rehearsal. Refuses a non-loopback target
 pnpm quality:baseline     # The nightly aggregate the numbers in docs/quality/ come from
