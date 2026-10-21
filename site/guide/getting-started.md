@@ -12,7 +12,7 @@ is generated from the repository's own register rather than written by hand.
 ## The ten-minute path
 
 A budget, and a promise about what it buys. From a clean checkout with Node 24 and
-pnpm 10 installed, following the "without a database" path below:
+pnpm 11 installed (`corepack enable` provides the pinned version), following the "without a database" path below:
 
 | When      | What happens                    | How you know                                                                  |
 | --------- | ------------------------------- | ----------------------------------------------------------------------------- |
