@@ -11,7 +11,18 @@ export interface RateLimiterOptions {
   limit: number;
   windowMs: number;
   now?: () => number;
+  /**
+   * The most windows held at once. Expired windows are dropped first; past the
+   * ceiling the oldest live window goes. Default {@link DEFAULT_MAX_KEYS}.
+   */
+  maxKeys?: number;
 }
+
+/**
+ * Enough for every legitimate client of a self-hosted install many times over, and
+ * small enough that a client minting a new key per request cannot exhaust memory.
+ */
+export const DEFAULT_MAX_KEYS = 10_000;
 
 export interface RateLimitDecision {
   allowed: boolean;
@@ -35,13 +46,36 @@ export interface RateLimiter {
 
 export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
   const now = options.now ?? (() => Date.now());
+  const maxKeys = options.maxKeys ?? DEFAULT_MAX_KEYS;
   const windows = new Map<string, Window>();
+  let nextSweepAt = 0;
+
+  /**
+   * Drops expired windows, at most once per window length, and then — only if live
+   * windows still exceed the ceiling — the oldest by insertion. A `Map` iterates in
+   * insertion order and a window is re-inserted when it restarts, so "oldest" is the
+   * one whose window began first.
+   */
+  const evict = (timestamp: number): void => {
+    if (timestamp >= nextSweepAt || windows.size >= maxKeys) {
+      for (const [key, window] of windows) {
+        if (window.resetAt <= timestamp) windows.delete(key);
+      }
+      nextSweepAt = timestamp + options.windowMs;
+    }
+    for (const key of windows.keys()) {
+      if (windows.size < maxKeys) break;
+      windows.delete(key);
+    }
+  };
 
   return {
     consume(key: string): RateLimitDecision {
       const timestamp = now();
       const existing = windows.get(key);
       if (!existing || existing.resetAt <= timestamp) {
+        windows.delete(key);
+        evict(timestamp);
         windows.set(key, { count: 1, resetAt: timestamp + options.windowMs });
         return {
           allowed: true,

@@ -377,7 +377,7 @@ const authRoutes = createAuthRoutes({
   cookieSecret: authCookieSecret,
   installationId,
   installationKeyHash,
-  sessionTtlMs: 24 * 60 * 60 * 1000,
+  sessionTtlMs,
   secureCookies: resolveSecureCookies(),
   sessionBackend,
 });
