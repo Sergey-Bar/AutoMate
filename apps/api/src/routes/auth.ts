@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { getConnInfo } from '@hono/node-server/conninfo';
 import { DomainError } from '../errors/domain-error.js';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod/v4';
@@ -41,8 +42,38 @@ export interface AuthRouteOptions {
    * behaviour nobody tests is the behaviour nobody verifies.
    */
   loginRateLimit?: { limit: number; windowMs: number; now?: () => number };
-  /** Injected in tests; defaults to the request's forwarded/client address. */
+  /** Injected in tests; defaults to {@link defaultClientKey}. */
   clientKey?: (context: Context) => string;
+  /**
+   * Whether a reverse proxy in front of the API sets `X-Forwarded-For`. Off by
+   * default: without a proxy the header is whatever the client chose, and keying the
+   * per-address budget on it let a client reset that budget on every request.
+   */
+  trustProxy?: boolean;
+}
+
+/**
+ * The address the per-address login budget is keyed on.
+ *
+ * With `trustProxy`, the first `X-Forwarded-For` hop (then `X-Real-IP`), which the
+ * proxy wrote. Without it, the TCP peer, which the client cannot forge. A request with
+ * neither — an in-process test request has no socket — shares one bucket, which is the
+ * conservative answer.
+ */
+export function defaultClientKey(context: Context, trustProxy: boolean): string {
+  if (trustProxy) {
+    // The **last** hop, not the first. nginx's `$proxy_add_x_forwarded_for` appends the
+    // peer it saw to whatever the client sent, so the first entry is still the client's
+    // choice; the last one is the address our proxy wrote.
+    const hops = context.req.header('x-forwarded-for')?.split(',') ?? [];
+    const forwarded = hops.at(-1)?.trim() || context.req.header('x-real-ip')?.trim();
+    if (forwarded) return forwarded;
+  }
+  try {
+    return getConnInfo(context).remote.address ?? 'unknown-client';
+  } catch {
+    return 'unknown-client';
+  }
 }
 
 function sessionResponse(record: SessionRecord) {
@@ -100,10 +131,7 @@ export function createAuthRoutes(options: AuthRouteOptions) {
   });
   const clientKey =
     options.clientKey ??
-    ((context: Context) =>
-      context.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
-      context.req.header('x-real-ip')?.trim() ||
-      'unknown-client');
+    ((context: Context) => defaultClientKey(context, options.trustProxy === true));
 
   app.post('/api/v1/auth/login', async (context) => {
     const parsed = LoginSchema.safeParse(await context.req.json().catch(() => null));

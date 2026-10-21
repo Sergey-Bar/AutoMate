@@ -53,9 +53,10 @@ The **only** flow for schema changes:
 4. pnpm db:migrate      → applies un-applied migrations in journal order
 ```
 
-`pnpm migrate:plan` reports what is pending without touching a database, and
-`pnpm migrate:validate` checks the graph against the journal. `pnpm db:check` asserts
-the journal and the schema have not parted company.
+`pnpm db:check` asserts the journal and the schema have not parted company, and the PGlite
+suites apply the whole graph in journal order. `pnpm migrate:plan` and
+`pnpm migrate:validate` belong to the one-off legacy SQLite import and need its source
+arguments; they are not a check on this graph.
 
 ### 1.3 Migration on startup
 

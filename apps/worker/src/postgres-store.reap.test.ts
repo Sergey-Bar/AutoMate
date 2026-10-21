@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { PostgresExecutionStore } from './postgres-store.js';
+import type { PostgresExecutionStore } from './postgres-store.js';
+import { migratedDatabase, storeOnPglite as pgliteStore } from './test-support/pglite.js';
 
 /**
  * Lease recovery against the **real** migration graph.
@@ -12,52 +11,18 @@ import { PostgresExecutionStore } from './postgres-store.js';
  * PGlite with every migration applied, so the assertions read the database back.
  */
 
-const drizzle = path.resolve(import.meta.dirname, '../../../packages/db/drizzle');
-
-function migrations(): string {
-  const journal = JSON.parse(readFileSync(path.join(drizzle, 'meta', '_journal.json'), 'utf8')) as {
-    entries: Array<{ idx: number; tag: string }>;
-  };
-  return journal.entries
-    .slice()
-    .sort((left, right) => left.idx - right.idx)
-    .map((entry) =>
-      readFileSync(path.join(drizzle, `${entry.tag}.sql`), 'utf8')
-        .split('--> statement-breakpoint')
-        .map((statement) => statement.trim())
-        .filter(Boolean)
-        .join(';\n'),
-    )
-    .join(';\n');
-}
-
 let database: PGlite;
 
 beforeAll(async () => {
-  database = new PGlite();
-  await database.exec(migrations());
+  database = await migratedDatabase();
 }, 120_000);
 
 afterAll(async () => {
   await database?.close();
 });
 
-/**
- * A store whose pool is PGlite. pg connects lazily, so the real pool built by the
- * constructor never opens a socket, and replacing it is the one seam the class has.
- */
 function storeOnPglite(): PostgresExecutionStore {
-  const store = new PostgresExecutionStore('postgres://unused/unused');
-  const client = {
-    query: (text: string, values?: unknown[]) => database.query(text, values ?? []),
-    release: () => undefined,
-  };
-  (store as unknown as { pool: unknown }).pool = {
-    connect: () => Promise.resolve(client),
-    query: client.query,
-    end: () => Promise.resolve(),
-  };
-  return store;
+  return pgliteStore(database);
 }
 
 const WORKSPACE = 'default-workspace';

@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import { standardCoverage, STANDARD_TEST_TIMEOUT_MS } from '../../.config/vitest.shared.js';
 
+const coverage = standardCoverage(process.cwd());
+
 export default defineConfig({
   test: {
     environment: 'jsdom',
@@ -11,7 +13,12 @@ export default defineConfig({
     hookTimeout: STANDARD_TEST_TIMEOUT_MS,
     // Standard floors plus an explicit `include`: without it, an untested
     // module is invisible to the coverage report.
-    coverage: standardCoverage(process.cwd()),
+    coverage: {
+      ...coverage,
+      // Storybook stories render a component for a human to look at; they ship nothing and
+      // assert nothing. See the exclusions register.
+      exclude: [...coverage.exclude, 'src/**/*.stories.tsx'],
+    },
     setupFiles: ['./src/test/setup.ts'],
   },
 });

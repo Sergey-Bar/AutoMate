@@ -599,9 +599,9 @@ export class PostgresExecutionStore implements ExecutionStore {
       await client.query(
         `INSERT INTO execution_jobs (
            id, workspace_id, run_id, attempt, priority, state, available_at,
-           required_capabilities, labels, spec, input, idempotency_key
+           required_capabilities, labels, spec, input, idempotency_key, timeout_ms
          ) VALUES ($1::uuid, $2, $3::uuid, 1, $4, 'queued', $5::timestamptz,
-                   $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10)`,
+                   $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11)`,
         [
           jobId,
           request.workspaceId,
@@ -613,6 +613,8 @@ export class PostgresExecutionStore implements ExecutionStore {
           JSON.stringify(spec),
           JSON.stringify(configuration),
           `${input.idempotencyKey}:attempt:1`,
+          // NOT NULL with no default; the same value the run row above carries.
+          request.timeoutMs ?? 30 * 60_000,
         ],
       );
       await client.query(

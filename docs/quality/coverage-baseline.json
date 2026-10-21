@@ -6,10 +6,10 @@
     "lines": 97.27
   },
   "apps/runner": {
-    "statements": 70.14,
-    "branches": 57.88,
-    "functions": 66.43,
-    "lines": 72.01
+    "statements": 91.4,
+    "branches": 85.6,
+    "functions": 92.8,
+    "lines": 92.9
   },
   "apps/tui": {
     "statements": 70.4,
@@ -24,10 +24,10 @@
     "lines": 98.6
   },
   "apps/worker": {
-    "statements": 63.21,
-    "branches": 56.74,
-    "functions": 69.02,
-    "lines": 64.88
+    "statements": 96.1,
+    "branches": 91.3,
+    "functions": 97.3,
+    "lines": 97.5
   },
   "packages/auth": {
     "statements": 100,
@@ -72,10 +72,10 @@
     "lines": 100
   },
   "packages/db": {
-    "statements": 71.62,
-    "branches": 67.07,
-    "functions": 55.46,
-    "lines": 73.09
+    "statements": 95.9,
+    "branches": 91.2,
+    "functions": 98.5,
+    "lines": 96.3
   },
   "packages/orchestration": {
     "statements": 92.5,
@@ -120,10 +120,10 @@
     "lines": 99.25
   },
   "packages/ui": {
-    "statements": 69.7,
-    "branches": 86,
-    "functions": 71.1,
-    "lines": 69
+    "statements": 89.6,
+    "branches": 86.5,
+    "functions": 96.5,
+    "lines": 90.4
   },
   "tests/contract": {
     "status": "not_configured",
@@ -136,9 +136,9 @@
     "lines": 87
   },
   "tools/migrate-cli": {
-    "statements": 59.12,
-    "branches": 41.89,
-    "functions": 85.48,
-    "lines": 59.83
+    "statements": 95.6,
+    "branches": 91.6,
+    "functions": 98.3,
+    "lines": 95.5
   }
 }
