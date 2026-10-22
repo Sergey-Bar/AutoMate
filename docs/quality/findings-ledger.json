@@ -4273,7 +4273,7 @@
       "owner": "The runtime upgrade, once the date below has passed and the evidence exists.",
       "removalCondition": "Node 26 appears under LTS on nodejs.org, and `pnpm verify` plus `pnpm smoke:local` both pass against a real compose stack running it.",
       "confirmed": true,
-      "summary": "**Node 26 exists and is not yet a target, and the reason is a date rather than a judgement.** `nodejs/Release` records `v26` with `start: 2026-05-05` and `lts: 2026-10-28`. As of 2026-10-04 that line is **Current**, not LTS: it receives bug fixes and no longer receives them after promotion, so pinning a production runtime to a Current line means pinning to a moving target for another 24 days.\n\n**The runtime is stated in six places**, all of which must move together: `engines.node` (`>=24.0.0 <25`), `.node-version`, `.nvmrc`, six Dockerfiles pinned to `node:24.21.0`, and `NODE_VERSION: 24.x` in four workflows. `pnpm deps:policy` does not check any of them, which is the same gap `gate-tooling.json` closes for tool versions.\n\n**What the bump inherits.** pnpm 11 requires Node 22 or newer and is already in place, so nothing blocks it. Node 26 brings Undici 8 and Temporal enabled by default, plus the removals listed in its release notes — the check that matters is that `scripts/` and the API do not call a removed `node:` builtin, which a grep answers before the bump does."
+      "summary": "**Node 26 exists and is not yet a target, and the reason is a date rather than a judgement.** `nodejs/Release` records `v26` with `start: 2026-05-05` and `lts: 2026-10-28`. As of 2026-10-04 that line is **Current**, not LTS: it receives bug fixes and no longer receives them after promotion, so pinning a production runtime to a Current line means pinning to a moving target for another 24 days.\n\n**The runtime is stated in six places**, all of which must move together: `engines.node` (`>=24.0.0 <25`), `.node-version`, `.nvmrc`, six Dockerfiles pinned to `node:24.21.0`, and `NODE_VERSION: 24.x` in four workflows. `pnpm deps:policy` does not check any of them, which is the same gap `gate-tooling.json` closes for tool versions.\n\n**What the bump inherits.** pnpm 11 requires Node 22 or newer and is already in place, so nothing blocks it. Node 26 brings Undici 8 and Temporal enabled by default, plus the removals listed in its release notes — the check that matters is that `scripts/` and the API do not call a removed `node:` builtin, which a grep answers before the bump does.\n\n**Checked 2026-10-22: still Current, not LTS, so the row stays open.** `https://nodejs.org/dist/index.json` lists `v26.12.1` (2026-10-21) with `lts: false` ; the newest entries with an LTS codename are `v24.22.1` and `v24.22.0` (`Krypton`). The promotion date in `nodejs/Release` is 2026-10-28, six days away. Nothing about the row's condition changed, so no pin moved to 26. **What did move is the 24 line**: `v24.22.1` (2026-10-20) is flagged `security: true` in the same index, so `.nvmrc` and the node base images in `infra/docker/*.Dockerfile` and `infra/runners/playwright/Dockerfile` went from `24.21.0` to `24.22.1`; `node:24.22.1-alpine` and `node:24.22.1-bookworm-slim` both resolve with `docker manifest inspect`. `engines.node` (`>=24.0.0 <25`) and `NODE_VERSION: 24.x` already admit it. Re-check on or after 2026-10-28."
     },
     {
       "id": "DEP-3",
@@ -4283,7 +4283,7 @@
       "status": "open",
       "wave": "W5.1",
       "confirmed": true,
-      "summary": "**The peer conflict is real and it does not block adoption.** `@effect/vitest@4.0.0` declares `peerDependencies: { vitest: \">=5.0.0 <6.0.0\" }` and this workspace is on `vitest@4.1.5`, so `pnpm peers check` reports it unmet and the `it.effect` and `describe.effect` combinators are unavailable. That is the whole of the cost: `Effect.runSync` and `Effect.runPromise` are ordinary functions, and an Effect program is testable under plain Vitest by running it and asserting on the `Exit`. `peerDependencyRules.allowedVersions` would silence the peer check for one package, and a silenced check on the package that ships a test adapter is how a version mismatch becomes an unresolved bug six months later. So the helper stays unused and the tests stay plain.\n\n**The route is `ManagedRuntime`, and that is what makes a boundary adoption possible here.** `apps/api/src/index.ts` is a 631-line imperative composition root, and rewriting it as a `Layer.launch` entrypoint is a different and much larger piece of work than the one this row asks for. Effect 4 ships its own `AGENTS.md` and `ai-docs/` tree inside the package, and that documentation names the intended integration for exactly this shape: `ManagedRuntime` bridges Effect programs with non-Effect code, giving one runtime from the application Layer to use anywhere imperative execution is needed - web handlers, framework hooks, worker queues, legacy callback APIs - with a worked Hono example. The boundary therefore composes a runtime and the Hono app calls into it, which is what docs/migration/unified-repository-migration.md:517 asks for: validated configuration, service lifecycle and composition, and nothing outside `apps/api/src/bootstrap/`.\n\n**The v4 API is readable rather than guessable, and reading it changed the answer.** The package ships its own `AGENTS.md` and `ai-docs/` tree, and its declarations are flat in `dist/*.d.ts` rather than `dist/dts/`. Three shapes moved, each confirmed from the installed declarations rather than from a migration guide: the top-level `effect` export no longer carries `runSync` or `runPromise`, which live in `effect/Effect`; `Context.Tag` is now the two-stage `Context.Service` form, taking the service shape as a type parameter and the key as a string, with a `static layer` and an `.of` constructor; and `Scope.make` returns `Effect<Closeable>` where v3 returned a scope. **That last one is why the first attempt stopped**: it was about to write a v3-shaped `Scope.use(Scope.make(), ...)` from memory, and the v3 signature is exactly wrong for v4. Reading the installed declarations is what turned a refusal into a route.\n\n**What remains is the work itself** - the module, its tests, and the call site in the composition root - and it is bounded. `effect` is currently declared at `^3.21.2` and imported nowhere, which is DEP-1; this row records why that declaration should become a v4 boundary rather than be deleted."
+      "summary": "**The peer conflict is real and it does not block adoption.** `@effect/vitest@4.0.0` declares `peerDependencies: { vitest: \">=5.0.0 <6.0.0\" }` and this workspace is on `vitest@4.1.5`, so `pnpm peers check` reports it unmet and the `it.effect` and `describe.effect` combinators are unavailable. That is the whole of the cost: `Effect.runSync` and `Effect.runPromise` are ordinary functions, and an Effect program is testable under plain Vitest by running it and asserting on the `Exit`. `peerDependencyRules.allowedVersions` would silence the peer check for one package, and a silenced check on the package that ships a test adapter is how a version mismatch becomes an unresolved bug six months later. So the helper stays unused and the tests stay plain.\n\n**The route is `ManagedRuntime`, and that is what makes a boundary adoption possible here.** `apps/api/src/index.ts` is a 631-line imperative composition root, and rewriting it as a `Layer.launch` entrypoint is a different and much larger piece of work than the one this row asks for. Effect 4 ships its own `AGENTS.md` and `ai-docs/` tree inside the package, and that documentation names the intended integration for exactly this shape: `ManagedRuntime` bridges Effect programs with non-Effect code, giving one runtime from the application Layer to use anywhere imperative execution is needed - web handlers, framework hooks, worker queues, legacy callback APIs - with a worked Hono example. The boundary therefore composes a runtime and the Hono app calls into it, which is what docs/migration/unified-repository-migration.md:517 asks for: validated configuration, service lifecycle and composition, and nothing outside `apps/api/src/bootstrap/`.\n\n**The v4 API is readable rather than guessable, and reading it changed the answer.** The package ships its own `AGENTS.md` and `ai-docs/` tree, and its declarations are flat in `dist/*.d.ts` rather than `dist/dts/`. Three shapes moved, each confirmed from the installed declarations rather than from a migration guide: the top-level `effect` export no longer carries `runSync` or `runPromise`, which live in `effect/Effect`; `Context.Tag` is now the two-stage `Context.Service` form, taking the service shape as a type parameter and the key as a string, with a `static layer` and an `.of` constructor; and `Scope.make` returns `Effect<Closeable>` where v3 returned a scope. **That last one is why the first attempt stopped**: it was about to write a v3-shaped `Scope.use(Scope.make(), ...)` from memory, and the v3 signature is exactly wrong for v4. Reading the installed declarations is what turned a refusal into a route.\n\n**What remains is the work itself** - the module, its tests, and the call site in the composition root - and it is bounded. `effect` is currently declared at `^3.21.2` and imported nowhere, which is DEP-1; this row records why that declaration should become a v4 boundary rather than be deleted.\n\n**Update 2026-10-22: the peer conflict is gone and the dependency is on Effect 4.** vitest is 5.0.5 on main, so @effect/vitest@4.0.5 (peer `vitest >=5.0.0 <6.0.0`, `effect ^4.0.5`) is installable without `peerDependencyRules`; the helper is still unused because plain Vitest runs every current test. `apps/api` moved from `effect@3.22.3` to `effect@4.0.5` (published 2026-10-15, past the 24 h rule). The only source change is in `apps/api/src/bootstrap/lifecycle.ts`: `Effect.catchAll` is `Effect.catch` in v4 (`catch_ as catch` in `dist/Effect.d.ts`). `Scope.make`, `Scope.addFinalizer`, `Scope.close` and `Exit.void` kept their shapes, and `Effect.runSync` / `Effect.runPromise` still exist. Test-first: with 4.0.5 installed and the source untouched, 8 of 12 tests in `src/bootstrap` failed with `Effect.catchAll is not a function`; after the one-word change all 12 pass. What remains open is unchanged: the `ManagedRuntime` composition in `index.ts`."
     },
     {
       "id": "DEP-4",
@@ -4294,7 +4294,7 @@
       "owner": "The toolchain upgrade, once typescript-eslint supports the TypeScript 7 API.",
       "removalCondition": "typescript-eslint declares a peer range including 7.x, at which point `typescript` can move to 7 and the alias disappears.",
       "confirmed": true,
-      "summary": "**`typescript@latest` is 7.0.2**, and the installed package has no `main` and no `lib/typescript.js` - only `bin/tsc`, the Go binary. The programmatic API this ecosystem runs on does not exist in 7.0, and `typescript@next` is `7.1.0-dev.20261004.1`, so it is targeted at 7.1 rather than shipped.\n\n**`typescript-eslint@8.71.0` declares `typescript: \">=4.8.4 <6.1.0\"`**, so the type-aware lint rules cannot read the type system from 7 at all. A dual install is therefore not an optimisation but a requirement: `typescript` has to keep resolving to a package with the API for ESLint, while the gate would invoke the 7 binary. `@typescript/typescript6@6.0.2` is that API package.\n\n**The tree is already clean under 7.** Verified by running the 7.0.2 binary over the three surfaces a dual install would have to cover: `packages/shared-contracts`, the largest package `apps/api`, and `scripts/tsconfig.json` - the last being the real unknown, since it typechecks every file under `scripts/` with `allowJs` and `checkJs`. All three produced no output. A grep for the options TypeScript 7 hard-errors - `ignoreDeprecations`, `importsNotUsedAsValues`, `keyofStringsOnly`, `out`, `prepend`, `charset`, `noImplicitUseStrict`, `moduleResolution: node` - found none in any `tsconfig*.json`, and `tsconfig.base.json` pins `target`, `module` and `moduleResolution` explicitly, so 7's changed defaults do not apply either.\n\n**Why the gate was not moved anyway.** Running the checker on a different major than the API is a permanent split: 26 packages invoke bare `tsc --noEmit`, so adopting 7 for the gate means 26 script edits or a project-references rewrite, and from then on a type error could be reported by one major and not the other. That is a real cost for a benefit already banked - the evidence above means the adoption is mechanical when 7.1 ships the API. `typescript7` was installed to gather the evidence and removed, because an alias nothing invokes is exactly what `pnpm deps:policy` exists to report."
+      "summary": "**`typescript@latest` is 7.0.2**, and the installed package has no `main` and no `lib/typescript.js` - only `bin/tsc`, the Go binary. The programmatic API this ecosystem runs on does not exist in 7.0, and `typescript@next` is `7.1.0-dev.20261004.1`, so it is targeted at 7.1 rather than shipped.\n\n**`typescript-eslint@8.71.0` declares `typescript: \">=4.8.4 <6.1.0\"`**, so the type-aware lint rules cannot read the type system from 7 at all. A dual install is therefore not an optimisation but a requirement: `typescript` has to keep resolving to a package with the API for ESLint, while the gate would invoke the 7 binary. `@typescript/typescript6@6.0.2` is that API package.\n\n**The tree is already clean under 7.** Verified by running the 7.0.2 binary over the three surfaces a dual install would have to cover: `packages/shared-contracts`, the largest package `apps/api`, and `scripts/tsconfig.json` - the last being the real unknown, since it typechecks every file under `scripts/` with `allowJs` and `checkJs`. All three produced no output. A grep for the options TypeScript 7 hard-errors - `ignoreDeprecations`, `importsNotUsedAsValues`, `keyofStringsOnly`, `out`, `prepend`, `charset`, `noImplicitUseStrict`, `moduleResolution: node` - found none in any `tsconfig*.json`, and `tsconfig.base.json` pins `target`, `module` and `moduleResolution` explicitly, so 7's changed defaults do not apply either.\n\n**Why the gate was not moved anyway.** Running the checker on a different major than the API is a permanent split: 26 packages invoke bare `tsc --noEmit`, so adopting 7 for the gate means 26 script edits or a project-references rewrite, and from then on a type error could be reported by one major and not the other. That is a real cost for a benefit already banked - the evidence above means the adoption is mechanical when 7.1 ships the API. `typescript7` was installed to gather the evidence and removed, because an alias nothing invokes is exactly what `pnpm deps:policy` exists to report.\n\n**Re-measured 2026-10-22: the blocker is unchanged, and one sentence above is out of date.** `typescript@latest` is 7.0.2 and `typescript@beta` is 7.1.0-beta. `typescript-eslint` is at `8.72.0` (canary `8.72.1-alpha.7`) and both still declare `typescript: >=4.8.4 <6.1.0`. **Trial:** setting the catalog's `typescript` to `7.0.2` on a branch from main and running `pnpm install` fails with `ERR_PNPM_PEER_DEP_ISSUES` - unmet peer `typescript` for `@typescript-eslint/tsconfig-utils`, `project-service`, `typescript-estree`, `parser` and `utils` 8.72.0 - so `verify:local` cannot even start, and silencing the peer check would leave the linter importing a package whose `.` export is `lib/version.cjs`. **Correction:** 7.0 is not API-less. Its `exports` map carries `./unstable/sync`, `./unstable/async`, `./unstable/ast` and `./unstable/fs`, and 7.1.0-beta drops the `unstable` prefix (`./sync`, `./async`, `./ast`). That is a new process-based API and not the old `ts.createProgram` surface typescript-eslint is written against, so the removal condition stays what it says: a typescript-eslint release whose peer range includes 7.x. Nothing adopted."
     },
     {
       "id": "DEP-5",
@@ -5008,6 +5008,148 @@
         }
       ],
       "resolution": "Shutdown waits for an in-flight refresh, which is the product fix, and the tests assert after `main` returns instead of racing the file system, which is why they are deterministic. No retry was added."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-40",
+      "band": "Major",
+      "title": "The terminal sent `copilot.ask` as a POST with no body, so the copilot never received the question",
+      "summary": "`HttpTuiApi.send` chose the verb with an inline `endsWith('.add'|'.start'|'.stop') || === 'copilot.ask'` test and decided whether to attach the body with a second function, `method()`, over a `MUTATING` set that did not contain `copilot.ask`. Two authorities for one fact disagreed: `copilot.ask` went out as `POST` and `method()` said `GET`, so the body (the question) was omitted and the API's `CopilotQuestionSchema` rejected every request.",
+      "confirmedBy": "Found while raising apps/tui branch coverage. `api-requests.test.ts` asserts, for every one of the twelve commands, that a non-GET carries its command as a body; it failed for `copilot.ask` with `expected undefined to be defined` before the fix.",
+      "evidence": [
+        {
+          "path": "apps/tui/src/api.ts",
+          "asserts": "`send` takes its verb from `method()`, the only place the mutating set is decided, and `copilot.ask` is in it."
+        },
+        {
+          "path": "apps/tui/src/api-requests.test.ts",
+          "asserts": "Every TUI command is sent with a body if and only if it is not a GET; exactly `copilot.ask`, `project.add`, `run.start` and `run.stop` are POSTs; the copilot request carries the typed question."
+        }
+      ],
+      "resolution": "The inline verb expression is deleted and `copilot.ask` joins `MUTATING`. The response of `copilot/answer` is a copilot answer rather than a `TuiView`, so the terminal still cannot render it; that is a separate gap and is not claimed fixed here."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-41",
+      "band": "Minor",
+      "title": "`test:unit` was classified as an integration suite, and `second`/`download` as security and performance",
+      "summary": "`categoryForScriptName` matched stems anywhere in a script name: `it\\b` matches the tail of `unit`, `sec` matches `second`, `load` matches `download`. Every Node script named `test:unit` was therefore proposed as an `integration` command, so the unit row of the score read as empty while the integration row claimed a suite.",
+      "confirmedBy": "`detector.test.ts` asserts `test:unit`, `unit` and `test:unit:watch` are unit and `test:second-pass`/`test:download` fall to the default; it failed with `expected 'integration' to be 'unit'` and `expected 'security' to be 'unit'` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/detector.ts",
+          "asserts": "Stems are matched at the start of a word; `sec` and `it` only as whole words."
+        },
+        {
+          "path": "packages/projects/src/detect/detector.test.ts",
+          "asserts": "The category of 18 representative script names, the unit-labelled names, the false-prefix names and the short `it` form."
+        }
+      ],
+      "resolution": "Lookbehind-anchored word starts replace the unanchored substrings. The category order is unchanged."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-42",
+      "band": "Minor",
+      "title": "A TOML dependency array ended at the first extras marker, dropping every later dependency",
+      "summary": "`tomlStringArray` and `tomlAllStringArrays` captured an array body with `\\[([^\\]]*)\\]`, which stops at the `]` of `\"pytest[dev]>=7\"`. Everything after the first dependency with extras was invisible, so a `pyproject.toml` whose first entry had extras reported no test framework for the rest. `distributionName` documents extras as supported; the array reader contradicted it.",
+      "confirmedBy": "`manifest.test.ts` reads `['pytest>=7.4', 'Requests[socks]==2']` and `['pytest[dev]>=7', 'ruff']`; both returned only the first name before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/manifest.ts",
+          "asserts": "The array body is a sequence of quoted strings (which may contain `]`) or non-bracket characters."
+        },
+        {
+          "path": "packages/projects/src/detect/manifest.test.ts",
+          "asserts": "Extras markers do not end an array, in both the keyed and the every-group readers."
+        }
+      ],
+      "resolution": "A shared `ARRAY_BODY` pattern replaces both character-class captures."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-43",
+      "band": "Minor",
+      "title": "A Python repository with only `requirements.txt` was reported as unrecognised",
+      "summary": "`detectPython` read `requirements*.txt` (`readManifests`, `namesFromRequirements`) but its entry gate required `pyproject.toml`, `setup.cfg`, `tox.ini` or `setup.py`, so an application that pins dependencies in `requirements.txt` alone fell through every detector and had to be registered with hand-declared commands.",
+      "confirmedBy": "`ecosystem-edges.test.ts` detects a repository holding only `requirements.txt`; it was `recognised: false` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/ecosystems/python.ts",
+          "asserts": "A requirements file is a manifest for the entry gate as well as for the readers."
+        },
+        {
+          "path": "packages/projects/src/detect/ecosystem-edges.test.ts",
+          "asserts": "Requirements-only repositories are recognised, with pytest read past comments, options and markers, and unittest as the floor."
+        }
+      ],
+      "resolution": "The gate accepts a requirements file. Detector order puts Python after Node, so a repository already recognised by an earlier detector is unchanged."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-44",
+      "band": "Minor",
+      "title": "Two distinct frameworks cited by the same manifest line were folded into one",
+      "summary": "`detectProject` deduplicated framework signals by `evidence` alone. A framework's evidence is the first line containing its name, so `pytest` resolves to the `pytest-cov` line when that comes first; both signals then share one evidence string and the second was dropped. A repository listing `pytest-cov` above `pytest` lost `pytest-cov`.",
+      "confirmedBy": "`ecosystem-edges.test.ts` lists `pytest-cov==5` then `pytest==8` and expects both; the result was `['pytest']` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/index.ts",
+          "asserts": "Framework signals are folded by name and evidence together."
+        },
+        {
+          "path": "packages/projects/src/detect/ecosystem-edges.test.ts",
+          "asserts": "`pytest-cov` and `pytest` on adjacent lines are both reported."
+        }
+      ],
+      "resolution": "The identity is `name` plus `evidence`, so only a repeat of the same signal is folded."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-45",
+      "band": "Major",
+      "title": "Weak flakiness and the thirty-passes hollow rule read \"run order\" from random UUIDs",
+      "summary": "`classifyFlakiness` and `trailingPasses` ordered observations with `runId.localeCompare`. Run ids are `randomUUID()` values, so that order is a permutation unrelated to time: the \"last ten runs\" window, the flip count and the \"thirty trailing passes\" test were computed over a shuffled history. A test that went green and stayed green could read as five flips, and a test with thirty recent trivially-true passes could escape the hollow rule because an old failure had the highest id. `RunRecord.startedAt` was available and unused.",
+      "confirmedBy": "`flaky-order.test.ts` supplies runs whose ids alternate against their start times: one chronological flip was counted as five, and a fixture of thirty recent passes after one old failure scored signal 1 instead of 0 once the wiring was removed; both asserted before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/score/flaky.ts",
+          "asserts": "`compareRunOrder` orders by start time then id, undated runs first; `classifyFlakiness` and `trailingPasses` use it."
+        },
+        {
+          "path": "packages/projects/src/score/index.ts",
+          "asserts": "`score` builds the run-start map from `inputs.runs` and passes it to both consumers."
+        },
+        {
+          "path": "packages/projects/src/score/flaky-order.test.ts",
+          "asserts": "Flips, trailing passes and the full `score()` hollow signal follow start time, not id order."
+        }
+      ],
+      "resolution": "Observations carry an optional `startedAt` taken from the run record; ordering falls back to id only for runs with no readable start time, so existing callers that pass none behave as before."
     },
     {
       "id": "MNT-50",
