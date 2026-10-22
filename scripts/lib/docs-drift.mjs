@@ -904,6 +904,13 @@ function deriveEnvVars(read, files) {
   )) {
     names.add(match[1] ?? '');
   }
+  // And every variable the compose file interpolates: `${AUTOMATE_PORT:-8080}` is a setting
+  // an operator sets, though no service declares it under that name.
+  for (const match of read('infra/compose/docker-compose.unified.yml').matchAll(
+    /\$\{([A-Z][A-Z0-9_]*)/g,
+  )) {
+    names.add(match[1] ?? '');
+  }
   return new Set([...names].filter((name) => name !== ''));
 }
 

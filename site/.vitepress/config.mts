@@ -66,6 +66,7 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Guide', link: '/guide/' },
+          { text: 'Install', link: '/guide/install' },
           { text: 'Getting started', link: '/guide/getting-started' },
           { text: 'Core concepts', link: '/guide/concepts' },
           { text: 'Sending results', link: '/guide/sending-results' },
