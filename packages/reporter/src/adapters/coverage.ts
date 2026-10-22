@@ -72,6 +72,20 @@ function report(format: CoverageFormat, files: readonly CoverageFile[]): Coverag
 
 // ─── lcov ────────────────────────────────────────────────────────────────────
 
+/** Count one DA: record into its file. */
+function tallyLcovLine(file: CoverageFile, record: string): void {
+  const hit = lcovLineHit(record);
+  if (hit === null) return;
+  file.totalLines += 1;
+  if (hit) file.coveredLines += 1;
+}
+
+/** For a `DA:<line>,<hits>` record, whether the line was hit; null when the record is malformed. */
+function lcovLineHit(record: string): boolean | null {
+  const [number, hits] = record.split(',');
+  if (number === undefined || hits === undefined) return null;
+  return Number(hits) > 0;
+}
 /**
  * `SF:`/`DA:`/`LF:`/`LH:` records, as Node, Python and coverlet all write them.
  *
@@ -85,25 +99,17 @@ const LCOV_ADAPTER: CoverageAdapter = {
   parse(input) {
     const text = new TextDecoder().decode(input);
     const files: CoverageFile[] = [];
-    let path: string | null = null;
-    let covered = 0;
-    let total = 0;
+    let current: CoverageFile | null = null;
     for (const raw of text.split(/\r?\n/u)) {
       const line = raw.trim();
       if (line.startsWith('SF:')) {
-        if (path !== null) files.push({ path, coveredLines: covered, totalLines: total });
-        path = line.slice(3).trim();
-        covered = 0;
-        total = 0;
+        if (current !== null) files.push(current);
+        current = { path: line.slice(3).trim(), coveredLines: 0, totalLines: 0 };
         continue;
       }
-      if (!line.startsWith('DA:')) continue;
-      const [number, hits] = line.slice(3).split(',');
-      if (number === undefined || hits === undefined) continue;
-      total += 1;
-      if (Number(hits) > 0) covered += 1;
+      if (current !== null && line.startsWith('DA:')) tallyLcovLine(current, line.slice(3));
     }
-    if (path !== null) files.push({ path, coveredLines: covered, totalLines: total });
+    if (current !== null) files.push(current);
     return report('lcov', files);
   },
 };
@@ -261,6 +267,47 @@ const LLVM_ADAPTER: CoverageAdapter = {
 
 // ─── simplecov ───────────────────────────────────────────────────────────────
 
+function parseSimplecovJson(input: Uint8Array): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(input));
+  } catch {
+    throw new Error('simplecov report is not valid JSON');
+  }
+}
+
+/**
+ * The `coverage` map of a SimpleCov document.
+ *
+ * An array is an `object` in JavaScript, and `{"coverage":[]}` would otherwise pass this check
+ * and produce an empty report - "nothing was measured" for a document that is simply not a
+ * SimpleCov file. The document itself is checked first: `null` is valid JSON and has no
+ * `coverage` to read.
+ */
+function simplecovCoverageMap(parsed: unknown): Record<string, Array<number | null>> {
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('simplecov report declares no coverage map');
+  }
+  const coverage = (parsed as { coverage?: unknown }).coverage;
+  if (typeof coverage !== 'object' || coverage === null || Array.isArray(coverage)) {
+    throw new Error('simplecov report declares no coverage map');
+  }
+  return coverage as Record<string, Array<number | null>>;
+}
+
+/** A `null` line has no relevant coverage; every other line counts, and a hit is above zero. */
+function countSimplecovLines(lines: ReadonlyArray<number | null>): {
+  covered: number;
+  total: number;
+} {
+  let covered = 0;
+  let total = 0;
+  for (const line of lines) {
+    if (line === null || line === undefined) continue;
+    total += 1;
+    if (line > 0) covered += 1;
+  }
+  return { covered, total };
+}
 /**
  * SimpleCov's JSON, where every line is an element of a per-file array.
  *
@@ -273,37 +320,11 @@ const SIMPLECOV_ADAPTER: CoverageAdapter = {
   format: 'simplecov',
   mediaTypes: ['application/json'],
   parse(input) {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(new TextDecoder().decode(input));
-    } catch {
-      throw new Error('simplecov report is not valid JSON');
-    }
-    const coverage = (parsed as { coverage?: Record<string, Array<number | null>> }).coverage;
-    // An array is an `object` in JavaScript, and `{"coverage":[]}` would otherwise
-    // pass this check and produce an empty report — "nothing was measured" for a
-    // document that is simply not a SimpleCov file.
-    if (
-      typeof parsed !== 'object' ||
-      parsed === null ||
-      Array.isArray(parsed) ||
-      coverage === undefined ||
-      coverage === null ||
-      typeof coverage !== 'object' ||
-      Array.isArray(coverage)
-    ) {
-      throw new Error('simplecov report declares no coverage map');
-    }
+    const coverage = simplecovCoverageMap(parseSimplecovJson(input));
     const files: CoverageFile[] = [];
     for (const [absolute, lines] of Object.entries(coverage)) {
       if (!Array.isArray(lines)) continue;
-      let covered = 0;
-      let total = 0;
-      for (const line of lines) {
-        if (line === null || line === undefined) continue;
-        total += 1;
-        if (line > 0) covered += 1;
-      }
+      const { covered, total } = countSimplecovLines(lines);
       files.push({
         path: stripRepoPrefixIfPresent(absolute),
         coveredLines: covered,

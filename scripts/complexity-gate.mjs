@@ -34,6 +34,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { grownFiles, worsenedTo } from './lib/complexity-ratchet.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const target = path.join(root, 'docs', 'quality', 'complexity-baseline.json');
@@ -140,37 +141,28 @@ if (write) {
   process.exit(0);
 }
 
-// Counted **per file**, not per file+line.
-//
-// Keying by line made every edit *above* a long function look like new
-// complexity: a function that had not changed at all was reported as "new"
-// because something earlier in the file grew. The ratchet therefore reported
-// growth on nearly any change to those files — wrong rather than noisy, which
-// is the worse failure for a gate nobody can trust.
-const offendersByFile = new Map();
-for (const row of offenders) {
-  offendersByFile.set(row.file, (offendersByFile.get(row.file) ?? 0) + 1);
-}
-const recordedFiles = new Map();
-for (const row of baseline.offenders) {
-  recordedFiles.set(row.file, (recordedFiles.get(row.file) ?? 0) + 1);
-}
-
-if (offendersByFile.size > recordedFiles.size) {
+// Counted **per file**, not per file+line: keying by line made every edit *above* a long
+// function look like new complexity, which reported growth on nearly any change to those files.
+// The comparison itself lives in `lib/complexity-ratchet.mjs`, where it is tested; it used to
+// compare the number of files holding an offender, which passed a second offender in a recorded
+// file, one offender swapped for another, and a function getting worse.
+const grown = grownFiles(offenders, baseline.offenders);
+const worsened = worsenedTo(offenders, baseline.worst);
+if (grown.length > 0 || worsened !== null) {
   console.error('Complexity ratchet failed');
-  console.error(
-    `  ${offendersByFile.size} file(s) now contain a function over a cognitive ` +
-      `complexity of ${ceiling}; the recorded baseline is ${recordedFiles.size}.`,
-  );
-  for (const [file, count] of [...offendersByFile.entries()].filter(
-    ([name, total]) => total > (recordedFiles.get(name) ?? 0),
-  )) {
-    console.error(`  grew: ${file}: ${recordedFiles.get(file) ?? 0} -> ${count}`);
+  for (const { file, recorded, measured } of grown) {
+    console.error(
+      `  grew: ${file}: ${String(recorded)} -> ${String(measured)} function(s) over ${String(ceiling)}`,
+    );
+  }
+  if (worsened !== null) {
+    console.error(
+      `  worst offender is now ${String(worsened)}; the baseline recorded ${baseline.worst}`,
+    );
   }
   console.error('  Refactor, or run `pnpm complexity:baseline` if the increase is intentional.');
   process.exit(1);
 }
-
 console.log(
   `Complexity ratchet passed: ${offenders.length} function(s) over ${ceiling}, ` +
     `baseline ${baseline.count}, worst ${offenders[0]?.complexity ?? 0}.`,

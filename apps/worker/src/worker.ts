@@ -120,15 +120,14 @@ export class ExecutionWorker {
     void active.promise.finally(() => this.active.delete(claim.jobId));
   }
 
-  private async execute(claim: JobClaim, active: ActiveWorkerJob): Promise<void> {
-    let timedOut = false;
-    let leaseLost = false;
+  /** Renew the lease on an interval, one renewal at a time; losing it aborts the job. */
+  private startRenewal(
+    claim: JobClaim,
+    active: ActiveWorkerJob,
+    onLost: () => void,
+  ): ReturnType<typeof setInterval> {
     let renewing = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      active.controller.abort();
-    }, claim.timeoutMs);
-    const renewal = setInterval(() => {
+    return setInterval(() => {
       if (renewing) return;
       renewing = true;
       void this.options.store
@@ -140,7 +139,7 @@ export class ExecutionWorker {
         )
         .then((renewed) => {
           if (!renewed) {
-            leaseLost = true;
+            onLost();
             active.controller.abort();
           }
         })
@@ -149,6 +148,17 @@ export class ExecutionWorker {
           renewing = false;
         });
     }, this.options.leaseRenewIntervalMs);
+  }
+  private async execute(claim: JobClaim, active: ActiveWorkerJob): Promise<void> {
+    let timedOut = false;
+    let leaseLost = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      active.controller.abort();
+    }, claim.timeoutMs);
+    const renewal = this.startRenewal(claim, active, () => {
+      leaseLost = true;
+    });
     // No initialiser: the `try` assigns `status` from the handler's result and the
     // `catch` assigns it from the failure mode, so a starting value could never be
     // read. ESLint 10's `no-useless-assignment` is what found this, and it was right.
@@ -156,18 +166,16 @@ export class ExecutionWorker {
     let error: { code: string; message: string } | undefined;
     try {
       const handled = await this.options.handler!.execute(claim, active.controller.signal);
-      status = leaseLost
-        ? 'runner_lost'
-        : timedOut
-          ? 'timed_out'
-          : active.controller.signal.aborted
-            ? 'cancelled'
-            : handled;
+      status = endedStatus(
+        { leaseLost, timedOut, aborted: active.controller.signal.aborted },
+        handled,
+      );
+
       if (status !== 'completed' && status !== 'requeue') {
         error = { code: status.toUpperCase(), message: `Job ended as ${status}` };
       }
     } catch {
-      status = leaseLost ? 'runner_lost' : timedOut ? 'timed_out' : 'infra_failed';
+      status = failedStatus(leaseLost, timedOut);
       error = { code: 'WORKER_INFRA_FAILED', message: 'Job handler failed' };
     } finally {
       clearTimeout(timeout);
@@ -207,4 +215,20 @@ export class ExecutionWorker {
       this.lifecycle.signal.addEventListener('abort', done, { once: true });
     });
   }
+}
+
+/** How a handler that returned ended: a lost lease, the deadline or an abort outrank its result. */
+function endedStatus(
+  flags: { leaseLost: boolean; timedOut: boolean; aborted: boolean },
+  handled: JobResultStatus,
+): JobResultStatus {
+  if (flags.leaseLost) return 'runner_lost';
+  if (flags.timedOut) return 'timed_out';
+  return flags.aborted ? 'cancelled' : handled;
+}
+
+/** How a handler that threw ended. */
+function failedStatus(leaseLost: boolean, timedOut: boolean): JobResultStatus {
+  if (leaseLost) return 'runner_lost';
+  return timedOut ? 'timed_out' : 'infra_failed';
 }

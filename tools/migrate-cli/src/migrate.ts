@@ -534,6 +534,35 @@ const WORKSPACE_COLUMN: ColumnMapping = {
 
 const BLOCKED_TABLES = new Set(['users', 'saml_config', 'saml_configs', 'sp_private_key']);
 
+function assertNoBlockedTables(existingTables: ReadonlySet<string>): void {
+  const blockedTables = [...existingTables].filter((table) => BLOCKED_TABLES.has(table));
+  if (blockedTables.length > 0) {
+    throw new Error(
+      `Blocked source tables require an approved transformation: ${blockedTables.join(', ')}`,
+    );
+  }
+}
+
+/** A scoped table cannot be written without a target workspace, so a real run must name one. */
+function assertWorkspaceForScoped(
+  scoped: readonly TableMapping[],
+  options: Pick<MigrateOptions, 'dryRun' | 'workspaceId'>,
+): void {
+  if (!options.dryRun && scoped.length > 0 && !options.workspaceId?.trim()) {
+    throw new Error(
+      `A target workspace is required to import ${scoped.map((mapping) => mapping.table).join(', ')}: ` +
+        'every one carries workspace_id NOT NULL. Pass --workspace <id>.',
+    );
+  }
+}
+
+function logRowErrors(errors: readonly MigrationErrorReport[], log: (message: string) => void) {
+  if (errors.length === 0) return;
+  log('Migration completed with row errors:');
+  for (const error of errors) {
+    log(`${error.table}:${error.id} ${error.error}`);
+  }
+}
 export async function migrateToPostgres(options: MigrateOptions): Promise<MigrationReport> {
   const log = options.log ?? console.info;
   const sqlite = new Database(options.from, { readonly: true, fileMustExist: true });
@@ -542,12 +571,8 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
 
   try {
     const existingTables = getExistingTables(sqlite);
-    const blockedTables = [...existingTables].filter((table) => BLOCKED_TABLES.has(table));
-    if (blockedTables.length > 0) {
-      throw new Error(
-        `Blocked source tables require an approved transformation: ${blockedTables.join(', ')}`,
-      );
-    }
+    assertNoBlockedTables(existingTables);
+
     const tables = TABLES.filter((mapping) => existingTables.has(mapping.table));
     const skipped = Object.entries(SUPERSEDED_SOURCE_TABLES)
       .filter(([name]) => existingTables.has(name))
@@ -563,12 +588,7 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
     // Before any row is read: a scoped table with no target workspace cannot be written
     // correctly, and finding that out row by row would report every row as a failure.
     const scoped = effectiveTables.filter((mapping) => WORKSPACE_SCOPED_TABLES.has(mapping.table));
-    if (!options.dryRun && scoped.length > 0 && !options.workspaceId?.trim()) {
-      throw new Error(
-        `A target workspace is required to import ${scoped.map((mapping) => mapping.table).join(', ')}: ` +
-          'every one carries workspace_id NOT NULL. Pass --workspace <id>.',
-      );
-    }
+    assertWorkspaceForScoped(scoped, options);
 
     for (const mapping of effectiveTables) {
       reports.push({
@@ -603,12 +623,7 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
       await pool.end();
     }
 
-    if (errors.length > 0) {
-      log('Migration completed with row errors:');
-      for (const error of errors) {
-        log(`${error.table}:${error.id} ${error.error}`);
-      }
-    }
+    logRowErrors(errors, log);
 
     return { dryRun: false, tables: reports, errors, ...(skipped.length > 0 ? { skipped } : {}) };
   } finally {
@@ -746,39 +761,37 @@ function buildInsertQuery(
 }
 
 function convertValue(value: SqliteValue, mapping: ColumnMapping, workspaceId: string): unknown {
-  if (mapping.kind === 'workspace') {
-    // Fail closed: a row is never moved into a workspace its own data does not name. The
-    // target is non-empty here — `migrateToPostgres` refuses to write a scoped table
-    // without one before reading a row.
-    if (value === null || value === '' || value === workspaceId) return workspaceId;
-    throw new Error(
-      `${mapping.sqlite} names workspace "${String(value)}", not the target workspace "${workspaceId}"`,
-    );
-  }
+  if (mapping.kind === 'workspace') return workspaceValue(value, mapping, workspaceId);
+  if (value === null) return null;
+  if (mapping.kind === 'json') return parseJsonColumn(value, mapping);
+  if (mapping.kind === 'boolean') return booleanValue(value);
+  return value;
+}
 
-  if (value === null) {
-    return null;
-  }
+/**
+ * Fail closed: a row is never moved into a workspace its own data does not name. The
+ * target is non-empty here — `migrateToPostgres` refuses to write a scoped table
+ * without one before reading a row.
+ */
+function workspaceValue(value: SqliteValue, mapping: ColumnMapping, workspaceId: string): string {
+  if (value === null || value === '' || value === workspaceId) return workspaceId;
+  throw new Error(
+    `${mapping.sqlite} names workspace "${String(value)}", not the target workspace "${workspaceId}"`,
+  );
+}
 
-  if (mapping.kind === 'json') {
-    if (typeof value !== 'string') {
-      throw new Error(`Expected JSON text in ${mapping.sqlite}`);
-    }
-    return JSON.parse(value) as unknown;
+function parseJsonColumn(value: SqliteValue, mapping: ColumnMapping): unknown {
+  if (typeof value !== 'string') {
+    throw new Error(`Expected JSON text in ${mapping.sqlite}`);
   }
+  return JSON.parse(value) as unknown;
+}
 
-  if (mapping.kind === 'boolean') {
-    if (typeof value === 'number') {
-      return value !== 0;
-    }
-    if (typeof value === 'bigint') {
-      return value !== 0n;
-    }
-    if (typeof value === 'string') {
-      return value === 'true' || value === '1';
-    }
-  }
-
+/** SQLite has no boolean: 0/1 integers or the text `true`/`1`. Anything else passes through. */
+function booleanValue(value: SqliteValue): unknown {
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'bigint') return value !== 0n;
+  if (typeof value === 'string') return value === 'true' || value === '1';
   return value;
 }
 

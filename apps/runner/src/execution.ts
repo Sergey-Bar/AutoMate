@@ -280,174 +280,60 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
     const redactions = [...new Set([...this.redactions, ...(context.redactions ?? [])])];
     let workspacePath: string | undefined;
     try {
-      const project = context.project ?? 'smoke-pass';
-      const target = this.validateTarget(
-        context.targetUrl ?? this.options.allowedTargetUrls[0] ?? '',
-      );
-      if (!this.allowedProjects.has(project)) {
-        throw new RunnerConfigurationError(`Playwright project is not allowlisted: ${project}`);
-      }
-      if (!Number.isInteger(context.deadlineMs) || context.deadlineMs < 1) {
-        throw new RunnerConfigurationError('Execution timeout must be a positive integer');
-      }
-      const configPath = resolve(this.projectRoot, 'playwright.config.ts');
-      if (!existsSync(configPath) || !existsSync(this.reporterPath)) {
-        throw new RunnerConfigurationError('Playwright project or reporter is not installed');
-      }
-      if (this.reporterPath.includes(',')) {
-        throw new RunnerConfigurationError('Reporter path cannot contain a comma');
-      }
+      const request = this.validateRequest(context);
 
       await mkdir(this.workspaceRoot, { recursive: true });
       workspacePath = await mkdtemp(
         join(this.workspaceRoot, `${this.safeSegment(context.jobId)}-`),
       );
-      const outputDirectory = join(workspacePath, 'test-results');
-      const reportDirectory = join(workspacePath, 'reports');
-      const eventPath = join(workspacePath, 'events.ndjson');
+      const layout = workspaceLayout(workspacePath);
       await Promise.all([
-        mkdir(outputDirectory, { recursive: true }),
-        mkdir(reportDirectory, { recursive: true }),
-        writeFile(eventPath, ''),
+        mkdir(layout.outputDirectory, { recursive: true }),
+        mkdir(layout.reportDirectory, { recursive: true }),
+        writeFile(layout.eventPath, ''),
       ]);
 
-      const args = [
-        this.playwrightCliPath,
-        'test',
-        '--config',
-        configPath,
-        '--project',
-        project,
-        '--output',
-        outputDirectory,
-        '--reporter',
-        `list,${this.reporterPath},json,junit`,
-      ];
-      const child = this.spawnProcess(process.execPath, args, {
-        cwd: this.projectRoot,
-        env: {
-          ...sanitizeEnvironment(this.environment, redactions),
-          AUTOMATE_BASE_URL: target,
-          AUTOMATE_OUTPUT_DIR: outputDirectory,
-          AUTOMATE_RUNNER_EVENTS_PATH: eventPath,
-          PLAYWRIGHT_JSON_OUTPUT_NAME: join(reportDirectory, 'playwright-report.json'),
-          PLAYWRIGHT_JUNIT_OUTPUT_NAME: join(reportDirectory, 'junit.xml'),
-          CI: '1',
-          FORCE_COLOR: '0',
-        },
-        detached: process.platform !== 'win32',
-        shell: false,
-        stdio: 'pipe',
-        windowsHide: true,
-      });
-
-      let offset = 0;
-      let eventBuffer = '';
-      let deliveryError: unknown;
-      let deliveryChain = Promise.resolve();
-      const flushEvents = async (): Promise<void> => {
-        const data = await readFile(eventPath, 'utf8');
-        if (data.length <= offset && !eventBuffer) return;
-        const chunk = eventBuffer + data.slice(offset);
-        offset = data.length;
-        const parts = chunk.split(/\r?\n/u);
-        eventBuffer = data.endsWith('\n') ? '' : (parts.pop() ?? '');
-        for (const line of parts.filter(Boolean)) {
-          const event = eventLineSchema.parse(JSON.parse(line) as unknown);
-          if (context.onEvent) await context.onEvent(event);
-        }
-      };
-      const queueFlush = (): void => {
-        deliveryChain = deliveryChain.then(flushEvents).catch((error: unknown) => {
-          deliveryError ??= error;
-        });
-      };
-      const watcher = watch(eventPath, { encoding: 'utf8' }, queueFlush);
-      let stdout = '';
-      let stderr = '';
-      let stdoutBytes = 0;
-      let stderrBytes = 0;
-      child.stdout.on('data', (chunk: Buffer | string) => {
-        const text = chunk.toString();
-        if (stdoutBytes < this.options.logMaxBytes) {
-          const remaining = this.options.logMaxBytes - stdoutBytes;
-          const accepted = text.slice(0, remaining);
-          stdout += accepted;
-          stdoutBytes += Buffer.byteLength(accepted);
-        }
-      });
-      child.stderr.on('data', (chunk: Buffer | string) => {
-        const text = chunk.toString();
-        if (stderrBytes < this.options.logMaxBytes) {
-          const remaining = this.options.logMaxBytes - stderrBytes;
-          const accepted = text.slice(0, remaining);
-          stderr += accepted;
-          stderrBytes += Buffer.byteLength(accepted);
-        }
-      });
-
-      let timedOut = false;
-      let spawnError: Error | undefined;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        void this.terminateProcess(child);
-      }, context.deadlineMs);
-      const abort = (): void => {
-        void this.terminateProcess(child);
-      };
-      context.signal.addEventListener('abort', abort, { once: true });
-      if (context.signal.aborted) abort();
-
-      const closed = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-        (resolveClose) => {
-          child.once('error', (error) => {
-            spawnError = error;
-          });
-          child.once('close', (code, signal) => resolveClose({ code, signal }));
-        },
+      const child = this.spawnProcess(
+        process.execPath,
+        this.playwrightArguments(request, layout),
+        this.spawnOptions(request.target, layout, redactions),
       );
-      clearTimeout(timer);
-      context.signal.removeEventListener('abort', abort);
-      watcher.close();
-      queueFlush();
-      await deliveryChain;
-      await flushEvents().catch((error: unknown) => {
-        deliveryError ??= error;
-      });
+      const pump = createEventPump(layout.eventPath, context.onEvent);
+      const stdout = new CappedLog(this.options.logMaxBytes);
+      const stderr = new CappedLog(this.options.logMaxBytes);
+      child.stdout.on('data', (chunk: Buffer | string) => stdout.append(chunk));
+      child.stderr.on('data', (chunk: Buffer | string) => stderr.append(chunk));
 
-      stdout = this.redact(stdout, redactions);
-      stderr = this.redact(stderr, redactions);
+      const exit = await this.superviseChild(child, context);
+      const deliveryError = await pump.finish();
+
+      const stdoutText = this.redact(stdout.text, redactions);
+      const stderrText = this.redact(stderr.text, redactions);
       await Promise.all([
-        writeFile(join(workspacePath, 'stdout.log'), stdout),
-        writeFile(join(workspacePath, 'stderr.log'), stderr),
+        writeFile(join(workspacePath, 'stdout.log'), stdoutText),
+        writeFile(join(workspacePath, 'stderr.log'), stderrText),
       ]);
       const artifacts = await this.collectArtifacts(workspacePath);
-      const status: ExecutionStatus = deliveryError
-        ? 'infra_failed'
-        : timedOut
-          ? 'timed_out'
-          : context.signal.aborted
-            ? 'cancelled'
-            : spawnError
-              ? 'infra_failed'
-              : closed.code === 0
-                ? 'passed'
-                : closed.code === 1
-                  ? 'failed'
-                  : 'infra_failed';
+      const status = executionStatus({
+        deliveryError,
+        timedOut: exit.timedOut,
+        aborted: context.signal.aborted,
+        spawnError: exit.spawnError,
+        code: exit.code,
+      });
       const errorMessage =
         deliveryError ??
-        spawnError ??
+        exit.spawnError ??
         (status === 'infra_failed'
-          ? `Playwright exited with ${String(closed.code ?? closed.signal)}`
+          ? `Playwright exited with ${String(exit.code ?? exit.signal)}`
           : undefined);
       return {
         status,
         resultPath: artifacts.find((artifact) => artifact.kind === 'playwright-json')?.path ?? '',
         workspacePath,
         artifacts,
-        stdout,
-        stderr,
+        stdout: stdoutText,
+        stderr: stderrText,
         error: errorMessage
           ? {
               code: status === 'infra_failed' ? 'RUNNER_INFRA_FAILED' : 'EXECUTION_ERROR',
@@ -463,6 +349,104 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
         this.redact(sanitizeError(error, redactions), redactions),
       );
     }
+  }
+
+  /** Everything that must hold before a workspace is created, in the order it is checked. */
+  private validateRequest(context: ExecutionContext): {
+    project: string;
+    target: string;
+    configPath: string;
+  } {
+    const project = context.project ?? 'smoke-pass';
+    const target = this.validateTarget(
+      context.targetUrl ?? this.options.allowedTargetUrls[0] ?? '',
+    );
+    if (!this.allowedProjects.has(project)) {
+      throw new RunnerConfigurationError(`Playwright project is not allowlisted: ${project}`);
+    }
+    if (!Number.isInteger(context.deadlineMs) || context.deadlineMs < 1) {
+      throw new RunnerConfigurationError('Execution timeout must be a positive integer');
+    }
+    const configPath = resolve(this.projectRoot, 'playwright.config.ts');
+    if (!existsSync(configPath) || !existsSync(this.reporterPath)) {
+      throw new RunnerConfigurationError('Playwright project or reporter is not installed');
+    }
+    if (this.reporterPath.includes(',')) {
+      throw new RunnerConfigurationError('Reporter path cannot contain a comma');
+    }
+    return { project, target, configPath };
+  }
+
+  private playwrightArguments(
+    request: { project: string; configPath: string },
+    layout: WorkspaceLayout,
+  ): string[] {
+    return [
+      this.playwrightCliPath,
+      'test',
+      '--config',
+      request.configPath,
+      '--project',
+      request.project,
+      '--output',
+      layout.outputDirectory,
+      '--reporter',
+      `list,${this.reporterPath},json,junit`,
+    ];
+  }
+
+  private spawnOptions(
+    target: string,
+    layout: WorkspaceLayout,
+    redactions: readonly string[],
+  ): Parameters<ProcessSpawner>[2] {
+    return {
+      cwd: this.projectRoot,
+      env: {
+        ...sanitizeEnvironment(this.environment, redactions),
+        AUTOMATE_BASE_URL: target,
+        AUTOMATE_OUTPUT_DIR: layout.outputDirectory,
+        AUTOMATE_RUNNER_EVENTS_PATH: layout.eventPath,
+        PLAYWRIGHT_JSON_OUTPUT_NAME: join(layout.reportDirectory, 'playwright-report.json'),
+        PLAYWRIGHT_JUNIT_OUTPUT_NAME: join(layout.reportDirectory, 'junit.xml'),
+        CI: '1',
+        FORCE_COLOR: '0',
+      },
+      detached: process.platform !== 'win32',
+      shell: false,
+      stdio: 'pipe',
+      windowsHide: true,
+    };
+  }
+
+  /** Wait for the child to close, killing it at the deadline or on abort. */
+  private async superviseChild(
+    child: ChildProcessWithoutNullStreams,
+    context: ExecutionContext,
+  ): Promise<ChildExit> {
+    let timedOut = false;
+    let spawnError: Error | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void this.terminateProcess(child);
+    }, context.deadlineMs);
+    const abort = (): void => {
+      void this.terminateProcess(child);
+    };
+    context.signal.addEventListener('abort', abort, { once: true });
+    if (context.signal.aborted) abort();
+
+    const closed = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolveClose) => {
+        child.once('error', (error) => {
+          spawnError = error;
+        });
+        child.once('close', (code, signal) => resolveClose({ code, signal }));
+      },
+    );
+    clearTimeout(timer);
+    context.signal.removeEventListener('abort', abort);
+    return { ...closed, timedOut, spawnError };
   }
 
   async cleanup(workspacePath: string): Promise<void> {
@@ -521,4 +505,105 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
     }
     return result;
   }
+}
+
+interface WorkspaceLayout {
+  outputDirectory: string;
+  reportDirectory: string;
+  eventPath: string;
+}
+
+function workspaceLayout(workspacePath: string): WorkspaceLayout {
+  return {
+    outputDirectory: join(workspacePath, 'test-results'),
+    reportDirectory: join(workspacePath, 'reports'),
+    eventPath: join(workspacePath, 'events.ndjson'),
+  };
+}
+
+interface ChildExit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  spawnError: Error | undefined;
+}
+
+/** A log that keeps the first `maxBytes` bytes of what it is given and drops the rest. */
+class CappedLog {
+  text = '';
+  private bytes = 0;
+
+  constructor(private readonly maxBytes: number) {}
+
+  append(chunk: Buffer | string): void {
+    if (this.bytes >= this.maxBytes) return;
+    const accepted = chunk.toString().slice(0, this.maxBytes - this.bytes);
+    this.text += accepted;
+    this.bytes += Buffer.byteLength(accepted);
+  }
+}
+
+/**
+ * Delivers the reporter's NDJSON events to `onEvent` in order as the file grows.
+ *
+ * Deliveries are chained, so a slow `onEvent` never overlaps itself, and the first failure is
+ * kept and reported by `finish` rather than thrown into a file-watcher callback.
+ */
+function createEventPump(
+  eventPath: string,
+  onEvent: ExecutionContext['onEvent'],
+): { finish: () => Promise<unknown> } {
+  let offset = 0;
+  let eventBuffer = '';
+  let deliveryError: unknown;
+  let deliveryChain = Promise.resolve();
+  const flushEvents = async (): Promise<void> => {
+    const data = await readFile(eventPath, 'utf8');
+    if (data.length <= offset && !eventBuffer) return;
+    const chunk = eventBuffer + data.slice(offset);
+    offset = data.length;
+    const parts = chunk.split(/\r?\n/u);
+    eventBuffer = data.endsWith('\n') ? '' : (parts.pop() ?? '');
+    for (const line of parts.filter(Boolean)) {
+      const event = eventLineSchema.parse(JSON.parse(line) as unknown);
+      if (onEvent) await onEvent(event);
+    }
+  };
+  const queueFlush = (): void => {
+    deliveryChain = deliveryChain.then(flushEvents).catch((error: unknown) => {
+      deliveryError ??= error;
+    });
+  };
+  const watcher = watch(eventPath, { encoding: 'utf8' }, queueFlush);
+  return {
+    finish: async () => {
+      watcher.close();
+      queueFlush();
+      await deliveryChain;
+      await flushEvents().catch((error: unknown) => {
+        deliveryError ??= error;
+      });
+      return deliveryError;
+    },
+  };
+}
+
+/**
+ * How the run ended. A delivery failure outranks everything because results the API never saw
+ * cannot be called a pass; then the deadline, then an abort, then a child that never started.
+ * Exit code 0 is a pass, 1 is the tests failing, and anything else is the runner's own failure.
+ */
+function executionStatus(outcome: {
+  deliveryError: unknown;
+  timedOut: boolean;
+  aborted: boolean;
+  spawnError: Error | undefined;
+  code: number | null;
+}): ExecutionStatus {
+  if (outcome.deliveryError) return 'infra_failed';
+  if (outcome.timedOut) return 'timed_out';
+  if (outcome.aborted) return 'cancelled';
+  if (outcome.spawnError) return 'infra_failed';
+  if (outcome.code === 0) return 'passed';
+  return outcome.code === 1 ? 'failed' : 'infra_failed';
 }

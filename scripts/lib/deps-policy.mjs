@@ -176,6 +176,50 @@ function importerSection(lines) {
 }
 
 /**
+ * Where the importer parse is: the dependency group it is inside and the dependency it is
+ * reading. The group is the literal union, not `string`: `ImporterDependencies` is a typed
+ * record rather than an index signature, so a `string` cannot index it - which is the point,
+ * the group is one of four known names and the type says so.
+ *
+ * @typedef {{ group: (typeof DEPENDENCY_GROUPS)[number] | null, dependency: string | null }} ImporterCursor
+ */
+
+/**
+ * Fold one line of an importer into the result, moving the cursor as headings go by.
+ *
+ * @param {ImporterDependencies} importer
+ * @param {ImporterCursor} cursor
+ * @param {string} line
+ */
+function applyImporterLine(importer, cursor, line) {
+  if (/^ {4}\S/.test(line)) {
+    const candidate = line.trim().replace(':', '');
+    cursor.group = /** @type {(typeof DEPENDENCY_GROUPS)[number] | null} */ (
+      DEPENDENCY_GROUPS.find((name) => name === candidate) ?? null
+    );
+    cursor.dependency = null;
+    return;
+  }
+  const { group } = cursor;
+  if (group === null) return;
+
+  if (/^ {6}\S/.test(line) && line.trimEnd().endsWith(':')) {
+    cursor.dependency = unquote(line.trim().slice(0, -1));
+    importer[group][cursor.dependency] = { specifier: '', version: '' };
+    return;
+  }
+  if (cursor.dependency === null) return;
+
+  const entry = /** @type {ResolvedDependency} */ (importer[group][cursor.dependency]);
+  const specifier = /^ {8}specifier:\s*(.+)$/.exec(line);
+  if (specifier) {
+    entry.specifier = unquote(specifier[1]);
+    return;
+  }
+  const version = /^ {8}version:\s*(.+)$/.exec(line);
+  if (version) entry.version = bareVersion(unquote(version[1]));
+}
+/**
  * One importer's four groups, from the lines beneath its key.
  *
  * Split out of `parseLockfile` because a four-level state machine in one function is a
@@ -192,42 +236,9 @@ function readImporter(lines) {
     optionalDependencies: {},
     peerDependencies: {},
   };
-  // The literal union, not `string`. `ImporterDependencies` is a typed record rather
-  // than an index signature, so a `string` cannot index it — which is the point: the
-  // group is one of four known names, and the type says so.
-  /** @type {(typeof DEPENDENCY_GROUPS)[number] | null} */
-  let group = null;
-  /** @type {string | null} */
-  let dependency = null;
-
-  for (const line of lines) {
-    if (/^ {4}\S/.test(line)) {
-      const candidate = line.trim().replace(':', '');
-      group = /** @type {(typeof DEPENDENCY_GROUPS)[number] | null} */ (
-        DEPENDENCY_GROUPS.find((name) => name === candidate) ?? null
-      );
-      dependency = null;
-      continue;
-    }
-    if (group === null) continue;
-
-    if (/^ {6}\S/.test(line) && line.trimEnd().endsWith(':')) {
-      dependency = unquote(line.trim().slice(0, -1));
-      importer[group][dependency] = { specifier: '', version: '' };
-      continue;
-    }
-    if (dependency === null) continue;
-
-    const entry = /** @type {ResolvedDependency} */ (importer[group][dependency]);
-    const specifier = /^ {8}specifier:\s*(.+)$/.exec(line);
-    if (specifier) {
-      entry.specifier = unquote(specifier[1]);
-      continue;
-    }
-    const version = /^ {8}version:\s*(.+)$/.exec(line);
-    if (version) entry.version = bareVersion(unquote(version[1]));
-  }
-
+  /** @type {ImporterCursor} */
+  const cursor = { group: null, dependency: null };
+  for (const line of lines) applyImporterLine(importer, cursor, line);
   return importer;
 }
 

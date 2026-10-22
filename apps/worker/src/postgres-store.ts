@@ -87,7 +87,7 @@ function terminalJobState(status: JobResultStatus): 'completed' | 'failed' | 'ca
 /**
  * Folds the worker's result vocabulary into a run phase.
  *
- * The worker's vocabulary is **not** a phase vocabulary — `JobResultStatus` names
+ * The worker's vocabulary is **not** a phase vocabulary â€” `JobResultStatus` names
  * job outcomes, and `'completed'` is not a `RunPhase`. So the fold belongs here,
  * where the vocabulary is known, while the derivation that follows belongs in
  * `@automate/orchestration`.
@@ -95,7 +95,7 @@ function terminalJobState(status: JobResultStatus): 'completed' | 'failed' | 'ca
  * It is a closed, total map with no fallthrough, because a fallthrough is what
  * produced the defect: an unmatched status became `phase: status,
  * outcome: status`, and `'requeue'` is not a phase at all, so the pair violated
- * `runs_phase_outcome_check` — an unhandled 500 on the recovery path for a
+ * `runs_phase_outcome_check` â€” an unhandled 500 on the recovery path for a
  * well-formed request.
  */
 function phaseForResult(status: JobResultStatus): RunPhase {
@@ -125,7 +125,7 @@ function phaseForResult(status: JobResultStatus): RunPhase {
  * The run triple for a finished job, derived as one value.
  *
  * `deriveRunState` is the authority and writes `phase`, `outcome` and `status`
- * together, which is what makes `runs_phase_outcome_check` unreachable — the same
+ * together, which is what makes `runs_phase_outcome_check` unreachable â€” the same
  * thing `drizzle-execution-store.ts` does, and what this path did not.
  */
 function terminalRunState(status: JobResultStatus): DerivedRunState {
@@ -374,60 +374,47 @@ export class PostgresExecutionStore implements ExecutionStore {
         [now],
       );
       const recovered: LeaseRecovery[] = [];
-      for (const row of expired.rows) {
-        const configuredMax = row.metadata['maxAttempts'];
-        const maxAttempts =
-          typeof configuredMax === 'number' && configuredMax > 0
-            ? Math.floor(configuredMax)
-            : this.maxAttempts;
-        const requeued = !row.cancel_requested_at && row.attempt < maxAttempts;
-        const nextAttempt = requeued ? row.attempt + 1 : row.attempt;
-        await client.query(
-          `UPDATE execution_jobs
-           SET state = $2, attempt = $3, available_at = $4, lease_id = NULL,
-               lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
-               error_code = 'RUNNER_LOST', error_message = 'Runner lease expired', updated_at = $5
-           WHERE id = $1::uuid`,
-          [
-            row.id,
-            requeued ? 'queued' : row.cancel_requested_at ? 'cancelled' : 'failed',
-            nextAttempt,
-            new Date(now.getTime() + this.retryBackoffMs),
-            now,
-          ],
-        );
-        await client.query(
-          `UPDATE runs
-           SET attempt = $2, phase = $3, outcome = $4, status = $5,
-               runner_id = NULL, error_code = 'RUNNER_LOST',
-               error_message = 'Runner lease expired', updated_at = $6,
-               -- A run the reaper ends is ended: dated like \`completeJob\` dates one,
-               -- whether it ended lost or cancelled. A requeued run is not ended.
-               completed_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE completed_at END,
-               finished_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE finished_at END
-           WHERE id = $1::uuid`,
-          [
-            row.run_id,
-            nextAttempt,
-            requeued ? 'queued' : row.cancel_requested_at ? 'cancelled' : 'runner_lost',
-            requeued ? null : row.cancel_requested_at ? 'cancelled' : 'runner_lost',
-            requeued ? 'running' : 'failed',
-            now,
-          ],
-        );
-        recovered.push({
-          jobId: row.id,
-          runId: row.run_id,
-          previousOwner: row.lease_owner ?? 'unknown',
-          requeued,
-          nextAttempt,
-          phase: requeued ? 'queued' : row.cancel_requested_at ? 'cancelled' : 'runner_lost',
-        });
-      }
+      for (const row of expired.rows) recovered.push(await this.recoverLease(client, row, now));
       return recovered;
     });
   }
 
+  /** Put one expired lease's job and run into the state `planRecovery` chose for it. */
+  private async recoverLease(
+    client: PoolClient,
+    row: RecoveryRow,
+    now: Date,
+  ): Promise<LeaseRecovery> {
+    const plan = planRecovery(row, maxAttemptsFor(row.metadata, this.maxAttempts));
+    await client.query(
+      `UPDATE execution_jobs
+       SET state = $2, attempt = $3, available_at = $4, lease_id = NULL,
+           lease_owner = NULL, lease_expires_at = NULL, heartbeat_at = NULL,
+           error_code = 'RUNNER_LOST', error_message = 'Runner lease expired', updated_at = $5
+       WHERE id = $1::uuid`,
+      [row.id, plan.jobState, plan.nextAttempt, new Date(now.getTime() + this.retryBackoffMs), now],
+    );
+    await client.query(
+      `UPDATE runs
+       SET attempt = $2, phase = $3, outcome = $4, status = $5,
+           runner_id = NULL, error_code = 'RUNNER_LOST',
+           error_message = 'Runner lease expired', updated_at = $6,
+           -- A run the reaper ends is ended: dated like \`completeJob\` dates one,
+           -- whether it ended lost or cancelled. A requeued run is not ended.
+           completed_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE completed_at END,
+           finished_at = CASE WHEN $3 IN ('runner_lost', 'cancelled') THEN $6 ELSE finished_at END
+       WHERE id = $1::uuid`,
+      [row.run_id, plan.nextAttempt, plan.phase, plan.outcome, plan.runStatus, now],
+    );
+    return {
+      jobId: row.id,
+      runId: row.run_id,
+      previousOwner: row.lease_owner ?? 'unknown',
+      requeued: plan.requeued,
+      nextAttempt: plan.nextAttempt,
+      phase: plan.phase,
+    };
+  }
   async listDueSchedules(now: Date, limit: number): Promise<WorkerSchedule[]> {
     const result = await this.pool.query<ScheduleRow>(
       `SELECT id, workspace_id, cron_expr, run_options, enabled,
@@ -453,8 +440,8 @@ export class PostgresExecutionStore implements ExecutionStore {
       // whichever workspace the blob claimed.
       //
       // Refusing is the only safe response. Silently preferring the column would mean a
-      // row whose payload disagrees still runs — in a workspace its author did not name
-      // — and the disagreement would stay invisible forever. Throwing stops the whole
+      // row whose payload disagrees still runs â€” in a workspace its author did not name
+      // â€” and the disagreement would stay invisible forever. Throwing stops the whole
       // poll, which is blunt on purpose: a schedule that cannot be trusted must not be
       // enqueued, and a loud failure is recoverable where a cross-tenant run is not.
       if (declaredWorkspaceId !== row.workspace_id) {
@@ -660,4 +647,45 @@ export class PostgresExecutionStore implements ExecutionStore {
       client.release();
     }
   }
+}
+
+/** A job may declare its own attempt budget in its run metadata; otherwise the store's applies. */
+function maxAttemptsFor(metadata: Record<string, unknown>, fallback: number): number {
+  const configured = metadata['maxAttempts'];
+  return typeof configured === 'number' && configured > 0 ? Math.floor(configured) : fallback;
+}
+
+interface RecoveryPlan {
+  requeued: boolean;
+  nextAttempt: number;
+  jobState: 'queued' | 'cancelled' | 'failed';
+  phase: LeaseRecovery['phase'];
+  outcome: 'cancelled' | 'runner_lost' | null;
+  runStatus: 'running' | 'failed';
+}
+
+/**
+ * What becomes of a job whose lease expired: requeued while it has attempts left and nobody asked
+ * to cancel it; cancelled if a cancel was pending; otherwise lost.
+ */
+function planRecovery(row: RecoveryRow, maxAttempts: number): RecoveryPlan {
+  if (!row.cancel_requested_at && row.attempt < maxAttempts) {
+    return {
+      requeued: true,
+      nextAttempt: row.attempt + 1,
+      jobState: 'queued',
+      phase: 'queued',
+      outcome: null,
+      runStatus: 'running',
+    };
+  }
+  const cancelled = Boolean(row.cancel_requested_at);
+  return {
+    requeued: false,
+    nextAttempt: row.attempt,
+    jobState: cancelled ? 'cancelled' : 'failed',
+    phase: cancelled ? 'cancelled' : 'runner_lost',
+    outcome: cancelled ? 'cancelled' : 'runner_lost',
+    runStatus: 'failed',
+  };
 }

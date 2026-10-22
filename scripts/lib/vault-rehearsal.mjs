@@ -96,6 +96,68 @@ const REASON_ADVICE = {
  */
 
 /**
+ * Open one row, turning a throw into an unreadable-row outcome.
+ *
+ * @param {(row: SealedRow) => OpenOutcome | Promise<OpenOutcome>} open
+ * @param {SealedRow} row
+ * @returns {Promise<OpenOutcome>}
+ */
+async function openSafely(open, row) {
+  /** @type {OpenOutcome} */
+  let outcome;
+  try {
+    // Awaited because opening a sealed row is asynchronous: the key derivation
+    // runs off the event loop (ledger Q-53). Without the await a rejected promise
+    // would escape the `catch` below and abort the whole run with an unhandled
+    // rejection, instead of being recorded as the unreadable row it is — which
+    // is the entire purpose of this loop.
+    outcome = await open(row);
+  } catch (cause) {
+    // An opener that throws is a broken opener, not a broken row, and the two must
+    // not be conflated: a thrown error on the first row would otherwise look like one
+    // unreadable row rather than a harness that cannot do its job.
+    outcome = {
+      ok: false,
+      reason: FailureReason.UNREADABLE,
+      detail: `the opener threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+    };
+  }
+  return outcome;
+}
+
+/**
+ * Why a rehearsal that opened these rows cannot pass on its own count.
+ *
+ * @param {number} rowCount
+ * @param {number} verified
+ * @returns {string[]}
+ */
+function rehearsalProblems(rowCount, verified) {
+  /** @type {string[]} */
+  const problems = [];
+  if (rowCount === 0) {
+    // Refused rather than passed. A rehearsal over no rows is either an empty table or
+    // a query that matched nothing, and the two are indistinguishable from here — and
+    // the second is exactly the state in which a destructive migration would be declared
+    // safe and then destroy data nobody was watching.
+    problems.push(
+      'no rows were verified. An empty table and a query that matched nothing look ' +
+        'identical from here, and declaring a destructive migration safe on the strength ' +
+        'of a rehearsal that opened nothing is the failure this check exists to prevent.',
+    );
+  }
+
+  if (verified === 0 && rowCount > 0) {
+    problems.push(
+      'no row could be opened, so the vault key is the first thing to check — a rotated ' +
+        'secret fails every row identically and is a different problem from a ' +
+        'migration that broke the binding.',
+    );
+  }
+  return problems;
+}
+
+/**
  * Open every sealed row and report every one that could not be opened.
  *
  * @param {ReadonlyArray<SealedRow>} rows every row to verify — completeness is the
@@ -112,26 +174,7 @@ export async function verifySealedRows(rows, open) {
   let verified = 0;
 
   for (const row of rows) {
-    /** @type {OpenOutcome} */
-    let outcome;
-    try {
-      // Awaited because opening a sealed row is asynchronous: the key derivation
-      // runs off the event loop (ledger Q-53). Without the await a rejected promise
-      // would escape the `catch` below and abort the whole run with an unhandled
-      // rejection, instead of being recorded as the unreadable row it is — which
-      // is the entire purpose of this loop.
-      outcome = await open(row);
-    } catch (cause) {
-      // An opener that throws is a broken opener, not a broken row, and the two must
-      // not be conflated: a thrown error on the first row would otherwise look like one
-      // unreadable row rather than a harness that cannot do its job.
-      outcome = {
-        ok: false,
-        reason: FailureReason.UNREADABLE,
-        detail: `the opener threw: ${cause instanceof Error ? cause.message : String(cause)}`,
-      };
-    }
-
+    const outcome = await openSafely(open, row);
     if (outcome.ok) {
       verified += 1;
       continue;
@@ -145,28 +188,7 @@ export async function verifySealedRows(rows, open) {
     });
   }
 
-  /** @type {string[]} */
-  const problems = [];
-
-  if (rows.length === 0) {
-    // Refused rather than passed. A rehearsal over no rows is either an empty table or
-    // a query that matched nothing, and the two are indistinguishable from here — and
-    // the second is exactly the state in which a destructive migration would be declared
-    // safe and then destroy data nobody was watching.
-    problems.push(
-      'no rows were verified. An empty table and a query that matched nothing look ' +
-        'identical from here, and declaring a destructive migration safe on the strength ' +
-        'of a rehearsal that opened nothing is the failure this check exists to prevent.',
-    );
-  }
-
-  if (verified === 0 && rows.length > 0) {
-    problems.push(
-      'no row could be opened, so the vault key is the first thing to check — a rotated ' +
-        'secret fails every row identically and is a different problem from a ' +
-        'migration that broke the binding.',
-    );
-  }
+  const problems = rehearsalProblems(rows.length, verified);
 
   return { verified, failures, ok: problems.length === 0 && failures.length === 0, problems };
 }

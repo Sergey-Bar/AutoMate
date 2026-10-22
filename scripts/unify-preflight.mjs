@@ -176,12 +176,25 @@ function scanBoundaries(relativePath, depth = 0) {
       if (!IGNORED_DIRECTORIES.has(entry.name)) {
         scanBoundaries(relative, depth + 1);
       }
-    } else if (depth > 0 && authorityNames.has(entry.name)) {
-      const text = readFileSync(fullPath, 'utf8');
-      if (entry.name === 'eslint.config.js' && text.includes('export { default }')) continue;
+    } else if (isDuplicateAuthority(entry.name, fullPath, depth)) {
       duplicateAuthorities.push(relative);
     }
   }
+}
+
+/**
+ * Whether a file below the root is a second copy of a tool's authority. A nested
+ * `eslint.config.js` that only re-exports the root is not one.
+ *
+ * @param {string} name
+ * @param {string} fullPath
+ * @param {number} depth
+ */
+function isDuplicateAuthority(name, fullPath, depth) {
+  if (depth === 0 || !authorityNames.has(name)) return false;
+  const reExportsRoot =
+    name === 'eslint.config.js' && readFileSync(fullPath, 'utf8').includes('export { default }');
+  return !reExportsRoot;
 }
 scanBoundaries('.');
 add(

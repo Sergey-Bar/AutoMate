@@ -68,54 +68,62 @@ export function runsAsRoot(user) {
 }
 
 /**
+ * The first reason the runner cannot be judged at all, or the inputs it can be judged from.
+ *
  * @param {object} input
- * @param {string} input.name Runner name.
- * @param {RunnerManifest | null} input.manifest Parsed runner manifest.
- * @param {string | null} input.manifestProblem Why it is null, in words.
- * @param {BuildRecordEntry | undefined} input.recorded That runner's build-record entry.
+ * @param {string} input.name
+ * @param {RunnerManifest | null} input.manifest
+ * @param {string | null} input.manifestProblem
+ * @param {BuildRecordEntry | undefined} input.recorded
  * @param {ImageFacts | null} input.inspected
  * @param {string} input.imageRef
- * @returns {RunnerVerdict}
+ * @returns {{ failure: string } | { manifest: RunnerManifest, inspected: ImageFacts }}
  */
-export function evaluateRunner({ name, manifest, manifestProblem, recorded, inspected, imageRef }) {
-  /** @type {string[]} */
-  const failures = [];
-  /** @type {string[]} */
-  const notes = [];
-
+function judgeableInputs({ name, manifest, manifestProblem, recorded, inspected, imageRef }) {
   if (manifest === null) {
-    failures.push(`${name}: ${manifestProblem ?? 'manifest could not be read'}`);
-    return { failures, notes };
+    return { failure: `${name}: ${manifestProblem ?? 'manifest could not be read'}` };
   }
 
   // Nothing downstream can be trusted if no build in this run recorded the image.
   if (recorded === undefined || recorded === null || typeof recorded !== 'object') {
-    failures.push(`${name}: the build record has no entry, so nothing proves it was built`);
-    return { failures, notes };
+    return { failure: `${name}: the build record has no entry, so nothing proves it was built` };
   }
 
   if (inspected === null) {
-    failures.push(`${name}: ${imageRef} is not present, or cannot be inspected`);
-    return { failures, notes };
+    return { failure: `${name}: ${imageRef} is not present, or cannot be inspected` };
   }
 
   if (!isContentDigest(inspected.id)) {
-    failures.push(`${name}: ${imageRef} has no inspectable content id`);
-    return { failures, notes };
+    return { failure: `${name}: ${imageRef} has no inspectable content id` };
   }
 
   // The image the verifier found must be the one the build made. This is what
   // catches an image rebuilt, replaced or pulled between the two steps, which is
   // the only failure a build record can detect on a host with no registry.
   if (inspected.id !== recorded.imageId) {
-    failures.push(
-      `${name}: ${imageRef} is ${inspected.id}, but the build record says ` +
+    return {
+      failure:
+        `${name}: ${imageRef} is ${inspected.id}, but the build record says ` +
         `${String(recorded.imageId)} — the image changed after it was built, or a ` +
         'different one was built',
-    );
-    return { failures, notes };
+    };
   }
 
+  return { manifest, inspected };
+}
+
+/**
+ * What the image and the manifest each declare about who runs it and what it may reach.
+ *
+ * @param {string} name
+ * @param {RunnerManifest} manifest
+ * @param {ImageFacts} inspected
+ * @param {string} imageRef
+ * @returns {string[]}
+ */
+function declarationFailures(name, manifest, inspected, imageRef) {
+  /** @type {string[]} */
+  const failures = [];
   const imageUid = uidOf(inspected.user);
   if (runsAsRoot(inspected.user)) {
     failures.push(
@@ -143,6 +151,23 @@ export function evaluateRunner({ name, manifest, manifestProblem, recorded, insp
     );
   }
 
+  return failures;
+}
+
+/**
+ * The registry-digest comparison: absent is a note, and anything declared must be checkable.
+ *
+ * @param {string} name
+ * @param {RunnerManifest} manifest
+ * @param {ImageFacts} inspected
+ * @param {string} imageRef
+ * @returns {RunnerVerdict}
+ */
+function digestVerdict(name, manifest, inspected, imageRef) {
+  /** @type {string[]} */
+  const failures = [];
+  /** @type {string[]} */
+  const notes = [];
   const declaredDigest = typeof manifest.imageDigest === 'string' ? manifest.imageDigest : null;
   if (declaredDigest === null) {
     notes.push(
@@ -165,7 +190,24 @@ export function evaluateRunner({ name, manifest, manifestProblem, recorded, insp
 
   return { failures, notes };
 }
-
+/**
+ * @param {object} input
+ * @param {string} input.name Runner name.
+ * @param {RunnerManifest | null} input.manifest Parsed runner manifest.
+ * @param {string | null} input.manifestProblem Why it is null, in words.
+ * @param {BuildRecordEntry | undefined} input.recorded That runner's build-record entry.
+ * @param {ImageFacts | null} input.inspected
+ * @param {string} input.imageRef
+ * @returns {RunnerVerdict}
+ */
+export function evaluateRunner(input) {
+  const ready = judgeableInputs(input);
+  if ('failure' in ready) return { failures: [ready.failure], notes: [] };
+  const { name, imageRef } = input;
+  const failures = declarationFailures(name, ready.manifest, ready.inspected, imageRef);
+  const digest = digestVerdict(name, ready.manifest, ready.inspected, imageRef);
+  return { failures: [...failures, ...digest.failures], notes: digest.notes };
+}
 /**
  * Apply {@link evaluateRunner} to every runner.
  *

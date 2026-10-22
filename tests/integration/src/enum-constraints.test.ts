@@ -30,6 +30,25 @@ interface DeclaredEnum {
   values: string[];
 }
 
+/** The text of one table's declaration: up to the next export or section divider. */
+function tableBlock(rest: string): string {
+  const next = rest.search(/\nexport const |\n\/\/ ───/);
+  return next === -1 ? rest : rest.slice(0, next);
+}
+
+/** The text columns of a table block that declare an `enum: [...]` list. */
+function enumColumns(table: string, block: string): DeclaredEnum[] {
+  const declared: DeclaredEnum[] = [];
+  for (const column of block.matchAll(/(\w+):\s*text\(\s*'(\w+)'\s*,\s*\{([\s\S]*?)\}\s*\)/g)) {
+    const enumMatch = /enum:\s*\[([^\]]*)\]/.exec(column[3] ?? '');
+    if (!enumMatch) continue;
+    const values = [...enumMatch[1].matchAll(/'([^']+)'/g)].map((value) => value[1]);
+    if (values.length === 0) continue;
+    declared.push({ table, column: column[2], values });
+  }
+  return declared;
+}
+
 function declaredEnums(): DeclaredEnum[] {
   const files = readdirSync(schemaDirectory).filter(
     (name) => name.endsWith('.ts') && !name.endsWith('.test.ts'),
@@ -39,16 +58,9 @@ function declaredEnums(): DeclaredEnum[] {
     const source = readFileSync(path.join(schemaDirectory, file), 'utf8');
     for (const tableMatch of source.matchAll(/export const \w+ = pgTable\(\s*\n?\s*'(\w+)',/g)) {
       const table = tableMatch[1];
-      const start = tableMatch.index;
-      const rest = source.slice(start + tableMatch[0].length);
-      const next = rest.search(/\nexport const |\n\/\/ ───/);
-      const block = next === -1 ? rest : rest.slice(0, next);
-      for (const column of block.matchAll(/(\w+):\s*text\(\s*'(\w+)'\s*,\s*\{([\s\S]*?)\}\s*\)/g)) {
-        const enumMatch = /enum:\s*\[([^\]]*)\]/.exec(column[3] ?? '');
-        if (!enumMatch) continue;
-        const values = [...enumMatch[1].matchAll(/'([^']+)'/g)].map((value) => value[1]);
-        if (values.length === 0) continue;
-        found.set(`${table}.${column[2]}`, { table, column: column[2], values });
+      const rest = source.slice(tableMatch.index + tableMatch[0].length);
+      for (const declaration of enumColumns(table, tableBlock(rest))) {
+        found.set(`${declaration.table}.${declaration.column}`, declaration);
       }
     }
   }

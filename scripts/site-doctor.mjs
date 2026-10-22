@@ -121,6 +121,22 @@ function contentPages(pages) {
  * reader can check, and the cheap decidable version is a *count* — "42 rows", "99%
  * coverage", "12 capabilities" — which is what a stale page is made of.
  */
+/**
+ * The count a prose line states, or null: digits, a unit, and no backticks around the digits (a
+ * backticked number is a value the reader is sent to the code for). A table cell quoting the
+ * register is a citation, not a claim.
+ *
+ * @param {string} block
+ * @returns {string | null}
+ */
+function typedClaimIn(block) {
+  const match =
+    /(?<!`)\b(\d[\d,.]*)\s*(%|rows?|files?|tests?|capabilities|rules?|routes?|packages?|commits?)\b/i.exec(
+      block,
+    );
+  if (match === null || /\|/.test(block)) return null;
+  return match[0];
+}
 /** @returns {Check} */
 function checkNoTypedClaims() {
   const problems = [];
@@ -130,16 +146,10 @@ function checkNoTypedClaims() {
     for (const block of stripGenerated(source).split(/\r?\n/)) {
       if (block.trim() === '' || block.startsWith('#')) continue;
       examined += 1;
-      // A count in prose: digits, a unit, and no backticks around the digits (a
-      // backticked number is a value the reader is sent to the code for).
-      const match =
-        /(?<!`)\b(\d[\d,.]*)\s*(%|rows?|files?|tests?|capabilities|rules?|routes?|packages?|commits?)\b/i.exec(
-          block,
-        );
-      if (match === null) continue;
-      if (/\|/.test(block)) continue; // a table cell quoting the register is a citation
+      const claim = typedClaimIn(block);
+      if (claim === null) continue;
       problems.push(
-        `\`${page}\` states "${match[0]}" in prose. A number above the generated marker is typed ` +
+        `\`${page}\` states "${claim}" in prose. A number above the generated marker is typed ` +
           'by a human and goes stale silently; put it in the register or link the command that ' +
           'produces it.',
       );

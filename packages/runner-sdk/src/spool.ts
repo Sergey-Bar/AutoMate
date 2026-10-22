@@ -889,6 +889,19 @@ function decodeFile(
   tornTail: 'fail' | 'drop',
 ): { entries: SpoolEntry[]; committedBytes: number } {
   if (data.length === 0) return { entries: [], committedBytes: 0 };
+  assertReadableHeader(codec, data);
+  const entries: SpoolEntry[] = [];
+  let offset = HEADER_BYTES;
+  while (offset < data.length) {
+    const end = frameEnd(data, offset, tornTail);
+    if (end === null) break;
+    entries.push(readEntry(codec, data.subarray(offset + LENGTH_BYTES, end)));
+    offset = end;
+  }
+  return { entries, committedBytes: offset };
+}
+
+function assertReadableHeader(codec: EncryptedSpool, data: Buffer): void {
   if (data.length < HEADER_BYTES || !data.subarray(0, SPOOL_MAGIC.length).equals(SPOOL_MAGIC)) {
     throw new SpoolIntegrityError('SPOOL_FORMAT', 'Runner spool file header is not readable');
   }
@@ -898,28 +911,26 @@ function decodeFile(
       'Runner spool key does not match the sealed queue',
     );
   }
-  const entries: SpoolEntry[] = [];
-  let offset = HEADER_BYTES;
-  while (offset < data.length) {
-    if (data.length - offset < LENGTH_BYTES + MIN_SEALED_BYTES) {
-      if (tornTail === 'fail') throw torn();
-      break;
-    }
-    const length = data.readUInt32BE(offset);
-    if (length < MIN_SEALED_BYTES || length > MAX_SEALED_BYTES) {
-      throw new SpoolIntegrityError('SPOOL_FORMAT', 'Runner spool frame length is out of range');
-    }
-    const end = offset + LENGTH_BYTES + length;
-    if (end > data.length) {
-      if (tornTail === 'fail') throw torn();
-      break;
-    }
-    entries.push(readEntry(codec, data.subarray(offset + LENGTH_BYTES, end)));
-    offset = end;
-  }
-  return { entries, committedBytes: offset };
 }
 
+/**
+ * Where the frame at `offset` ends, or null when only a partial frame is left and `tornTail`
+ * says to drop it. A partial frame is an error when `tornTail` is `fail`.
+ */
+function frameEnd(data: Buffer, offset: number, tornTail: 'fail' | 'drop'): number | null {
+  if (data.length - offset < LENGTH_BYTES + MIN_SEALED_BYTES) return droppedTail(tornTail);
+  const length = data.readUInt32BE(offset);
+  if (length < MIN_SEALED_BYTES || length > MAX_SEALED_BYTES) {
+    throw new SpoolIntegrityError('SPOOL_FORMAT', 'Runner spool frame length is out of range');
+  }
+  const end = offset + LENGTH_BYTES + length;
+  return end > data.length ? droppedTail(tornTail) : end;
+}
+
+function droppedTail(tornTail: 'fail' | 'drop'): null {
+  if (tornTail === 'fail') throw torn();
+  return null;
+}
 function torn(): SpoolIntegrityError {
   return new SpoolIntegrityError('SPOOL_TRUNCATED', 'Runner spool ends with a partial frame');
 }

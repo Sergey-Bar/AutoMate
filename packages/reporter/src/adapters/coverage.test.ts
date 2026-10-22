@@ -211,6 +211,27 @@ describe('simplecov, which Ruby writes as a per-line array', () => {
   it('strips the absolute prefix a coverage report carries but a repo does not', () => {
     expect(parseCoverage('simplecov', ENC(SIMPLECOV)).files[0]?.path).toBe('src/auth/login.rb');
   });
+
+  it.each([
+    ['not JSON', 'not json', 'simplecov report is not valid JSON'],
+    ['null', 'null', 'simplecov report declares no coverage map'],
+    ['a bare array', '[]', 'simplecov report declares no coverage map'],
+    ['no coverage key', '{}', 'simplecov report declares no coverage map'],
+    ['a null coverage', '{"coverage":null}', 'simplecov report declares no coverage map'],
+    ['an array coverage', '{"coverage":[]}', 'simplecov report declares no coverage map'],
+    ['a scalar coverage', '{"coverage":3}', 'simplecov report declares no coverage map'],
+  ])('refuses a document that is %s with a message naming the format', (_name, body, message) => {
+    expect(() => parseCoverage('simplecov', ENC(body))).toThrow(message);
+  });
+
+  it('skips a coverage entry that is not a line array', () => {
+    const body = JSON.stringify({
+      coverage: { '/repo/a.rb': { lines: [1] }, '/repo/b.rb': [1, 0] },
+    });
+    expect(parseCoverage('simplecov', ENC(body)).files).toEqual([
+      { path: '/repo/b.rb', coveredLines: 1, totalLines: 2 },
+    ]);
+  });
 });
 
 describe('llvm-cov, which Rust writes as a JSON export', () => {

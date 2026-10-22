@@ -77,20 +77,25 @@ function sourceFiles(directory: string): string[] {
   return found;
 }
 
-/** Every canonical name declared outside the contract package. */
-function offenders(): string[] {
+/** Every declaration of a canonical name in the scanned trees, by name, with the files it is in. */
+function declarationsByName(): Map<string, string[]> {
   const declared = new Map<string, string[]>();
   for (const directory of ['apps', 'packages', 'tools', 'tests']) {
     for (const file of sourceFiles(path.join(repoRoot, directory))) {
-      const source = readFileSync(file, 'utf8');
-      for (const match of source.matchAll(DECLARATION)) {
+      const relative = path.relative(repoRoot, file).replaceAll('\\', '/');
+      for (const match of readFileSync(file, 'utf8').matchAll(DECLARATION)) {
         const name = match[1] ?? match[2] ?? match[3];
         if (name === undefined) continue;
-        const relative = path.relative(repoRoot, file).replaceAll('\\', '/');
         declared.set(name, [...(declared.get(name) ?? []), relative]);
       }
     }
   }
+  return declared;
+}
+
+/** Every canonical name declared outside the contract package. */
+function offenders(): string[] {
+  const declared = declarationsByName();
   const found: string[] = [];
   for (const [name, files] of declared) {
     const outside = files.filter((file) => !file.startsWith('packages/shared-contracts/'));

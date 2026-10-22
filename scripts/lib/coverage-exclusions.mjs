@@ -99,6 +99,37 @@ export function extractCoverageExclusions(source) {
 }
 
 /**
+ * A non-table, non-blank line ends the table: the next heading, or the prose that separates it
+ * from the rejected-exclusions table.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
+function endsRegisterTable(line) {
+  return !line.startsWith('|') && line.trim() !== '';
+}
+/**
+ * One line of the per-package table: a row, an unparseable row, or nothing (a separator, or a
+ * line with too few cells to be a row at all).
+ *
+ * @param {string} line
+ * @returns {{ package: string, glob: string } | { unparsed: string } | null}
+ */
+function readRegisterRow(line) {
+  if (/^\|\s*-{2,}/.test(line)) return null;
+  const cells = line
+    .split('|')
+    .slice(1, -1)
+    .map((cell) => cell.trim());
+  if (cells.length < 2) return null;
+  const packageCell = cells[0] ?? '';
+  const globCell = cells[1] ?? '';
+  if (!/^`[\w@/.-]+`$/.test(packageCell) || !/^`[^`]+`$/.test(globCell)) {
+    return { unparsed: line.trim() };
+  }
+  return { package: packageCell.slice(1, -1), glob: globCell.slice(1, -1) };
+}
+/**
  * Package and glob pairs the register documents, read from the per-package table
  * in `docs/quality/coverage-exclusions.md`.
  *
@@ -121,23 +152,12 @@ export function parseRegister(markdown) {
       inTable = true;
       continue;
     }
-    // A non-table, non-blank line ends the table: the next heading, or the prose
-    // that separates it from the rejected-exclusions table.
-    if (inTable && !line.startsWith('|') && line.trim() !== '') inTable = false;
+    inTable = inTable && !endsRegisterTable(line);
     if (!inTable) continue;
-    if (/^\|\s*-{2,}/.test(line)) continue;
-    const cells = line
-      .split('|')
-      .slice(1, -1)
-      .map((cell) => cell.trim());
-    if (cells.length < 2) continue;
-    const packageCell = cells[0] ?? '';
-    const globCell = cells[1] ?? '';
-    if (!/^`[\w@/.-]+`$/.test(packageCell) || !/^`[^`]+`$/.test(globCell)) {
-      unparsed.push(line.trim());
-      continue;
-    }
-    rows.push({ package: packageCell.slice(1, -1), glob: globCell.slice(1, -1) });
+    const row = readRegisterRow(line);
+    if (row === null) continue;
+    if ('unparsed' in row) unparsed.push(row.unparsed);
+    else rows.push(row);
   }
   return { rows, unparsed };
 }
@@ -159,16 +179,27 @@ export function findRegisterDisagreements() {
   const { rows, unparsed } = parseRegister(markdown);
   const documented = rows.map((row) => `${row.package} ${row.glob}`);
 
+  return [
+    ...unparsed.map(
+      (line) =>
+        'docs/quality/coverage-exclusions.md has a row in the per-package table that does ' +
+        `not name a package and a glob in backticks: ${line}`,
+    ),
+    ...undocumentedExclusions(shared, documented),
+    ...staleRegisterRows(rows),
+  ];
+}
+
+/**
+ * Exclusions a package config declares that neither the shared policy nor the register covers.
+ *
+ * @param {Set<string>} shared
+ * @param {string[]} documented
+ * @returns {string[]}
+ */
+function undocumentedExclusions(shared, documented) {
   /** @type {string[]} */
   const findings = [];
-
-  for (const line of unparsed) {
-    findings.push(
-      'docs/quality/coverage-exclusions.md has a row in the per-package table that does ' +
-        `not name a package and a glob in backticks: ${line}`,
-    );
-  }
-
   for (const packageName of WORKSPACE_ROOTS.flatMap(listPackageDirectories)) {
     const configPath = `${packageName}/vitest.config.ts`;
     const configured = extractCoverageExclusions(readFileSync(path.join(root, configPath), 'utf8'));
@@ -181,7 +212,18 @@ export function findRegisterDisagreements() {
       );
     }
   }
+  return findings;
+}
 
+/**
+ * Register rows whose package has no config, or whose config no longer excludes the glob.
+ *
+ * @param {Array<{ package: string, glob: string }>} rows
+ * @returns {string[]}
+ */
+function staleRegisterRows(rows) {
+  /** @type {string[]} */
+  const findings = [];
   for (const { package: packageName, glob } of rows) {
     const configPath = `${packageName}/vitest.config.ts`;
     if (!existsSync(path.join(root, configPath))) {
@@ -199,6 +241,5 @@ export function findRegisterDisagreements() {
       );
     }
   }
-
   return findings;
 }

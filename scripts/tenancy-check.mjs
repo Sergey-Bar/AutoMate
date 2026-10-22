@@ -60,10 +60,11 @@ const repoRoot = path.resolve(import.meta.dirname, '..');
 const SCHEMA_DIR = path.join(repoRoot, 'packages', 'db', 'src', 'schema');
 const REGISTER_PATH = path.join(repoRoot, 'docs', 'quality', 'tenancy-scope.json');
 
-export function main() {
+/** Whether the schema directory and the register exist; says what is missing when not. */
+function inputsPresent() {
   if (!existsSync(SCHEMA_DIR)) {
     console.error(`tenancy:check: no schema directory at ${SCHEMA_DIR}.`);
-    return 2;
+    return false;
   }
   if (!existsSync(REGISTER_PATH)) {
     console.error(
@@ -71,9 +72,14 @@ export function main() {
         'nothing to check against, and a gate with no register would pass every table it cannot\n' +
         'classify — the fail-open direction. Restore the file rather than bypassing the gate.',
     );
-    return 2;
+    return false;
   }
 
+  return true;
+}
+
+/** The register's table rows, or null (after saying why) when it cannot be read. */
+function readRegister() {
   let register;
   try {
     const parsed = JSON.parse(readFileSync(REGISTER_PATH, 'utf8'));
@@ -86,18 +92,20 @@ export function main() {
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.error(`tenancy:check: the register is unreadable (${detail}).`);
-    return 2;
+    return null;
   }
 
-  const files = readdirSync(SCHEMA_DIR).filter(
-    (file) => file.endsWith('.ts') && !file.endsWith('.test.ts'),
-  );
-  const states = files.flatMap((file) =>
-    parseTableStates(readFileSync(path.join(SCHEMA_DIR, file), 'utf8')),
-  );
+  return register;
+}
 
-  const { regressions, unclassified, stale, debt } = auditTenancy(states, register);
-
+/**
+ * The headline counts, and the tracked debt when there is any.
+ *
+ * @param {readonly unknown[]} states
+ * @param {Record<string, unknown>} register
+ * @param {readonly string[]} debt
+ */
+function reportSummary(states, register, debt) {
   console.log(
     `tenancy:check: ${states.length} tables, ${Object.keys(register).length} classified.`,
   );
@@ -119,15 +127,14 @@ export function main() {
     );
     console.log('  `not-null` on a row that has it is.');
   }
+}
 
-  if (unclassified.length === 0 && stale.length === 0 && regressions.length === 0) {
-    console.log('');
-    console.log(
-      '  The register and the schema agree: no unclassified table, no stale row, no regression.',
-    );
-    return 0;
-  }
-
+/**
+ * Every unclassified table, stale row and regression, on stderr.
+ *
+ * @param {{ unclassified: readonly string[], stale: readonly string[], regressions: readonly string[] }} result
+ */
+function reportProblems({ unclassified, stale, regressions }) {
   console.error('');
   if (unclassified.length > 0) {
     console.error(
@@ -148,9 +155,38 @@ export function main() {
     console.error(`  REGRESSION (${regressions.length}) — the tenancy boundary weakened:`);
     for (const entry of regressions) console.error(`    - ${entry}`);
   }
-  return 1;
 }
 
+export function main() {
+  if (!inputsPresent()) return 2;
+  const register = readRegister();
+  if (register === null) return 2;
+
+  const files = readdirSync(SCHEMA_DIR).filter(
+    (file) => file.endsWith('.ts') && !file.endsWith('.test.ts'),
+  );
+  const states = files.flatMap((file) =>
+    parseTableStates(readFileSync(path.join(SCHEMA_DIR, file), 'utf8')),
+  );
+
+  const result = auditTenancy(states, register);
+  reportSummary(states, register, result.debt);
+
+  if (
+    result.unclassified.length === 0 &&
+    result.stale.length === 0 &&
+    result.regressions.length === 0
+  ) {
+    console.log('');
+    console.log(
+      '  The register and the schema agree: no unclassified table, no stale row, no regression.',
+    );
+    return 0;
+  }
+
+  reportProblems(result);
+  return 1;
+}
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   process.exit(main());
 }

@@ -278,6 +278,24 @@ const LINK = /\]\(\s*([^)\s]+)\)/g;
 /** Targets that are not paths into this repository. */
 const EXTERNAL = /^(?:https?:|mailto:|tel:|#|\/)/;
 
+/**
+ * The repository path a link points at, or null when it points outside the repository (a URL,
+ * an anchor on this page) or at nothing but a fragment.
+ *
+ * @param {string} target
+ * @param {string} directory the directory of the document the link is in
+ * @returns {string | null}
+ */
+function resolveLinkTarget(target, directory) {
+  if (EXTERNAL.test(target)) return null;
+  const [withoutFragment] = target.split('#');
+  if (withoutFragment === undefined || withoutFragment === '') return null;
+  return normalise(
+    withoutFragment.startsWith('/')
+      ? withoutFragment.replace(/^\//, '')
+      : [directory, withoutFragment].join('/'),
+  );
+}
 /** @param {DriftEnvironment} env @returns {string[]} */
 function checkLinks(env) {
   /** @type {string[]} */
@@ -286,17 +304,10 @@ function checkLinks(env) {
     const directory = document.path.split('/').slice(0, -1).join('/');
     for (const match of document.text.matchAll(LINK)) {
       const target = (match[1] ?? '').trim();
-      if (EXTERNAL.test(target)) continue;
-      const [withoutFragment] = target.split('#');
-      if (withoutFragment === undefined || withoutFragment === '') continue;
-      const resolved = normalise(
-        withoutFragment.startsWith('/')
-          ? withoutFragment.replace(/^\//, '')
-          : [directory, withoutFragment].join('/'),
-      );
+      const resolved = resolveLinkTarget(target, directory);
       // A directory is a legitimate target — `packages/config` is how a document
       // points at a package — and `fileExists` is a prefix test, so both resolve.
-      if (env.fileExists(resolved)) continue;
+      if (resolved === null || env.fileExists(resolved)) continue;
       findings.push(`${document.path}: link to \`${target}\`, which does not exist`);
     }
   }
