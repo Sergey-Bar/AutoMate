@@ -2,6 +2,39 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.4.0 — 2026-10-22 — open items from 2.3.0 closed
+
+Closes every item 2.3.0 left open, except the three majors held back on recorded
+decisions. Each fix was tested first and has a row in `docs/quality/findings-ledger.json`.
+
+### Fixed
+
+- **MNT-14** — no schedule could ever enqueue a fresh run: the worker's job insert left
+  out the NOT NULL `timeout_ms`.
+- **MNT-15** — the database and the Drizzle schema disagreed on six foreign keys and two
+  indexes (migration `0027`); a test now requires zero drift.
+- **MNT-16** — a bootstrap key that collided with another installation's was reported
+  as `revoked` rather than `claimed_elsewhere`.
+- **MNT-17** — 28 workspace-scoped tables had no hard tenancy boundary, and four live
+  paths read across workspaces, including the run-scoped artifact download (migration
+  `0028`). `pnpm tenancy:check` now reports 0 debt.
+- **MNT-18** — seven NOT NULL tenant columns had no foreign key onto `workspaces`
+  (migration `0029`).
+- **MNT-7** (remaining half) — the login limiter trusted a client-chosen
+  `X-Forwarded-For`. It uses the TCP peer unless `TRUST_PROXY=true`, then the last hop.
+
+### Changed
+
+- Six majors: Vite 8, Vitest 5, Storybook 10, `@hono/node-server` 2,
+  `@sentry/vite-plugin` 11, `@testing-library/jest-dom` 7. TypeScript 7, Effect 4 and
+  `@types/node` 26 stay held back (`DEP-4`, `DEP-3`, `RUNTIME-1`).
+- Coverage floors raised with new tests, never lowered: runner, worker, migrate-cli, db
+  and ui.
+- `pnpm migrate:plan` / `migrate:validate` are documented as the legacy SQLite import
+  tools they are; `tools/migrate-cli` takes `--workspace`.
+- The repository root went from 50 entries to 33: tool configs moved to `.config/`,
+  community files to `.github/`, the changelog to `docs/`, and compose to `infra/compose/`.
+
 ## 2.3.0 — 2026-10-21 — maintenance and public documentation
 
 A full maintenance pass: a measured baseline, a code review of every package, thirteen

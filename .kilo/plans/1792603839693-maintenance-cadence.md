@@ -30,6 +30,19 @@ Closes the pass started in `1792588493736-maintenance-baseline.md`. Released as 
 - **Workspace hard boundaries** on the tables `tenancy:check` reports remain debt.
 - `pnpm migrate:validate` requires `--plan` and fails as wired; it is `pr-reporting`.
 
+## Follow-up — released as 2.4.0 (2026-10-22)
+
+Every item above was closed except the three held-back majors with recorded decisions:
+
+| Item                       | Closed by                                                                      |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| Six of the nine majors     | #67. TypeScript 7 (`DEP-4`), Effect 4 (`DEP-3`), `@types/node` 26 (`RUNTIME-1`) held |
+| Coverage floors            | #66: runner, worker, migrate-cli, db, ui raised with tests; found `MNT-14`…`MNT-16` |
+| `X-Forwarded-For` trust    | #66: `TRUST_PROXY`, last hop only (`MNT-7`)                                    |
+| Workspace hard boundaries  | #68 (`MNT-17`, `0028`) and #69 (`MNT-18`, `0029`); `tenancy:check` debt is 0    |
+| `migrate:validate` wiring  | #66: documented as the legacy SQLite import tool it is                         |
+| Root clutter (50 entries)  | #65: 33 entries                                                                |
+
 ## Cadence
 
 | When      | What                                                                                       |
