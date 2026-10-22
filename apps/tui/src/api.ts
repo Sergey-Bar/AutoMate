@@ -60,13 +60,7 @@ export class HttpTuiApi implements TuiApi {
   async send(command: TuiCommand): Promise<TuiView> {
     const parsed = TuiCommandSchema.parse(command);
     const response = await this.fetchImpl(new URL(routeFor(parsed), this.baseUrl), {
-      method:
-        parsed.command.endsWith('.add') ||
-        parsed.command.endsWith('.start') ||
-        parsed.command.endsWith('.stop') ||
-        parsed.command === 'copilot.ask'
-          ? 'POST'
-          : 'GET',
+      method: method(parsed),
       headers: {
         'content-type': 'application/json',
         // Sent only when a credential was supplied. The TUI is not the auth
@@ -101,7 +95,12 @@ function method(command: TuiCommand): 'GET' | 'POST' {
 }
 
 /** The commands that change state. Everything else is a read. */
-const MUTATING: ReadonlySet<string> = new Set(['project.add', 'run.start', 'run.stop']);
+const MUTATING: ReadonlySet<string> = new Set([
+  'project.add',
+  'run.start',
+  'run.stop',
+  'copilot.ask',
+]);
 
 /**
  * The URL for a command, in one place.
