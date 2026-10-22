@@ -88,6 +88,13 @@ jobs:
         # first because a reviewer's eye is the only thing that reads prose, the
         # second because `JSON.parse` silently takes the last of a duplicated key.
         run: pnpm docs:check
+      - name: Capability evidence
+        # Every register row names a command that resolves, cites files that exist,
+        # and cites only tests a runner collects - so deleting a test flips its row to
+        # `unverified` here rather than leaving a `real` that nothing backs. Static and
+        # needs no tool, no database and no build. `--run` executes the commands and is
+        # deliberately not in this job.
+        run: pnpm capability:evidence
       - name: Dead exports
         # `packages/runner-sdk/src/client.ts` was a second HTTP client for the
         # runner protocol, imported by nothing, with its own passing test suite.
