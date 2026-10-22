@@ -34,6 +34,7 @@
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
+    "fast-check": "catalog:",
     "tsx": "^4.23.15",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",

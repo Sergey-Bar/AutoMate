@@ -161,6 +161,15 @@ export function attemptsOf(error: unknown): number {
 }
 
 /**
+ * The longest a single backoff sleep may be.
+ *
+ * The schedule was `100 * 2 ** (attempts - 1)` with no ceiling, so a caller passing a
+ * large `retries` slept for days: 30 retries is about 620 days. Every adapter passes 2 today,
+ * which is why nothing noticed; the RETRY-2 property suite found it by asking.
+ */
+export const MAX_RETRY_BACKOFF_MS = 30_000;
+
+/**
  * Run an operation, retrying only when repeating it is safe.
  *
  * `idempotent` is the manifest's own claim about the operation, and it is the whole of
@@ -220,7 +229,7 @@ export async function executeWithRetry<T>(
       if (options.signal?.aborted) {
         throw new Error('Connector operation cancelled', { cause: error });
       }
-      await sleep(100 * 2 ** (attempts - 1));
+      await sleep(Math.min(MAX_RETRY_BACKOFF_MS, 100 * 2 ** (attempts - 1)));
     } finally {
       attempt.dispose();
     }

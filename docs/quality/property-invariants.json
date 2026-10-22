@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "what": "The invariants the property suites state, one row each. Every suite is deterministic: a fixed seed and numRuns.",
+  "why": "A property suite that nothing lists can be deleted without anyone noticing, and an invariant with no suite is a sentence. scripts/lib/property-invariants.test.mjs fails when a listed file is missing, when an invariant has no describe block, and when a *.property.test.ts exists unlisted.",
+  "invariants": [
+    {
+      "id": "ORCH-1",
+      "statement": "No illegal job transition is accepted: canTransition/transition agree with an independently stated table on every ordered pair, and are total (never throw) over foreign state strings.",
+      "package": "packages/orchestration",
+      "testFile": "packages/orchestration/src/state-machine.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "A seeded wrong claim is refuted; mutating the transition table (succeeded -> queued) fails 7 tests."
+    },
+    {
+      "id": "ORCH-2",
+      "statement": "Terminal job states absorb: no edge leaves succeeded, failed, cancelled or expired under any fence, and every state can reach a terminal state.",
+      "package": "packages/orchestration",
+      "testFile": "packages/orchestration/src/state-machine.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Mutating the table to give succeeded an outgoing edge fails the suite."
+    },
+    {
+      "id": "ORCH-3",
+      "statement": "A caller whose fencing token is not the current one is refused as fenced_out before legality is consulted, and never moves a job.",
+      "package": "packages/orchestration",
+      "testFile": "packages/orchestration/src/state-machine.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "The 4-vs-5 example pins a token newer than the store's."
+    },
+    {
+      "id": "ORCH-4",
+      "statement": "deriveRunState keeps phase, outcome and status consistent: terminal exactly when outcome is set, a payload has no authority over a non-complete outcome, status is passed only for a complete run that says passed.",
+      "package": "packages/orchestration",
+      "testFile": "packages/orchestration/src/state-machine.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Letting a non-terminal phase keep the claimed outcome fails 2 tests."
+    },
+    {
+      "id": "RUN-1",
+      "statement": "planEventBatch accepts nothing new after the run has ended: a terminal event followed by anything refuses the whole batch as terminal_event.",
+      "package": "apps/api",
+      "testFile": "apps/api/src/execution/event-batch.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Deleting the terminal check in planEventBatch fails 3 tests."
+    },
+    {
+      "id": "RUN-2",
+      "statement": "Replaying an accepted batch is idempotent (all duplicates, still ready) and the same event id with different content is a hash mismatch.",
+      "package": "apps/api",
+      "testFile": "apps/api/src/execution/event-batch.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Covered by the same mutation run as RUN-1 and the seeded wrong-claim test."
+    },
+    {
+      "id": "RUN-3",
+      "statement": "New events in a ready plan are contiguous from the expected sequence, and a gap is refused whole as sequence_gap.",
+      "package": "apps/api",
+      "testFile": "apps/api/src/execution/event-batch.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Covered by the seeded wrong-claim test."
+    },
+    {
+      "id": "RETRY-1",
+      "statement": "executeWithRetry makes at most retries + 1 calls, never retries a non-idempotent operation or a permanent status, and retries a known rejection within the same budget.",
+      "package": "packages/connectors/sdk",
+      "testFile": "packages/connectors/sdk/src/retry-policy.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Found no defect; the seeded wrong-claim test proves the generators reach deep budgets."
+    },
+    {
+      "id": "RETRY-2",
+      "statement": "Every executeWithRetry backoff lies in [100, MAX_RETRY_BACKOFF_MS] and never decreases. FOUND A DEFECT: the schedule had no ceiling (MNT-100).",
+      "package": "packages/connectors/sdk",
+      "testFile": "packages/connectors/sdk/src/retry-policy.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Run with the cap removed, the suite fails with counterexample [10, 408]; examples pin retries 30 and 40."
+    },
+    {
+      "id": "RETRY-3",
+      "statement": "isRetryableStatus is true exactly for the listed transient statuses and false for no status.",
+      "package": "packages/connectors/sdk",
+      "testFile": "packages/connectors/sdk/src/retry-policy.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Examples pin 500, 499 and 0."
+    },
+    {
+      "id": "SPOOL-1",
+      "statement": "The runner spool backoff delay is an integer in [1, maxDelayMs] for every configurable policy, attempt and random draw, and the first delay is within [base/2, base].",
+      "package": "packages/runner-sdk",
+      "testFile": "packages/runner-sdk/src/backoff.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Removing the maxDelayMs clamp fails 3 tests."
+    },
+    {
+      "id": "SPOOL-2",
+      "statement": "The spool backoff is monotone in the attempt count for a fixed draw and is pinned at the maximum once the exponential passes it.",
+      "package": "packages/runner-sdk",
+      "testFile": "packages/runner-sdk/src/backoff.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Covered by the same clamp mutation."
+    },
+    {
+      "id": "SPOOL-3",
+      "statement": "The default spool retry policy lies inside the configurable domain.",
+      "package": "packages/runner-sdk",
+      "testFile": "packages/runner-sdk/src/backoff.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Example-style check; the seeded wrong-claim test covers the harness."
+    },
+    {
+      "id": "REPORT-1",
+      "statement": "JUnit parse -> normalise preserves counts: passed + failed + skipped + flaky equals the number of testcases, each count matches the generating model, and attempt indexes are 1..n per test id.",
+      "package": "packages/reporter",
+      "testFile": "packages/reporter/src/parse.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Removing the <error> rung from the status ladder fails 2 tests."
+    },
+    {
+      "id": "REPORT-2",
+      "statement": "The run status follows the ladder (failed > skipped-only > flaky > passed) and a document cut short never reports a pass nor claims completeness.",
+      "package": "packages/reporter",
+      "testFile": "packages/reporter/src/parse.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Covered by the same mutation run."
+    },
+    {
+      "id": "REPORT-3",
+      "statement": "Parsing is total for junit, playwright, k6, zap and legacy-upload: arbitrary bytes, JSON-shaped input and markup yield a contract-valid result or a classified Error.",
+      "package": "packages/reporter",
+      "testFile": "packages/reporter/src/parse.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Found no defect; examples pin null entries and empty containers."
+    },
+    {
+      "id": "REPORT-4",
+      "statement": "Well-formed XML with no testcase is refused with a classified error, never reported as a pass.",
+      "package": "packages/reporter",
+      "testFile": "packages/reporter/src/parse.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Seeded wrong-claim test covers the harness."
+    },
+    {
+      "id": "OUTBOX-1",
+      "statement": "Appending the same outbox event again is a no-op: one row, the same sequence and event id, and the second append reports no insert; batches with repeats leave one row per distinct key in first-seen order.",
+      "package": "packages/db",
+      "testFile": "packages/db/src/repositories/outbox.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Seeded wrong-claim test (\"a repeated key adds a row\") is refuted."
+    },
+    {
+      "id": "OUTBOX-2",
+      "statement": "A read bound to workspace A never returns workspace B rows, even when dedupe keys collide across workspaces; the retention floor is per workspace.",
+      "package": "packages/db",
+      "testFile": "packages/db/src/repositories/outbox.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Removing the workspace filter from readAfter fails 4 of 6 tests."
+    },
+    {
+      "id": "OUTBOX-3",
+      "statement": "A malformed append (blank workspace, empty or over-long dedupe key) is refused before it touches the table.",
+      "package": "packages/db",
+      "testFile": "packages/db/src/repositories/outbox.property.test.ts",
+      "seed": 20261022,
+      "shownToFail": "Covered by the harness test."
+    }
+  ]
+}

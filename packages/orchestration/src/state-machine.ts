@@ -22,9 +22,19 @@ const transitions: Record<JobState, readonly JobState[]> = {
  * was perfectly reasonable.
  */
 export function canTransition(from: JobState, to: JobState): boolean {
-  const allowed = transitions[from];
-  if (allowed === undefined) return false;
-  return allowed.includes(to);
+  return edgesFrom(from).includes(to);
+}
+
+/**
+ * The edges out of a state, own keys only.
+ *
+ * `transitions[from]` is a property lookup on a plain object, so `__proto__` found
+ * `Object.prototype` and `constructor` found `Object`: neither is `undefined`, neither has
+ * `.includes`, and a state-shaped string from outside the process threw a `TypeError` out of
+ * the function whose documentation promises it cannot. Found by the ORCH-1 property suite.
+ */
+function edgesFrom(state: string): readonly JobState[] {
+  return Object.hasOwn(transitions, state) ? transitions[state as JobState] : [];
 }
 
 export function transition(from: JobState, to: JobState): JobState {
@@ -34,7 +44,7 @@ export function transition(from: JobState, to: JobState): JobState {
 
 /** True when no further transition out of `state` is possible. */
 export function isTerminal(state: JobState): boolean {
-  return (transitions[state] ?? []).length === 0;
+  return edgesFrom(state).length === 0;
 }
 
 /**
