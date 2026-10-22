@@ -33,6 +33,8 @@ a `v*` tag. Getting there meant making the production stack boot at all.
 - **MNT-22** — the edge proxy sent `/` to a port nothing listened on.
 - **MNT-23 (Critical)** — both nginx images exited on start (pid path, root-owned tmpfs).
 - **MNT-24** — runtime images shipped the monorepo and its dev dependencies.
+- **MNT-25** — a runner stopped mid-refresh exited before saving its rotated token; the
+  flaky test that should have caught it is now deterministic.
 
 ### Changed
 
