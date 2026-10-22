@@ -46,6 +46,21 @@ const SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
  * @returns {Array<{ path: string, hash: string }>}
  */
 export function collectCoverageInputs(root) {
+  // The Vitest config decides what is measured, so a change to it invalidates the
+  // summary as surely as a change to a measured file.
+  const configs = ['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js']
+    .filter((name) => existsSync(path.join(root, name)))
+    .map((name) => ({ path: name, hash: hashContent(readFileSync(path.join(root, name))) }));
+  return [...sourceInputs(root), ...configs];
+}
+
+/**
+ * Every source file under `root/src`, hashed, in directory-walk order.
+ *
+ * @param {string} root
+ * @returns {Array<{ path: string, hash: string }>}
+ */
+function sourceInputs(root) {
   /** @type {Array<{ path: string, hash: string }>} */
   const files = [];
   const stack = [path.join(root, 'src')];
@@ -55,27 +70,17 @@ export function collectCoverageInputs(root) {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       if (FRESHNESS_IGNORED_DIRECTORIES.has(entry.name)) continue;
       const full = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(full);
-        continue;
+      if (entry.isDirectory()) stack.push(full);
+      else if (SOURCE_EXTENSIONS.has(path.extname(entry.name))) {
+        files.push({
+          path: path.relative(root, full).replaceAll('\\', '/'),
+          hash: hashContent(readFileSync(full)),
+        });
       }
-      if (!SOURCE_EXTENSIONS.has(path.extname(entry.name))) continue;
-      files.push({
-        path: path.relative(root, full).replaceAll('\\', '/'),
-        hash: hashContent(readFileSync(full)),
-      });
     }
-  }
-  // The Vitest config decides what is measured, so a change to it invalidates the
-  // summary as surely as a change to a measured file.
-  for (const name of ['vitest.config.ts', 'vitest.config.mts', 'vitest.config.js']) {
-    const configPath = path.join(root, name);
-    if (!existsSync(configPath)) continue;
-    files.push({ path: name, hash: hashContent(readFileSync(configPath)) });
   }
   return files;
 }
-
 /**
  * @param {string} root
  * @returns {{ root: string, files: Array<{ path: string, hash: string }>, hash: string } | null}

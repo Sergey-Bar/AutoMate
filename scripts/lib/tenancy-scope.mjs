@@ -188,6 +188,30 @@ function columnDrift(table, committed, observed) {
   return { weakening, message };
 }
 /**
+ * What one classified table contributes to the audit, if anything.
+ *
+ * @param {{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }} state
+ * @param {{ scope: string, column: string, reason: string }} row
+ * @returns {{ bucket: 'regressions' | 'stale' | 'debt', message: string } | null}
+ */
+function auditRow(state, row) {
+  const malformed = malformedRowMessage(state.table, row);
+  if (malformed !== null) return { bucket: 'stale', message: malformed };
+
+  const observed = observedColumnState(state);
+  if (row.column !== observed) {
+    const drift = columnDrift(state.table, row.column, observed);
+    return { bucket: drift.weakening ? 'regressions' : 'stale', message: drift.message };
+  }
+
+  // Committed state matches. If the table is meant to be workspace-scoped and is
+  // not yet carrying a hard boundary, that is the tracked debt.
+  if (row.scope === 'workspace' && observed !== 'not-null') {
+    return { bucket: 'debt', message: `${state.table}: workspace-scoped, column ${observed}` };
+  }
+  return null;
+}
+/**
  * Compare the schema against the register.
  *
  * @param {Array<{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }>} states
@@ -197,38 +221,25 @@ function columnDrift(table, committed, observed) {
  * @returns {{ regressions: string[], unclassified: string[], stale: string[], debt: string[] }}
  */
 export function auditTenancy(states, register) {
+  /** @type {string[]} */
   const regressions = [];
+  /** @type {string[]} */
   const unclassified = [];
+  /** @type {string[]} */
   const stale = [];
+  /** @type {string[]} */
   const debt = [];
+  const buckets = { regressions, stale, debt };
 
   for (const state of states) {
     const row = register[state.table];
-
     if (row === undefined) {
       unclassified.push(state.table);
       continue;
     }
-
-    const malformed = malformedRowMessage(state.table, row);
-    if (malformed !== null) {
-      stale.push(malformed);
-      continue;
-    }
-
-    const observed = observedColumnState(state);
-    if (row.column !== observed) {
-      const drift = columnDrift(state.table, row.column, observed);
-      if (drift.weakening) regressions.push(drift.message);
-      else stale.push(drift.message);
-      continue;
-    }
-
-    // Committed state matches. If the table is meant to be workspace-scoped and is
-    // not yet carrying a hard boundary, that is the tracked debt.
-    if (row.scope === 'workspace' && observed !== 'not-null') {
-      debt.push(`${state.table}: workspace-scoped, column ${observed}`);
-    }
+    const finding = auditRow(state, row);
+    if (finding === null) continue;
+    buckets[finding.bucket].push(finding.message);
   }
   return { regressions, unclassified, stale, debt };
 }

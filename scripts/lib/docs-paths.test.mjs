@@ -610,6 +610,49 @@ test('the unused-claim gate can see a claim, or it cannot fail', () => {
   assert.equal(isImported('a-package-nobody-imports'), false);
 });
 
+/**
+ * Whether a line asserts something is verified and cites no existing path.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
+function isUnevidencedClaim(line) {
+  if (!/\bverified (?:fixed|resolved|complete|done)\b/i.test(line)) return false;
+  if (/\bnot\b.*\bverified\b/i.test(line)) return false;
+  // A *quoted* phrase is a described one. Decision F7 in the v2 plan is a
+  // finding *about* v3's list — it names the phrase to say that list has no
+  // evidence — and the gate read the description as a fresh claim. Same rule
+  // as the unused-claim gate, and for the same reason: a document must be able
+  // to write down the defect without tripping the check for it.
+  if (line.includes('"') || line.includes('“') || line.includes('”')) return false;
+  // A line that carries at least one existing backticked path satisfies the
+  // claim; a line that carries only identifiers does not.
+  //
+  // No regex for the path. `[\w./@-]+\.[a-z]+` is a quantifier over an
+  // overlapping character class followed by another, which
+  // `security/detect-unsafe-regex` flags — correctly, since which token it
+  // matched is ambiguous. So every backticked token is taken and `existsSync`
+  // decides, which is the question being asked anyway.
+  const cited = [...line.matchAll(/`([^`]+)`/g)]
+    .map((match) => match[1] ?? '')
+    .filter((token) => existsSync(path.join(REPO_ROOT, token.split(':')[0] ?? '')));
+  return cited.length === 0;
+}
+
+/**
+ * The unevidenced claims in one document, as report lines.
+ *
+ * @param {string} doc
+ * @returns {string[]}
+ */
+function unevidencedClaims(doc) {
+  const text = readFileSync(path.join(REPO_ROOT, doc), 'utf8');
+  return text
+    .split(/\r?\n/)
+    .filter(isUnevidencedClaim)
+    .map((line) => `${doc}: "${line.trim().slice(0, 90)}"`);
+}
+
 test('a "verified fixed" claim names something a reader can check', () => {
   // Ledger C-1. The merged-leftover plan listed seventeen findings as "verified
   // fixed — do not redo" and named **no evidence for any of them**. Two carried a
@@ -625,33 +668,7 @@ test('a "verified fixed" claim names something a reader can check', () => {
   // The alternative — adding evidence to fifteen superseded claims — would be
   // inventing provenance for fixes nobody re-verified. Marking the list as what it
   // is, is the honest version.
-  const claims = [];
-  for (const doc of [...DOCS, ...PLAN_DOCS]) {
-    const text = readFileSync(path.join(REPO_ROOT, doc), 'utf8');
-    for (const line of text.split(/\r?\n/)) {
-      if (!/\bverified (?:fixed|resolved|complete|done)\b/i.test(line)) continue;
-      if (/\bnot\b.*\bverified\b/i.test(line)) continue;
-      // A *quoted* phrase is a described one. Decision F7 in the v2 plan is a
-      // finding *about* v3's list — it names the phrase to say that list has no
-      // evidence — and the gate read the description as a fresh claim. Same rule
-      // as the unused-claim gate, and for the same reason: a document must be able
-      // to write down the defect without tripping the check for it.
-      if (line.includes('"') || line.includes('“') || line.includes('”')) continue;
-      // A line that carries at least one existing backticked path satisfies the
-      // claim; a line that carries only identifiers does not.
-      //
-      // No regex for the path. `[\w./@-]+\.[a-z]+` is a quantifier over an
-      // overlapping character class followed by another, which
-      // `security/detect-unsafe-regex` flags — correctly, since which token it
-      // matched is ambiguous. So every backticked token is taken and `existsSync`
-      // decides, which is the question being asked anyway.
-      const cited = [...line.matchAll(/`([^`]+)`/g)]
-        .map((match) => match[1] ?? '')
-        .filter((token) => existsSync(path.join(REPO_ROOT, token.split(':')[0] ?? '')));
-      if (cited.length > 0) continue;
-      claims.push(`${doc}: "${line.trim().slice(0, 90)}"`);
-    }
-  }
+  const claims = [...DOCS, ...PLAN_DOCS].flatMap(unevidencedClaims);
 
   assert.deepEqual(
     claims,

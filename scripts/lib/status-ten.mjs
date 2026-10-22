@@ -513,20 +513,44 @@ function pointFive(ctx) {
 }
 
 /**
- * @param {Context} ctx
- * @returns {Clause[]}
+ * The metrics-endpoint clause: a route serves it, and the module renders the exposition format.
+ *
+ * @param {string} health
+ * @param {string} metricsBody
+ * @returns {Clause}
  */
-function pointSix(ctx) {
-  const context = ctx.text('apps/api/src/observability/request-context.ts');
-  const logger = ctx.text('apps/api/src/observability/logger.ts');
-  const health = ctx.text('apps/api/src/routes/health.ts');
-  const runs = ctx.text('apps/api/src/routes/execution/runs.routes.ts');
-  const gate = ctx.text('apps/api/src/execution/quality-gate.ts');
+function metricsClause(health, metricsBody) {
   const metricsRoute = health.includes("health.get('/metrics'");
-  const metricsBody = ctx.text('apps/api/src/observability/metrics.ts');
   const metricsDeclared =
     metricsBody.includes('PROMETHEUS_CONTENT_TYPE') && metricsBody.includes('renderExposition');
+  return metricsRoute && metricsDeclared
+    ? ok(
+        'a metrics endpoint exists',
+        '`GET /metrics` serves the Prometheus text exposition format with the version in the content ' +
+          'type, from `apps/api/src/observability/metrics.ts` and no metrics library. The content ' +
+          'decision is the substance and is carried by the register row `ops.metrics-endpoint`: ' +
+          'process state and one in-memory counter, no run, test, suite, artifact or tenant data, ' +
+          'and no database query. Ledger O-4b records why the first increment does not carry queue ' +
+          'depth.',
+      )
+    : broken(
+        'a metrics endpoint exists',
+        metricsRoute
+          ? '`/metrics` is mounted but `apps/api/src/observability/metrics.ts` does not render the ' +
+              'exposition format with a declared content type.'
+          : 'no route serves `GET /metrics`. Ledger O-4b tracks the absence, including the search ' +
+              'that evidenced it.',
+      );
+}
 
+/**
+ * The run-diagnostics clause.
+ *
+ * @param {string} runs
+ * @param {string} gate
+ * @returns {Clause}
+ */
+function diagnosticsClause(runs, gate) {
   // The four things a "why did this verdict happen?" answer has to carry, checked
   // against the two files that produce them rather than against a route *named*
   // `diagnostics`. A first version looked for a file whose name matched, and
@@ -549,6 +573,36 @@ function pointSix(ctx) {
     runs.includes("app.get('/api/v1/runs/:runId/gate'") &&
     /\.\.\.evaluation|\.\.\.recorded/.test(runs);
 
+  return gateRoute && diagnosticFields.length === 0
+    ? ok(
+        'a run-diagnostics surface answers why a verdict happened',
+        '`GET /api/v1/runs/:runId/gate` is the surface, and the equivalence is deliberate: the gate ' +
+          'evaluation *is* the diagnosis. It returns the recorded verdict or the provisional one with ' +
+          '`recorded: false`, and carries ' +
+          'reasons (a `code; rule=…; observed=…; threshold=…` tail, so the rule and both numbers ' +
+          'that were compared are readable without a parser), evidenceRefs, per-domain statuses, and ' +
+          'the policy version and hash. A separate `/diagnostics` route would answer the same ' +
+          'question from the same row.',
+      )
+    : broken(
+        'a run-diagnostics surface answers why a verdict happened',
+        gateRoute
+          ? `the gate evaluation does not carry: ${diagnosticFields.map(([name]) => name).join(', ')}.`
+          : 'no route returns a gate evaluation, so "why did this verdict happen?" has no answer in ' +
+              'the product.',
+      );
+}
+
+/**
+ * @param {Context} ctx
+ * @returns {Clause[]}
+ */
+function pointSix(ctx) {
+  const context = ctx.text('apps/api/src/observability/request-context.ts');
+  const logger = ctx.text('apps/api/src/observability/logger.ts');
+  const health = ctx.text('apps/api/src/routes/health.ts');
+  const runs = ctx.text('apps/api/src/routes/execution/runs.routes.ts');
+  const gate = ctx.text('apps/api/src/execution/quality-gate.ts');
   return [
     /export function requestContext|export const requestContext/.test(context) &&
     /requestContext|requireRequestId/.test(ctx.text('apps/api/src/index.ts'))
@@ -580,42 +634,8 @@ function pointSix(ctx) {
           'health and readiness are separate and honest',
           '`apps/api/src/routes/health.ts` does not mount both readiness paths.',
         ),
-    metricsRoute && metricsDeclared
-      ? ok(
-          'a metrics endpoint exists',
-          '`GET /metrics` serves the Prometheus text exposition format with the version in the content ' +
-            'type, from `apps/api/src/observability/metrics.ts` and no metrics library. The content ' +
-            'decision is the substance and is carried by the register row `ops.metrics-endpoint`: ' +
-            'process state and one in-memory counter, no run, test, suite, artifact or tenant data, ' +
-            'and no database query. Ledger O-4b records why the first increment does not carry queue ' +
-            'depth.',
-        )
-      : broken(
-          'a metrics endpoint exists',
-          metricsRoute
-            ? '`/metrics` is mounted but `apps/api/src/observability/metrics.ts` does not render the ' +
-                'exposition format with a declared content type.'
-            : 'no route serves `GET /metrics`. Ledger O-4b tracks the absence, including the search ' +
-                'that evidenced it.',
-        ),
-    gateRoute && diagnosticFields.length === 0
-      ? ok(
-          'a run-diagnostics surface answers why a verdict happened',
-          '`GET /api/v1/runs/:runId/gate` is the surface, and the equivalence is deliberate: the gate ' +
-            'evaluation *is* the diagnosis. It returns the recorded verdict or the provisional one with ' +
-            '`recorded: false`, and carries ' +
-            'reasons (a `code; rule=…; observed=…; threshold=…` tail, so the rule and both numbers ' +
-            'that were compared are readable without a parser), evidenceRefs, per-domain statuses, and ' +
-            'the policy version and hash. A separate `/diagnostics` route would answer the same ' +
-            'question from the same row.',
-        )
-      : broken(
-          'a run-diagnostics surface answers why a verdict happened',
-          gateRoute
-            ? `the gate evaluation does not carry: ${diagnosticFields.map(([name]) => name).join(', ')}.`
-            : 'no route returns a gate evaluation, so "why did this verdict happen?" has no answer in ' +
-                'the product.',
-        ),
+    metricsClause(health, ctx.text('apps/api/src/observability/metrics.ts')),
+    diagnosticsClause(runs, gate),
     unchecked('the instrumented product runs', needsRun('pnpm test:runner')),
   ];
 }

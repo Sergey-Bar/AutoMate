@@ -246,10 +246,7 @@ function scanHistory() {
       continue;
     }
     if (currentFile === undefined) continue;
-    const added = addedText(line);
-    if (added === null) continue;
-    if (isBinaryPath(currentFile) || isAllowlistedPath(currentFile)) continue;
-    const hits = scanText(added);
+    const hits = addedLineHits(currentFile, line);
     if (hits.length === 0) continue;
     const existing = byFile.get(currentFile) ?? new Set();
     for (const hit of hits) existing.add(hit);
@@ -260,7 +257,22 @@ function scanHistory() {
 }
 
 /**
- * The file a `+++ ` header names, or `undefined` for a deletion.
+ * What a secret scan finds in one line of a patch: nothing for a line that is not an addition,
+ * and nothing in a binary or allowlisted file.
+ *
+ * @param {string} file
+ * @param {string} line
+ * @returns {string[]}
+ */
+function addedLineHits(file, line) {
+  const added = addedText(line);
+  if (added === null) return [];
+  if (isBinaryPath(file) || isAllowlistedPath(file)) return [];
+  return scanText(added);
+}
+
+/**
+ * The file a ``+++ `` header names, or `undefined` for a deletion.
  *
  * Extracted from the loop because `git log -p` is a format with three header kinds and
  * the loop had grown a branch per kind.
