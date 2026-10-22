@@ -422,14 +422,19 @@ function failLostJob(job: ExecutionJob, run: ExecutionRun | undefined, timestamp
 
 // ── Folding events into the run ─────────────────────────────────────────────────────────────
 
-const PHASE_EVENT_TYPES: ReadonlySet<string> = new Set([
-  'run.phase',
-  'run.phase_changed',
-  'run.started',
-  'run.queued',
-  'run.assigned',
-]);
-
+/** The events that move a run between phases. A `switch`, as the `||` chain it replaced was. */
+function isPhaseEventType(type: string): boolean {
+  switch (type) {
+    case 'run.phase':
+    case 'run.phase_changed':
+    case 'run.started':
+    case 'run.queued':
+    case 'run.assigned':
+      return true;
+    default:
+      return false;
+  }
+}
 const TEST_STATUSES: ReadonlySet<unknown> = new Set([
   'passed',
   'failed',
@@ -1265,7 +1270,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
     if (!run) return;
     run.updatedAt = timestamp;
     const payload = event.payload;
-    if (PHASE_EVENT_TYPES.has(event.type)) applyPhaseEvent(run, payload, timestamp);
+    if (isPhaseEventType(event.type)) applyPhaseEvent(run, payload, timestamp);
     else if (event.type === 'test.started') applyTestStarted(run, payload);
     else if (event.type === 'test.completed') applyTestCompleted(run, payload);
     else if (event.type === 'run.completed') applyRunCompleted(run, payload, timestamp);
