@@ -1,5 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Hono } from 'hono';
+import { guard } from '../http/access.js';
 import { CanonicalRunResultSchema } from '@automate/shared-contracts';
 import type { ReporterResultStore } from '../services/reporter-ingestion.js';
 import { bearerToken } from '../http/bearer-token.js';
@@ -33,7 +34,8 @@ export function createReporterResultsRoute(
   const reporterSecret = options.reporterSecret ?? process.env['REPORTER_SECRET'];
   const required = options.requireReporterSecret ?? true;
   const app = new Hono();
-  app.post('/api/v1/reporter/results', async (context) => {
+  // The credential check is a tagged middleware, so the authz matrix can read it off the route.
+  const secretOnly = guard('reporter-secret', async (context, next) => {
     // An unset secret used to leave the endpoint completely open, because the
     // `if` below short-circuited on falsiness. Fail closed instead.
     if (reporterSecret === undefined || reporterSecret === '') {
@@ -57,6 +59,9 @@ export function createReporterResultsRoute(
       if (!safeCompare(token, reporterSecret))
         return context.json({ error: { code: 'UNAUTHORIZED', message: 'Unauthorized' } }, 401);
     }
+    await next();
+  });
+  app.post('/api/v1/reporter/results', secretOnly, async (context) => {
     const body = await context.req.json().catch(() => null);
     const parsed = CanonicalRunResultSchema.safeParse(body);
     if (!parsed.success)

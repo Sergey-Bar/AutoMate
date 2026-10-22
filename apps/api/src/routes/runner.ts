@@ -1,8 +1,9 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod/v4';
 import { DomainError } from '../errors/domain-error.js';
 import { RunnerControlService } from '../services/runner-control.js';
 import { bearerToken } from '../http/bearer-token.js';
+import { guard } from '../http/access.js';
 
 const EnrollmentSchema = z.object({
   enrollmentToken: z.string().min(1),
@@ -48,8 +49,39 @@ function requireIdentity(
   }
 }
 
+/** The identity a request authenticated as, keyed by the request so it cannot outlive it. */
+const authenticatedIdentities = new WeakMap<Request, RunnerIdentity>();
+
+function identityOf(context: Context): RunnerIdentity {
+  const identity = authenticatedIdentities.get(context.req.raw);
+  if (!identity) throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
+  return identity;
+}
+
 export function createRunnerRoutes(service: RunnerControlService) {
   const app = new Hono();
+  // Credentials are checked by tagged middleware, so the authz matrix reads them off the route.
+  const credentialOnly = guard('runner-credential', async (context, next) => {
+    authenticatedIdentities.set(
+      context.req.raw,
+      requireIdentity(service, context.req.header('Authorization')),
+    );
+    await next();
+  });
+  // The enrollment token travels in the body. A body that is not an enrollment request is
+  // left for the handler to refuse as malformed; one that names a token nobody issued is
+  // refused here, as it always was.
+  const enrollmentOnly = guard('enrollment-token', async (context, next) => {
+    const body: unknown = await context.req.json().catch(() => null);
+    const token =
+      typeof body === 'object' && body !== null && 'enrollmentToken' in body
+        ? (body as { enrollmentToken: unknown }).enrollmentToken
+        : undefined;
+    if (typeof token === 'string' && !service.hasEnrollmentToken(token)) {
+      throw new DomainError('INVALID_ENROLLMENT_TOKEN', 'Invalid enrollment token');
+    }
+    await next();
+  });
   // No private `onError` here any more.
   //
   // This file registered its own, so it answered its own: an `UnauthorizedError` as a
@@ -59,7 +91,7 @@ export function createRunnerRoutes(service: RunnerControlService) {
   // client had to match on prose: nothing in the body was branchable. The handlers below
   // now throw `DomainError`, and `errors/boundary.ts` renders them — the same way every
   // other route in this API answers.
-  app.post('/api/v1/runner/v1/enroll', async (context) => {
+  app.post('/api/v1/runner/v1/enroll', enrollmentOnly, async (context) => {
     const parsed = EnrollmentSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) {
       throw new DomainError('INVALID_ENROLLMENT_REQUEST', 'Invalid enrollment request', {
@@ -78,12 +110,12 @@ export function createRunnerRoutes(service: RunnerControlService) {
       throw error;
     }
   });
-  app.post('/api/v1/runner/v1/sync', async (context) => {
-    const identity = requireIdentity(service, context.req.header('Authorization'));
+  app.post('/api/v1/runner/v1/sync', credentialOnly, async (context) => {
+    const identity = identityOf(context);
     return context.json({ runnerId: identity.id, status: identity.status, jobs: [] });
   });
-  app.post('/api/v1/runner/v1/jobs/:jobId/events/batch', async (context) => {
-    const identity = requireIdentity(service, context.req.header('Authorization'));
+  app.post('/api/v1/runner/v1/jobs/:jobId/events/batch', credentialOnly, async (context) => {
+    const identity = identityOf(context);
     const events = z.array(EventSchema).safeParse(await context.req.json().catch(() => null));
     if (!events.success) {
       throw new DomainError('INVALID_EVENT_BATCH', 'Invalid event batch', {
