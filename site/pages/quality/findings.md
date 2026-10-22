@@ -13,7 +13,7 @@ its source, then run `pnpm site:generate`.
 | ---------------- | ---- |
 | `debt`           | 6    |
 | `false-positive` | 6    |
-| `fixed`          | 191  |
+| `fixed`          | 193  |
 | `open`           | 4    |
 
 ## Open (4)

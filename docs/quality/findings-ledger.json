@@ -3859,10 +3859,25 @@
       "title": "The documentation site is never deployed, and `status:10` point 12 defers to a row that did not exist",
       "band": "Major",
       "provenance": "hand",
-      "status": "debt",
+      "status": "fixed",
       "owner": "the repository owner — the decision is a CI permission, not a design one",
-      "removalCondition": "A workflow that publishes `site/.vitepress/dist` to GitHub Pages exists and runs `SITE_DOCTOR_BUILT=1 pnpm site:doctor` against the built output, which needs `pages: write` and `id-token: write` granted on purpose rather than added to get this row to close. Until then the site is not live, the address `https://sergey-bar.github.io/AutoMate/` serves nothing, and \"it is live at the URL\" — the last clause of §17's twelfth point — is a claim with no evidence behind it. The condition names what could happen: the workflow file being written.",
-      "summary": "Two defects in one place, and the second is only visible because the first was read.\n\n**`scripts/lib/status-ten.mjs:998` declares `deferral: 'SITE-1'` for point 12, and no `SITE-1` row existed in this ledger.** `applyDeferral` converts a `fail` into a `not_configured` only when the named row is present, is `debt`, and carries both an owner and a `removalCondition`. With no row at all, the lookup missed and nothing was deferred — which is the same shape as `RF-5`'s wave gate: a check wired to a row that is not there cannot fail, and the deferral it implies never happens. `pnpm findings:check` did not catch it, because that gate checks the rows against the policy and there was nothing to check; nothing checked the reference. `SITE-1` is now this row, so the deferral is real rather than nominal.\n\n**The site is not deployed.** `site-doctor` check 8 reports `GAP` without a build, three of its ten checks report `GAP` rather than clean without one, and the whole suite is `pr-reporting` at a tier justified by being \"honest while the site is not live\". Nothing in this repository publishes it.\n\n**Why this is debt and not a failure.** Shipping the site means granting `pages: write` and `id-token: write` to a workflow. That is a security decision with a named owner, and it is not a consequence of redesigning the documentation — the site has been unbuilt since before this programme's first plan. So the work is recorded, owned, and given a condition that could actually happen, rather than performed as a side effect of a design change.\n\n**What this row does not close.** The design work in Phase 2 of the cinematic plan, which improves the site without deploying it. A better-looking site that is still not live is not a published site."
+      "removalCondition": "Met 2026-10-22: a workflow publishes `site/dist` and runs `SITE_DOCTOR_BUILT=1 pnpm site:doctor` against the built output (permissions pages: write and id-token: write were granted on the deploy job only).",
+      "summary": "Two defects in one place, and the second is only visible because the first was read.\n\n**`scripts/lib/status-ten.mjs:998` declares `deferral: 'SITE-1'` for point 12, and no `SITE-1` row existed in this ledger.** `applyDeferral` converts a `fail` into a `not_configured` only when the named row is present, is `debt`, and carries both an owner and a `removalCondition`. With no row at all, the lookup missed and nothing was deferred — which is the same shape as `RF-5`'s wave gate: a check wired to a row that is not there cannot fail, and the deferral it implies never happens. `pnpm findings:check` did not catch it, because that gate checks the rows against the policy and there was nothing to check; nothing checked the reference. `SITE-1` is now this row, so the deferral is real rather than nominal.\n\n**The site is not deployed.** `site-doctor` check 8 reports `GAP` without a build, three of its ten checks report `GAP` rather than clean without one, and the whole suite is `pr-reporting` at a tier justified by being \"honest while the site is not live\". Nothing in this repository publishes it.\n\n**Why this is debt and not a failure.** Shipping the site means granting `pages: write` and `id-token: write` to a workflow. That is a security decision with a named owner, and it is not a consequence of redesigning the documentation — the site has been unbuilt since before this programme's first plan. So the work is recorded, owned, and given a condition that could actually happen, rather than performed as a side effect of a design change.\n\n**What this row does not close.** The design work in Phase 2 of the cinematic plan, which improves the site without deploying it. A better-looking site that is still not live is not a published site.",
+      "resolution": "\n\nClosed 2026-10-22. The workflow existed already; the missing piece was the built-output doctor, now a step before the upload (see MNT-31), and the removal condition's path is corrected here from `site/.vitepress/dist` to `site/dist`. GitHub Pages is enabled for this repository (`gh api repos/Sergey-Bar/AutoMate/pages` returned build_type `workflow`, source main, https_enforced), recent docs.yml runs on main completed `success`, and https://sergey-bar.github.io/AutoMate/ answered HTTP 200 when checked. The doctor step itself has not yet run in CI because it merges with this change; it was run locally against a real build and passed 10 of 10.",
+      "evidence": [
+        {
+          "path": ".github/workflows/docs.yml",
+          "asserts": "Publishes site/dist and runs SITE_DOCTOR_BUILT=1 pnpm site:doctor on the built output before the upload."
+        },
+        {
+          "path": "scripts/lib/docs-workflow.test.mjs",
+          "asserts": "The doctor step is present, untolerated, ordered after the build and before the upload."
+        }
+      ],
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "docs-workflow.test.mjs failed without the step and passes with it; local built doctor 10 pass, 0 GAP; Pages API and URL checked as stated in the resolution."
     },
     {
       "id": "RF-6e",
@@ -4310,7 +4325,7 @@
       "owner": "The database upgrade, sequenced after RF-5.",
       "removalCondition": "RF-5 records a rehearsal run against an 18 instance, and the compose and CI pins read 18-alpine rather than 16-alpine.",
       "confirmed": true,
-      "summary": "**Measured 2026-10-04, and the target is unchanged.** PostgreSQL 18.6 is the current release of the 18 line. PostgreSQL 19 is at **Beta 4**, released 2026-09-24, with the release candidate expected in early October and general availability \"may also occur in October\" - so it is not a stable release today, and decision D3 excludes pre-releases.\n\n**Waiting for 16 is not a security exposure, which is the part worth correcting.** The 2026-08-13 release shipped 16.15 alongside 18.6, 17.11, 15.19 and 14.24, fixing 28 security vulnerabilities across the supported versions. `infra/compose/docker-compose.unified.yml` and the compose files pin `postgres:16-alpine`, which floats to the current 16 patch, so those fixes are already arriving. 16 reaches end of life in November 2028. **The upgrade is worth doing for the two-major gap and for `pg` 8.23's features, not because 16 is unpatched**, and recording that is what stops the row being re-argued as urgent.\n\n**The `pg` driver needs no action.** `pnpm view pg dist-tags` reports `latest: 8.23.1`, and the catalog resolves `^8.20.0` inside that range.\n\n**The blocker is unchanged and is not about the version.** Phase 9 is gated on RF-5, an open Blocker whose rehearsal has never run. A major-version move on a live installation is a data migration, and `pnpm migrate:rehearse` is the harness that proves one, so doing both at once makes a failure ambiguous: which of the two moved the row count. `pg_dump` also needs to be present in the image, which CI cannot demonstrate.\n\n**19 graduates the moment it is stable**, which on the published schedule may be inside this programme. The condition is a `latest` tag rather than a date, and the check is one command."
+      "summary": "**Measured 2026-10-04, and the target is unchanged.** PostgreSQL 18.6 is the current release of the 18 line. PostgreSQL 19 is at **Beta 4**, released 2026-09-24, with the release candidate expected in early October and general availability \"may also occur in October\" - so it is not a stable release today, and decision D3 excludes pre-releases.\n\n**Waiting for 16 is not a security exposure, which is the part worth correcting.** The 2026-08-13 release shipped 16.15 alongside 18.6, 17.11, 15.19 and 14.24, fixing 28 security vulnerabilities across the supported versions. `infra/compose/docker-compose.unified.yml` and the compose files pin `postgres:16-alpine`, which floats to the current 16 patch, so those fixes are already arriving. 16 reaches end of life in November 2028. **The upgrade is worth doing for the two-major gap and for `pg` 8.23's features, not because 16 is unpatched**, and recording that is what stops the row being re-argued as urgent.\n\n**The `pg` driver needs no action.** `pnpm view pg dist-tags` reports `latest: 8.23.1`, and the catalog resolves `^8.20.0` inside that range.\n\n**The blocker is unchanged and is not about the version.** Phase 9 is gated on RF-5, an open Blocker whose rehearsal has never run. A major-version move on a live installation is a data migration, and `pnpm migrate:rehearse` is the harness that proves one, so doing both at once makes a failure ambiguous: which of the two moved the row count. `pg_dump` also needs to be present in the image, which CI cannot demonstrate.\n\n**19 graduates the moment it is stable**, which on the published schedule may be inside this programme. The condition is a `latest` tag rather than a date, and the check is one command.\n\n**Rehearsed 2026-10-22 against `postgres:18-alpine` (PostgreSQL 18.6) and `postgres:16-alpine` (16.15) in Docker Desktop on Windows; the compose image is deliberately NOT changed, and the reason is the install path rather than the database.**\n\n**What is proven clean on 18.6.** (1) All migrations in `packages/db/drizzle` applied to an empty 18 database with `pnpm db:migrate` (exit 0); the same graph on 16.15 produced a `pg_dump --schema-only --no-owner` of 3390 lines whose only differences from 18 are the dump headers and 18's `SET transaction_timeout = 0`, so the schema is identical on both majors. (2) `pnpm test:e2e` against the 18 instance: **122 passed (4.5 m)**, and the same suite against 16.15: 122 passed (4.5 m), so behaviour through the real API and the vault is equal. (3) A **16 to 18 dump and restore with data**: after the 16 run, `pg_dump -Fc` of the populated 16 database taken with the 18 client (`docker exec pg18 pg_dump -h host.docker.internal -p 55416`), `pg_restore --no-owner --exit-on-error` into a fresh 18 database, and a `count(*)` of every base table in `public` and `drizzle`: 58 tables, 202 rows, every per-table count equal.\n\n**Why the image stays at 16.** The 18 image changed its data layout: `PGDATA` is `/var/lib/postgresql/18/docker` and the declared volume is `/var/lib/postgresql`. Tested: `postgres:18-alpine` with a volume at the old `/var/lib/postgresql/data` mount **refuses to start** (`Counter to that, there appears to be PostgreSQL data in: /var/lib/postgresql/data (unused mount/volume)`), so a plain image bump on an existing install fails loudly instead of corrupting anything - good - but it also means the bump is not a one line change. `docker-compose.unified.yml` and `compose.dev.yml` both mount `postgres_data:/var/lib/postgresql/data`, and 2.5.0 shipped a one download install whose `update` command (`start.cmd`, `start.ps1`, `start.sh`) pulls and restarts. Making 18 the target needs: a mount at `/var/lib/postgresql` on a new volume name (so the 16 volume stays untouched as the rollback), and an `update` path that runs `pg_dump -Fc` from the old 16 container before the swap and `pg_restore` into the new one, in all three scripts, with a test per script. The dump and restore above is the tested core of that path; the script integration and its tests are not written, and shipping the image without them would leave every existing install either refusing to start or, on a new volume, starting with an empty database.\n\n**Not done, and recorded so it is not assumed:** the six `postgres:16-alpine` service images in the workflows were left on 16 because CI testing a major that nobody ships proves little; `pnpm migrate:rehearse` was not run (no host `pg_dump`/`pg_restore`/`psql` on this Windows machine - the dump and restore was done inside the containers); PostgreSQL 19 was not re-checked. The removal condition is unchanged except for its first half: the rehearsal against 18 now exists, and what is outstanding is the compose change plus the `update` upgrade path."
     },
     {
       "id": "RNR-1",
@@ -5200,6 +5215,53 @@
           "asserts": "Every registered domain/action pair answers with the explicit refusal the corrected rows name, and the Command of each deferred `quality.*` row runs this file."
         }
       ]
+    },
+    {
+      "id": "MNT-30",
+      "title": "`pnpm skill-scan` was never run in CI, so the graduation condition could not be observed",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "MAINT-2026-10",
+      "summary": "`scripts/skill-scan.mjs` is tier `pr-reporting` and no workflow installed skillspector or ran it, so the condition AGENTS.md names for graduating it (a CI run printing a `risk_assessment` with `is_complete: true`) could never be produced: a gate comparing against an input nobody produced, the RF-9 shape. The 2026-10-02 local run was `is_complete: false`, and later 95.8% with six analyzers degraded.\n\nThe `security` job now installs skillspector through `.github/actions/install-skillspector` (pip from the NVIDIA/SkillSpector git repository, pinned to the full commit behind tag v2.12.0, no PyPI release having been found) and runs `pnpm skill-scan` as a `continue-on-error` reporting step. The script appends `is_complete`, coverage, degraded analyzers and whether the graduation condition was met to `$GITHUB_STEP_SUMMARY`. The tier is unchanged. This row does **not** claim graduation: no CI run has been observed, because a run cannot be observed before the change merges.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "grep of .github/ for skillspector and skill-scan on origin/main returned nothing before this change; scripts/lib/skill-scan-ci.test.mjs failed on the missing export and missing action before the wiring existed.",
+      "owner": "the repository owner",
+      "removalCondition": "A run of the `security` job on main whose job summary shows `is_complete: true` and no degraded analyzers. Then one commit moves `skill-scan` to `pr-blocking` in scripts/gate-tooling.json, drops `continue-on-error` from the step, and closes this row. If the run shows is_complete false, the degraded analyzer in the summary is the next defect to record.",
+      "evidence": [
+        {
+          "path": ".github/actions/install-skillspector/action.yml",
+          "asserts": "Installs skillspector from a 40-character pinned commit and verifies `skillspector --version`."
+        },
+        {
+          "path": "scripts/lib/skill-scan-ci.test.mjs",
+          "asserts": "The security job installs the scanner before running skill-scan as a tolerated step, the tier is still pr-reporting, and the job summary states is_complete, coverage and degraded analyzers."
+        }
+      ]
+    },
+    {
+      "id": "MNT-31",
+      "title": "`SITE-1` named the wrong artifact path, and the deployed workflow did not run the doctor it promised",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "The SITE-1 removal condition said `site/.vitepress/dist`; the site builds to `site/dist` (`outDir: 'dist'` in site/.vitepress/config.mts, and site-doctor reads `site/dist`). `.github/workflows/docs.yml` deployed that directory but never ran `SITE_DOCTOR_BUILT=1 pnpm site:doctor`, so the DOM checks (7-9) reported `GAP` in CI and a broken built site could be published.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "scripts/lib/docs-workflow.test.mjs failed with `exactly one step runs pnpm site:doctor` against the workflow before the step was added, and passes after. A local build followed by the built doctor reported 10 pass, 0 fail, 0 GAP.",
+      "evidence": [
+        {
+          "path": ".github/workflows/docs.yml",
+          "asserts": "The build job runs `pnpm site:doctor` with SITE_DOCTOR_BUILT=1 after the site build and before upload-pages-artifact, with path site/dist."
+        },
+        {
+          "path": "scripts/lib/docs-workflow.test.mjs",
+          "asserts": "The doctor step exists once, is not tolerated, sits between the build and the upload, and the artifact is site/dist."
+        }
+      ],
+      "resolution": "Added the step and the test that holds its order."
     },
     {
       "id": "MNT-60",

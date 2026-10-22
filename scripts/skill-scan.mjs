@@ -54,7 +54,7 @@
  * stated in the output rather than left to be inferred.
  *
  * **Still not in `verify`, and still `pr-reporting`, for two checkable reasons.**
- * CI has no skillspector installed, so a CI run today would record
+ * CI had no skillspector installed, so a CI run would have recorded
  * `not_configured` — which is a step that compares against an input nobody
  * produced, the RF-9 shape. And the scan was not complete: `is_complete` was
  * `false` at 97.7%, with three files partially inspected because
@@ -62,13 +62,14 @@
  * reported `degraded`. The gate reports both rather than printing a clean summary
  * over them.
  *
- * Graduating is one commit that installs the scanner in the `security` job and
- * moves the tier together. The condition is checkable: a CI run in which this
+ * The `security` job now installs the scanner (`.github/actions/install-skillspector`) and
+ * runs this as a tolerated reporting step that writes `summaryMarkdown` to the job summary
+ * (`MNT-30`). Graduating is then one commit that moves the tier. The condition is checkable: a CI run in which this
  * script printed a `risk_assessment` rather than `not_configured`, with
  * `is_complete: true` and no degraded analyzers.
  */
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -268,6 +269,43 @@ export function completenessFor(report) {
   };
 }
 
+/**
+ * The scan's completeness, as Markdown for the CI job summary.
+ *
+ * Graduating `skill-scan` from `pr-reporting` needs a CI run that printed a
+ * `risk_assessment` with `is_complete: true` and no degraded analyzers. Nothing could
+ * observe that condition from a log nobody opens, so the run states it where the job
+ * page shows it, and says plainly whether it has been met.
+ *
+ * @param {unknown} report the parsed JSON report
+ * @returns {string}
+ */
+export function summaryMarkdown(report) {
+  const completeness = completenessFor(report);
+  const verdict = verdictFor(report);
+  const met = completeness.complete && completeness.degraded.length === 0;
+  return [
+    '### Skill scan (reporting)',
+    '',
+    `- scanner verdict: ${verdict.reason}`,
+    `- is_complete: ${completeness.complete}`,
+    `- coverage: ${completeness.coverage}`,
+    `- degraded analyzers: ${completeness.degraded.length === 0 ? 'none' : completeness.degraded.join(', ')}`,
+    '',
+    met
+      ? 'The graduation condition is met by this run: a risk_assessment with is_complete true and no degraded analyzers. Moving the tier to pr-blocking is now a deliberate commit.'
+      : 'This run has not met the graduation condition (is_complete true, no degraded analyzers), so skill-scan stays pr-reporting.',
+    '',
+  ].join('\n');
+}
+
+/** @param {unknown} report */
+function publishSummary(report) {
+  const target = process.env.GITHUB_STEP_SUMMARY;
+  if (target === undefined || target === '') return;
+  appendFileSync(target, summaryMarkdown(report));
+}
+
 export function main() {
   if (!existsSync(SKILL_ROOT)) {
     // Nothing to scan is not a failure. A repository with no skills has no skill
@@ -332,6 +370,8 @@ export function main() {
     console.error('skill-scan: the scanner exited without a readable JSON report.');
     return 2;
   }
+
+  publishSummary(parsed);
 
   const known = knownFingerprints();
   const { newFindings, stale, total } = classifyFindings(parsed, known);

@@ -1,0 +1,36 @@
+name: Install skillspector
+description: >-
+  Puts NVIDIA's `skillspector` on PATH at a pinned commit, so `pnpm skill-scan`
+  (scripts/skill-scan.mjs) can scan `.kilo/skills/` in CI.
+
+  SkillSpector is distributed from its GitHub repository (no PyPI release was
+  found), and the documented install is `uv tool install git+https://...`. A bare
+  git URL follows the default branch, so this pins the **full commit** behind the
+  release tag instead: the tag can be moved, the commit cannot. The pip install
+  below is the same package from the same source, without adding a second
+  third-party action just to obtain `uv`.
+
+  `scripts/lib/gate-tooling.test.mjs` requires any job running a manifest-listed
+  script to call the action named in `scripts/gate-tooling.json`, and
+  `scripts/lib/skill-scan-ci.test.mjs` requires the pin to stay a 40-character commit.
+
+# Pinned commit c7958a3268d9498644b22edb75d0f051bbc8cbfc = tag v2.12.0, the version the
+# 2026-10-02 baseline in docs/quality/skill-findings-baseline.json was recorded against.
+# Bump it together with a re-recorded baseline. It is a literal, not an input, so the
+# pin has exactly one place to be read and checked.
+runs:
+  using: composite
+  steps:
+    # SkillSpector needs Python 3.12 or newer.
+    - name: Set up Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: '3.12'
+
+    - name: Install skillspector v2.12.0 (pinned commit)
+      shell: bash
+      run: |
+        set -euo pipefail
+        python -m pip install --disable-pip-version-check --no-input \
+          "skillspector @ git+https://github.com/NVIDIA/SkillSpector.git@c7958a3268d9498644b22edb75d0f051bbc8cbfc"
+        skillspector --version
