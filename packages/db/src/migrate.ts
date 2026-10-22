@@ -267,26 +267,46 @@ export function listMigrationFiles(folder: string): string[] {
     .sort();
 }
 
+/** What the `db:migrate` entrypoint touches, so the reporting can be tested. */
+export interface MigrationCliIo {
+  run: () => Promise<MigrationApplyResult>;
+  info: (line: string) => void;
+  error: (...parts: unknown[]) => void;
+  exit: (code: number) => void;
+  env: NodeJS.ProcessEnv;
+}
+
+/** Apply migrations, print what happened, and exit 1 on failure. */
+export async function runMigrationCli(io: MigrationCliIo): Promise<void> {
+  try {
+    const result = await io.run();
+    const database = assertMigrationDatabaseUrl(io.env['DATABASE_URL']).database;
+    if (result.applied.length === 0) {
+      io.info(
+        `Migrations: already current (${result.alreadyCurrent.length} recorded, ` +
+          `nothing to apply) on ${database}.`,
+      );
+      return;
+    }
+    io.info(
+      `Migrations: applied ${result.applied.length} to ${database} in ` +
+        `${result.durationMs.toFixed(0)}ms`,
+    );
+    for (const hash of result.applied) io.info(`  applied ${hash}`);
+  } catch (err: unknown) {
+    io.error('Migration failed:', (err as Error).message);
+    io.exit(1);
+  }
+}
+
 /** CLI entrypoint: run if this file is invoked directly. */
 if (isDirectInvocation(process.argv[1], import.meta.url)) {
-  runMigrations()
-    .then((result) => {
-      if (result.applied.length === 0) {
-        console.info(
-          `Migrations: already current (${result.alreadyCurrent.length} recorded, ` +
-            `nothing to apply) on ${assertMigrationDatabaseUrl(process.env['DATABASE_URL']).database}.`,
-        );
-        return;
-      }
-      console.info(
-        `Migrations: applied ${result.applied.length} to ` +
-          `${assertMigrationDatabaseUrl(process.env['DATABASE_URL']).database} in ` +
-          `${result.durationMs.toFixed(0)}ms`,
-      );
-      for (const hash of result.applied) console.info(`  applied ${hash}`);
-    })
-    .catch((err: unknown) => {
-      console.error('Migration failed:', (err as Error).message);
-      process.exit(1);
-    });
+  // References rather than wrappers: the entrypoint adds no behaviour of its own.
+  void runMigrationCli({
+    run: runMigrations,
+    info: console.info,
+    error: console.error,
+    exit: process.exit,
+    env: process.env,
+  });
 }
