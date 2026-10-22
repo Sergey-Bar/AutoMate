@@ -1,0 +1,318 @@
+name: Release
+
+# Pushing a `v*` tag publishes a release: multi-arch images on ghcr.io, the downloadable
+# bundle, and a GitHub release whose notes are that version's changelog section. The
+# last job installs the release from the release page on a clean runner, the way a user
+# would, and fails the run if it does not come up. See docs/operations/releasing.md.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+# A tag is released once. A second push of the same ref waits rather than racing it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.x
+  IMAGE_PREFIX: ghcr.io/sergey-bar/automate
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tags: ${{ steps.meta.outputs.tags }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # Refuses a tag that is not v<semver>, a package.json that names another version,
+      # and a changelog with no section for it — before anything is built or published.
+      - name: Release notes from the changelog
+        run: node ./scripts/release-notes.mjs --tag "$GITHUB_REF_NAME" --out release-notes.md
+      - name: Version and image tags
+        id: meta
+        run: |
+          node --input-type=module -e "
+            import { imageTags, parseTag } from './scripts/lib/release-notes.mjs';
+            const tag = process.env.GITHUB_REF_NAME;
+            const { version, prerelease } = parseTag(tag);
+            console.log('version=' + version);
+            console.log('prerelease=' + String(prerelease));
+            console.log('tags=' + imageTags(tag).join(','));
+          " >> "$GITHUB_OUTPUT"
+      - name: Keep the notes for the release job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-notes
+          path: release-notes.md
+          retention-days: 7
+
+  verify:
+    name: Verify
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        # Full history: `pnpm verify` runs the secret scan over every commit.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install static-analysis scanners
+        uses: ./.github/actions/install-scanners
+      - name: Verify
+        run: pnpm verify
+
+  images:
+    name: Image ${{ matrix.image }} (${{ matrix.platform.arch }})
+    needs: [prepare, verify]
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        image:
+          - migrate
+          - api
+          - worker
+          - runner
+          - web
+          - edge
+        # Native runners for each architecture, not QEMU: the runner image installs three
+        # browsers with their system libraries, which under emulation takes most of an hour.
+        platform:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Sign in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Pushed by digest only. The merge job below gives the two architectures one tag.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc
+        with:
+          context: .
+          file: infra/docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/${{ matrix.platform.arch }}
+          build-args: |
+            AUTOMATE_VERSION=${{ needs.prepare.outputs.version }}
+            AUTOMATE_REVISION=${{ github.sha }}
+          outputs: type=image,name=${{ env.IMAGE_PREFIX }}-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max
+          sbom: true
+      - name: Record the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          touch "digests/${DIGEST#sha256:}"
+      - name: Keep the digest for the merge
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: digests-${{ matrix.image }}-${{ matrix.platform.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifests:
+    name: Publish ${{ matrix.image }}
+    needs: [prepare, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    strategy:
+      matrix:
+        image:
+          - migrate
+          - api
+          - worker
+          - runner
+          - web
+          - edge
+    steps:
+      - name: Collect both architectures' digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: digests-${{ matrix.image }}-*
+          merge-multiple: true
+          path: digests
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069
+      - name: Sign in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # `X.Y.Z` always; `X.Y` and `latest` only for a final release, so a candidate never
+      # becomes what `latest` pulls.
+      - name: Tag one multi-arch image
+        id: merge
+        working-directory: digests
+        env:
+          IMAGE: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          TAGS: ${{ needs.prepare.outputs.tags }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          count="$(ls | wc -l)"
+          [ "$count" -eq 2 ] || { echo "expected 2 architecture digests, found $count"; exit 1; }
+          args=()
+          for tag in ${TAGS//,/ }; do args+=(-t "$IMAGE:$tag"); done
+          for digest in *; do args+=("$IMAGE@sha256:$digest"); done
+          docker buildx imagetools create "${args[@]}"
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest where and how it was built
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-name: ${{ env.IMAGE_PREFIX }}-${{ matrix.image }}
+          subject-digest: ${{ steps.merge.outputs.digest }}
+          push-to-registry: true
+
+  visibility:
+    name: Images are public
+    needs: manifests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      # GHCR creates a package private on its first push and no token can change that.
+      # A private image installs for its author and fails for everyone else, so this
+      # stops the release and names the settings page for each one.
+      - name: Pull every image without signing in
+        run: node ./scripts/release-visibility.mjs --tag "$GITHUB_REF_NAME"
+
+  release:
+    name: GitHub release
+    needs: [prepare, visibility]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Fetch the release notes
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-notes
+      - name: Build the bundle
+        run: node ./scripts/release-bundle.mjs --version "${{ needs.prepare.outputs.version }}"
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          assets=("dist/release/automate-${VERSION}.zip" "dist/release/SHA256SUMS")
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            flags=()
+            [ "$PRERELEASE" = "true" ] && flags+=(--prerelease)
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --title "v${VERSION}" --notes-file release-notes.md "${flags[@]}"
+          fi
+
+  acceptance:
+    name: Install from the release page
+    needs: [prepare, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # No checkout: this job has only what a user downloads.
+    steps:
+      - name: Download the bundle and its checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" \
+            -p "automate-${{ needs.prepare.outputs.version }}.zip" -p SHA256SUMS
+          sha256sum -c SHA256SUMS
+          unzip -q "automate-${{ needs.prepare.outputs.version }}.zip"
+      - name: Start it
+        working-directory: automate-${{ needs.prepare.outputs.version }}
+        env:
+          AUTOMATE_NO_BROWSER: '1'
+        run: ./start.sh
+      - name: Probe it as a user
+        working-directory: automate-${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:8080/api/v1/ready
+          curl -fsS -o /dev/null http://127.0.0.1:8080/
+          key="$(sed -n 's/^AUTOMATE_INSTALLATION_KEY=//p' .env)"
+          curl -fsS -o /dev/null -X POST -H 'content-type: application/json' \
+            -d "{\"apiKey\":\"$key\"}" http://127.0.0.1:8080/api/v1/auth/login
+      - name: Logs, if it failed
+        if: failure()
+        working-directory: automate-${{ needs.prepare.outputs.version }}
+        run: ./start.sh status; docker compose -p automate --env-file .env -f compose.yml logs --no-color --tail 80
+      - name: Remove it
+        if: always()
+        working-directory: automate-${{ needs.prepare.outputs.version }}
+        run: ./start.sh uninstall --purge
+      # Recorded rather than implied. GitHub's Windows runners run Windows containers only,
+      # and its macOS runners have no Docker, so neither can start these Linux images.
+      # start.ps1 and start.cmd are covered by the "Start scripts on Windows" job instead.
+      - name: What this job could not check
+        if: always()
+        run: |
+          {
+            echo '### Acceptance coverage'
+            echo '- Linux amd64: installed from the release page, probed, removed.'
+            echo '- GAP Windows: hosted runners run Windows containers only; start.ps1 is tested against a fake docker.'
+            echo '- GAP macOS: hosted runners have no Docker.'
+            echo '- GAP arm64: images are built and published natively; not installed here.'
+          } >> "$GITHUB_STEP_SUMMARY"
