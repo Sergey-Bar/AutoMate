@@ -52,7 +52,7 @@
     },
     {
       "name": "@hono/node-server",
-      "version": "1.19.17"
+      "version": "2.1.5"
     },
     {
       "name": "@playwright/test",
@@ -68,19 +68,19 @@
     },
     {
       "name": "@sentry/vite-plugin",
-      "version": "5.4.1"
+      "version": "11.8.0"
     },
     {
-      "name": "@storybook/addon-essentials",
-      "version": "8.6.14"
+      "name": "@storybook/addon-docs",
+      "version": "10.6.3"
     },
     {
       "name": "@storybook/react",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "@storybook/react-vite",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "@tailwindcss/vite",
@@ -96,7 +96,7 @@
     },
     {
       "name": "@testing-library/jest-dom",
-      "version": "6.9.1"
+      "version": "7.0.1"
     },
     {
       "name": "@testing-library/react",
@@ -108,7 +108,7 @@
     },
     {
       "name": "@types/better-sqlite3",
-      "version": "7.6.13"
+      "version": "9.6.0"
     },
     {
       "name": "@types/node",
@@ -128,11 +128,11 @@
     },
     {
       "name": "@vitejs/plugin-react",
-      "version": "4.7.0"
+      "version": "6.1.2"
     },
     {
       "name": "@vitest/coverage-v8",
-      "version": "4.1.12"
+      "version": "5.0.5"
     },
     {
       "name": "ajv",
@@ -232,7 +232,7 @@
     },
     {
       "name": "storybook",
-      "version": "8.6.19"
+      "version": "10.6.3"
     },
     {
       "name": "tailwind-merge",
@@ -260,7 +260,7 @@
     },
     {
       "name": "vite",
-      "version": "6.4.4"
+      "version": "8.3.4"
     },
     {
       "name": "vitepress",
@@ -268,7 +268,7 @@
     },
     {
       "name": "vitest",
-      "version": "4.1.12"
+      "version": "5.0.5"
     },
     {
       "name": "vitest-axe",
