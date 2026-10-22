@@ -22,10 +22,16 @@ import type { StorybookConfig } from '@storybook/react-vite';
  * nothing. `src/storybook.css` now carries the same load order without the
  * substitution, and its header records what was measured so the next person does
  * not spend the afternoon again.
+ *
+ * **Why only `addon-docs`.** Storybook 9 folded what `@storybook/addon-essentials`
+ * bundled — controls, actions, backgrounds, viewport, toolbars, measure, outline —
+ * into `storybook` itself and deleted the package. Docs is the one part that stayed
+ * an addon, and the stories carry `tags: ['autodocs']`, so dropping it would make
+ * every docs page disappear without an error.
  */
 const config: StorybookConfig = {
   stories: ['../src/**/*.stories.@(js|jsx|mjs|ts|tsx)'],
-  addons: ['@storybook/addon-essentials'],
+  addons: ['@storybook/addon-docs'],
   framework: {
     name: '@storybook/react-vite',
     options: {},

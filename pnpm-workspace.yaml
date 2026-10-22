@@ -27,15 +27,16 @@ engineStrict: true
 # one pnpm itself enforces.
 pmOnFail: error
 
-# pnpm 11 replaced `onlyBuiltDependencies` and its relatives with one map. The three
-# entries are the same three, and the reasons are unchanged.
+# pnpm 11 replaced `onlyBuiltDependencies` and its relatives with one map.
+#
+# `@sentry/cli` was a third entry until `@sentry/vite-plugin` 11, which drives the
+# pure-JavaScript `sentry` CLI SDK (`createSentrySDK()`) instead of shelling out to the
+# platform binary `@sentry/cli`'s install script fetched. Nothing in the tree resolves
+# `@sentry/cli` any more and `sentry` has no install script, so the entry would have
+# approved a build that cannot happen.
 allowBuilds:
   better-sqlite3: true
   esbuild: true
-  # Fetches the platform binary the Sentry Vite plugin shells out to for
-  # source map upload. Without it the build still succeeds and the upload
-  # silently never happens, so an unminified stack trace in production.
-  '@sentry/cli': true
 
 # **Four pnpm 11 defaults are now in force, and one of them costs something.**
 #
@@ -137,6 +138,11 @@ overrides:
   # bypass on Windows, high), with the catalog entry below.
   # Reviewed 2026-10-21: still needed — without it `pnpm audit` reports six vite advisories
   # (moderate and high). Review by 2026-11-21.
+  #
+  # Since 2026-10-21 the catalog is on vite 8, so this override is now also what holds
+  # VitePress 1 on the 6.x line its `^5.4.14` range was already being stretched to. A
+  # VitePress 1 build on vite 8 is not a combination anybody has tested; `pnpm build`
+  # runs `@automate/docs:build` against the 6.x copy, and the lockfile resolves two vites.
   'vitepress>vite': ^6.4.4
   # Added by `pnpm audit --fix` on 2026-10-20, one entry per advisory it reported. Drop each when
   # its parent takes the fix.
@@ -147,16 +153,15 @@ overrides:
   # Removed 2026-10-21: `esbuild@>=0.27.3 <0.28.1: ^0.28.1`, through vitest. With vitest at
   # 4.1.12 the install resolves and `pnpm audit` reports nothing without it.
   esbuild@<=0.24.2: ^0.25.0
-  # uuid, moderate, through storybook. Reviewed 2026-10-21: still needed — without it
-  # `pnpm audit` reports a moderate uuid advisory. Review by 2026-11-21.
-  uuid@<11.1.1: ^11.1.1
+  # Removed 2026-10-21: `uuid@<11.1.1: ^11.1.1`, through storybook. Storybook 10 no longer
+  # depends on `uuid`, so nothing in the tree resolves it and the override matched nothing.
 
 catalog:
   '@eslint/js': ^10.0.1
   '@playwright/test': ^1.64.1
   '@sentry/node': ^11.8.0
   '@sentry/react': ^11.8.0
-  '@sentry/vite-plugin': ^5.4.1
+  '@sentry/vite-plugin': ^11.8.0
   '@tailwindcss/vite': ^4.3.3
   '@testing-library/dom': ^10.4.2
   '@testing-library/react': ^16.3.3
@@ -164,7 +169,7 @@ catalog:
   '@types/pg': ^8.23.1
   '@types/react': ^19.3.0
   '@types/react-dom': ^19.3.0
-  '@vitest/coverage-v8': ^4.1.12
+  '@vitest/coverage-v8': ^5.0.5
   drizzle-kit: ^0.31.11
   drizzle-orm: ^0.45.4
   eslint: ^10.13.0
@@ -177,6 +182,6 @@ catalog:
   tailwindcss: ^4.3.3
   typescript: ^6.0.3
   typescript-eslint: ^8.72.0
-  vite: ^6.4.4
-  vitest: ^4.1.12
+  vite: ^8.3.4
+  vitest: ^5.0.5
   zod: ^4.6.7
