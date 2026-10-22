@@ -300,6 +300,24 @@ describe('run', () => {
       ]);
       expect(pgMock.Pool).not.toHaveBeenCalled();
     });
+
+    it('accepts --workspace on a dry run and still opens no pool', async () => {
+      const { source, plan } = validPlanFile();
+      await run([
+        'apply',
+        '--dry-run',
+        '--from',
+        source,
+        '--to',
+        TARGET,
+        '--plan',
+        plan,
+        '--workspace',
+        'ws-1',
+      ]);
+      expect(outcome()).toEqual({ error: undefined, exitCode: undefined });
+      expect(pgMock.Pool).not.toHaveBeenCalled();
+    });
   });
 
   describe('verify', () => {
@@ -327,6 +345,12 @@ describe('run', () => {
       });
     });
 
+    it('reports a failure that is not an Error by its text and sets the exit code', async () => {
+      const { source, plan } = validPlanFile();
+      pgMock.query.mockRejectedValue('connection refused');
+      await run(['verify', '--from', source, '--to', TARGET, '--plan', plan]);
+      expect(outcome()).toEqual({ error: 'connection refused', exitCode: 1 });
+    });
     it('passes when every source table count matches the target', async () => {
       const { source, plan } = validPlanFile();
       targetCounts({ known_failures: 1 });
