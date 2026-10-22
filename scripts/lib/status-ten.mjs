@@ -449,6 +449,60 @@ function pointFour(ctx) {
 }
 
 /**
+ * The recorded mutation scores, or null when no baseline has been recorded.
+ *
+ * Read from `docs/quality/mutation-baseline.json`, the file `pnpm mutation:ratchet` guards,
+ * so this reports the recorded number and not a claim that a file exists.
+ *
+ * @param {unknown} baseline
+ * @returns {{ target: number, scores: Array<[string, number]> } | null}
+ */
+function mutationScores(baseline) {
+  const record = /** @type {{ target?: unknown, packages?: unknown } | null} */ (baseline);
+  if (typeof record?.target !== 'number') return null;
+  const packages = /** @type {Record<string, { score?: unknown }> | null} */ (record.packages);
+  if (typeof packages !== 'object' || packages === null) return null;
+  /** @type {Array<[string, number]>} */
+  const scores = [];
+  for (const [name, entry] of Object.entries(packages)) {
+    if (typeof entry?.score === 'number') scores.push([name, entry.score]);
+  }
+  return scores.length === 0 ? null : { target: record.target, scores };
+}
+
+/**
+ * Point five's mutation clause: pass or fail from the recorded number against the target.
+ * A score below the target stays a `fail` and names the number; a baseline nobody has
+ * recorded is not a 0% score and not a pass.
+ *
+ * @param {ReturnType<typeof mutationScores>} mutation
+ * @returns {Clause}
+ */
+function mutationClause(mutation) {
+  const claim = 'mutation is at least 75% on the five core packages';
+  if (mutation === null) {
+    return broken(
+      claim,
+      'no `docs/quality/mutation-baseline.json` is readable, so no score has ever been recorded and ' +
+        'nothing ratchets it. A number nobody has measured is not a 0% score and not a pass.',
+    );
+  }
+  const listed = mutation.scores.map(([name, score]) => `${name} ${String(score)}`).join(', ');
+  const below = mutation.scores.filter(([, score]) => score < mutation.target);
+  return below.length === 0 && mutation.scores.length >= 5
+    ? ok(
+        claim,
+        `recorded in mutation-baseline.json and ratcheted by pnpm mutation:ratchet: ${listed}.`,
+      )
+    : broken(
+        claim,
+        `the recorded scores are ${listed}; ` +
+          `${below.map(([name]) => name).join(', ') || 'fewer than five packages'} ` +
+          `is below the ${String(mutation.target)} target.`,
+      );
+}
+
+/**
  * @param {Context} ctx
  * @returns {Clause[]}
  */
@@ -458,7 +512,7 @@ function pointFive(ctx) {
   );
   const ceiling = typeof complexity?.ceiling === 'number' ? complexity.ceiling : null;
   const worst = typeof complexity?.worst === 'number' ? complexity.worst : null;
-  const mutation = ctx.has('mutation-baseline.json');
+  const mutation = mutationScores(ctx.json('docs/quality/mutation-baseline.json'));
   const propertyTests = ctx
     .files('packages')
     .concat(ctx.files('apps'))
@@ -480,13 +534,7 @@ function pointFive(ctx) {
             `${worst === null ? '' : `, and the worst function measured is ${String(worst)}`}. §17 names 10.`,
         ),
     unchecked('duplication is at most 3% on changed code', needsRun('pnpm duplication')),
-    mutation
-      ? ok('a mutation baseline with a ratchet exists', 'mutation-baseline.json is committed.')
-      : broken(
-          'mutation is at least 75% on the five core packages',
-          'no `mutation-baseline.json`, so no score has ever been recorded and nothing ratchets it. A ' +
-            'number nobody has measured is not a 0% score and not a pass.',
-        ),
+    mutationClause(mutation),
     propertyTests.length > 0
       ? ok('property or fuzz suites exist', propertyTests.join(', '))
       : broken(

@@ -34,6 +34,7 @@ export default {
         'reporting',
         'reporter',
         'orchestration',
+        'tool-sdk',
         'automation',
         'runner',
         'worker',

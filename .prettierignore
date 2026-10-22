@@ -36,3 +36,5 @@ packages/db/drizzle/meta/
 # edits, and the twenty-entry glob list that predated real globs never mentioned that
 # directory, so twelve of them had never been formatted or checked. Listed here only
 # to record that they were once invisible and deliberately are not any more.
+**/reports/
+**/.stryker-tmp/

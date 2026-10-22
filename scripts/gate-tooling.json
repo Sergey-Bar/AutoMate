@@ -82,6 +82,8 @@
     "migrate:plan": "pr-reporting",
     "migrate:validate": "pr-reporting",
     "quality:baseline": "nightly",
+    "mutation": "nightly",
+    "mutation:ratchet": "nightly",
     "smoke:local": "nightly",
     "smoke:rehearsal": "nightly",
     "test:performance": "nightly",
@@ -213,6 +215,16 @@
       "requires": [],
       "tier": 2,
       "why": "Checks the migration graph against the journal. Also database-free."
+    },
+    "mutation": {
+      "requires": [],
+      "tier": 2,
+      "why": "StrykerJS is a devDependency, not a binary. It needs `pnpm build` first (the packages import shared-contracts through dist/) and takes about fifteen minutes on five packages, which is why it is nightly and not a pull-request step. Patched through `patches/` for Vitest 5 until stryker-js#6210 is released."
+    },
+    "mutation:ratchet": {
+      "requires": [],
+      "tier": 2,
+      "why": "Compares the reports `pnpm mutation` left against docs/quality/mutation-baseline.json and fails closed on a missing report or baseline. The fast half, that the baseline file is well-formed, is a node:test in scripts/lib/mutation-ratchet.test.mjs and runs on every pull request."
     },
     "smoke:local": {
       "requires": [],

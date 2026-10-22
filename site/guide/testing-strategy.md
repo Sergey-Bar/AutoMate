@@ -71,6 +71,7 @@ a regression, so it can only move one way.
 | Ratchet              | Command                 | Recorded in                               |
 | -------------------- | ----------------------- | ----------------------------------------- |
 | Coverage per package | `pnpm coverage:ratchet` | `docs/quality/coverage-baseline.json`     |
+| Mutation score       | `pnpm mutation:ratchet` | `docs/quality/mutation-baseline.json`     |
 | Cognitive complexity | `pnpm complexity`       | `docs/quality/complexity-baseline.json`   |
 | Duplication          | `pnpm duplication`      | `.config/jscpd.json`                      |
 | Rendering budget     | `pnpm test:render`      | `tests/performance/rendering-budget.json` |
@@ -78,6 +79,15 @@ a regression, so it can only move one way.
 
 The coverage ratchet also refuses numbers it cannot attribute: a coverage summary produced
 by an older state of the code than the one under review is rejected, not read.
+
+Coverage says a line ran; mutation testing says a test would notice if it were wrong.
+`pnpm mutation` runs StrykerJS over five packages (`shared-contracts`, `reporting`, `auth`,
+`orchestration`, `runner-sdk`), nightly, and `pnpm mutation:ratchet` holds each package's
+score at or above its recorded floor. It fails closed: a missing baseline or a missing
+report is a failure, a lowered floor is a failure, and a new package enters the baseline
+only through `--record`. The fast half, that the baseline file is well-formed, runs on
+every pull request. A surviving mutant is a finding about the tests, so the fix is a
+behavioural test, never an exclusion.
 
 ## Not configured is not a pass
 

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import type {
-  SpoolConflictReason,
-  SpoolEntry,
-  SpoolQueue,
-  SpoolRetryPolicy,
+import {
+  spoolBackoffDelayMs,
+  type SpoolConflictReason,
+  type SpoolEntry,
+  type SpoolQueue,
+  type SpoolRetryPolicy,
 } from '@automate/runner-sdk';
 import {
   QA_CONTRACT_VERSION,
@@ -616,11 +617,7 @@ export class RunnerService {
    * lockstep. Reads `retryAttempts`, so it is called after the increment.
    */
   private backoffDelayMs(): number {
-    const ceiling = Math.min(
-      this.retryPolicy.maxDelayMs,
-      this.retryPolicy.baseDelayMs * 2 ** Math.max(0, this.retryAttempts - 1),
-    );
-    return Math.max(1, Math.round(ceiling / 2 + this.random() * (ceiling / 2)));
+    return spoolBackoffDelayMs(this.retryPolicy, this.retryAttempts, this.random);
   }
 
   /**
