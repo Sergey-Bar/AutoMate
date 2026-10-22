@@ -112,7 +112,8 @@
     "migrate:rehearse": "never-in-ci",
     "deps:policy": "pr-reporting",
     "compose:boot": "pr-blocking",
-    "release:compose": "release"
+    "release:compose": "release",
+    "release:bundle": "release"
   },
   "scripts": {
     "security:verify": {

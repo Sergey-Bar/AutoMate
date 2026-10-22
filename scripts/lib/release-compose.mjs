@@ -115,3 +115,20 @@ export function envExample(compose) {
     '',
   ].join('\n');
 }
+
+/**
+ * The release compose file as written to disk: the derived file under a header that says
+ * where it came from, so nobody edits the copy instead of the source.
+ *
+ * @param {string} source
+ * @param {string} version
+ * @returns {string}
+ */
+export function releaseComposeFile(source, version) {
+  const header = [
+    `# Automate ${version} — generated from infra/compose/docker-compose.unified.yml by`,
+    '# `pnpm release:compose`. Do not edit: change the source file instead.',
+    '',
+  ].join('\n');
+  return `${header}${releaseCompose(source, version)}`;
+}
