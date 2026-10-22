@@ -215,6 +215,8 @@
     "MNT-51": "fixed",
     "MNT-30": "debt",
     "MNT-31": "fixed",
-    "MNT-60": "fixed"
+    "MNT-60": "fixed",
+    "MNT-100": "fixed",
+    "MNT-101": "fixed"
   }
 }
