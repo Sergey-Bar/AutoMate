@@ -1,4 +1,4 @@
-FROM node:24.21.0-alpine
+FROM node:24.22.1-alpine
 USER root
 WORKDIR /automation
 COPY manifest.json /automation/manifest.json
