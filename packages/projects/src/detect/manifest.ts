@@ -73,9 +73,19 @@ export function tomlSection(text: string, header: string): string {
   return next ? rest.slice(0, next.index) : rest;
 }
 
+/**
+ * The inside of a TOML array: quoted strings (which may contain `]`, as an extras marker
+ * does: `"pytest[dev]>=7"`) or any character that is not a closing bracket or a quote.
+ * `[^\]]*` ended the array at the extras marker, so every name after the first one with
+ * extras was silently dropped.
+ */
+const ARRAY_BODY = String.raw`(?:"[^"]*"|'[^']*'|[^\]"'])*`;
+
 /** Names listed in a TOML array of strings, e.g. `dependencies = ["a", "b"]`. */
 export function tomlStringArray(section: string, key: string): string[] {
-  const pattern = new RegExp(`${key.replaceAll(/[.[\]]/g, '\\$&')}\\s*=\\s*\\[([^\\]]*)\\]`);
+  const pattern = new RegExp(
+    String.raw`${key.replaceAll(/[.[\]]/g, '\\$&')}\s*=\s*\[(${ARRAY_BODY})\]`,
+  );
   const body = pattern.exec(section)?.[1];
   if (!body) return [];
   return [...body.matchAll(/["']([^"']+)["']/g)]
@@ -106,7 +116,8 @@ export function distributionName(requirement: string): string {
  */
 export function tomlAllStringArrays(section: string): string[] {
   const names: string[] = [];
-  for (const match of section.matchAll(/^[ \t]*[\w."'-]+[ \t]*=[ \t]*\[([^\]]*)\]/gm)) {
+  const arrays = new RegExp(String.raw`^[ \t]*[\w."'-]+[ \t]*=[ \t]*\[(${ARRAY_BODY})\]`, 'gm');
+  for (const match of section.matchAll(arrays)) {
     for (const entry of match[1]?.matchAll(/["']([^"']+)["']/g) ?? []) {
       const name = entry[1] === undefined ? '' : distributionName(entry[1]);
       if (name) names.push(name);

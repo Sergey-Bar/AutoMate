@@ -145,3 +145,49 @@ describe('a known command', () => {
     expect(process.exit).not.toHaveBeenCalled();
   });
 });
+
+describe('where the request goes, and who it says it is', () => {
+  /** Like nswer, but also records the Authorization header of each request. */
+  function answerCapturingAuth(): { urls: string[]; auth: Array<string | undefined> } {
+    const seen = { urls: [] as string[], auth: [] as Array<string | undefined> };
+    vi.stubGlobal('fetch', async (input: string | URL, init?: RequestInit) => {
+      seen.urls.push(String(input));
+      seen.auth.push((init?.headers as Record<string, string> | undefined)?.['authorization']);
+      return new Response(JSON.stringify(SCORE), { status: 200 });
+    });
+    return seen;
+  }
+
+  it('talks to the loopback API on port 3000 when no URL is configured', async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('AUTOMATE_API_URL', undefined as unknown as string);
+    delete process.env['AUTOMATE_API_URL'];
+    const seen = answerCapturingAuth();
+    expect(await run('score.get', 'p1')).toBeUndefined();
+    expect(seen.urls).toEqual(['http://127.0.0.1:3000/api/v1/projects/p1/qa/score']);
+  });
+
+  it('sends the bearer token from the environment, and none when it is unset', async () => {
+    vi.stubEnv('AUTOMATE_API_TOKEN', 'operator-token');
+    const withToken = answerCapturingAuth();
+    await run('score.get', 'p1');
+    expect(withToken.auth).toEqual(['Bearer operator-token']);
+
+    vi.resetModules();
+    vi.unstubAllEnvs();
+    vi.stubEnv('AUTOMATE_API_URL', 'http://api.test');
+    delete process.env['AUTOMATE_API_TOKEN'];
+    const withoutToken = answerCapturingAuth();
+    await run('score.get', 'p1');
+    expect(withoutToken.auth).toEqual([undefined]);
+  });
+
+  it('prints a score and then its gap rows, separated by a blank line', async () => {
+    answer({ ...SCORE, rows: [{ key: 'k', row: 'unit', title: 'a gap', detail: '0.50' }] });
+    await run('score.get', 'p1');
+    const lines = stdout.join('').split('\n');
+    expect(lines[0]).toBe('Score 62.0/100 \u2014 capped by security');
+    expect(lines).toContain('');
+    expect(lines).toContain('  a gap  0.50');
+  });
+});

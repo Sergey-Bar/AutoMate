@@ -4970,6 +4970,148 @@
         }
       ],
       "resolution": "Shutdown waits for an in-flight refresh, which is the product fix, and the tests assert after `main` returns instead of racing the file system, which is why they are deterministic. No retry was added."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-40",
+      "band": "Major",
+      "title": "The terminal sent `copilot.ask` as a POST with no body, so the copilot never received the question",
+      "summary": "`HttpTuiApi.send` chose the verb with an inline `endsWith('.add'|'.start'|'.stop') || === 'copilot.ask'` test and decided whether to attach the body with a second function, `method()`, over a `MUTATING` set that did not contain `copilot.ask`. Two authorities for one fact disagreed: `copilot.ask` went out as `POST` and `method()` said `GET`, so the body (the question) was omitted and the API's `CopilotQuestionSchema` rejected every request.",
+      "confirmedBy": "Found while raising apps/tui branch coverage. `api-requests.test.ts` asserts, for every one of the twelve commands, that a non-GET carries its command as a body; it failed for `copilot.ask` with `expected undefined to be defined` before the fix.",
+      "evidence": [
+        {
+          "path": "apps/tui/src/api.ts",
+          "asserts": "`send` takes its verb from `method()`, the only place the mutating set is decided, and `copilot.ask` is in it."
+        },
+        {
+          "path": "apps/tui/src/api-requests.test.ts",
+          "asserts": "Every TUI command is sent with a body if and only if it is not a GET; exactly `copilot.ask`, `project.add`, `run.start` and `run.stop` are POSTs; the copilot request carries the typed question."
+        }
+      ],
+      "resolution": "The inline verb expression is deleted and `copilot.ask` joins `MUTATING`. The response of `copilot/answer` is a copilot answer rather than a `TuiView`, so the terminal still cannot render it; that is a separate gap and is not claimed fixed here."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-41",
+      "band": "Minor",
+      "title": "`test:unit` was classified as an integration suite, and `second`/`download` as security and performance",
+      "summary": "`categoryForScriptName` matched stems anywhere in a script name: `it\\b` matches the tail of `unit`, `sec` matches `second`, `load` matches `download`. Every Node script named `test:unit` was therefore proposed as an `integration` command, so the unit row of the score read as empty while the integration row claimed a suite.",
+      "confirmedBy": "`detector.test.ts` asserts `test:unit`, `unit` and `test:unit:watch` are unit and `test:second-pass`/`test:download` fall to the default; it failed with `expected 'integration' to be 'unit'` and `expected 'security' to be 'unit'` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/detector.ts",
+          "asserts": "Stems are matched at the start of a word; `sec` and `it` only as whole words."
+        },
+        {
+          "path": "packages/projects/src/detect/detector.test.ts",
+          "asserts": "The category of 18 representative script names, the unit-labelled names, the false-prefix names and the short `it` form."
+        }
+      ],
+      "resolution": "Lookbehind-anchored word starts replace the unanchored substrings. The category order is unchanged."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-42",
+      "band": "Minor",
+      "title": "A TOML dependency array ended at the first extras marker, dropping every later dependency",
+      "summary": "`tomlStringArray` and `tomlAllStringArrays` captured an array body with `\\[([^\\]]*)\\]`, which stops at the `]` of `\"pytest[dev]>=7\"`. Everything after the first dependency with extras was invisible, so a `pyproject.toml` whose first entry had extras reported no test framework for the rest. `distributionName` documents extras as supported; the array reader contradicted it.",
+      "confirmedBy": "`manifest.test.ts` reads `['pytest>=7.4', 'Requests[socks]==2']` and `['pytest[dev]>=7', 'ruff']`; both returned only the first name before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/manifest.ts",
+          "asserts": "The array body is a sequence of quoted strings (which may contain `]`) or non-bracket characters."
+        },
+        {
+          "path": "packages/projects/src/detect/manifest.test.ts",
+          "asserts": "Extras markers do not end an array, in both the keyed and the every-group readers."
+        }
+      ],
+      "resolution": "A shared `ARRAY_BODY` pattern replaces both character-class captures."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-43",
+      "band": "Minor",
+      "title": "A Python repository with only `requirements.txt` was reported as unrecognised",
+      "summary": "`detectPython` read `requirements*.txt` (`readManifests`, `namesFromRequirements`) but its entry gate required `pyproject.toml`, `setup.cfg`, `tox.ini` or `setup.py`, so an application that pins dependencies in `requirements.txt` alone fell through every detector and had to be registered with hand-declared commands.",
+      "confirmedBy": "`ecosystem-edges.test.ts` detects a repository holding only `requirements.txt`; it was `recognised: false` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/ecosystems/python.ts",
+          "asserts": "A requirements file is a manifest for the entry gate as well as for the readers."
+        },
+        {
+          "path": "packages/projects/src/detect/ecosystem-edges.test.ts",
+          "asserts": "Requirements-only repositories are recognised, with pytest read past comments, options and markers, and unittest as the floor."
+        }
+      ],
+      "resolution": "The gate accepts a requirements file. Detector order puts Python after Node, so a repository already recognised by an earlier detector is unchanged."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-44",
+      "band": "Minor",
+      "title": "Two distinct frameworks cited by the same manifest line were folded into one",
+      "summary": "`detectProject` deduplicated framework signals by `evidence` alone. A framework's evidence is the first line containing its name, so `pytest` resolves to the `pytest-cov` line when that comes first; both signals then share one evidence string and the second was dropped. A repository listing `pytest-cov` above `pytest` lost `pytest-cov`.",
+      "confirmedBy": "`ecosystem-edges.test.ts` lists `pytest-cov==5` then `pytest==8` and expects both; the result was `['pytest']` before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/detect/index.ts",
+          "asserts": "Framework signals are folded by name and evidence together."
+        },
+        {
+          "path": "packages/projects/src/detect/ecosystem-edges.test.ts",
+          "asserts": "`pytest-cov` and `pytest` on adjacent lines are both reported."
+        }
+      ],
+      "resolution": "The identity is `name` plus `evidence`, so only a repeat of the same signal is folded."
+    },
+    {
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "id": "MNT-45",
+      "band": "Major",
+      "title": "Weak flakiness and the thirty-passes hollow rule read \"run order\" from random UUIDs",
+      "summary": "`classifyFlakiness` and `trailingPasses` ordered observations with `runId.localeCompare`. Run ids are `randomUUID()` values, so that order is a permutation unrelated to time: the \"last ten runs\" window, the flip count and the \"thirty trailing passes\" test were computed over a shuffled history. A test that went green and stayed green could read as five flips, and a test with thirty recent trivially-true passes could escape the hollow rule because an old failure had the highest id. `RunRecord.startedAt` was available and unused.",
+      "confirmedBy": "`flaky-order.test.ts` supplies runs whose ids alternate against their start times: one chronological flip was counted as five, and a fixture of thirty recent passes after one old failure scored signal 1 instead of 0 once the wiring was removed; both asserted before the fix.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/score/flaky.ts",
+          "asserts": "`compareRunOrder` orders by start time then id, undated runs first; `classifyFlakiness` and `trailingPasses` use it."
+        },
+        {
+          "path": "packages/projects/src/score/index.ts",
+          "asserts": "`score` builds the run-start map from `inputs.runs` and passes it to both consumers."
+        },
+        {
+          "path": "packages/projects/src/score/flaky-order.test.ts",
+          "asserts": "Flips, trailing passes and the full `score()` hollow signal follow start time, not id order."
+        }
+      ],
+      "resolution": "Observations carry an optional `startedAt` taken from the run record; ordering falls back to id only for runs with no readable start time, so existing callers that pass none behave as before."
     }
   ]
 }
