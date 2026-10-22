@@ -182,6 +182,18 @@ const BOTH_SELECTORS = [DARK_SELECTOR, LIGHT_SELECTOR];
 
 const normalise = (text: string): string => text.replace(/["']/g, '').replace(/\s+/g, ' ').trim();
 
+/** The index of the `}` that closes the `{` at `open`, or -1 when it never closes. */
+function closingBrace(text: string, open: number): number {
+  let depth = 0;
+  for (let cursor = open; cursor < text.length; cursor += 1) {
+    if (text[cursor] === '{') depth += 1;
+    else if (text[cursor] === '}') {
+      depth -= 1;
+      if (depth === 0) return cursor;
+    }
+  }
+  return -1;
+}
 /**
  * Every `@theme` block in the stylesheet, concatenated, with comments removed.
  *
@@ -208,18 +220,7 @@ function themeBlocks(): string {
     if (start === -1) break;
     const open = declarationsOnly.indexOf('{', start);
     if (open === -1) break;
-    let depth = 0;
-    let closed = -1;
-    for (let cursor = open; cursor < declarationsOnly.length; cursor += 1) {
-      if (declarationsOnly[cursor] === '{') depth += 1;
-      else if (declarationsOnly[cursor] === '}') {
-        depth -= 1;
-        if (depth === 0) {
-          closed = cursor;
-          break;
-        }
-      }
-    }
+    const closed = closingBrace(declarationsOnly, open);
     if (closed === -1) break;
     bodies.push(declarationsOnly.slice(open + 1, closed));
     index = closed + 1;
