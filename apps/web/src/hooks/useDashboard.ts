@@ -92,6 +92,30 @@ function foldEvidence(
   };
 }
 
+/** Add a live event to the snapshot: the event itself, its effect on the run, artifact and gate. */
+function applyRunEvent(current: RunDetailData, event: RunEvent): RunDetailData {
+  const events = current.events.some((item) => item.eventId === event.eventId)
+    ? current.events
+    : [...current.events, event];
+  return {
+    ...current,
+    events,
+    run: current.run ? projectRunEvent(current.run, event) : current.run,
+    artifacts:
+      event.type === 'artifact.created'
+        ? [
+            ...current.artifacts.filter((artifact) => artifact.id !== event.payload.artifact.id),
+            event.payload.artifact,
+          ]
+        : current.artifacts,
+    gate: event.type === 'gate.evaluated' ? event.payload.evaluation : current.gate,
+  };
+}
+
+/** Events that mean the persisted snapshot has moved on: tests, artifacts and the gate. */
+function eventNeedsRefresh(type: string): boolean {
+  return type.startsWith('test.') || type === 'artifact.created' || type === 'gate.evaluated';
+}
 export function useRunDetail(id: string, api = defaultApiClient) {
   const [data, setData] = useState<RunDetailData>({
     run: null,
@@ -166,33 +190,8 @@ export function useRunDetail(id: string, api = defaultApiClient) {
       onEvent: (event) => {
         if (event.runId !== id || seenEvents.current.has(event.eventId)) return;
         seenEvents.current.add(event.eventId);
-        setData((current) => {
-          const events = current.events.some((item) => item.eventId === event.eventId)
-            ? current.events
-            : [...current.events, event];
-          return {
-            ...current,
-            events,
-            run: current.run ? projectRunEvent(current.run, event) : current.run,
-            artifacts:
-              event.type === 'artifact.created'
-                ? [
-                    ...current.artifacts.filter(
-                      (artifact) => artifact.id !== event.payload.artifact.id,
-                    ),
-                    event.payload.artifact,
-                  ]
-                : current.artifacts,
-            gate: event.type === 'gate.evaluated' ? event.payload.evaluation : current.gate,
-          };
-        });
-        if (
-          event.type.startsWith('test.') ||
-          event.type === 'artifact.created' ||
-          event.type === 'gate.evaluated'
-        ) {
-          void refresh();
-        }
+        setData((current) => applyRunEvent(current, event));
+        if (eventNeedsRefresh(event.type)) void refresh();
       },
       onReconnect: () => void refresh(),
       onConnectionChange: setIsLive,

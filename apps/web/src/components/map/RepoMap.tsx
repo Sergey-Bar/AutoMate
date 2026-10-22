@@ -86,6 +86,30 @@ const HEADER = 36;
 const FOCUS =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus';
 
+/** The first non-empty column in `step`'s direction, at the same row where there is one. */
+function neighbourColumnTarget(
+  columns: MapNode[][],
+  node: MapNode,
+  index: number,
+  step: 1 | -1,
+): MapNode | undefined {
+  for (let next = node.column + step; next >= 0 && next < columns.length; next += step) {
+    const candidates = columns[next] ?? [];
+    if (candidates.length > 0) return candidates[Math.min(index, candidates.length - 1)];
+  }
+  return undefined;
+}
+
+/** The node an arrow key moves to: undefined at an edge, null when the key is not an arrow. */
+function arrowTarget(columns: MapNode[][], node: MapNode, key: string): MapNode | undefined | null {
+  const column = columns[node.column] ?? [];
+  const index = column.findIndex((candidate) => candidate.id === node.id);
+  if (key === 'ArrowDown') return column[Math.min(index + 1, column.length - 1)];
+  if (key === 'ArrowUp') return column[Math.max(index - 1, 0)];
+  if (key === 'ArrowRight') return neighbourColumnTarget(columns, node, index, 1);
+  if (key === 'ArrowLeft') return neighbourColumnTarget(columns, node, index, -1);
+  return null;
+}
 export function RepoMap({
   map,
   state,
@@ -115,25 +139,11 @@ export function RepoMap({
   };
 
   const move = (node: MapNode, key: string): boolean => {
-    const column = columns[node.column] ?? [];
-    const index = column.findIndex((candidate) => candidate.id === node.id);
-    let target: MapNode | undefined;
-    if (key === 'ArrowDown') target = column[Math.min(index + 1, column.length - 1)];
-    else if (key === 'ArrowUp') target = column[Math.max(index - 1, 0)];
-    else if (key === 'ArrowRight' || key === 'ArrowLeft') {
-      const step = key === 'ArrowRight' ? 1 : -1;
-      for (let next = node.column + step; next >= 0 && next < columns.length; next += step) {
-        const candidates = columns[next] ?? [];
-        if (candidates.length > 0) {
-          target = candidates[Math.min(index, candidates.length - 1)];
-          break;
-        }
-      }
-    } else return false;
+    const target = arrowTarget(columns, node, key);
+    if (target === null) return false;
     if (target !== undefined) buttons.current.get(target.id)?.focus();
     return true;
   };
-
   const nodeProps = (node: MapNode) => ({
     ref: register(node.id),
     type: 'button' as const,
