@@ -184,9 +184,12 @@ is what SEM-2's 543 semgrep findings taught this repository. The baseline is key
 scans of the same tree produced different ids for identical findings.
 
 The scan was also **not complete** — and vendoring the design-craft skill set made coverage _worse_: `is_complete: false` at **95.8%**, down from 97.7%, with six static analyzers degraded across four files partially inspected by three different limits — and the gate prints the coverage and the
-degraded set rather than a clean summary over them. Graduating needs one commit that
-installs the scanner in the `security` job and moves the tier together; the condition is
-a CI run that printed a `risk_assessment` with `is_complete: true`.
+degraded set rather than a clean summary over them. The scanner is now installed in the `security` job
+(`.github/actions/install-skillspector`, pinned to the commit behind v2.12.0) and runs as a
+`continue-on-error` reporting step that writes `is_complete`, coverage and the degraded set to
+the job summary (`MNT-30`). It has **not graduated**: no run has been observed yet. Graduating
+needs a `security` run on main whose summary shows `is_complete: true` with no degraded analyzers,
+and then one commit that moves the tier to `pr-blocking` and drops the step's `continue-on-error`.
 
 The **sixteen** vendored skills carry an upstream source repository and a content hash in
 `.kilo/skills-lock.json`. A hash answers _did the file change_ and not _is the file safe_,

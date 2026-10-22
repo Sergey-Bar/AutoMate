@@ -86,6 +86,17 @@ jobs:
       - name: Build
         run: pnpm --filter @automate/docs build
 
+      - name: Check the built site
+        # SITE-1's removal condition: `site:doctor` against the **built** output. Without
+        # `SITE_DOCTOR_BUILT=1` its DOM checks report `GAP` instead of reading `site/dist`,
+        # so the flag is what makes this a check. It sits before the upload so a failing
+        # doctor stops a broken site from being published, and it is not tolerated:
+        # `scripts/lib/docs-workflow.test.mjs` holds the order and the absence of
+        # `continue-on-error`.
+        env:
+          SITE_DOCTOR_BUILT: '1'
+        run: pnpm site:doctor
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9
         with:

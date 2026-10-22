@@ -159,7 +159,7 @@
     "P-77": "fixed",
     "P-78": "fixed",
     "DESIGN-1": "fixed",
-    "SITE-1": "debt",
+    "SITE-1": "fixed",
     "RF-6e": "fixed",
     "REG-1": "open",
     "P-79": "fixed",
@@ -204,6 +204,8 @@
     "MNT-22": "fixed",
     "MNT-23": "fixed",
     "MNT-24": "fixed",
-    "MNT-25": "fixed"
+    "MNT-25": "fixed",
+    "MNT-30": "debt",
+    "MNT-31": "fixed"
   }
 }
