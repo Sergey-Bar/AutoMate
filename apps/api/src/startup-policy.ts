@@ -145,12 +145,18 @@ export interface AuthSecrets {
  * developer's own machine with `AUTOMATE_ALLOW_DEV_SECRETS=1`. Everywhere else
  * a missing secret is a startup failure, not a silent fallback.
  *
- * **`AUTOMATE_API_KEY` no longer fails a production start.** The install is open as
- * of 2026-09-30 — there is no credential in front of it to check — so requiring one
- * at boot would refuse to start an install for the sake of a value nothing reads.
- * `COOKIE_SECRET` still is required in production, because sessions are still *minted*
- * and a session signed with a published literal is a real defect even when nothing
- * requires a session to view anything.
+ * **`AUTOMATE_API_KEY` is still required in production** by `checkProductionPolicy`.
+ * The install has no login in front of it (open since 2026-09-30), but sessions are
+ * still minted, and the credential they are minted against must not be a published
+ * literal. This comment once said the opposite while the policy beside it refused a
+ * missing key, so an operator reading one was misled by the other.
+ *
+ * **The credential is `AUTOMATE_INSTALLATION_KEY` when it is set (ledger MNT-20).** A
+ * production boot with a database refuses to start without that variable
+ * (`NO_INSTALLATION_KEY`), and until this was fixed nothing then *read* it: the
+ * credential was derived from `AUTOMATE_API_KEY`, so the key the boot error told an
+ * operator to set was not the key that signed them in. `AUTOMATE_API_KEY` remains the
+ * fallback for a development or test run that sets only that.
  */
 export function resolveAuthSecrets(
   config: AppConfig,
@@ -159,8 +165,6 @@ export function resolveAuthSecrets(
   if (isProduction(config) && !config.cookieSecret) {
     throw new Error('COOKIE_SECRET is required in production');
   }
-  // No `AUTOMATE_API_KEY` check: the install is open, so there is nothing for the key
-  // to authenticate and requiring one would refuse to start for a value nothing reads.
   const allowLiterals = config.nodeEnv === 'test' || devSecretsAllowed(env);
   if (!config.cookieSecret && !allowLiterals) {
     throw new Error(
@@ -176,8 +180,12 @@ export function resolveAuthSecrets(
         'on a development machine to accept the development installation key.',
     );
   }
+  const presented = env['AUTOMATE_INSTALLATION_KEY']?.trim();
   return {
     cookieSecret: config.cookieSecret ?? DEVELOPMENT_COOKIE_SECRET,
-    installationKey: config.apiKey ?? DEVELOPMENT_INSTALLATION_KEY,
+    installationKey:
+      presented !== undefined && presented !== ''
+        ? presented
+        : (config.apiKey ?? DEVELOPMENT_INSTALLATION_KEY),
   };
 }

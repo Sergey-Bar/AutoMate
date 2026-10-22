@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    pull_policy: never
     environment:
       POSTGRES_DB: automate
       POSTGRES_USER: automate
@@ -15,24 +14,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-  minio:
-    image: minio/minio
-    pull_policy: never
-    command: server /data --console-address :9001
+  # SeaweedFS replaced MinIO in ledger MNT-21. MinIO stopped publishing community images in
+  # October 2025 and deleted `minio/minio` from Docker Hub in September 2026, so this stack
+  # could not be pulled on any machine that did not already hold the image — which
+  # `pull_policy: never` had been hiding. SeaweedFS is Apache-2.0, multi-arch, and
+  # `weed mini` (the image's default command) creates `S3_BUCKET` on start, so no
+  # one-shot bucket job is needed. A real deployment points `OBJECT_STORE_ENDPOINT` at its
+  # own S3-compatible store and drops this service; the contract is the five variables.
+  objectstore:
+    image: chrislusf/seaweedfs:4.48
     environment:
-      MINIO_ROOT_USER: local-only
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      AWS_ACCESS_KEY_ID: local-only
+      AWS_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:?set OBJECT_STORE_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${OBJECT_STORE_BUCKET:-automate-artifacts}
     ports:
-      - '127.0.0.1:59000:9000'
-      - '127.0.0.1:59001:9001'
-    # `minio` is a dependency of the object store the API uses, so it needs a
-    # healthcheck of its own for a dependent to be able to wait on it.
+      - '127.0.0.1:58333:8333'
+    # A dependency of the API, so it needs a healthcheck a dependent can wait on.
     healthcheck:
-      test: ['CMD-SHELL', 'mc ready local || exit 1']
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8333/healthz || exit 1']
       interval: 5s
       timeout: 5s
-      retries: 20
-      start_period: 10s
+      retries: 30
+      start_period: 15s
   migrate:
     build:
       context: ../..
@@ -59,18 +62,18 @@ services:
       REPORTER_SECRET: ${REPORTER_SECRET:?set REPORTER_SECRET}
       RUNNER_REGISTRATION_SECRET: ${RUNNER_REGISTRATION_SECRET:?set RUNNER_REGISTRATION_SECRET}
       ARTIFACT_ROOT: /var/lib/automate/artifacts
-      # The `minio` service above was declared and referenced by nothing: no service
+      # The object store above was declared and referenced by nothing: no service
       # depended on it and no service pointed at it, so the dev stack ran a store
       # nothing used. Wiring it here is what makes that service load-bearing. The API is
       # `NODE_ENV: development`, so the production policy does not apply and the
       # filesystem fallback in `ARTIFACT_ROOT` would have sufficed — which is exactly
       # why nothing noticed. It is wired anyway, so that a developer exercising
       # artifact upload and download runs the same path production does.
-      OBJECT_STORE_ENDPOINT: http://minio:9000
+      OBJECT_STORE_ENDPOINT: http://objectstore:8333
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-automate-artifacts}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
       OBJECT_STORE_ACCESS_KEY_ID: local-only
-      OBJECT_STORE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      OBJECT_STORE_SECRET_ACCESS_KEY: ${OBJECT_STORE_SECRET_ACCESS_KEY:?set OBJECT_STORE_SECRET_ACCESS_KEY}
       OBJECT_STORE_FORCE_PATH_STYLE: 'true'
       # Plain HTTP on the compose network, which the policy only permits outside
       # production. Kept explicit so the difference from a production endpoint is a
@@ -80,7 +83,7 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      minio:
+      objectstore:
         condition: service_healthy
     # `web` and `edge` both wait on `service_healthy`, and only `postgres` had a
     # healthcheck, so the documented dev stack could never start: the condition

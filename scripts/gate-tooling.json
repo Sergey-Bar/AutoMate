@@ -110,7 +110,8 @@
     "coverage:provenance": "pr-blocking",
     "docs:capability-register:baseline": "never-in-ci",
     "migrate:rehearse": "never-in-ci",
-    "deps:policy": "pr-reporting"
+    "deps:policy": "pr-reporting",
+    "compose:boot": "pr-blocking"
   },
   "scripts": {
     "security:verify": {
@@ -261,6 +262,11 @@
       "requires": [],
       "tier": 2,
       "why": "**Three questions about dependencies that no existing gate asked, and the gate is `pr-reporting` because it is red against the tree as it stands.**\n\nThe first run reports two unused declarations and seven expired `overrides`. The unused pair is the finding this gate was written for: `apps/api` declared `effect` and no file in the workspace imported it, while `AGENTS.md:390` and four agent personas instructed contributors to \"use Effect for dependency injection and error handling in services\". Every one of those statements was checkable against the tree and none of the gates looked — the same shape as a tenancy status asserted in seven documents and checked in none. `@axe-core/playwright` is declared by the root and referenced by no committed spec.\n\n**`pr-reporting` is the honest reading of a gate with real findings, not a way around them.** A `pr-blocking` tier here would be red on every pull request until `effect` is genuinely used, which is the `test:render` disposition: a required check that can never pass teaches reviewers to read red as noise. It graduates in the commit that makes the findings go away, which is the Effect boundary adoption, and the mechanism is the same evidence-then-raise order the plan of record's standing rule 2 states.\n\n**It compares against a reviewed baseline and never against the registry.** Asking the registry what the latest version is needs the network, and a gate that needs the network fails on an air-gapped host and gets switched off — which is how `verify:local` came to make a security gate exit 0 without scanning. So `docs/quality/dependency-baseline.json` records the version a human accepted, in three directions: resolved-but-unrecorded, recorded-but-unresolved, and recorded-one-version-resolved-at-another.\n\n**No writer, deliberately.** `coverage:baseline` and `complexity:baseline` write their files because they record a measurement. This records a decision, and a `--write` flag would let the run that judges the file regenerate it. `--print-baseline` prints rows and writes nothing.\n\nIt needs no binary and reads three committed files plus the repository's own source."
+    },
+    "compose:boot": {
+      "requires": ["docker|podman"],
+      "preinstalledInJobImage": true,
+      "why": "Starts the production compose stack from nothing with a random value for every required variable, waits for every healthcheck, and probes readiness, the web UI and a sign-in with the installation key through the proxy, then removes the volumes. The static compose checks could not see the nginx pid path or the root-owned tmpfs (ledger MNT-23), which failed on the first container start; only running the stack catches that class. Its own job (\\Compose boot\\), not \\\u000berify\\: it builds every image and \\\u000berify\\ has a 20-step budget."
     }
   },
   "environment": {

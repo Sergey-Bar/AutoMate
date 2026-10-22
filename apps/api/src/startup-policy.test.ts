@@ -188,8 +188,22 @@ describe('checkProductionPolicy', () => {
 });
 
 describe('resolveAuthSecrets', () => {
+  it('signs the installation credential with AUTOMATE_INSTALLATION_KEY when it is set (MNT-20)', () => {
+    // Production refuses to boot without AUTOMATE_INSTALLATION_KEY and then never read it:
+    // the credential was derived from AUTOMATE_API_KEY, so an operator who set the key the
+    // boot error asked for could not sign in with it.
+    const presented = 'i'.repeat(40);
+    expect(
+      resolveAuthSecrets(config(), { AUTOMATE_INSTALLATION_KEY: presented }).installationKey,
+    ).toBe(presented);
+    // Blank is absent, so the configured API key is still the fallback.
+    expect(resolveAuthSecrets(config(), { AUTOMATE_INSTALLATION_KEY: '  ' }).installationKey).toBe(
+      VALID_API_KEY,
+    );
+  });
+
   it('returns the configured secrets in production', () => {
-    expect(resolveAuthSecrets(config())).toEqual({
+    expect(resolveAuthSecrets(config(), {})).toEqual({
       cookieSecret: VALID_COOKIE_SECRET,
       installationKey: VALID_API_KEY,
     });

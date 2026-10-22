@@ -4781,6 +4781,141 @@
         }
       ],
       "resolution": "One migration, `0029_workspace_foreign_keys.sql`, and the matching `.references(() => workspaces.id, { onDelete: 'restrict' })` on the seven schema columns. A row that cannot be keyed honestly (blank workspace, or a message whose conversation is in another workspace) stops the migration instead of being deleted or re-labelled. The product needed no change: `apps/api/src/index.ts` already registers the configured workspace at boot (MNT-17). Three test files that wrote rows under unregistered workspace ids now register them first."
+    },
+    {
+      "id": "MNT-19",
+      "title": "The production compose stack could not boot: the API refuses to start without AUTOMATE_INSTALLATION_KEY and compose never set it",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`infra/compose/docker-compose.unified.yml` runs the API with `NODE_ENV: production` and a database, and `apps/api/src/index.ts` throws `NO_INSTALLATION_KEY` on exactly that combination when `AUTOMATE_INSTALLATION_KEY` is unset. The compose file never declared it and `.env.compose.example` never mentioned it, so the documented production stack exited on start and every service waiting on the API waited forever. No test read the compose file against the variables the API refuses to boot without.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`bootProblems` in `scripts/lib/compose-contract.test.mjs` was run against the committed file and reported `api` missing `AUTOMATE_INSTALLATION_KEY` before the fix. After it, `pnpm compose:boot` started the stack from nothing on Docker 29.8 and the API reached healthy.",
+      "evidence": [
+        {
+          "path": "infra/compose/docker-compose.unified.yml",
+          "asserts": "The `api` service declares `AUTOMATE_INSTALLATION_KEY` as a required variable, beside the five secrets and `DATABASE_URL`."
+        },
+        {
+          "path": "scripts/lib/compose-contract.test.mjs",
+          "asserts": "Both compose files pass `bootProblems`, and `REQUIRED_PRODUCTION_VARIABLES` is derived in both directions from `startup-policy.ts` and `index.ts`, so a new boot requirement the compose file does not declare fails here."
+        },
+        {
+          "path": "scripts/compose-boot.mjs",
+          "asserts": "`pnpm compose:boot` builds and starts the production stack from nothing, waits for every healthcheck, and probes readiness, the web UI and a sign-in; the `Compose boot` CI job runs it on every pull request."
+        }
+      ],
+      "resolution": "The compose file declares the variable and the example documents it. `REQUIRED_PRODUCTION_VARIABLES` in `scripts/lib/compose-contract.mjs` holds every variable the production API refuses to boot without, and its test derives that list from the two files that refuse, so it cannot drift. `pnpm compose:boot` and the `Compose boot` job run the real stack, which is what caught MNT-23."
+    },
+    {
+      "id": "MNT-20",
+      "title": "Production demanded AUTOMATE_INSTALLATION_KEY and never read it: the sign-in credential was derived from AUTOMATE_API_KEY",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`index.ts` refused a production boot without `AUTOMATE_INSTALLATION_KEY`, but only checked that it was present. `resolveAuthSecrets` derived the installation credential from `AUTOMATE_API_KEY`, so an operator who set the key the boot error asked for could not sign in with it — `POST /api/v1/auth/login` with that key answered 401. The comment above `resolveAuthSecrets` also said `AUTOMATE_API_KEY` no longer failed a production start while `checkProductionPolicy` beside it refused a missing one.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`signs the installation credential with AUTOMATE_INSTALLATION_KEY when it is set (MNT-20)` failed before the fix with `expected 'api-key-long-enough-for-production-1' to be 'iiii…'`. On the running stack after it, a sign-in with `AUTOMATE_INSTALLATION_KEY` answered 200 and one with `AUTOMATE_API_KEY` answered 401.",
+      "evidence": [
+        {
+          "path": "apps/api/src/startup-policy.ts",
+          "asserts": "`resolveAuthSecrets` returns `AUTOMATE_INSTALLATION_KEY` as the installation key when it is set and non-blank, and falls back to `AUTOMATE_API_KEY`; the comment now says what `checkProductionPolicy` enforces."
+        },
+        {
+          "path": "apps/api/src/startup-policy.test.ts",
+          "asserts": "The presented key wins, a blank one is treated as absent, and the existing literal-gating cases are unchanged."
+        },
+        {
+          "path": "scripts/lib/compose-boot.mjs",
+          "asserts": "`compose:boot` signs in with the installation key the stack was started with and fails unless the API answers 200."
+        }
+      ],
+      "resolution": "The installation credential is the key production requires. `AUTOMATE_API_KEY` is still required by `checkProductionPolicy` and remains the fallback where the installation key is unset (development and test)."
+    },
+    {
+      "id": "MNT-21",
+      "title": "The object store image no longer exists: minio/minio was removed from Docker Hub, and pull_policy: never hid it",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "Both compose files ran `minio/minio` with no tag and `pull_policy: never`, and the dev stack's `postgres` also had `pull_policy: never`. `pull_policy: never` alone makes a stack unstartable on a machine that does not already hold the image. Worse, MinIO stopped publishing community images in October 2025 and the `minio/minio` repository no longer exists on Docker Hub, so no machine without a cached copy could run either stack at all, and the setting meant nobody saw the pull fail.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`docker pull minio/minio` on 2026-10-22: `pull access denied for minio/minio, repository does not exist`. `bootProblems` reported `pull_policy: never` on `minio` in both files and on dev `postgres`, and the untagged image, before the fix.",
+      "evidence": [
+        {
+          "path": "infra/compose/docker-compose.unified.yml",
+          "asserts": "The `objectstore` service runs `chrislusf/seaweedfs:4.48` (Apache-2.0, amd64 and arm64), which creates `S3_BUCKET` on start, with the credentials the API authenticates with; no service sets `pull_policy: never`."
+        },
+        {
+          "path": "infra/compose/compose.dev.yml",
+          "asserts": "The same store on the dev stack, and `postgres` without `pull_policy: never`."
+        },
+        {
+          "path": "scripts/lib/compose-contract.test.mjs",
+          "asserts": "`pull_policy: never`, an untagged image and `:latest` are each a finding, and both compose files have none."
+        }
+      ],
+      "resolution": "MinIO is replaced by SeaweedFS in both stacks. Its default `weed mini` command creates the bucket named by `S3_BUCKET`, so the missing bucket-creation step is gone with it. The product's own SigV4 adapter (`S3ArtifactBytesStore`) completed a put/get round trip against it inside the running API container. The `.env` names are now `OBJECT_STORE_ACCESS_KEY_ID` and `OBJECT_STORE_SECRET_ACCESS_KEY`, the same names the API reads."
+    },
+    {
+      "id": "MNT-22",
+      "title": "The edge proxy sent / to web:80, where nothing listens",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`infra/nginx/edge.conf` declared `upstream automate_web { server web:80; }`. The web image was moved to an unprivileged 8080 (`infra/nginx/web.conf`), so every request the edge proxy served at `/` would be a 502.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`upstreamProblems` reported `web:80, but web listens on 8080` against the committed `edge.conf` before the fix.",
+      "evidence": [
+        {
+          "path": "infra/nginx/edge.conf",
+          "asserts": "The web upstream is `web:8080`."
+        },
+        {
+          "path": "scripts/lib/compose-contract.test.mjs",
+          "asserts": "`the edge proxy reaches each upstream on the port it listens on` reads the listen port from `web.conf` and the API port from the compose file."
+        }
+      ],
+      "resolution": "Corrected, with a test that reads both ends rather than restating the port."
+    },
+    {
+      "id": "MNT-23",
+      "title": "Both nginx images exited on start: the pid rewrite matched nothing and the temp paths sat on a root-owned tmpfs",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`web` and `edge` run read-only as `nginx` with a tmpfs over `/var/cache/nginx`. The tmpfs is root-owned and hides the directory the Dockerfile chowned, so nginx's compiled-in temp paths failed `mkdir` (`Permission denied`) and the container exited. Behind that, the Dockerfiles rewrote `pid /var/run/nginx.pid;`, but nginx 1.27 writes `pid /run/nginx.pid;`, so `sed` matched nothing, the build passed, and the read-only container then failed to write its pid. Every static check passed; the stack never served its UI.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "Observed on the first real `docker compose up` of the production stack: the web container exited with `mkdir() \"/var/cache/nginx/client_temp\" failed (13: Permission denied)`, and after the temp paths moved, with `open() \"/run/nginx.pid\" failed (30: Read-only file system)`. Both new tests failed against the unfixed files.",
+      "evidence": [
+        {
+          "path": "infra/nginx/web.conf",
+          "asserts": "All five `*_temp_path` directives point under `/tmp`, the writable tmpfs."
+        },
+        {
+          "path": "infra/nginx/edge.conf",
+          "asserts": "The same five directives."
+        },
+        {
+          "path": "infra/docker/web.Dockerfile",
+          "asserts": "The pid rewrite matches any `pid …;` line and `grep -q` fails the build if the result is not `pid /tmp/nginx.pid;`."
+        },
+        {
+          "path": "scripts/lib/compose-contract.test.mjs",
+          "asserts": "Both nginx confs keep their temp files under `/tmp`, and both nginx Dockerfiles verify the pid rewrite."
+        }
+      ],
+      "resolution": "Temp paths moved to `/tmp` in both confs; the pid rewrite is matched by shape and verified at build time in both Dockerfiles. `pnpm compose:boot` exists because this class is invisible to anything but a running container."
     }
   ]
 }
