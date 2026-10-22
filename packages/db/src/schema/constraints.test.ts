@@ -283,12 +283,15 @@ describe('execution schema referential intent', () => {
     }
   });
 
-  it('gives every workspace-scoped table a restricting key onto its workspace (MNT-17)', () => {
+  it('gives every workspace-scoped table a restricting key onto its workspace (MNT-17, MNT-18)', () => {
     // The 27 tables `pnpm tenancy:check` reported without a hard boundary, plus the one
     // whose `workspace_id` stays nullable by design. A key that cascaded would erase a
     // tenant's evidence with the workspace row; one that was missing would let a row
     // name a workspace that does not exist, which is how `runs` came to hold ids that
     // `workspaces` never registered.
+    //
+    // The last seven were hard-scoped before MNT-17 by an unkeyed NOT NULL column and
+    // gained the key in 0029 (ledger MNT-18).
     for (const table of [
       schema.runs,
       schema.suites,
@@ -318,6 +321,13 @@ describe('execution schema referential intent', () => {
       schema.modelConfig,
       schema.traceLinks,
       artifacts,
+      schema.schedules,
+      schema.outboxEvents,
+      schema.conversations,
+      schema.messages,
+      schema.connectorConfigs,
+      schema.vaultEntries,
+      schema.canonicalRunResults,
     ]) {
       expect(targets(table)['workspace_id'], getTableName(table)).toBe(
         'workspaces.id on delete restrict',

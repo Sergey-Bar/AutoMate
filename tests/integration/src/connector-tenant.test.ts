@@ -24,6 +24,10 @@ const NOW = new Date('2026-09-27T00:00:00.000Z');
 beforeEach(async () => {
   assertSchemaBuildIsFresh();
   client = await createMigratedDatabase();
+  // Every workspace a row names must exist since 0029 (ledger MNT-18).
+  await client.exec(
+    `INSERT INTO workspaces (id, name, config_path, created_at) VALUES ('workspace-a', 'a', 'config', now()), ('workspace-b', 'b', 'config', now())`,
+  );
 });
 
 describe('connector credentials are per workspace', () => {

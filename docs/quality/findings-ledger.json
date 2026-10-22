@@ -4749,7 +4749,38 @@
           "asserts": "Every workspace-scoped row commits `not-null`; `quality_gate_config` is `global` with its NULL-is-the-default reason, and the recomputed tally is 43 / 43 / 0 / 0."
         }
       ],
-      "resolution": "Bounded all 27 tables that can be, in one migration, and bound every live path to the configured workspace: `DrizzleRunRepository`, `DrizzleQuarantineStore` and `DrizzleQualityGateStore` take the workspace at construction and every statement carries it; the execution store writes the run's workspace on tests and artifacts and reads them by their own column; the run-scoped artifact route is scoped; `auditRow` takes the workspace positionally and `WriteContext` no longer has one. `index.ts` threads `runtimeConfig.workspaceId` into all three and registers the configured workspace at boot, because the new keys refuse a write under an unregistered one. `tenant_id` was redundant and is gone. `quality_gate_config.workspace_id` stays nullable on purpose — NULL is the installation-wide default gate — and is classified `global`. `tools/migrate-cli` takes a `--workspace` and stamps it on every scoped table, recording rather than moving a legacy row that names another. Not in this row: seven tables bounded earlier by an unkeyed NOT NULL column (`schedules`, `outbox_events`, `conversations`, `messages`, `connector_configs`, `vault_entries`, `canonical_run_results`) still have no foreign key onto `workspaces`."
+      "resolution": "Bounded all 27 tables that can be, in one migration, and bound every live path to the configured workspace: `DrizzleRunRepository`, `DrizzleQuarantineStore` and `DrizzleQualityGateStore` take the workspace at construction and every statement carries it; the execution store writes the run's workspace on tests and artifacts and reads them by their own column; the run-scoped artifact route is scoped; `auditRow` takes the workspace positionally and `WriteContext` no longer has one. `index.ts` threads `runtimeConfig.workspaceId` into all three and registers the configured workspace at boot, because the new keys refuse a write under an unregistered one. `tenant_id` was redundant and is gone. `quality_gate_config.workspace_id` stays nullable on purpose — NULL is the installation-wide default gate — and is classified `global`. `tools/migrate-cli` takes a `--workspace` and stamps it on every scoped table, recording rather than moving a legacy row that names another. Not in this row: seven tables bounded earlier by an unkeyed NOT NULL column (`schedules`, `outbox_events`, `conversations`, `messages`, `connector_configs`, `vault_entries`, `canonical_run_results`) still have no foreign key onto `workspaces`.\n\nSince keyed by MNT-18 (`0029_workspace_foreign_keys.sql`)."
+    },
+    {
+      "id": "MNT-18",
+      "title": "Seven NOT NULL tenant columns had no foreign key onto workspaces",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`schedules` (0015), `outbox_events` (0017), `conversations` and `messages` (0018), `connector_configs` and `vault_entries` (0020) and `canonical_run_results` (0005) carried `workspace_id text NOT NULL` and an index leading with it, but no key onto `workspaces`. `pnpm tenancy:check` counts them as hard-bounded because it checks nullability, so nothing reported it; MNT-17 recorded them as outside its scope. Any writer could store a schedule, an outbox event, a transcript or an encrypted connector credential under a workspace that does not exist, and deleting a workspace left those rows pointing at nothing — the defect 0028 called a label rather than a boundary on `runs`.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`tests/integration/src/workspace-foreign-keys.test.ts` was run against the tree without 0029 and failed all 18 cases for the expected reason: every table accepted a `workspace_id` with no row in `workspaces`, every workspace delete succeeded while a row still named it, and the migration was absent from the journal. `constraints.test.ts` failed with `schedules: expected undefined to be 'workspaces.id on delete restrict'`.",
+      "evidence": [
+        {
+          "path": "packages/db/drizzle/0029_workspace_foreign_keys.sql",
+          "asserts": "Raises naming the table on a blank `workspace_id`, raises on a message whose workspace disagrees with its conversation, registers workspace ids the rows already name, then adds a `restrict` key onto `workspaces` to all seven tables. No index is added: each already has one leading with `workspace_id`."
+        },
+        {
+          "path": "tests/integration/src/workspace-foreign-keys.test.ts",
+          "asserts": "Each of the seven tables rejects an unregistered workspace with its own named key, accepts the same row under a registered one, and refuses to let the owning workspace be deleted. Against a populated pre-0029 database: named workspaces are registered and every row kept, a blank workspace and a cross-workspace message each raise and leave no key applied, and an empty install gains only the keys."
+        },
+        {
+          "path": "packages/db/src/schema/constraints.test.ts",
+          "asserts": "`gives every workspace-scoped table a restricting key onto its workspace (MNT-17, MNT-18)` now includes the seven tables, and the drift comparison requires the schema declarations and the migration to agree on every key."
+        },
+        {
+          "path": "docs/quality/tenancy-scope.json",
+          "asserts": "The seven rows and the tally interpretation record the key and the migration that added it."
+        }
+      ],
+      "resolution": "One migration, `0029_workspace_foreign_keys.sql`, and the matching `.references(() => workspaces.id, { onDelete: 'restrict' })` on the seven schema columns. A row that cannot be keyed honestly (blank workspace, or a message whose conversation is in another workspace) stops the migration instead of being deleted or re-labelled. The product needed no change: `apps/api/src/index.ts` already registers the configured workspace at boot (MNT-17). Three test files that wrote rows under unregistered workspace ids now register them first."
     }
   ]
 }
