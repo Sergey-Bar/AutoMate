@@ -207,6 +207,72 @@ export function projectCanonicalRun(
   };
 }
 
+const RUN_FIELDS = [
+  'phase',
+  'outcome',
+  'status',
+  'startedAt',
+  'finishedAt',
+  'durationMs',
+  'branch',
+  'commitSha',
+  'total',
+  'passed',
+  'failed',
+  'flaky',
+  'skipped',
+] as const;
+
+const TEST_FIELDS = ['title', 'file', 'status', 'durationMs', 'errorCode', 'errorMessage'] as const;
+
+function runDifferences(expected: CanonicalProjection['run'], stored: RunRecord): string[] {
+  return RUN_FIELDS.filter((field) => stored[field] !== expected[field]).map(
+    (field) =>
+      `runs.${field}: stored ${JSON.stringify(stored[field])}, ` +
+      `canonical row implies ${JSON.stringify(expected[field])}`,
+  );
+}
+
+function testDifferences(expected: TestRecord, stored: TestRecord): string[] {
+  return TEST_FIELDS.filter((field) => stored[field] !== expected[field]).map(
+    (field) =>
+      `tests[${expected.id}].${field}: stored ${JSON.stringify(stored[field])}, ` +
+      `canonical row implies ${JSON.stringify(expected[field])}`,
+  );
+}
+
+function expectedTestDifferences(
+  expectedTests: CanonicalProjection['tests'],
+  actual: Map<string, TestRecord>,
+): string[] {
+  return expectedTests.flatMap((expectedTest) => {
+    const stored = actual.get(expectedTest.id);
+    if (stored === undefined) {
+      return [`tests: no row for ${expectedTest.id}, which the canonical row projects to`];
+    }
+    return testDifferences(expectedTest, stored);
+  });
+}
+
+/**
+ * Keyed, not scanned. The orphan check reads a stored row against every expected one, and
+ * a suite is not a small list - 3 000 tests would make this quadratic on exactly the
+ * reports where a divergence matters most.
+ */
+function orphanDifferences(
+  expectedTests: CanonicalProjection['tests'],
+  actual: Map<string, TestRecord>,
+): string[] {
+  const projectedIds = new Set(expectedTests.map((test) => test.id));
+  return [...actual.keys()]
+    .filter((storedId) => !projectedIds.has(storedId))
+    .map(
+      (storedId) =>
+        `tests: row ${storedId} exists with no attempt for it in the canonical row, so ` +
+        'nothing is authoritative for it',
+    );
+}
+
 /**
  * What a stored projection says against what the canonical row implies.
  *
@@ -222,66 +288,12 @@ export function projectionDivergence(
   expected: CanonicalProjection,
   actual: { run: RunRecord | null; tests: Map<string, TestRecord> },
 ): string[] {
-  const differences: string[] = [];
   if (actual.run === null) {
-    differences.push(`runs: no row for ${expected.run.id}, which the canonical row projects to`);
-    return differences;
+    return [`runs: no row for ${expected.run.id}, which the canonical row projects to`];
   }
-  for (const field of [
-    'phase',
-    'outcome',
-    'status',
-    'startedAt',
-    'finishedAt',
-    'durationMs',
-    'branch',
-    'commitSha',
-    'total',
-    'passed',
-    'failed',
-    'flaky',
-    'skipped',
-  ] as const) {
-    if (actual.run[field] !== expected.run[field]) {
-      differences.push(
-        `runs.${field}: stored ${JSON.stringify(actual.run[field])}, ` +
-          `canonical row implies ${JSON.stringify(expected.run[field])}`,
-      );
-    }
-  }
-  for (const expectedTest of expected.tests) {
-    const stored = actual.tests.get(expectedTest.id);
-    if (stored === undefined) {
-      differences.push(`tests: no row for ${expectedTest.id}, which the canonical row projects to`);
-      continue;
-    }
-    for (const field of [
-      'title',
-      'file',
-      'status',
-      'durationMs',
-      'errorCode',
-      'errorMessage',
-    ] as const) {
-      if (stored[field] !== expectedTest[field]) {
-        differences.push(
-          `tests[${expectedTest.id}].${field}: stored ${JSON.stringify(stored[field])}, ` +
-            `canonical row implies ${JSON.stringify(expectedTest[field])}`,
-        );
-      }
-    }
-  }
-  // Keyed, not scanned. The orphan check reads a stored row against every expected one, and
-  // a suite is not a small list — 3 000 tests would make this quadratic on exactly the
-  // reports where a divergence matters most.
-  const projectedIds = new Set(expected.tests.map((test) => test.id));
-  for (const storedId of actual.tests.keys()) {
-    if (!projectedIds.has(storedId)) {
-      differences.push(
-        `tests: row ${storedId} exists with no attempt for it in the canonical row, so ` +
-          'nothing is authoritative for it',
-      );
-    }
-  }
-  return differences;
+  return [
+    ...runDifferences(expected.run, actual.run),
+    ...expectedTestDifferences(expected.tests, actual.tests),
+    ...orphanDifferences(expected.tests, actual.tests),
+  ];
 }

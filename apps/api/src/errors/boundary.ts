@@ -66,6 +66,13 @@ function requestIdFromHeader(c: Context, fallback: string): string {
   return header !== undefined && header.trim() !== '' ? header.trim() : fallback;
 }
 
+/** The request coordinates every log line and report carries. */
+interface RequestInfo {
+  requestId: string;
+  path: string;
+  method: string;
+}
+
 /**
  * The application's single error boundary.
  *
@@ -87,90 +94,89 @@ export function createErrorBoundary(options: ErrorBoundaryOptions): {
   const report = options.reportError ?? ((): void => {});
 
   const onError: ErrorHandler = (error, c) => {
-    const requestId = options.requestId(c);
-    const path = c.req.path;
-    const method = c.req.method;
-
-    if (isDomainError(error)) {
-      // A 5xx is a defect; a 4xx is a caller doing something the API refuses,
-      // which is a normal answer and reporting it would bury the defects.
-      if (error.status >= 500) {
-        log('request failed', {
-          requestId,
-          path,
-          method,
-          code: error.code,
-          error: error.logMessage(),
-        });
-        report(error, { requestId, path, method, code: error.code });
-      } else if (error.logDetail !== undefined) {
-        // A 4xx whose log detail names an internal object: the caller gets the
-        // code and the safe message, the log gets the detail.
-        log('request rejected', {
-          requestId,
-          path,
-          method,
-          code: error.code,
-          error: error.logMessage(),
-        });
-      }
-      return c.json(error.toBody(requestId), error.status as 400);
-    }
-
+    const info: RequestInfo = {
+      requestId: options.requestId(c),
+      path: c.req.path,
+      method: c.req.method,
+    };
+    if (isDomainError(error)) return respondToDomainError(error, c, info);
     const classified = classifyDatabaseError(error);
     if (classified.code !== ErrorCode.INTERNAL) {
-      // A classified database failure. The constraint or SQLSTATE detail goes to
-      // the log for every status, because a 4xx is still a caller-facing answer
-      // and must not carry it.
-      if (classified.status >= 500 || classified.logDetail !== undefined) {
-        log(classified.status >= 500 ? 'dependency failure' : 'request rejected', {
-          requestId,
-          path,
-          method,
-          code: classified.code,
-          error: classified.logMessage(),
-        });
-      }
-      if (classified.status >= 500) {
-        report(error, { requestId, path, method, code: classified.code });
-      }
-      return c.json(
-        {
-          error: {
-            code: classified.code,
-            message: classified.status >= 500 ? 'dependency unavailable' : classified.message,
-            requestId,
-            details: classified.status >= 500 ? {} : classified.details,
-          },
-        },
-        classified.status as 400,
-      );
+      return respondToDatabaseError(error, classified, c, info);
     }
+    return respondToUnhandled(error, c, info);
+  };
 
+  /**
+   * A 5xx is a defect; a 4xx is a caller doing something the API refuses, which is a normal
+   * answer and reporting it would bury the defects.
+   */
+  function respondToDomainError(error: DomainError, c: Context, info: RequestInfo): Response {
+    if (error.status >= 500) {
+      log('request failed', { ...info, code: error.code, error: error.logMessage() });
+      report(error, { ...info, code: error.code });
+    } else if (error.logDetail !== undefined) {
+      // A 4xx whose log detail names an internal object: the caller gets the
+      // code and the safe message, the log gets the detail.
+      log('request rejected', { ...info, code: error.code, error: error.logMessage() });
+    }
+    return c.json(error.toBody(info.requestId), error.status as 400);
+  }
+
+  /**
+   * A classified database failure. The constraint or SQLSTATE detail goes to the log for every
+   * status, because a 4xx is still a caller-facing answer and must not carry it.
+   */
+  function respondToDatabaseError(
+    error: unknown,
+    classified: DomainError,
+    c: Context,
+    info: RequestInfo,
+  ): Response {
+    const serverSide = classified.status >= 500;
+    if (serverSide || classified.logDetail !== undefined) {
+      log(serverSide ? 'dependency failure' : 'request rejected', {
+        ...info,
+        code: classified.code,
+        error: classified.logMessage(),
+      });
+    }
+    if (serverSide) report(error, { ...info, code: classified.code });
+    return c.json(
+      {
+        error: {
+          code: classified.code,
+          message: serverSide ? 'dependency unavailable' : classified.message,
+          requestId: info.requestId,
+          details: serverSide ? {} : classified.details,
+        },
+      },
+      classified.status as 400,
+    );
+  }
+
+  function respondToUnhandled(error: unknown, c: Context, info: RequestInfo): Response {
     log('unhandled error', {
-      requestId,
-      path,
-      method,
+      ...info,
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    report(error, { requestId, path, method, code: ErrorCode.INTERNAL });
+    report(error, { ...info, code: ErrorCode.INTERNAL });
     return c.json(
       {
         error: {
           code: ErrorCode.INTERNAL,
           // Nothing about the cause. A stack trace or a SQL fragment in a
           // response is an information disclosure, and a caller cannot act on it
-          // anyway — the request id is what correlates them with the log.
+          // anyway - the request id is what correlates them with the log.
           message: 'internal error',
-          requestId,
+          requestId: info.requestId,
           details: {},
         },
       },
       500,
     );
-  };
-
+  }
   const notFound: NotFoundHandler = (c) =>
     c.json(
       {

@@ -137,76 +137,92 @@ function runInfraReason(run: Pick<ExecutionRun, 'outcome'> & Partial<ExecutionRu
   return null;
 }
 
-export function evaluateQualityGate(input: QualityGateInput): QualityGateResult {
-  const run = input.run;
-  const policy = input.policy;
-  const summary = run.summary ?? {
-    total: 0,
-    passed: 0,
-    failed: 0,
-    flaky: 0,
-    skipped: 0,
-    blocked: 0,
-    unknown: 0,
-    durationMs: null,
-  };
-  const artifacts = run.artifacts ?? [];
-  const domains = { ...defaultDomains(run), ...(input.domainStatuses ?? {}) } as Record<
-    DomainName,
-    DomainStatus
-  >;
+type GateSummary = NonNullable<ExecutionRun['summary']>;
+type GateRun = QualityGateInput['run'];
+
+const EMPTY_GATE_SUMMARY: GateSummary = {
+  total: 0,
+  passed: 0,
+  failed: 0,
+  flaky: 0,
+  skipped: 0,
+  blocked: 0,
+  unknown: 0,
+  durationMs: null,
+};
+
+/** The run's own evidence references plus one per artifact, de-duplicated and sorted. */
+function gateEvidenceRefs(run: GateRun): string[] {
+  const artifactRefs = (run.artifacts ?? []).map((artifact) => `artifact:${artifact.id}`);
+  return [...new Set((run.rawEvidenceRefs ?? []).concat(artifactRefs))].sort();
+}
+
+/** The run's own outcome and the failures counted in its summary. */
+function outcomeReasons(run: GateRun, summary: GateSummary): string[] {
   const reasons: string[] = [];
-  const evidenceRefs = [
-    ...new Set(
-      (run.rawEvidenceRefs ?? []).concat(
-        (run.artifacts ?? []).map((artifact) => `artifact:${artifact.id}`),
-      ),
-    ),
-  ].sort();
   const infraReason = runInfraReason(run);
   if (infraReason) reasons.push(infraReason);
   if (run.outcome === 'failed' || run.phase === 'blocked')
     reasons.push('product_failure:TEST_FAILURE');
   if (summary.failed > 0) reasons.push('product_failure:FAILED_TEST_COUNT');
-  if (summary.total > 0) {
-    const passRate = (summary.passed / summary.total) * 100;
-    if (passRate < policy.browserPassRateThreshold)
-      reasons.push(
-        refusal('threshold:PASS_RATE', {
-          observed: passRate.toFixed(2),
-          required: policy.browserPassRateThreshold,
-          rule: 'browserPassRateThreshold',
-        }),
-      );
-    const flakyRate = (summary.flaky / summary.total) * 100;
-    if (flakyRate > policy.maxFlakyRate)
-      reasons.push(
-        refusal('threshold:FLAKY_RATE', {
-          observed: flakyRate.toFixed(2),
-          max: policy.maxFlakyRate,
-          rule: 'maxFlakyRate',
-        }),
-      );
-    if (
-      policy.maxDurationMs !== null &&
-      summary.durationMs !== null &&
-      summary.durationMs > policy.maxDurationMs
-    )
-      reasons.push(
-        refusal('threshold:DURATION', {
-          observed: summary.durationMs,
-          max: policy.maxDurationMs,
-          unit: 'ms',
-          rule: 'maxDurationMs',
-        }),
-      );
-  }
-  const requiredDomains = [
+  return reasons;
+}
+
+/** Pass-rate, flaky-rate and duration against the policy. Nothing to measure without tests. */
+function thresholdReasons(summary: GateSummary, policy: GatePolicy): string[] {
+  if (!(summary.total > 0)) return [];
+  const reasons: string[] = [];
+  const passRate = (summary.passed / summary.total) * 100;
+  if (passRate < policy.browserPassRateThreshold)
+    reasons.push(
+      refusal('threshold:PASS_RATE', {
+        observed: passRate.toFixed(2),
+        required: policy.browserPassRateThreshold,
+        rule: 'browserPassRateThreshold',
+      }),
+    );
+  const flakyRate = (summary.flaky / summary.total) * 100;
+  if (flakyRate > policy.maxFlakyRate)
+    reasons.push(
+      refusal('threshold:FLAKY_RATE', {
+        observed: flakyRate.toFixed(2),
+        max: policy.maxFlakyRate,
+        rule: 'maxFlakyRate',
+      }),
+    );
+  if (exceedsDuration(summary, policy))
+    reasons.push(
+      refusal('threshold:DURATION', {
+        observed: summary.durationMs,
+        max: policy.maxDurationMs,
+        unit: 'ms',
+        rule: 'maxDurationMs',
+      }),
+    );
+  return reasons;
+}
+
+function exceedsDuration(summary: GateSummary, policy: GatePolicy): boolean {
+  if (policy.maxDurationMs === null || summary.durationMs === null) return false;
+  return summary.durationMs > policy.maxDurationMs;
+}
+
+/** The policy's required domains plus every domain a required rule is about. */
+function requiredDomainsOf(policy: GatePolicy): DomainName[] {
+  return [
     ...new Set([
       ...policy.requiredDomains,
       ...policy.rules.filter((rule) => rule.required).map((rule) => rule.domain),
     ]),
   ];
+}
+
+function requiredDomainReasons(
+  requiredDomains: DomainName[],
+  domains: Record<DomainName, DomainStatus>,
+  evidenceRefs: string[],
+): string[] {
+  const reasons: string[] = [];
   if (
     requiredDomains.includes('browser') &&
     domains.browser === 'passed' &&
@@ -221,71 +237,104 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
     if (status === 'failed') reasons.push(`${domain}:FAILED`);
     if (status === 'warning') reasons.push(`${domain}:WARNING`);
   }
+  return reasons;
+}
+
+type GateRule = GatePolicy['rules'][number];
+
+function belowRulePassRate(rule: GateRule, domain: DomainStatus, summary: GateSummary): boolean {
+  if (rule.minimumPassRate === undefined || domain !== 'passed' || !(summary.total > 0))
+    return false;
+  return (summary.passed / summary.total) * 100 < rule.minimumPassRate;
+}
+
+function lacksRequiredArtifacts(rule: GateRule, artifacts: NonNullable<GateRun['artifacts']>) {
+  if (rule.requiredArtifactKinds.length === 0) return false;
+  return !rule.requiredArtifactKinds.every((kind) =>
+    artifacts.some((artifact) => artifact.kind === kind),
+  );
+}
+
+/** What each required rule asks beyond the domain's own status: a pass rate and artifacts. */
+function ruleReasons(
+  policy: GatePolicy,
+  domains: Record<DomainName, DomainStatus>,
+  summary: GateSummary,
+  artifacts: NonNullable<GateRun['artifacts']>,
+): string[] {
+  const reasons: string[] = [];
   for (const rule of policy.rules) {
     if (!rule.required) continue;
-    const domain = domains[rule.domain] ?? 'unknown';
-    if (
-      rule.minimumPassRate !== undefined &&
-      domain === 'passed' &&
-      summary.total > 0 &&
-      (summary.passed / summary.total) * 100 < rule.minimumPassRate
-    )
+    if (belowRulePassRate(rule, domains[rule.domain] ?? 'unknown', summary))
       reasons.push(
         refusal('threshold:PER_RULE_PASS_RATE', {
           observed: ((summary.passed / summary.total) * 100).toFixed(2),
-          required: rule.minimumPassRate,
+          required: rule.minimumPassRate ?? null,
           domain: rule.domain,
           rule: `rules[${rule.domain}].minimumPassRate`,
         }),
       );
-    if (
-      rule.requiredArtifactKinds.length > 0 &&
-      !rule.requiredArtifactKinds.every((kind) =>
-        artifacts.some((artifact) => artifact.kind === kind),
-      )
-    )
-      reasons.push(`${rule.domain}:MISSING_EVIDENCE`);
+    if (lacksRequiredArtifacts(rule, artifacts)) reasons.push(`${rule.domain}:MISSING_EVIDENCE`);
   }
-  const hasInfra = reasons.some(
-    (reason) => reason.endsWith('RUNNER_INFRASTRUCTURE') || reason.endsWith('CONFIGURATION'),
+  return reasons;
+}
+
+const UNKNOWN_SUFFIXES = [':UNKNOWN', ':NOT_CONFIGURED', ':MISSING_EVIDENCE'];
+
+function isInfraReason(reason: string): boolean {
+  return reason.endsWith('RUNNER_INFRASTRUCTURE') || reason.endsWith('CONFIGURATION');
+}
+
+function isProductReason(reason: string): boolean {
+  return reason.startsWith('product_failure:') || reason.startsWith('threshold:');
+}
+
+function isUnknownReason(reason: string): boolean {
+  return (
+    UNKNOWN_SUFFIXES.some((suffix) => reason.endsWith(suffix)) ||
+    reason.endsWith('evidence:MISSING_REQUIRED_EVIDENCE')
   );
-  const hasProduct = reasons.some(
-    (reason) => reason.startsWith('product_failure:') || reason.startsWith('threshold:'),
-  );
-  const hasUnknown = reasons.some(
-    (reason) =>
-      reason.endsWith(':UNKNOWN') ||
-      reason.endsWith(':NOT_CONFIGURED') ||
-      reason.endsWith(':MISSING_EVIDENCE') ||
-      reason.endsWith('evidence:MISSING_REQUIRED_EVIDENCE'),
-  );
-  const hasWarning = reasons.some((reason) => reason.endsWith(':WARNING'));
-  let status: GateEvaluation['status'];
-  let decision: GateEvaluation['decision'] | 'not_ready';
+}
+
+/** The verdict the reasons add up to: blocked beats not ready beats warnings beats ready. */
+function verdictFor(reasons: string[]): Pick<QualityGateResult, 'status' | 'decision'> {
+  if (reasons.some(isInfraReason) || reasons.some(isProductReason)) {
+    return { status: 'failed', decision: 'blocked' };
+  }
+  if (reasons.includes('evidence:NO_TESTS')) return { status: 'failed', decision: 'blocked' };
+  if (reasons.some(isUnknownReason)) return { status: 'unknown', decision: 'not_ready' };
+  if (reasons.some((reason) => reason.endsWith(':WARNING'))) {
+    return { status: 'warning', decision: 'ready_with_warnings' };
+  }
+  return { status: 'passed', decision: 'ready' };
+}
+
+export function evaluateQualityGate(input: QualityGateInput): QualityGateResult {
+  const run = input.run;
+  const policy = input.policy;
+  const summary = run.summary ?? EMPTY_GATE_SUMMARY;
+  const artifacts = run.artifacts ?? [];
+  const domains = { ...defaultDomains(run), ...(input.domainStatuses ?? {}) } as Record<
+    DomainName,
+    DomainStatus
+  >;
+  const evidenceRefs = gateEvidenceRefs(run);
+  const reasons = [
+    ...outcomeReasons(run, summary),
+    ...thresholdReasons(summary, policy),
+    ...requiredDomainReasons(requiredDomainsOf(policy), domains, evidenceRefs),
+    ...ruleReasons(policy, domains, summary, artifacts),
+  ];
   // A run that claims a pass while executing nothing is the case every
   // threshold above silently skipped, because each one sits behind
-  // `if (summary.total > 0)`. `NO_TESTS` is a product failure, not an unknown:
+  // `summary.total > 0`. `NO_TESTS` is a product failure, not an unknown:
   // a green claim with nothing behind it is exactly what this product promises
   // never to publish.
   if (run.outcome === 'passed' && summary.total === 0 && (run.tests?.length ?? 0) === 0) {
     reasons.push('evidence:NO_TESTS');
   }
-  if (hasInfra || hasProduct || reasons.includes('evidence:NO_TESTS')) {
-    status = 'failed';
-    decision = 'blocked';
-  } else if (hasUnknown) {
-    status = 'unknown';
-    decision = 'not_ready';
-  } else if (hasWarning) {
-    status = 'warning';
-    decision = 'ready_with_warnings';
-  } else {
-    status = 'passed';
-    decision = 'ready';
-  }
   return {
-    status,
-    decision,
+    ...verdictFor(reasons),
     reasons: [...new Set(reasons)].sort(),
     evidenceRefs,
     domainStatuses: domains,

@@ -165,18 +165,24 @@ function verdictOf(status: ExecutionTestResult['status']): 'pass' | 'fail' | nul
   return null;
 }
 
+/** How often consecutive decisive results of one test disagree. */
+function countFlips(seen: readonly Appearance[]): number {
+  let flips = 0;
+  let last: 'pass' | 'fail' | null = null;
+  for (const { test } of seen) {
+    const verdict = verdictOf(test.status);
+    if (verdict === null) continue;
+    if (last !== null && verdict !== last) flips += 1;
+    last = verdict;
+  }
+  return flips;
+}
+
 function flakyTests(runs: readonly ExecutionRun[]): FlakyTest[] {
   const ranked: FlakyTest[] = [];
   for (const [key, seen] of appearances(runs)) {
     const flaky = seen.filter(({ test }) => test.status === 'flaky').length;
-    let flips = 0;
-    let last: 'pass' | 'fail' | null = null;
-    for (const { test } of seen) {
-      const verdict = verdictOf(test.status);
-      if (verdict === null) continue;
-      if (last !== null && verdict !== last) flips += 1;
-      last = verdict;
-    }
+    const flips = countFlips(seen);
     const score = Math.min(1, (flaky + flips) / seen.length);
     const latest = seen.at(-1);
     if (score === 0 || latest === undefined) continue;

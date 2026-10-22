@@ -6,6 +6,7 @@ import { deriveRunState, type DerivedRunState } from './phase-outcome.js';
 import {
   completionOutcome,
   completionPhase,
+  browserGateStatus,
   completionStatus,
   jobStateFor,
 } from './execution-derivations.js';
@@ -158,6 +159,416 @@ function defaultBrowserStatus(run: ExecutionRun | undefined): DomainStatus {
   )
     return 'unknown';
   return 'unknown';
+}
+
+// ── Event batches ───────────────────────────────────────────────────────────────────────────
+//
+// Pure helpers behind `appendEvents`. They were inline in one method (cognitive complexity 19);
+// each now carries one decision, and `in-memory-store-characterization.test.ts` pins the
+// behaviour of the whole.
+
+/** A lease that has no expiry, or whose expiry is at or before `nowMs`, is not live. */
+function leaseHasExpired(leaseExpiresAt: string | null, nowMs: number): boolean {
+  return leaseExpiresAt === null || new Date(leaseExpiresAt).getTime() <= nowMs;
+}
+
+/** Whether `job` is leased to exactly this lease and fencing token, in this workspace, now. */
+function holdsAppendLease(
+  job: ExecutionJob,
+  leaseId: string,
+  fencingToken: number,
+  workspaceId: string | undefined,
+  nowMs: number,
+): boolean {
+  if (workspaceId !== undefined && job.workspaceId !== workspaceId) return false;
+  if (job.state !== 'leased') return false;
+  if (job.leaseId !== leaseId || job.fencingToken !== fencingToken) return false;
+  return !leaseHasExpired(job.leaseExpiresAt, nowMs);
+}
+
+function conflictResult(
+  event: Pick<ExecutionEventInput, 'eventId' | 'sequence'>,
+  reason: string,
+): EventApplyResult {
+  return { eventId: event.eventId, sequence: event.sequence, status: 'conflict', reason };
+}
+
+function applyResult(
+  event: Pick<ExecutionEventInput, 'eventId' | 'sequence'>,
+  status: 'accepted' | 'duplicate',
+  hash: string,
+): EventApplyResult {
+  return { eventId: event.eventId, sequence: event.sequence, status, hash };
+}
+
+function isMalformedEvent(event: ExecutionEventInput): boolean {
+  return !event.eventId || !Number.isInteger(event.sequence) || event.sequence < 1;
+}
+
+function eventHash(event: ExecutionEventInput): string {
+  return digest({
+    eventId: event.eventId,
+    sequence: event.sequence,
+    type: event.type,
+    occurredAt: event.occurredAt,
+    payload: event.payload ?? {},
+  });
+}
+
+/** An incoming event ends the run when it is the completion or says so in its payload. */
+function endsTheRun(event: ExecutionEventInput): boolean {
+  return event.type === 'run.completed' || event.payload?.['terminal'] === true;
+}
+
+/** A stored event ended the run. A payload flag only counts on a `custom` event. */
+function storedEventEndedTheRun(event: ExecutionEvent): boolean {
+  return (
+    event.type === 'run.completed' ||
+    (event.type === 'custom' && event.payload?.['terminal'] === true)
+  );
+}
+
+/** Why a never-seen event cannot be appended, or null. A finished run refuses first. */
+function newEventConflict(sequence: number, expected: number, terminal: boolean): string | null {
+  if (terminal) return 'terminal_event';
+  return sequence === expected ? null : 'sequence_gap';
+}
+
+interface PreparedEvent {
+  input: ExecutionEventInput;
+  hash: string;
+  duplicate: boolean;
+}
+
+type PreparedBatch =
+  | { kind: 'refused'; results: EventApplyResult[] }
+  | { kind: 'ready'; prepared: PreparedEvent[]; nextSequence: number };
+
+/**
+ * Check a batch against the run's stored events. The first problem refuses the whole batch with
+ * that one result, because a partly accepted batch would leave the sequence somewhere the runner
+ * cannot reason about.
+ */
+function prepareBatch(
+  events: ExecutionEventInput[],
+  existing: ExecutionEvent[],
+  firstSequence: number,
+): PreparedBatch {
+  const hashes = new Map<string, string>(existing.map((event) => [event.eventId, event.hash]));
+  let sequence = firstSequence;
+  let terminal = existing.some(storedEventEndedTheRun);
+  const prepared: PreparedEvent[] = [];
+  for (const event of events) {
+    if (isMalformedEvent(event)) return refusedBatch(event, 'invalid_event');
+    const hash = eventHash(event);
+    const refusal = batchRefusal(event, hash, hashes, sequence, terminal);
+    if (refusal) return refusedBatch(event, refusal);
+    const duplicate = hashes.has(event.eventId);
+    prepared.push({ input: event, hash, duplicate });
+    if (duplicate) continue;
+    hashes.set(event.eventId, hash);
+    sequence += 1;
+    if (endsTheRun(event)) terminal = true;
+  }
+  return { kind: 'ready', prepared, nextSequence: sequence };
+}
+
+function refusedBatch(event: ExecutionEventInput, reason: string): PreparedBatch {
+  return { kind: 'refused', results: [conflictResult(event, reason)] };
+}
+
+/** The reason one well-formed event of a batch is refused, or null when it can be taken. */
+function batchRefusal(
+  event: ExecutionEventInput,
+  hash: string,
+  hashes: ReadonlyMap<string, string>,
+  sequence: number,
+  terminal: boolean,
+): string | null {
+  const stored = hashes.get(event.eventId);
+  if (stored !== undefined) return stored === hash ? null : 'event_hash_mismatch';
+  return newEventConflict(event.sequence, sequence, terminal);
+}
+
+function storedEvent(
+  item: PreparedEvent,
+  context: {
+    job: ExecutionJob;
+    jobId: string;
+    leaseId: string;
+    fencingToken: number;
+    timestamp: string;
+  },
+): ExecutionEvent {
+  return {
+    eventId: item.input.eventId,
+    sequence: item.input.sequence,
+    type: item.input.type,
+    occurredAt: item.input.occurredAt ?? context.timestamp,
+    payload: clone(item.input.payload ?? {}),
+    runId: context.job.runId,
+    jobId: context.jobId,
+    leaseId: context.leaseId,
+    fencingToken: context.fencingToken,
+    receivedAt: context.timestamp,
+    hash: item.hash,
+  };
+}
+
+// ── Completion ──────────────────────────────────────────────────────────────────────────────
+
+function holdsCompletionLease(
+  job: ExecutionJob,
+  completion: JobCompletionInput,
+  nowMs: number,
+): boolean {
+  if (job.leaseId !== completion.leaseId || job.fencingToken !== completion.fencingToken) {
+    return false;
+  }
+  return !leaseHasExpired(job.leaseExpiresAt, nowMs);
+}
+
+function completionError(error: { code?: string; message: string }): {
+  code: string;
+  message: string;
+} {
+  return { code: error.code ?? 'EXECUTION_ERROR', message: error.message };
+}
+
+/**
+ * Fold a completion into the run. The same derivations the PostgreSQL store uses
+ * (`execution-derivations.ts`), so the two cannot derive one completion differently. The
+ * runner's own vocabulary is mapped onto the canonical outcome set: the payload can name a pass,
+ * not invent an outcome, and it cannot pair an outcome with a phase that forbids one.
+ */
+function applyCompletionToRun(
+  run: ExecutionRun,
+  completion: JobCompletionInput,
+  timestamp: string,
+): void {
+  const status = completionStatus(completion);
+  const phase = completionPhase(status, completion.phase);
+  const claimed = completionOutcome(status, completion.outcome);
+  const derived = deriveRunState(phase, claimed);
+  if (completion.tests) run.tests = clone(completion.tests);
+  run.summary = resolveSummary(clone(completion.summary), run.tests);
+  run.phase = derived.phase;
+  run.outcome = derived.outcome;
+  run.status = statusForTerminal(derived, hasEvidence(run));
+  run.completedAt = timestamp;
+  run.updatedAt = timestamp;
+  if (completion.error !== undefined) {
+    run.error = completion.error === null ? null : completionError(completion.error);
+  }
+}
+
+function applyCompletionToJob(
+  job: ExecutionJob,
+  completion: JobCompletionInput,
+  timestamp: string,
+): void {
+  job.state = jobStateFor(completionStatus(completion));
+  job.updatedAt = timestamp;
+  job.heartbeatAt = timestamp;
+  job.leaseExpiresAt = null;
+  job.error =
+    completion.error === null || completion.error === undefined
+      ? null
+      : completionError(completion.error);
+}
+
+// ── Lease expiry ────────────────────────────────────────────────────────────────────────────
+
+function isExpiredLease(job: ExecutionJob, nowMs: number): boolean {
+  if (job.state !== 'leased' || !job.leaseExpiresAt) return false;
+  return !(new Date(job.leaseExpiresAt).getTime() > nowMs);
+}
+
+/** The lease is gone either way; what happens to the job next is decided by the caller. */
+function releaseLostLease(job: ExecutionJob, timestamp: string): void {
+  job.updatedAt = timestamp;
+  job.leaseId = null;
+  job.leaseOwner = null;
+  job.leaseExpiresAt = null;
+  job.heartbeatAt = null;
+  job.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
+}
+
+function requeueLostJob(job: ExecutionJob, run: ExecutionRun | undefined, timestamp: string): void {
+  job.state = 'queued';
+  job.attempt += 1;
+  job.availableAt = timestamp;
+  if (!run) return;
+  run.attempt = job.attempt;
+  run.phase = 'queued';
+  run.outcome = null;
+  run.status = 'queued';
+  run.updatedAt = timestamp;
+  run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired; job requeued' };
+  run.runner = null;
+}
+
+function failLostJob(job: ExecutionJob, run: ExecutionRun | undefined, timestamp: string): void {
+  job.state = 'failed';
+  if (!run) return;
+  run.phase = 'runner_lost';
+  run.outcome = 'runner_lost';
+  run.status = 'runner_lost';
+  run.completedAt = timestamp;
+  run.updatedAt = timestamp;
+  run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
+  run.runner = null;
+}
+
+// ── Folding events into the run ─────────────────────────────────────────────────────────────
+
+/** The events that move a run between phases. A `switch`, as the `||` chain it replaced was. */
+function isPhaseEventType(type: string): boolean {
+  switch (type) {
+    case 'run.phase':
+    case 'run.phase_changed':
+    case 'run.started':
+    case 'run.queued':
+    case 'run.assigned':
+      return true;
+    default:
+      return false;
+  }
+}
+const TEST_STATUSES: ReadonlySet<unknown> = new Set([
+  'passed',
+  'failed',
+  'flaky',
+  'skipped',
+  'blocked',
+  'unknown',
+  'cancelled',
+  'timed_out',
+  'queued',
+  'running',
+]);
+
+function testStatusOf(value: unknown): ExecutionTestResult['status'] {
+  return TEST_STATUSES.has(value) ? (value as ExecutionTestResult['status']) : 'unknown';
+}
+
+function errorValueOf(value: unknown): { code: string; message: string } | null {
+  if (typeof value === 'string') return { code: 'EXECUTION_ERROR', message: value };
+  if (typeof value !== 'object' || value === null) return null;
+  const object = value as Record<string, unknown>;
+  return {
+    code: typeof object['code'] === 'string' ? object['code'] : 'EXECUTION_ERROR',
+    message: typeof object['message'] === 'string' ? object['message'] : 'Execution failed',
+  };
+}
+
+function testIdOf(payload: Record<string, unknown>): string {
+  return String(payload['testId'] ?? payload['id'] ?? '');
+}
+
+function reportedDuration(
+  payload: Record<string, unknown>,
+  fallback: number | null,
+): number | null {
+  return typeof payload['durationMs'] === 'number' ? payload['durationMs'] : fallback;
+}
+
+function numberOr(value: unknown, fallback: number): number {
+  return typeof value === 'number' ? value : fallback;
+}
+
+/** The identity a test gets when an event names it for the first time. */
+function newTestFrom(
+  id: string,
+  payload: Record<string, unknown>,
+): Pick<ExecutionTestResult, 'id' | 'title' | 'file'> {
+  return {
+    id,
+    title: String(payload['title'] ?? id),
+    file: payload['file'] === undefined ? null : String(payload['file']),
+  };
+}
+
+/** Same derivation as the completion path: a non-terminal phase has no outcome, and a
+ * `complete` phase with no evidence is not a pass. */
+function applyPhaseEvent(
+  run: ExecutionRun,
+  payload: Record<string, unknown>,
+  timestamp: string,
+): void {
+  const phase = normalizePhase(payload['phase']);
+  if (!phase) return;
+  const derived = deriveRunState(phase, payload['outcome']);
+  run.phase = derived.phase;
+  run.outcome = derived.outcome;
+  run.status = statusForTerminal(derived, hasEvidence(run));
+  if (derived.terminal) run.completedAt = timestamp;
+}
+
+function applyTestStarted(run: ExecutionRun, payload: Record<string, unknown>): void {
+  const id = testIdOf(payload);
+  if (!id) return;
+  const existing = run.tests.find((test) => test.id === id);
+  if (existing) existing.status = 'running';
+  else run.tests.push({ ...newTestFrom(id, payload), status: 'running' });
+  run.summary = countTests(run.tests);
+}
+
+function applyTestCompleted(run: ExecutionRun, payload: Record<string, unknown>): void {
+  const id = testIdOf(payload);
+  if (!id) return;
+  const status = testStatusOf(payload['status']);
+  const existing = run.tests.find((test) => test.id === id);
+  if (existing) {
+    existing.status = status;
+    existing.durationMs = reportedDuration(payload, existing.durationMs ?? null);
+    if (payload['error'] !== undefined) existing.error = errorValueOf(payload['error']);
+  } else {
+    run.tests.push({
+      ...newTestFrom(id, payload),
+      status,
+      durationMs: reportedDuration(payload, null),
+      error: errorValueOf(payload['error']),
+    });
+  }
+  run.summary = countTests(run.tests);
+}
+
+/** The reported counts replace the run's own, one by one, only where they are numbers. */
+function mergeSummary(
+  current: ExecutionSummary,
+  reported: Record<string, unknown>,
+): ExecutionSummary {
+  return {
+    total: numberOr(reported['total'], current.total),
+    passed: numberOr(reported['passed'], current.passed),
+    failed: numberOr(reported['failed'], current.failed),
+    flaky: numberOr(reported['flaky'], current.flaky),
+    skipped: numberOr(reported['skipped'], current.skipped),
+    blocked: numberOr(reported['blocked'], current.blocked),
+    unknown: numberOr(reported['unknown'], current.unknown),
+    durationMs: reportedDuration(reported, current.durationMs),
+  };
+}
+
+function applyRunCompleted(
+  run: ExecutionRun,
+  payload: Record<string, unknown>,
+  timestamp: string,
+): void {
+  const phase = normalizePhase(payload['phase']) ?? 'complete';
+  if (payload['error'] !== undefined) run.error = errorValueOf(payload['error']);
+  const reported = payload['summary'];
+  if (typeof reported === 'object' && reported !== null) {
+    run.summary = mergeSummary(run.summary, reported as Record<string, unknown>);
+  }
+  // Derived after the summary is folded in, so a run reporting a zero total
+  // cannot be recorded as a pass.
+  const derived = deriveRunState(phase, normalizeOutcome(payload['outcome'] ?? payload['status']));
+  run.phase = derived.phase;
+  run.outcome = derived.outcome;
+  run.status = statusForTerminal(derived, hasEvidence(run));
+  run.completedAt = timestamp;
 }
 
 export class InMemoryExecutionStore implements ExecutionStore {
@@ -554,125 +965,26 @@ export class InMemoryExecutionStore implements ExecutionStore {
     workspaceId?: string,
   ): Promise<EventApplyResult[]> {
     const job = this.jobs.get(jobId);
-    if (
-      !job ||
-      (workspaceId !== undefined && job.workspaceId !== workspaceId) ||
-      job.state !== 'leased' ||
-      job.leaseId !== leaseId ||
-      job.fencingToken !== fencingToken ||
-      job.leaseExpiresAt === null ||
-      new Date(job.leaseExpiresAt).getTime() <= this.now().getTime()
-    ) {
-      return events.map((event) => ({
-        eventId: event.eventId,
-        sequence: event.sequence,
-        status: 'conflict',
-        reason: 'stale_lease',
-      }));
+    if (!job || !holdsAppendLease(job, leaseId, fencingToken, workspaceId, this.now().getTime())) {
+      return events.map((event) => conflictResult(event, 'stale_lease'));
     }
     const existing = this.events.get(job.runId) ?? [];
-    const byId = new Map<string, { hash: string }>(
-      existing.map((event) => [event.eventId, { hash: event.hash }]),
-    );
-    let sequence = this.nextSequence.get(job.runId) ?? 1;
-    let terminal = existing.some(
-      (event) =>
-        event.type === 'run.completed' ||
-        (event.type === 'custom' && event.payload?.['terminal'] === true),
-    );
-    const prepared: Array<{ input: ExecutionEventInput; hash: string; duplicate: boolean }> = [];
-    for (const event of events) {
-      if (!event.eventId || !Number.isInteger(event.sequence) || event.sequence < 1) {
-        return [
-          {
-            eventId: event.eventId,
-            sequence: event.sequence,
-            status: 'conflict',
-            reason: 'invalid_event',
-          },
-        ];
-      }
-      const hash = digest({
-        eventId: event.eventId,
-        sequence: event.sequence,
-        type: event.type,
-        occurredAt: event.occurredAt,
-        payload: event.payload ?? {},
-      });
-      const previous = byId.get(event.eventId);
-      if (previous) {
-        if (previous.hash !== hash)
-          return [
-            {
-              eventId: event.eventId,
-              sequence: event.sequence,
-              status: 'conflict',
-              reason: 'event_hash_mismatch',
-            },
-          ];
-        prepared.push({ input: event, hash, duplicate: true });
-        continue;
-      }
-      if (event.sequence !== sequence)
-        return [
-          {
-            eventId: event.eventId,
-            sequence: event.sequence,
-            status: 'conflict',
-            reason: 'sequence_gap',
-          },
-        ];
-      if (terminal)
-        return [
-          {
-            eventId: event.eventId,
-            sequence: event.sequence,
-            status: 'conflict',
-            reason: 'terminal_event',
-          },
-        ];
-      prepared.push({ input: event, hash, duplicate: false });
-      byId.set(event.eventId, { hash });
-      sequence += 1;
-      if (event.type === 'run.completed' || event.payload?.['terminal'] === true) terminal = true;
-    }
+    const batch = prepareBatch(events, existing, this.nextSequence.get(job.runId) ?? 1);
+    if (batch.kind === 'refused') return batch.results;
     const timestamp = iso(this.now());
     const results: EventApplyResult[] = [];
-    for (const item of prepared) {
+    for (const item of batch.prepared) {
       if (item.duplicate) {
-        results.push({
-          eventId: item.input.eventId,
-          sequence: item.input.sequence,
-          status: 'duplicate',
-          hash: item.hash,
-        });
+        results.push(applyResult(item.input, 'duplicate', item.hash));
         continue;
       }
-      const event: ExecutionEvent = {
-        eventId: item.input.eventId,
-        sequence: item.input.sequence,
-        type: item.input.type,
-        occurredAt: item.input.occurredAt ?? timestamp,
-        payload: clone(item.input.payload ?? {}),
-        runId: job.runId,
-        jobId,
-        leaseId,
-        fencingToken,
-        receivedAt: timestamp,
-        hash: item.hash,
-      };
+      const event = storedEvent(item, { job, jobId, leaseId, fencingToken, timestamp });
       existing.push(event);
-      byId.set(event.eventId, { hash: event.hash });
       this.applyEventToRun(job, event, timestamp);
-      results.push({
-        eventId: event.eventId,
-        sequence: event.sequence,
-        status: 'accepted',
-        hash: event.hash,
-      });
+      results.push(applyResult(event, 'accepted', event.hash));
     }
     this.events.set(job.runId, existing);
-    this.nextSequence.set(job.runId, sequence);
+    this.nextSequence.set(job.runId, batch.nextSequence);
     return results;
   }
 
@@ -709,70 +1021,39 @@ export class InMemoryExecutionStore implements ExecutionStore {
     if (workspaceId !== undefined && job.workspaceId !== workspaceId) return null;
     const completionHash = digest(completion);
     const previousHash = this.completionHashes.get(jobId);
-    if (previousHash) {
-      if (previousHash !== completionHash) return null;
-      const run = this.runs.get(job.runId);
-      return run ? { run: clone(run), job: clone(job), status: 'duplicate' } : null;
-    }
-    if (
-      job.leaseId !== completion.leaseId ||
-      job.fencingToken !== completion.fencingToken ||
-      job.leaseExpiresAt === null ||
-      new Date(job.leaseExpiresAt).getTime() <= this.now().getTime()
-    )
-      return null;
+    if (previousHash) return this.replayCompletion(job, previousHash, completionHash);
+    if (!holdsCompletionLease(job, completion, this.now().getTime())) return null;
     const run = this.runs.get(job.runId);
     if (!run) return null;
     const timestamp = iso(this.now());
-    // The same functions the PostgreSQL store uses (`execution-derivations.ts`), so the two cannot
-    // derive one completion differently. The runner's own vocabulary is mapped onto the canonical
-    // outcome set: the payload can name a pass, not invent an outcome, and it cannot pair an
-    // outcome with a phase that forbids one.
-    const status = completionStatus(completion);
-    const phase = completionPhase(status, completion.phase);
-    const claimed = completionOutcome(status, completion.outcome);
-    const derived = deriveRunState(phase, claimed);
-    if (completion.tests) run.tests = clone(completion.tests);
-    run.summary = resolveSummary(clone(completion.summary), run.tests);
-    run.phase = derived.phase;
-    run.outcome = derived.outcome;
-    run.status = statusForTerminal(derived, hasEvidence(run));
-    run.completedAt = timestamp;
-    run.updatedAt = timestamp;
-    if (completion.error !== undefined)
-      run.error =
-        completion.error === null
-          ? null
-          : { code: completion.error.code ?? 'EXECUTION_ERROR', message: completion.error.message };
-    job.state = jobStateFor(status);
-
-    job.updatedAt = timestamp;
-    job.heartbeatAt = timestamp;
-    job.leaseExpiresAt = null;
-    job.error =
-      completion.error === null || completion.error === undefined
-        ? null
-        : { code: completion.error.code ?? 'EXECUTION_ERROR', message: completion.error.message };
+    applyCompletionToRun(run, completion, timestamp);
+    applyCompletionToJob(job, completion, timestamp);
     this.completionHashes.set(jobId, completionHash);
+    await this.recordCompletionGate(run);
+    return { run: clone(run), job: clone(job), status: 'accepted' };
+  }
+
+  /** A completion already recorded: the same one is acknowledged, a different one refused. */
+  private replayCompletion(
+    job: ExecutionJob,
+    previousHash: string,
+    completionHash: string,
+  ): JobCompletionResult | null {
+    if (previousHash !== completionHash) return null;
+    const run = this.runs.get(job.runId);
+    return run ? { run: clone(run), job: clone(job), status: 'duplicate' } : null;
+  }
+
+  private async recordCompletionGate(run: ExecutionRun): Promise<void> {
     const policies = await this.listPolicies(run.workspaceId);
     const policy = policies[0] ?? (await this.createPolicy(defaultPolicy(run.workspaceId)));
     await this.saveGate(
       createGateEvaluation({
         run,
         policy,
-        domainStatuses: {
-          browser:
-            run.outcome === 'passed'
-              ? 'passed'
-              : run.outcome === 'failed'
-                ? 'failed'
-                : run.outcome === 'partial'
-                  ? 'warning'
-                  : 'unknown',
-        },
+        domainStatuses: { browser: browserGateStatus(run.outcome) },
       }),
     );
-    return { run: clone(run), job: clone(job), status: 'accepted' };
   }
 
   async addArtifact(
@@ -886,45 +1167,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
     const results: LeaseReapResult[] = [];
     const timestamp = iso(now);
     for (const job of this.jobs.values()) {
-      if (
-        job.state !== 'leased' ||
-        !job.leaseExpiresAt ||
-        new Date(job.leaseExpiresAt).getTime() > now.getTime()
-      )
-        continue;
+      if (!isExpiredLease(job, now.getTime())) continue;
       const run = this.runs.get(job.runId);
       const canRequeue = job.attempt < 3 && run !== undefined && !isTerminalPhase(run.phase);
-      job.updatedAt = timestamp;
-      job.leaseId = null;
-      job.leaseOwner = null;
-      job.leaseExpiresAt = null;
-      job.heartbeatAt = null;
-      job.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
-      if (canRequeue) {
-        job.state = 'queued';
-        job.attempt += 1;
-        job.availableAt = timestamp;
-        if (run) {
-          run.attempt = job.attempt;
-          run.phase = 'queued';
-          run.outcome = null;
-          run.status = 'queued';
-          run.updatedAt = timestamp;
-          run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired; job requeued' };
-          run.runner = null;
-        }
-      } else {
-        job.state = 'failed';
-        if (run) {
-          run.phase = 'runner_lost';
-          run.outcome = 'runner_lost';
-          run.status = 'runner_lost';
-          run.completedAt = timestamp;
-          run.updatedAt = timestamp;
-          run.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
-          run.runner = null;
-        }
-      }
+      releaseLostLease(job, timestamp);
+      if (canRequeue) requeueLostJob(job, run, timestamp);
+      else failLostJob(job, run, timestamp);
       results.push({
         jobId: job.id,
         runId: job.runId,
@@ -1022,128 +1270,10 @@ export class InMemoryExecutionStore implements ExecutionStore {
     if (!run) return;
     run.updatedAt = timestamp;
     const payload = event.payload;
-    if (
-      event.type === 'run.phase' ||
-      event.type === 'run.phase_changed' ||
-      event.type === 'run.started' ||
-      event.type === 'run.queued' ||
-      event.type === 'run.assigned'
-    ) {
-      const phase = normalizePhase(payload['phase']);
-      if (phase) {
-        // Same derivation as the completion path: a non-terminal phase has no
-        // outcome, and a `complete` phase with no evidence is not a pass.
-        const derived = deriveRunState(phase, payload['outcome']);
-        run.phase = derived.phase;
-        run.outcome = derived.outcome;
-        run.status = statusForTerminal(derived, hasEvidence(run));
-        if (derived.terminal) run.completedAt = timestamp;
-      }
-    }
-    if (event.type === 'test.started') {
-      const id = String(payload['testId'] ?? payload['id'] ?? '');
-      if (id) {
-        const existing = run.tests.find((test) => test.id === id);
-        if (existing) existing.status = 'running';
-        else
-          run.tests.push({
-            id,
-            title: String(payload['title'] ?? id),
-            file: payload['file'] === undefined ? null : String(payload['file']),
-            status: 'running',
-          });
-        run.summary = countTests(run.tests);
-      }
-    }
-    if (event.type === 'test.completed') {
-      const id = String(payload['testId'] ?? payload['id'] ?? '');
-      if (id) {
-        const status = this.testStatus(payload['status']);
-        const existing = run.tests.find((test) => test.id === id);
-        if (existing) {
-          existing.status = status;
-          existing.durationMs =
-            typeof payload['durationMs'] === 'number'
-              ? payload['durationMs']
-              : (existing.durationMs ?? null);
-          if (payload['error'] !== undefined) existing.error = this.errorValue(payload['error']);
-        } else {
-          run.tests.push({
-            id,
-            title: String(payload['title'] ?? id),
-            file: payload['file'] === undefined ? null : String(payload['file']),
-            status,
-            durationMs: typeof payload['durationMs'] === 'number' ? payload['durationMs'] : null,
-            error: this.errorValue(payload['error']),
-          });
-        }
-        run.summary = countTests(run.tests);
-      }
-    }
-    if (event.type === 'run.completed') {
-      const phase = normalizePhase(payload['phase']) ?? 'complete';
-      if (payload['error'] !== undefined) run.error = this.errorValue(payload['error']);
-      if (
-        payload['summary'] !== undefined &&
-        payload['summary'] !== null &&
-        typeof payload['summary'] === 'object'
-      ) {
-        const summary = payload['summary'] as Record<string, unknown>;
-        run.summary = {
-          total: typeof summary['total'] === 'number' ? summary['total'] : run.summary.total,
-          passed: typeof summary['passed'] === 'number' ? summary['passed'] : run.summary.passed,
-          failed: typeof summary['failed'] === 'number' ? summary['failed'] : run.summary.failed,
-          flaky: typeof summary['flaky'] === 'number' ? summary['flaky'] : run.summary.flaky,
-          skipped:
-            typeof summary['skipped'] === 'number' ? summary['skipped'] : run.summary.skipped,
-          blocked:
-            typeof summary['blocked'] === 'number' ? summary['blocked'] : run.summary.blocked,
-          unknown:
-            typeof summary['unknown'] === 'number' ? summary['unknown'] : run.summary.unknown,
-          durationMs:
-            typeof summary['durationMs'] === 'number'
-              ? summary['durationMs']
-              : run.summary.durationMs,
-        };
-      }
-      // Derived after the summary is folded in, so a run reporting a zero total
-      // cannot be recorded as a pass.
-      const derived = deriveRunState(
-        phase,
-        normalizeOutcome(payload['outcome'] ?? payload['status']),
-      );
-      run.phase = derived.phase;
-      run.outcome = derived.outcome;
-      run.status = statusForTerminal(derived, hasEvidence(run));
-      run.completedAt = timestamp;
-    }
-  }
-
-  private testStatus(value: unknown): ExecutionTestResult['status'] {
-    if (
-      value === 'passed' ||
-      value === 'failed' ||
-      value === 'flaky' ||
-      value === 'skipped' ||
-      value === 'blocked' ||
-      value === 'unknown' ||
-      value === 'cancelled' ||
-      value === 'timed_out' ||
-      value === 'queued' ||
-      value === 'running'
-    )
-      return value;
-    return 'unknown';
-  }
-
-  private errorValue(value: unknown): { code: string; message: string } | null {
-    if (typeof value === 'string') return { code: 'EXECUTION_ERROR', message: value };
-    if (typeof value !== 'object' || value === null) return null;
-    const object = value as Record<string, unknown>;
-    return {
-      code: typeof object['code'] === 'string' ? object['code'] : 'EXECUTION_ERROR',
-      message: typeof object['message'] === 'string' ? object['message'] : 'Execution failed',
-    };
+    if (isPhaseEventType(event.type)) applyPhaseEvent(run, payload, timestamp);
+    else if (event.type === 'test.started') applyTestStarted(run, payload);
+    else if (event.type === 'test.completed') applyTestCompleted(run, payload);
+    else if (event.type === 'run.completed') applyRunCompleted(run, payload, timestamp);
   }
 }
 

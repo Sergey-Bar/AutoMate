@@ -303,6 +303,17 @@ function executionStoreContract(): Array<{ name: string; parameters: string }> |
   return [...byName.values()];
 }
 
+/** The identifier characters a string starts with. */
+function leadingIdentifier(text: string): string {
+  let name = '';
+  for (const character of text) {
+    if (!'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.includes(character))
+      break;
+    name += character;
+  }
+  return name;
+}
+
 /**
  * The method a line opens, if it opens one.
  *
@@ -318,17 +329,9 @@ function methodSignatureStart(line: string): { name: string; openIndex: number }
   if (rest.startsWith('readonly ')) rest = rest.slice('readonly '.length);
   if (rest.startsWith('async ')) rest = rest.slice('async '.length);
 
-  let name = '';
-  let index = 0;
-  for (const character of rest) {
-    if ('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_'.includes(character)) {
-      name += character;
-      index += 1;
-      continue;
-    }
-    break;
-  }
+  const name = leadingIdentifier(rest);
   if (name === '') return null;
+  let index = name.length;
 
   // An optional generic parameter list, discarded but skipped.
   while (rest[index] !== '(' && index < rest.length) {

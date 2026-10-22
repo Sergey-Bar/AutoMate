@@ -20,37 +20,17 @@
     "flattering one."
   ],
   "ceiling": 15,
-  "count": 31,
+  "count": 23,
   "offenders": [
     {
-      "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 696,
-      "complexity": 73
-    },
-    {
-      "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 1048,
-      "complexity": 71
-    },
-    {
-      "file": "apps/api/src/routes/events.ts",
-      "line": 78,
-      "complexity": 38
-    },
-    {
-      "file": "apps/api/src/execution/quality-gate.ts",
-      "line": 140,
-      "complexity": 35
+      "file": "apps/web/src/routes/dashboard/run-detail.tsx",
+      "line": 356,
+      "complexity": 42
     },
     {
       "file": "apps/runner/src/execution.ts",
-      "line": 243,
+      "line": 279,
       "complexity": 35
-    },
-    {
-      "file": "apps/web/src/routes/dashboard/run-detail.tsx",
-      "line": 190,
-      "complexity": 32
     },
     {
       "file": "apps/worker/src/postgres-store.ts",
@@ -59,7 +39,7 @@
     },
     {
       "file": "scripts/lib/tenancy-scope.mjs",
-      "line": 147,
+      "line": 148,
       "complexity": 28
     },
     {
@@ -69,12 +49,12 @@
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 293,
+      "line": 292,
       "complexity": 25
     },
     {
       "file": "scripts/tenancy-check.mjs",
-      "line": 62,
+      "line": 63,
       "complexity": 23
     },
     {
@@ -83,19 +63,9 @@
       "complexity": 22
     },
     {
-      "file": "apps/api/src/routes/reporter.ts",
-      "line": 507,
-      "complexity": 21
-    },
-    {
       "file": "apps/worker/src/scheduler.ts",
       "line": 25,
       "complexity": 21
-    },
-    {
-      "file": "apps/api/src/routes/execution/jobs.routes.ts",
-      "line": 36,
-      "complexity": 20
     },
     {
       "file": "packages/automation/src/kilo-gateway.ts",
@@ -108,38 +78,23 @@
       "complexity": 20
     },
     {
-      "file": "apps/api/src/execution/in-memory-execution-store.ts",
-      "line": 543,
-      "complexity": 19
+      "file": "tools/migrate-cli/src/cli.ts",
+      "line": 35,
+      "complexity": 20
     },
     {
       "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 333,
+      "line": 314,
       "complexity": 19
     },
     {
-      "file": "apps/api/src/errors/boundary.ts",
-      "line": 89,
-      "complexity": 18
-    },
-    {
-      "file": "apps/api/src/routes/reporter.ts",
-      "line": 365,
-      "complexity": 18
-    },
-    {
       "file": "scripts/skill-scan.mjs",
-      "line": 271,
-      "complexity": 18
-    },
-    {
-      "file": "tools/migrate-cli/src/index.ts",
-      "line": 21,
+      "line": 309,
       "complexity": 18
     },
     {
       "file": "packages/ui/src/tokens/theme.test.ts",
-      "line": 208,
+      "line": 202,
       "complexity": 17
     },
     {
@@ -174,10 +129,15 @@
     },
     {
       "file": "scripts/unify-preflight.mjs",
-      "line": 164,
+      "line": 165,
+      "complexity": 16
+    },
+    {
+      "file": "tools/migrate-cli/src/cli.ts",
+      "line": 102,
       "complexity": 16
     }
   ],
-  "measuredAt": "2026-10-20",
-  "worst": 73
+  "measuredAt": "2026-10-22",
+  "worst": 42
 }

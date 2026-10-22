@@ -19,6 +19,40 @@ export interface DashboardTestsOptions {
 // Route factory
 // ---------------------------------------------------------------------------
 
+interface SuiteTally {
+  id: string;
+  name: string;
+  runIds: Set<string>;
+  passed: number;
+  total: number;
+  lastRunAt: string | null;
+}
+
+function newSuiteTally(suiteId: string, file: string | null | undefined): SuiteTally {
+  return {
+    id: suiteId,
+    name: file ? (file.split('/').pop() ?? file) : 'Unknown Suite',
+    runIds: new Set<string>(),
+    passed: 0,
+    total: 0,
+    lastRunAt: null,
+  };
+}
+
+/** Count one test into its suite, and move the suite's last-run time forward if this is later. */
+function tallyTest(
+  suite: SuiteTally,
+  runId: string,
+  status: string,
+  runStartedAt: string | null,
+): void {
+  suite.runIds.add(runId);
+  suite.total += 1;
+  if (status === 'passed') suite.passed += 1;
+  if (runStartedAt && (!suite.lastRunAt || runStartedAt > suite.lastRunAt)) {
+    suite.lastRunAt = runStartedAt;
+  }
+}
 export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono {
   const app = new Hono();
 
@@ -43,46 +77,17 @@ export function createDashboardTestsRoutes(options: DashboardTestsOptions): Hono
     const runById = new Map(runs.map((run) => [run.id, run]));
     // The same single call as above; the loop below no longer awaits.
     const testsByRun = await options.repository.listTestsForRuns(runs.map((run) => run.id));
-    const suiteMap = new Map<
-      string,
-      {
-        id: string;
-        name: string;
-        runIds: Set<string>;
-        passed: number;
-        total: number;
-        lastRunAt: string | null;
-      }
-    >();
+    const suiteMap = new Map<string, SuiteTally>();
 
     for (const run of runs) {
+      const runStartedAt = runById.get(run.id)?.startedAt ?? null;
       for (const test of testsByRun.get(run.id) ?? []) {
         const suiteId = test.file || 'unknown';
-        const suiteName = test.file ? (test.file.split('/').pop() ?? test.file) : 'Unknown Suite';
-        const existing = suiteMap.get(suiteId) ?? {
-          id: suiteId,
-          name: suiteName,
-          runIds: new Set<string>(),
-          passed: 0,
-          total: 0,
-          lastRunAt: null,
-        };
-
-        existing.runIds.add(run.id);
-        existing.total += 1;
-        if (test.status === 'passed') {
-          existing.passed += 1;
-        }
-
-        const runStartedAt = runById.get(run.id)?.startedAt ?? null;
-        if (runStartedAt && (!existing.lastRunAt || runStartedAt > existing.lastRunAt)) {
-          existing.lastRunAt = runStartedAt;
-        }
-
+        const existing = suiteMap.get(suiteId) ?? newSuiteTally(suiteId, test.file);
+        tallyTest(existing, run.id, test.status, runStartedAt);
         suiteMap.set(suiteId, existing);
       }
     }
-
     const suites = Array.from(suiteMap.values()).map((suite) => ({
       id: suite.id,
       name: suite.name,

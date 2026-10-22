@@ -368,33 +368,75 @@ async function readUploadDocument(c: Context): Promise<UploadDocument> {
   if (Number.isFinite(contentLength) && contentLength > MAX_UPLOAD_BYTES) {
     throw new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large');
   }
-
-  if (contentType.includes('multipart/form-data')) {
-    const form = await c.req.formData();
-    const fields: Record<string, string> = {};
-    let bytes: Uint8Array | undefined;
-    for (const [key, value] of form.entries()) {
-      if (typeof value === 'string') {
-        fields[key] = value;
-        continue;
-      }
-      // One file, and the only one: a second part is a body the contract has no field for,
-      // and silently taking the first would ingest one of two reports.
-      if (key !== 'file') throw new Error(`Unexpected multipart field "${key}"`);
-      if (bytes !== undefined) throw new Error('An upload carries one file part');
-      bytes = new Uint8Array(await value.arrayBuffer());
-      fields['fileName'] = value.name;
-    }
-    if (bytes === undefined) throw new Error('file field is required for multipart uploads');
-    if (new TextEncoder().encode(new TextDecoder().decode(bytes)).byteLength > MAX_UPLOAD_BYTES) {
-      throw new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large');
-    }
-    return { bytes, fields };
-  }
-
+  if (contentType.includes('multipart/form-data')) return readMultipartDocument(c);
   return { bytes: new Uint8Array(await c.req.arrayBuffer()), fields: {} };
 }
 
+async function readMultipartDocument(c: Context): Promise<UploadDocument> {
+  const form = await c.req.formData();
+  const fields: Record<string, string> = {};
+  let bytes: Uint8Array | undefined;
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') {
+      fields[key] = value;
+      continue;
+    }
+    // One file, and the only one: a second part is a body the contract has no field for,
+    // and silently taking the first would ingest one of two reports.
+    assertSingleFilePart(key, bytes);
+    bytes = new Uint8Array(await value.arrayBuffer());
+    fields['fileName'] = value.name;
+  }
+  if (bytes === undefined) throw new Error('file field is required for multipart uploads');
+  if (new TextEncoder().encode(new TextDecoder().decode(bytes)).byteLength > MAX_UPLOAD_BYTES) {
+    throw new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large');
+  }
+  return { bytes, fields };
+}
+
+function assertSingleFilePart(key: string, existing: Uint8Array | undefined): void {
+  if (key !== 'file') throw new Error(`Unexpected multipart field "${key}"`);
+  if (existing !== undefined) throw new Error('An upload carries one file part');
+}
+/** The request body as a JSON object, or the coded refusal for anything else. */
+async function readJsonObject(c: Context): Promise<Record<string, unknown>> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    throw new DomainError('INVALID_JSON', 'Invalid JSON body');
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new DomainError('INVALID_REQUEST_BODY', 'Request body must be a JSON object');
+  }
+  return body as Record<string, unknown>;
+}
+
+/** Validate an event against whichever contract it claims, and normalise it. */
+function normalizeReporterEvent(raw: Record<string, unknown>): NormalizedReporterEvent {
+  if (isLegacyShape(raw)) {
+    // ── Compatibility path ──────────────────────────────────────────
+    const result = LegacyReporterEventSchema.safeParse(raw);
+    if (!result.success) {
+      throw new DomainError('INVALID_LEGACY_REPORTER_EVENT', 'Invalid legacy reporter event', {
+        details: { fieldErrors: result.error.flatten().fieldErrors },
+      });
+    }
+    return adaptLegacyEvent(result.data);
+  }
+  // ── Versioned path ──────────────────────────────────────────────
+  const result = VersionedReporterEventSchema.safeParse(raw);
+  if (!result.success) {
+    throw new DomainError('INVALID_VERSIONED_REPORTER_EVENT', 'Invalid versioned reporter event', {
+      details: {
+        fieldErrors: result.error.flatten().fieldErrors,
+        supportedVersions: VERSIONED_EVENT_VERSIONS,
+        legacyContract: LEGACY_FLAT_V1_CONTRACT_ID,
+      },
+    });
+  }
+  return result.data as NormalizedReporterEvent;
+}
 // ---------------------------------------------------------------------------
 // Route factory options
 // ---------------------------------------------------------------------------
@@ -445,6 +487,50 @@ export interface ReporterRouteOptions {
 // Route factory
 // ---------------------------------------------------------------------------
 
+/**
+ * A terminal event also closes the canonical row. The events door is a stream, and a
+ * stream has to be turned into one result before it can be canonical - see
+ * `reporter-event-canonical.ts` for why the accumulation lives there and not here.
+ */
+async function closeCanonicalRun(
+  event: NormalizedReporterEvent,
+  repository: RunRepository,
+  options: ReporterRouteOptions,
+  workspaceId: string,
+): Promise<void> {
+  if (!options.canonicalStore || !isTerminalReporterEvent(event.type)) return;
+  const canonical = await canonicalRunFromUploadEvents(repository, {
+    workspaceId,
+    runId: event.runId,
+  });
+  if (!canonical) return;
+  await ingestCanonicalResult(canonical, {
+    store: options.canonicalStore,
+    repository,
+    bus: options.bus,
+    triggeredBy: 'reporter',
+  });
+}
+
+/**
+ * The payload contains ONLY { type, version, runId, status, timestamp } - user-supplied event
+ * payload fields are never forwarded. Nothing is sent when the run row is not in the repository.
+ */
+async function broadcastRunUpdated(
+  bus: RealtimeBus,
+  repository: RunRepository,
+  event: NormalizedReporterEvent,
+): Promise<void> {
+  const run = await repository.getRun(event.runId);
+  if (run === null) return;
+  await bus.publish({
+    type: RUN_UPDATED_EVENT_TYPE,
+    version: '1',
+    runId: run.id,
+    status: run.status,
+    timestamp: new Date().toISOString(),
+  });
+}
 /**
  * Creates the reporter ingestion Hono app.
  *
@@ -505,96 +591,19 @@ export function createReporterRoutes(
   // POST /api/v1/reporter/events
   // ------------------------------------------------------------------
   app.post('/api/v1/reporter/events', async (c) => {
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      throw new DomainError('INVALID_JSON', 'Invalid JSON body');
-    }
-
-    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
-      throw new DomainError('INVALID_REQUEST_BODY', 'Request body must be a JSON object');
-    }
-
-    const raw = body as Record<string, unknown>;
-    let normalized: NormalizedReporterEvent;
-
-    if (isLegacyShape(raw)) {
-      // ── Compatibility path ──────────────────────────────────────────
-      const result = LegacyReporterEventSchema.safeParse(raw);
-      if (!result.success) {
-        throw new DomainError('INVALID_LEGACY_REPORTER_EVENT', 'Invalid legacy reporter event', {
-          details: { fieldErrors: result.error.flatten().fieldErrors },
-        });
-      }
-      normalized = adaptLegacyEvent(result.data);
-    } else {
-      // ── Versioned path ──────────────────────────────────────────────
-      const result = VersionedReporterEventSchema.safeParse(raw);
-      if (!result.success) {
-        throw new DomainError(
-          'INVALID_VERSIONED_REPORTER_EVENT',
-          'Invalid versioned reporter event',
-          {
-            details: {
-              fieldErrors: result.error.flatten().fieldErrors,
-              supportedVersions: VERSIONED_EVENT_VERSIONS,
-              legacyContract: LEGACY_FLAT_V1_CONTRACT_ID,
-            },
-          },
-        );
-      }
-      normalized = result.data as NormalizedReporterEvent;
-    }
+    const normalized = normalizeReporterEvent(await readJsonObject(c));
 
     const workspaceId = options?.workspaceId ?? DEFAULT_WORKSPACE_ID;
 
     // T14: persist normalized event to repository (if one is configured)
     if (options?.repository) {
-      const runUpdated = await persistReporterEvent(normalized, options.repository, {
-        workspaceId,
-      });
-
-      // A terminal event also closes the canonical row. The events door is a stream, and a
-      // stream has to be turned into one result before it can be canonical — see
-      // `reporter-event-canonical.ts` for why the accumulation lives there and not here.
-      if (options.canonicalStore && isTerminalReporterEvent(normalized.type)) {
-        const canonical = await canonicalRunFromUploadEvents(options.repository, {
-          workspaceId,
-          runId: normalized.runId,
-        });
-        if (canonical) {
-          await ingestCanonicalResult(canonical, {
-            store: options.canonicalStore,
-            repository: options.repository,
-            bus: options.bus,
-            triggeredBy: 'reporter',
-          });
-        }
-      }
-
+      const repository = options.repository;
+      const runUpdated = await persistReporterEvent(normalized, repository, { workspaceId });
+      await closeCanonicalRun(normalized, repository, options, workspaceId);
       // T15: broadcast a safe run:updated event after every run-level persistence
-      // operation.  Only fires when:
-      //   1. A repository is configured (persistence is active)
-      //   2. A bus is configured
-      //   3. persistReporterEvent returned true (run row was created/updated)
-      //   4. The run row exists in the repository (safety guard)
-      // The payload contains ONLY { type, version, runId, status, timestamp } —
-      // user-supplied event payload fields are never forwarded.
-      if (runUpdated && options.bus) {
-        const run = await options.repository.getRun(normalized.runId);
-        if (run !== null) {
-          await options.bus.publish({
-            type: RUN_UPDATED_EVENT_TYPE,
-            version: '1',
-            runId: run.id,
-            status: run.status,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
+      // operation, when the run row was created/updated and a bus is configured.
+      if (runUpdated && options.bus) await broadcastRunUpdated(options.bus, repository, normalized);
     }
-
     return c.json(
       {
         ok: true,
