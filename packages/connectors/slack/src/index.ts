@@ -191,11 +191,8 @@ export const slackAdapter: ConnectorAdapter = {
       return {
         status: 'error',
         error: {
-          code: refusal
-            ? 'slack_api_error'
-            : status === undefined
-              ? 'slack_transport_failed'
-              : `slack_${String(status)}`,
+          code: slackFailureCode(refusal, status),
+
           // From the evidence, not from a literal. The old error said `retryable: true` on
           // every failure, so a rejected credential and a momentary outage were reported
           // identically, and a caller that trusted the flag retried a 401 until its budget
@@ -211,6 +208,12 @@ export const slackAdapter: ConnectorAdapter = {
     }
   },
 };
+
+/** The error code for a failed call: a Slack refusal, a failed transport, or the status line's. */
+function slackFailureCode(refusal: boolean, status: number | undefined): string {
+  if (refusal) return 'slack_api_error';
+  return status === undefined ? 'slack_transport_failed' : `slack_${String(status)}`;
+}
 
 /**
  * `{"ok": false, "error": "…"}` turned into a status, so the retry policy can decide

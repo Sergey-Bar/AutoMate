@@ -116,6 +116,20 @@ function applyRunEvent(current: RunDetailData, event: RunEvent): RunDetailData {
 function eventNeedsRefresh(type: string): boolean {
   return type.startsWith('test.') || type === 'artifact.created' || type === 'gate.evaluated';
 }
+/** The release readiness for a run that belongs to a release; nothing for one that does not. */
+function readinessFor(
+  api: typeof defaultApiClient,
+  releaseId: string | null | undefined,
+  signal: AbortSignal,
+): Promise<ReleaseReadiness | null> {
+  return releaseId ? api.getReleaseReadiness(releaseId, { signal }) : Promise.resolve(null);
+}
+
+/** The error to show for a failed refresh, or null for a cancelled request, which is no failure. */
+function refreshFailure(caught: unknown): Error | null {
+  if (isAbortError(caught)) return null;
+  return caught instanceof Error ? caught : new Error('Failed to fetch run');
+}
 export function useRunDetail(id: string, api = defaultApiClient) {
   const [data, setData] = useState<RunDetailData>({
     run: null,
@@ -152,9 +166,7 @@ export function useRunDetail(id: string, api = defaultApiClient) {
         const [artifactsResult, gateResult, readinessResult] = await Promise.allSettled([
           api.getRunArtifacts(id, { signal }),
           api.getRunGate(id, { signal }),
-          run.releaseId
-            ? api.getReleaseReadiness(run.releaseId, { signal })
-            : Promise.resolve(null),
+          readinessFor(api, run.releaseId, signal),
         ]);
         if (!mountedRef.current) return;
 
@@ -162,10 +174,8 @@ export function useRunDetail(id: string, api = defaultApiClient) {
           foldEvidence(current, run, artifactsResult, gateResult, readinessResult),
         );
       } catch (caught) {
-        if (isAbortError(caught)) return;
-        if (mountedRef.current) {
-          setError(caught instanceof Error ? caught : new Error('Failed to fetch run'));
-        }
+        const failure = refreshFailure(caught);
+        if (failure && mountedRef.current) setError(failure);
       } finally {
         // **`!signal.aborted`, not `mountedRef.current`** — and the difference is the
         // blank page the route-level axe gate found. `mountedRef` is one boolean shared
