@@ -35,7 +35,7 @@ export class Lifecycle {
       try: async () => close(),
       catch: (error) => error,
     }).pipe(
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.sync(() => {
           this.failed.push(name);
           this.onFailure(name, error);
