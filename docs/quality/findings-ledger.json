@@ -4916,6 +4916,37 @@
         }
       ],
       "resolution": "Temp paths moved to `/tmp` in both confs; the pid rewrite is matched by shape and verified at build time in both Dockerfiles. `pnpm compose:boot` exists because this class is invisible to anything but a running container."
+    },
+    {
+      "id": "MNT-24",
+      "title": "Every Node runtime image shipped the whole monorepo with its dev dependencies",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`api`, `worker`, `runner` and both migration images ran `COPY . .` and `pnpm install` in the stage they ran from, so a user downloading the product received Vitest, ESLint, TypeScript and every other package's sources: the API image was 2.32 GB, the worker and migration images 2.74 GB each, the runner 4.68 GB. `migrate.Dockerfile` and `db-migrate.Dockerfile` were the same file twice, one per stack. The 2026-09 master plan recorded the `pnpm deploy --prod` restructure as open.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`require.resolve` inside the previously built `api` and `worker` images found `vitest`, `eslint` and `typescript`; inside the rebuilt ones it found none. `scripts/lib/dockerfile-contract.test.mjs` failed on all four Node Dockerfiles, the duplicate migration image and the missing size budget before the change.",
+      "evidence": [
+        {
+          "path": "infra/docker/api.Dockerfile",
+          "asserts": "Builds in one stage and runs a `pnpm --filter @automate/api --prod deploy --legacy /out` output in another; the worker, runner and migrate Dockerfiles do the same."
+        },
+        {
+          "path": "scripts/lib/dockerfile-contract.test.mjs",
+          "asserts": "Each Node image's runtime stage copies only `/out`, installs nothing, runs as `node` and carries OCI source/version/revision labels; one migration image serves both stacks; every built image has a size ceiling."
+        },
+        {
+          "path": "infra/docker/image-budget.json",
+          "asserts": "A ceiling per image, about 20% above the measured size (api 454 MB, worker 242, migrate 294, runner 3083, web 72, edge 70)."
+        },
+        {
+          "path": "scripts/compose-boot.mjs",
+          "asserts": "After the stack boots, each built image must be under its ceiling and no Node runtime may resolve a dev-only package."
+        }
+      ],
+      "resolution": "Runtime stages receive a production deploy only, cutting the API image from 2.32 GB to 454 MB and the worker from 2.74 GB to 242 MB. `db-migrate.Dockerfile` is deleted and both stacks build `migrate.Dockerfile`. `compose:boot` checks size and dev packages on the images it builds."
     }
   ]
 }

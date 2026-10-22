@@ -10,6 +10,12 @@ RUN pnpm --filter "@automate/unified-web..." build
 
 
 FROM nginx:1.27-alpine AS runtime
+ARG AUTOMATE_VERSION=dev
+ARG AUTOMATE_REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/Sergey-Bar/AutoMate" \
+  org.opencontainers.image.title="automate-web" \
+  org.opencontainers.image.version="${AUTOMATE_VERSION}" \
+  org.opencontainers.image.revision="${AUTOMATE_REVISION}"
 # Unprivileged nginx: the stock image runs as root and writes to
 # /var/cache/nginx, /var/run and the pid file. Running as `nginx` with the
 # listen port moved to 8080 means the process needs no capabilities at all.
