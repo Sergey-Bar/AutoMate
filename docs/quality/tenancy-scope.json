@@ -31,7 +31,7 @@
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
-    "interpretation": "Every workspace-scoped table carries a hard boundary since `0028_workspace_hard_boundaries.sql` (ledger MNT-17): `workspace_id` NOT NULL with a `restrict` key onto `workspaces` and an index leading with it. It was 25 absent and 3 nullable. `quality_gate_config` moved to `global` rather than being forced, because its NULL is the installation-wide default gate; see its row. The seven tables hard-scoped before MNT-17 by an unkeyed NOT NULL column (`schedules`, `outbox_events`, `conversations`, `messages`, `connector_configs`, `vault_entries`, `canonical_run_results`) still have no foreign key onto `workspaces`; the gate counts them as bounded because it checks nullability, and MNT-17 records them as outside its scope and not yet keyed."
+    "interpretation": "Every workspace-scoped table carries a hard boundary since `0028_workspace_hard_boundaries.sql` (ledger MNT-17): `workspace_id` NOT NULL with a `restrict` key onto `workspaces` and an index leading with it. It was 25 absent and 3 nullable. `quality_gate_config` moved to `global` rather than being forced, because its NULL is the installation-wide default gate; see its row. The seven tables hard-scoped before MNT-17 by an unkeyed NOT NULL column (`schedules`, `outbox_events`, `conversations`, `messages`, `connector_configs`, `vault_entries`, `canonical_run_results`) gained the same `restrict` key in `0029_workspace_foreign_keys.sql` (ledger MNT-18), so every workspace-scoped table now names a workspace that exists."
   },
   "tables": {
     "installations": {
@@ -137,7 +137,7 @@
     "canonical_run_results": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped, with the primary key itself declared as `(workspaceId, runId)` — the boundary in the key rather than in a column that can be null."
+      "reason": "Hard-scoped, with the primary key itself declared as `(workspaceId, runId)` — the boundary in the key rather than in a column that can be null. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "projects": {
       "scope": "workspace",
@@ -257,22 +257,22 @@
     "schedules": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped by `0015_schedule_workspace_scope.sql`, which replaced the tenant living only inside `run_options->'request'->>'workspaceId'` as untyped JSONB."
+      "reason": "Hard-scoped by `0015_schedule_workspace_scope.sql`, which replaced the tenant living only inside `run_options->'request'->>'workspaceId'` as untyped JSONB. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "outbox_events": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped by `0017_outbox_workspace_scope.sql`."
+      "reason": "Hard-scoped by `0017_outbox_workspace_scope.sql`. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "conversations": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped by `0018_chat_workspace_scope.sql`, which the ledger records as having needed two attempts because `IF EXISTS` swallowed a misspelled constraint name and the global uniqueness survived alongside the new composite index."
+      "reason": "Hard-scoped by `0018_chat_workspace_scope.sql`, which the ledger records as having needed two attempts because `IF EXISTS` swallowed a misspelled constraint name and the global uniqueness survived alongside the new composite index. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "messages": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped by the same migration as `conversations`."
+      "reason": "Hard-scoped by the same migration as `conversations`. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "message_attachments": {
       "scope": "workspace",
@@ -282,7 +282,7 @@
     "connector_configs": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped by `0020_connector_credentials_tenant.sql`. Note the contrast with `service_credentials`, which is installation-scoped: the two tables have near-identical names and opposite scoping, which is the strongest argument for this register existing."
+      "reason": "Hard-scoped by `0020_connector_credentials_tenant.sql`. Note the contrast with `service_credentials`, which is installation-scoped: the two tables have near-identical names and opposite scoping, which is the strongest argument for this register existing. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "flow_templates": {
       "scope": "workspace",
@@ -307,7 +307,7 @@
     "vault_entries": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Hard-scoped, and the most consequential correct row in the file: every encrypted secret lives here, bound to row identity through the `VaultRowBinding` passed as length-prefixed AAD."
+      "reason": "Hard-scoped, and the most consequential correct row in the file: every encrypted secret lives here, bound to row identity through the `VaultRowBinding` passed as length-prefixed AAD. Keyed onto `workspaces` with `restrict` by `0029_workspace_foreign_keys.sql` (ledger MNT-18), so the column names a workspace that exists."
     },
     "trends": {
       "scope": "workspace",

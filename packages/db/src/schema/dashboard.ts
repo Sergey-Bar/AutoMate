@@ -372,7 +372,9 @@ export const runs = pgTable(
 export const canonicalRunResults = pgTable(
   'canonical_run_results',
   {
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     runId: text('run_id').notNull(),
     fingerprint: text('fingerprint').notNull(),
     result: jsonb('result').$type<Record<string, unknown>>().notNull(),
@@ -681,7 +683,9 @@ export const schedules = pgTable(
     // against, so any principal able to insert a schedule chose the workspace its run
     // executed in. With a column, the worker takes the workspace from here and refuses a
     // row whose `run_options` disagrees.
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     // SQLite: text('last_run_at')
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     // SQLite: text('created_at').notNull()

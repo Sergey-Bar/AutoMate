@@ -170,6 +170,7 @@ describe('migration graph', () => {
       '0026_locator_suggestions_updated_at',
       '0027_constraint_drift',
       '0028_workspace_hard_boundaries',
+      '0029_workspace_foreign_keys',
     ]);
   });
 

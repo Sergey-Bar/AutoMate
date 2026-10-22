@@ -78,6 +78,10 @@ const PGLITE_MIGRATION_TIMEOUT_MS = 60_000;
 beforeAll(async () => {
   client = new PGlite();
   await client.exec(migrationSql());
+  // The outbox rows below name these workspaces, each of which must exist since 0029 (ledger MNT-18).
+  await client.exec(
+    `INSERT INTO workspaces (id, name, config_path, created_at) VALUES ('ws-outbox', 'ws-outbox', 'config', now()), ('ws-other', 'ws-other', 'config', now()), ('ws-bulk', 'ws-bulk', 'config', now())`,
+  );
   db = drizzle(client, { schema }) as unknown as Database;
   sessions = new DrizzleSessionStore(db);
   keys = new DrizzleInstallationKeyStore(db);

@@ -8,6 +8,8 @@
 
 import { pgTable, text, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
+// The tenancy root. `dashboard.ts` does not import this module, so this is no cycle.
+import { workspaces } from './dashboard.js';
 
 // ─── vault_entries ─────────────────────────────────────────────────────────
 // Source: vault_entries — AES-256-GCM encrypted connector credentials
@@ -35,7 +37,9 @@ export const vaultEntries = pgTable(
     // `0020_connector_credentials_tenant.sql` (ledger P-7) — the same treatment
     // `schedules`, `outbox_events` and the chat tables got in this wave.
     connectorName: text('connector_name').notNull(),
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     // SQLite: ciphertext TEXT NOT NULL — AES-256-GCM encrypted payload (base64)
     ciphertext: text('ciphertext').notNull(),
     // SQLite: iv TEXT NOT NULL — initialization vector (base64)

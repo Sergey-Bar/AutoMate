@@ -8,6 +8,8 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+// The tenancy root. `dashboard.ts` does not import this module, so this is no cycle.
+import { workspaces } from './dashboard.js';
 
 export const installations = pgTable('installations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -101,7 +103,9 @@ export const outboxEvents = pgTable(
     // tidy: `readAfter` matches on `workspace_id`, so a NULL row was invisible to every
     // consumer while still consuming a sequence number and counting toward the
     // retention floor. The gap was permanent and it moved the watermark.
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     aggregateType: text('aggregate_type').notNull(),
     aggregateId: text('aggregate_id').notNull(),
     eventType: text('event_type').notNull(),

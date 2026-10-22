@@ -22,6 +22,10 @@ const WS_B = 'workspace-b';
 beforeEach(async () => {
   assertSchemaBuildIsFresh();
   client = await createMigratedDatabase();
+  // Every workspace a row names must exist since 0029 (ledger MNT-18).
+  await client.exec(
+    `INSERT INTO workspaces (id, name, config_path, created_at) VALUES ('workspace-a', 'a', 'config', now()), ('workspace-b', 'b', 'config', now())`,
+  );
   outbox = new DrizzleOutboxRepository(
     drizzle(client) as unknown as ConstructorParameters<typeof DrizzleOutboxRepository>[0],
   );

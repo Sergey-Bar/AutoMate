@@ -33,7 +33,9 @@ export const conversations = pgTable(
     // globally readable before it, and this is the only tenancy boundary in the
     // repository — see the migration for why workspace scope and not a per-owner column
     // (ledger P-11).
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     title: text('title'),
     flowTemplateId: text('flow_template_id'),
     // SQLite: text('created_at').notNull()
@@ -62,7 +64,9 @@ export const messages = pgTable(
     // disagree rather than a second way to read the same one. It is here so the
     // workspace-scoped query is a single index scan, and the migration fills it from the
     // parent rather than from anything a caller supplied (ledger P-11).
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     // SQLite: text('role', { enum: ['user', 'assistant', 'system', 'tool'] })
     role: text('role', { enum: ['user', 'assistant', 'system', 'tool'] }).notNull(),
     content: text('content').notNull(),
@@ -117,7 +121,9 @@ export const connectorConfigs = pgTable(
     // second tenant's configuration overwrote the first's. Now scoped to the workspace by
     // `0020_connector_credentials_tenant.sql` (ledger P-7).
     connectorName: text('connector_name').notNull(),
-    workspaceId: text('workspace_id').notNull(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     // SQLite: integer('enabled', { mode: 'boolean' })
     enabled: boolean('enabled').default(false),
     credentialRef: text('credential_ref'),
