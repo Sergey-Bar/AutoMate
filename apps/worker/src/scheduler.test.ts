@@ -75,4 +75,32 @@ describe('schedule polling', () => {
       UnsupportedScheduleError,
     );
   });
+
+  it('skip discards every missed occurrence and moves the pointer to the first future one', async () => {
+    const now = new Date('2026-01-01T03:30:00.000Z');
+    const store = new InMemoryExecutionStore({ now: () => now });
+    store.addSchedule(schedule({ cronExpr: '0 * * * *', misfirePolicy: 'skip' }));
+
+    const results = await pollSchedules(store, now, 100);
+
+    expect(results).toEqual([]);
+    expect(store.listJobs()).toHaveLength(0);
+    // Advanced past 01:00, 02:00 and 03:00 to 04:00, so a second poll finds nothing due.
+    expect(await store.listDueSchedules(new Date('2026-01-01T03:59:00.000Z'), 10)).toEqual([]);
+    expect(
+      (await store.listDueSchedules(new Date('2026-01-01T04:00:00.000Z'), 10)).map(
+        (due) => due.nextRunAt,
+      ),
+    ).toEqual(['2026-01-01T04:00:00.000Z']);
+  });
+
+  it('catch-up refuses to replay more than a hundred missed occurrences', async () => {
+    const now = new Date('2026-01-02T00:00:00.000Z');
+    const store = new InMemoryExecutionStore({ now: () => now });
+    store.addSchedule(schedule({ cronExpr: '* * * * *', misfirePolicy: 'catch_up' }));
+
+    await expect(pollSchedules(store, now, 100)).rejects.toThrow(
+      'Schedule catch-up exceeds 100 missed occurrences',
+    );
+  });
 });

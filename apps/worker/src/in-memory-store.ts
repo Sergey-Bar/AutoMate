@@ -39,6 +39,13 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+/** A leased job whose lease ran out at or before 
+owMs. */
+function leaseHasLapsed(job: QueueJob, nowMs: number): boolean {
+  if (job.state !== 'leased' || !job.leaseExpiresAt) return false;
+  return !(new Date(job.leaseExpiresAt).getTime() > nowMs);
+}
+
 export class InMemoryExecutionStore implements ExecutionStore {
   private readonly jobs = new Map<string, QueueJob>();
   private readonly runners = new Map<
@@ -250,34 +257,31 @@ export class InMemoryExecutionStore implements ExecutionStore {
   async reapExpiredLeases(now = this.now()): Promise<LeaseRecovery[]> {
     const recovered: LeaseRecovery[] = [];
     for (const job of this.jobs.values()) {
-      if (
-        job.state !== 'leased' ||
-        !job.leaseExpiresAt ||
-        new Date(job.leaseExpiresAt).getTime() > now.getTime()
-      ) {
-        continue;
-      }
-      const previousOwner = job.leaseOwner ?? 'unknown';
-      const requeued = !job.cancelRequested && job.attempt < job.maxAttempts;
-      const timestamp = now.toISOString();
-      job.attempt = requeued ? job.attempt + 1 : job.attempt;
-      job.state = requeued ? 'queued' : job.cancelRequested ? 'cancelled' : 'failed';
-      job.availableAt = new Date(now.getTime() + this.retryBackoffMs).toISOString();
-      job.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
-      job.updatedAt = timestamp;
-      this.clearLease(job);
-      recovered.push({
-        jobId: job.id,
-        runId: job.runId,
-        previousOwner,
-        requeued,
-        nextAttempt: job.attempt,
-        phase: requeued ? 'queued' : job.cancelRequested ? 'cancelled' : 'runner_lost',
-      });
+      if (leaseHasLapsed(job, now.getTime())) recovered.push(this.recoverJob(job, now));
     }
     return recovered;
   }
 
+  /** Requeue the job while it has attempts left, otherwise cancel or fail it. */
+  private recoverJob(job: QueueJob, now: Date): LeaseRecovery {
+    const previousOwner = job.leaseOwner ?? 'unknown';
+    const requeued = !job.cancelRequested && job.attempt < job.maxAttempts;
+    const timestamp = now.toISOString();
+    job.attempt = requeued ? job.attempt + 1 : job.attempt;
+    job.state = requeued ? 'queued' : job.cancelRequested ? 'cancelled' : 'failed';
+    job.availableAt = new Date(now.getTime() + this.retryBackoffMs).toISOString();
+    job.error = { code: 'RUNNER_LOST', message: 'Runner lease expired' };
+    job.updatedAt = timestamp;
+    this.clearLease(job);
+    return {
+      jobId: job.id,
+      runId: job.runId,
+      previousOwner,
+      requeued,
+      nextAttempt: job.attempt,
+      phase: requeued ? 'queued' : job.cancelRequested ? 'cancelled' : 'runner_lost',
+    };
+  }
   async listDueSchedules(now: Date, limit: number): Promise<WorkerSchedule[]> {
     return [...this.schedules.values()]
       .filter((schedule) => schedule.enabled)
