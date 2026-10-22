@@ -75,6 +75,35 @@ function auth(token: string): Record<string, string> {
   return { authorization: `Bearer ${token}` };
 }
 
+/** A finished (or running) run as the pre-canonical reporter stored it. */
+function legacyRunRecord(status: 'running' | 'passed' | 'failed' | 'interrupted') {
+  const outcomes = {
+    running: null,
+    passed: 'passed',
+    failed: 'failed',
+    interrupted: null,
+  } as const;
+  return {
+    id: `legacy-${status}`,
+    // Required on `RunRecord`: the legacy projection reads the workspace, and a row
+    // without one is a row the projection would not have matched.
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    phase: 'complete' as const,
+    outcome: outcomes[status],
+    startedAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: status === 'running' ? null : '2026-01-01T00:00:01.000Z',
+    status,
+    total: 1,
+    passed: status === 'passed' ? 1 : 0,
+    failed: status === 'failed' ? 1 : 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: 1,
+    branch: 'main',
+    commitSha: 'abc',
+    triggeredBy: 'test',
+  };
+}
 describe('canonical execution store and routes', () => {
   it('runs the create, claim, evidence, completion, gate, and readiness path', async () => {
     const store = new InMemoryExecutionStore();
@@ -436,26 +465,7 @@ describe('canonical execution store and routes', () => {
   it('projects legacy runs, accepts bearer registration, and normalizes artifact kinds', async () => {
     const legacy = new InMemoryRunRepository();
     for (const status of ['running', 'passed', 'failed', 'interrupted'] as const) {
-      await legacy.upsertRun({
-        id: `legacy-${status}`,
-        // Required on `RunRecord`: the legacy projection reads the workspace, and a row
-        // without one is a row the projection would not have matched.
-        workspaceId: DEFAULT_WORKSPACE_ID,
-        phase: 'complete',
-        outcome: status === 'passed' ? 'passed' : status === 'failed' ? 'failed' : null,
-        startedAt: '2026-01-01T00:00:00.000Z',
-        finishedAt: status === 'running' ? null : '2026-01-01T00:00:01.000Z',
-        status,
-        total: 1,
-        passed: status === 'passed' ? 1 : 0,
-        failed: status === 'failed' ? 1 : 0,
-        flaky: 0,
-        skipped: 0,
-        durationMs: 1,
-        branch: 'main',
-        commitSha: 'abc',
-        triggeredBy: 'test',
-      });
+      await legacy.upsertRun(legacyRunRecord(status));
     }
     const store = new InMemoryExecutionStore();
     const app = withErrorBoundary(
