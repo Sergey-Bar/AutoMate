@@ -1802,8 +1802,17 @@
         {
           "path": "apps/api/src/startup-policy.test.ts",
           "asserts": "The fallback is announced with the component named and DATABASE_URL mentioned, a refusal logs nothing, and three different components produce three distinguishable lines — so a log naming no component cannot be produced."
+        },
+        {
+          "asserts": "All 15 domain/action pairs with no adapter dispatch to configuration / AGENT_NOT_CONFIGURED with the message agents.ts uses; a fake adapter round-trips to a schema-valid CanonicalRunResult; retry, timeout, cancellation, classification and normalisation failures are each asserted.",
+          "path": "packages/tool-sdk/src/dispatch.test.ts"
+        },
+        {
+          "asserts": "For every one of the 15 pairs, and the two 404 refusals, the status and body (including key order) the route sends equal what the SDK renders for an unregistered pair, so the 501 cannot drift from the SDK without this test failing.",
+          "path": "apps/api/src/routes/agents-tool-sdk-parity.test.ts"
         }
-      ]
+      ],
+      "resolution": "\n\n**2026-10-22 - entry criterion met, row stays open.** `packages/tool-sdk` (`@automate/tool-sdk`) now exists, so the first clause of the removal condition - the file - holds. It is a leaf package: operation declaration (`defineOperation`, `runResultOperation`), a registry whose `dispatch` validates input, applies a per-attempt timeout that is enforced even against an adapter that ignores its signal, retries through `executeWithRetry` so only an idempotent operation or a known-rejected request is repeated, normalises output to `CanonicalRunResult`, and classifies failures as `retryable | configuration | tool_failure | invalid_input`. An `AgentAdapter` port is what other packages implement; the SDK spawns nothing and opens nothing. A pair with no adapter yields `configuration` / `AGENT_NOT_CONFIGURED`, and `toAgentProblem` renders it as the same 501 body `routes/agents.ts` sends, key order included.\n\n**What did not change:** `apps/api` behaviour. All 15 pairs still answer 501 and the route does not import the SDK; `DOMAINS_WITH_ADAPTERS` is still empty. The second clause - at least one domain with a real adapter - is unmet, so the row stays `debt` and BK-1 stays its owner. **Not verified here:** any adapter, because none exists; the SDK is exercised only by a fake adapter."
     },
     {
       "id": "X-4",
