@@ -87,3 +87,19 @@ describe('the two comparisons are not interchangeable', () => {
     expect(verifyCredential(PEPPER, KEY, stored)).toBe(true);
   });
 });
+
+describe('verifyCredential with a malformed stored hash', () => {
+  it('returns false instead of throwing when the stored value has the wrong length', () => {
+    // Found by mutation testing: the length guard in front of `timingSafeEqual` could be
+    // replaced by `true` and nothing failed. `timingSafeEqual` throws a RangeError on
+    // buffers of different length, so without the guard a corrupt or truncated row
+    // would turn a failed login into an unhandled exception.
+    expect(verifyCredential('pepper-that-is-not-guessable', 'credential', 'abcd')).toBe(false);
+    expect(verifyCredential('pepper-that-is-not-guessable', 'credential', '')).toBe(false);
+  });
+
+  it('hashes to the HMAC-SHA256 of the UTF-8 credential, hex encoded', () => {
+    const expected = createHmac('sha256', 'pepper').update('pässwörd', 'utf8').digest('hex');
+    expect(hashCredential('pepper', 'pässwörd')).toBe(expected);
+  });
+});

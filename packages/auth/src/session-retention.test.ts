@@ -99,3 +99,36 @@ describe('InMemorySessionService', () => {
     expect(size(sessions)).toBe(1);
   });
 });
+
+describe('InMemorySessionService expiry boundary', () => {
+  let clock: Date;
+  const sessions = (): InMemorySessionService =>
+    new InMemorySessionService('a-secret-long-enough-for-the-test-suite', 1_000, () => clock);
+
+  beforeEach(() => {
+    clock = new Date('2026-09-29T00:00:00.000Z');
+  });
+
+  it('a session is valid one millisecond before its expiry and dead at the instant of it', () => {
+    // Found by mutation testing: `expiresAt <= now` survived as `expiresAt < now`, so
+    // nothing pinned the instant a session stops being usable. A session that is still
+    // accepted at its own expiry lives one tick longer than the ttl promises.
+    const service = sessions();
+    const { token } = service.issue('installation-1');
+    clock = new Date('2026-09-29T00:00:00.999Z');
+    expect(service.validate(token)).toBeDefined();
+    clock = new Date('2026-09-29T00:00:01.000Z');
+    expect(service.validate(token)).toBeUndefined();
+  });
+
+  it('the sweep removes a session at the instant of its expiry, not a tick later', () => {
+    // The same boundary, in `deleteExpired`: `expiresAt > at` survived as `>=`, which
+    // would keep a dead session in the map until the next sweep after its expiry.
+    const service = sessions();
+    service.issue('installation-1');
+    clock = new Date('2026-09-29T00:00:00.999Z');
+    expect(service.deleteExpired()).toBe(0);
+    clock = new Date('2026-09-29T00:00:01.000Z');
+    expect(service.deleteExpired()).toBe(1);
+  });
+});

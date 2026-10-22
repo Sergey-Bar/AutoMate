@@ -1,4 +1,4 @@
-import { checkPermission, Permission } from './permissions.js';
+import { checkPermission, isAdmin, Permission } from './permissions.js';
 
 describe('checkPermission', () => {
   it('returns true when user has the required permission', () => {
@@ -23,5 +23,11 @@ describe('checkPermission', () => {
 
   it('returns false when user has unrelated permissions', () => {
     expect(checkPermission(['runs:read', 'vault:read'], Permission.AI_USE)).toBe(false);
+  });
+
+  it('isAdmin is true when any one granted permission is administrative, not only all of them', () => {
+    // Found by mutation testing: `some` survived as `every`.
+    expect(isAdmin(['runs:read', 'admin'])).toBe(true);
+    expect(isAdmin(['admin:all', 'runs:read'])).toBe(true);
   });
 });

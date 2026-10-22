@@ -23,6 +23,8 @@
     "**/dist/**",
     "**/build/**",
     "**/coverage/**",
+    "**/.stryker-tmp/**",
+    "**/reports/**",
     "**/var/**",
     "**/test-results/**",
     "**/playwright-report/**",
