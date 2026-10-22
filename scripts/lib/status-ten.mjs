@@ -54,6 +54,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { evaluateRegister } from './capability-evidence.mjs';
 import { ASSERTIONS, unimplemented } from './docs-drift.mjs';
 import {
   auditRepository,
@@ -624,35 +625,42 @@ function pointSix(ctx) {
  * @returns {Clause[]}
  */
 function pointSeven(ctx) {
-  const register = ctx.text('docs/migration/capability-register.md');
-  // A row is a line of the register's table, so a row that names a command is a
-  // line that mentions one. Splitting on the id and reading the rest of the line
-  // works too, and did first, but it depends on the id appearing exactly once in
-  // the document — true today and not a property of the format.
-  const rowLines = register
-    .split(/\r?\n/)
-    .filter((line) => /^\|\s*[a-z0-9][a-z0-9.-]*\s*\|/.test(line));
-  const withCommand = rowLines.filter((line) => /\|[^|]*\bpnpm [^|]*\|/.test(line));
+  const registerText = ctx.text('docs/migration/capability-register.md');
+  const { rows } = evaluateRegister({ root: ctx.root, registerText });
   const script = ctx.rootScripts.has('capability:evidence');
+  const unnamed = rows.filter((row) => row.commands.length === 0);
+  const unverified = rows.filter((row) => row.verdict !== 'verified');
 
   return [
-    rowLines.length > 0 && withCommand.length === rowLines.length
-      ? ok(
+    rows.length > 0 && unnamed.length === 0
+      ? // Naming a command is what this reads. That it *passes* is a run, and a status
+        // line that said `pass` over an unexecuted command would be the register's own
+        // failure - a claim nobody re-checked - reproduced one level up.
+        unchecked(
           'every register row names a passing evidence command',
-          `${String(rowLines.length)} row(s) carry a command in the evidence column.`,
+          `${String(rows.length)} row(s) each name a command. ` +
+            needsRun('pnpm capability:evidence --run'),
         )
       : broken(
           'every register row names a passing evidence command',
-          `${String(rowLines.length - withCommand.length)} of ${String(rowLines.length)} row(s) cite ` +
-            'paths rather than a command. A path is evidence that something exists; a command is evidence ' +
-            'that it still passes.',
+          `${String(rows.length === 0 ? 0 : unnamed.length)} of ${String(rows.length)} row(s) name no command: ` +
+            `${unnamed.map((row) => row.id).join(', ')}. A path is evidence that something exists; a ` +
+            'command is evidence that it still passes.',
         ),
-    script
-      ? ok('`capability:evidence` exists', 'deleting a test flips its row to `unverified`.')
+    script && rows.length > 0 && unverified.length === 0
+      ? ok(
+          '`capability:evidence` exists and every row is backed',
+          `all ${String(rows.length)} row(s) resolve their command, cite files that exist, and cite only ` +
+            'tests that a runner collects, so deleting a test flips its row to `unverified`.',
+        )
       : broken(
-          '`capability:evidence` exists',
-          'no such root script, so nothing maps a register row onto the test that would fail if the ' +
-            'capability stopped working.',
+          '`capability:evidence` exists and every row is backed',
+          script
+            ? `${String(unverified.length)} row(s) are \`unverified\`: ${unverified
+                .map((row) => row.id)
+                .join(', ')}. Run \`pnpm capability:evidence\` for the reasons.`
+            : 'no such root script, so nothing maps a register row onto the test that would fail if the ' +
+                'capability stopped working.',
         ),
   ];
 }
@@ -961,8 +969,8 @@ export const POINTS = /** @type {readonly Point[]} */ ([
   {
     number: 7,
     title: 'Every capability claim has a passing evidence command',
-    decidedBy: 'pnpm docs:capability-register',
-    deferral: 'CAP-1',
+    decidedBy: 'pnpm capability:evidence',
+    deferral: '',
     probe: pointSeven,
   },
   {
