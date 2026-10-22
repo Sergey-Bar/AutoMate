@@ -74,7 +74,7 @@ async function main() {
   const directory = mkdtempSync(path.join(tmpdir(), 'automate-boot-'));
   const envFile = path.join(directory, 'boot.env');
   writeFileSync(envFile, envFileText(values), { mode: 0o600 });
-  const base = option('--base') ?? 'http://127.0.0.1:53173';
+  const base = option('--base') ?? 'http://127.0.0.1:8080';
   /** @type {string[]} */
   let failures = [];
   try {

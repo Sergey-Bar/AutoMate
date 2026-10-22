@@ -72,7 +72,7 @@ Then open `http://localhost:5173` and sign in with
 ## With the full stack
 
 The Compose file brings up the edge application, the web app, the API, PostgreSQL,
-and MinIO on loopback ports:
+and the SeaweedFS object store on loopback ports:
 
 ```bash
 REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml build
@@ -85,11 +85,9 @@ REHEARSAL_MODE=local docker compose -f infra/compose/compose.dev.yml up -d
 | Web direct       | `http://127.0.0.1:53173` |
 | API direct       | `http://127.0.0.1:53000` |
 | PostgreSQL       | `127.0.0.1:55432`        |
-| MinIO API        | `http://127.0.0.1:59000` |
-| MinIO console    | `http://127.0.0.1:59001` |
+| Object store S3  | `http://127.0.0.1:58333` |
 
-The compose file uses `pull_policy: never`, so the external images must already be
-present locally.
+Missing images are pulled on first start.
 
 ## Before you open a pull request
 

@@ -127,7 +127,7 @@ chat request fails visibly instead of appearing to succeed.
    ```bash
    docker compose -f infra/compose/docker-compose.unified.yml up -d --force-recreate
    ```
-3. `GET /api/v1/ready` on the published API port, and check the API logs for
+3. `GET http://localhost:8080/api/v1/ready` through the edge proxy, and check the API logs for
    `startup-policy` refusals.
 
 Never bake a secret into an image. `infra/compose/docker-compose.unified.yml` reads

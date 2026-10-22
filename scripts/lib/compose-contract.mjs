@@ -478,3 +478,51 @@ export function upstreamProblems(file, conf, listening) {
   }
   return problems;
 }
+
+/**
+ * The `ports:` entries one service publishes, as written.
+ *
+ * @param {string} text
+ * @param {string} serviceName
+ * @returns {string[]}
+ */
+export function publishedPorts(text, serviceName) {
+  return blockLines(text, serviceName, 'ports').map((line) =>
+    unquote(line.replace(/^\s*-\s*/, '')),
+  );
+}
+
+/** What the production stack publishes: one port, loopback unless the operator says otherwise. */
+export const FRONT_DOOR = '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_PORT:-8080}:8080';
+
+/**
+ * Every way the production stack publishes something other than its one front door.
+ *
+ * A user opens one URL. Each extra published port is a second way in that skips the
+ * proxy's headers and body cap, and a database port on a machine with no login in front
+ * of the product is a database anyone on the machine can reach.
+ *
+ * @param {string} file
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function frontDoorProblems(file, text) {
+  /** @type {string[]} */
+  const problems = [];
+  const published = serviceNames(text).flatMap((service) =>
+    publishedPorts(text, service).map((port) => ({ service, port })),
+  );
+  for (const { service, port } of published) {
+    if (service === 'edge' && port === FRONT_DOOR) continue;
+    problems.push(
+      `${file}: service \`${service}\` publishes \`${port}\`. The production stack publishes ` +
+        `exactly one port, the edge proxy's \`${FRONT_DOOR}\`.`,
+    );
+  }
+  if (!published.some(({ service, port }) => service === 'edge' && port === FRONT_DOOR)) {
+    problems.push(
+      `${file}: no \`edge\` service publishes \`${FRONT_DOOR}\`, so there is no front door.`,
+    );
+  }
+  return problems;
+}
