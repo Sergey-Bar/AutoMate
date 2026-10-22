@@ -1,4 +1,4 @@
-FROM node:24.21.0-alpine AS build
+FROM node:24.22.1-alpine AS build
 WORKDIR /app
 # pnpm is not named here: Corepack reads `packageManager` from package.json, so the image uses the
 # same pnpm the repository does. A pin written in this file went stale (it said 10.30.2 while the
