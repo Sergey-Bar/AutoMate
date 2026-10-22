@@ -67,6 +67,8 @@ export default tseslint.config(
       '**/playwright-report/**',
       '**/test-results/**',
       '**/.kilo/**',
+      '**/.stryker-tmp/**',
+      '**/reports/**',
       /**
        * Storybook's static build, and **the reason it has to be listed here rather
        * than left to `.gitignore`** is that ESLint does not read `.gitignore`.

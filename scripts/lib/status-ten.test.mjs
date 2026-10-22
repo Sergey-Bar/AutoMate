@@ -255,7 +255,49 @@ test('a verdict is decided by the facts, not by the report: each probe is shown 
     five?.clauses.find((clause) => clause.claim.includes('complexity ceiling'))?.verdict,
     'pass',
   );
-  assert.equal(five?.clauses.find((clause) => clause.claim.includes('mutation'))?.verdict, 'fail');
+  assert.equal(five?.clauses.find((clause) => clause.claim.includes('mutation'))?.verdict, 'pass');
+
+  // The mutation clause reads the recorded number, so it is exercised both ways here: a
+  // score below the target is a `fail` that names the number, and an unreadable baseline
+  // is a `fail` rather than a pass or a zero.
+  const mutationClause = (/** @type {unknown} */ baseline) =>
+    evaluate(
+      withFacts({
+        ledgerRows: noDeferrals.ledgerRows,
+        json: (relative) =>
+          relative === 'docs/quality/mutation-baseline.json'
+            ? /** @type {never} */ (baseline)
+            : context.json(relative),
+      }),
+    )
+      .find((report) => report.number === 5)
+      ?.clauses.find((clause) => clause.claim.includes('mutation'));
+  const entry = (/** @type {number} */ score) => ({ score, measuredOn: '2026-10-22' });
+  const packages = {
+    'packages/shared-contracts': entry(91),
+    'packages/reporting': entry(83),
+    'packages/auth': entry(94),
+    'packages/orchestration': entry(96),
+    'packages/runner-sdk': entry(79),
+  };
+
+  const below = mutationClause({
+    target: 75,
+    packages: { ...packages, 'packages/runner-sdk': entry(68.9) },
+  });
+  assert.equal(below?.verdict, 'fail', 'a score below 75 stays a fail');
+  assert.match(below?.reason ?? '', /packages\/runner-sdk 68\.9/);
+  assert.match(below?.reason ?? '', /below the 75 target/);
+
+  assert.equal(mutationClause({ target: 75, packages })?.verdict, 'pass');
+  assert.equal(
+    mutationClause({ target: 75, packages: { 'packages/auth': entry(99) } })?.verdict,
+    'fail',
+    'one package at 99 is not five packages at 75',
+  );
+  for (const unreadable of [null, {}, { target: 75 }, { target: 75, packages: {} }]) {
+    assert.equal(mutationClause(unreadable)?.verdict, 'fail', JSON.stringify(unreadable));
+  }
 
   // And the real tree does not meet the target, so the flip above was a flip rather
   // than a restatement. Read from the baseline rather than written down, so this
