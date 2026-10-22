@@ -352,6 +352,7 @@ packages/
   reporting/         Evidence, KPI, and quality-gate policies
   runner-sdk/        Spool, retry policy, and the runner HTTP client
   shared-contracts/  Type-safe API contracts and Zod schemas
+  tool-sdk/          Agent operation declaration, dispatch, result normalisation, error classes
   ui/                Shared Tailwind 4 component library
 tools/
   migrate-cli/       Migration utilities

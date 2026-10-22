@@ -29,6 +29,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@automate/tool-sdk": "workspace:*",
     "@electric-sql/pglite": "^0.5.10",
     "@eslint/js": "catalog:",
     "@types/node": "catalog:",
