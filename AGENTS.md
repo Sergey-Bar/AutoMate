@@ -73,6 +73,7 @@ pnpm test:contract        # @automate/contract-tests
 pnpm test:integration     # node --test scripts/lib/*.test.mjs + integration + contract
 pnpm test:runner          # runner, runner-sdk, worker
 pnpm test:performance     # k6 thresholds. Exits non-zero as not_configured without k6
+pnpm capability:evidence  # Every capability-register row names a command that resolves and cites files/tests that exist and are collected; --run executes the commands
 pnpm coverage:ratchet     # Fails on a coverage regression per package, and on a floor that was lowered
 pnpm findings:check       # The findings ledger has not drifted from the tree
 pnpm findings:baseline    # Rewrites docs/quality/findings-status.json. Deliberate, never automatic

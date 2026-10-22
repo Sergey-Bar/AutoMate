@@ -150,7 +150,12 @@ function pythonCommands(
 }
 
 export const detectPython: EcosystemDetector = async ({ paths, read }) => {
-  if (!PYTHON_MANIFESTS.some((file) => paths.includes(file))) return null;
+  // A `requirements*.txt` is a manifest too: `readManifests` and `namesFromRequirements`
+  // already read it, but this gate demanded a `pyproject.toml`, `setup.cfg`, `tox.ini` or
+  // `setup.py` as well, so a repository that pins its dependencies in `requirements.txt`
+  // alone (most applications) was reported as unrecognised.
+  const hasManifest = PYTHON_MANIFESTS.some((file) => paths.includes(file));
+  if (!hasManifest && requirementFiles(paths).length === 0) return null;
 
   const texts = await readManifests(paths, read);
   if (texts.size === 0) return null;

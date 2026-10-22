@@ -1,4 +1,4 @@
-FROM node:24.21.0-alpine AS build
+FROM node:24.22.1-alpine AS build
 WORKDIR /src
 # Corepack reads `packageManager` from package.json, so the image uses the repository's pnpm.
 RUN corepack enable
@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile \
   && pnpm --filter "@automate/worker" --prod deploy --legacy /out
 
 
-FROM node:24.21.0-alpine AS runtime
+FROM node:24.22.1-alpine AS runtime
 ARG AUTOMATE_VERSION=dev
 ARG AUTOMATE_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/Sergey-Bar/AutoMate" \
