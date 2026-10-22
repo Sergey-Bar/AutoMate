@@ -12,7 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { envExample, releaseCompose } from './lib/release-compose.mjs';
+import { envExample, releaseComposeFile } from './lib/release-compose.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 
@@ -30,12 +30,7 @@ const source = readFileSync(
   path.join(REPO_ROOT, 'infra/compose/docker-compose.unified.yml'),
   'utf8',
 );
-const header = [
-  `# Automate ${version} — generated from infra/compose/docker-compose.unified.yml by`,
-  '# `pnpm release:compose`. Do not edit: change the source file instead.',
-  '',
-].join('\n');
-const compose = `${header}${releaseCompose(source, version)}`;
+const compose = releaseComposeFile(source, version);
 
 mkdirSync(outDirectory, { recursive: true });
 writeFileSync(path.join(outDirectory, 'compose.yml'), compose);
