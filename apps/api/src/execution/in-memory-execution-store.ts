@@ -613,15 +613,8 @@ export class InMemoryExecutionStore implements ExecutionStore {
         prepared.push({ input: event, hash, duplicate: true });
         continue;
       }
-      if (event.sequence !== sequence)
-        return [
-          {
-            eventId: event.eventId,
-            sequence: event.sequence,
-            status: 'conflict',
-            reason: 'sequence_gap',
-          },
-        ];
+      // A run that has ended refuses everything new as `terminal_event`, in or out of
+      // sequence — the order `planEventBatch` (the PostgreSQL store) has always used.
       if (terminal)
         return [
           {
@@ -629,6 +622,15 @@ export class InMemoryExecutionStore implements ExecutionStore {
             sequence: event.sequence,
             status: 'conflict',
             reason: 'terminal_event',
+          },
+        ];
+      if (event.sequence !== sequence)
+        return [
+          {
+            eventId: event.eventId,
+            sequence: event.sequence,
+            status: 'conflict',
+            reason: 'sequence_gap',
           },
         ];
       prepared.push({ input: event, hash, duplicate: false });
