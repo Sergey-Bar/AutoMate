@@ -1,4 +1,4 @@
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
 /**
  * Response security headers, and a CORS policy that fails closed.
@@ -113,6 +113,33 @@ function dropEmpty(
 }
 
 /**
+ * Answer a CORS preflight. `access-control-request-method` is what the browser will actually
+ * send; its absence means this was not a preflight, and answering one anyway would cache a
+ * misleading policy under `max-age`. A disallowed origin is a 403 rather than a headerless 204.
+ */
+function answerPreflight(
+  c: Context,
+  origin: string,
+  permitted: boolean,
+  policy: { allowedMethods: string; allowedHeaders: string; maxAge: string },
+): Response {
+  if (c.req.header('access-control-request-method') === undefined) {
+    return c.body(null, 204);
+  }
+  if (!permitted) {
+    return c.json(
+      { error: { code: 'CORS_ORIGIN_NOT_ALLOWED', message: 'origin not allowed' } },
+      403,
+    );
+  }
+  c.header('access-control-allow-origin', origin);
+  c.header('access-control-allow-methods', policy.allowedMethods);
+  c.header('access-control-allow-headers', policy.allowedHeaders);
+  c.header('access-control-max-age', policy.maxAge);
+  c.header('vary', 'Origin');
+  return c.body(null, 204);
+}
+/**
  * Builds the middleware.
  *
  * Two rules make it testable rather than declarative:
@@ -139,24 +166,7 @@ export function createSecurityHeaders(options: SecurityHeadersOptions): Middlewa
     const permitted = origin !== undefined && allowed.has(origin);
 
     if (c.req.method === 'OPTIONS' && origin !== undefined) {
-      // Preflight. `access-control-request-method` is what the browser will
-      // actually send; its absence means this was not a preflight, and answering
-      // one anyway would cache a misleading policy under `max-age`.
-      if (c.req.header('access-control-request-method') === undefined) {
-        return c.body(null, 204);
-      }
-      if (!permitted) {
-        return c.json(
-          { error: { code: 'CORS_ORIGIN_NOT_ALLOWED', message: 'origin not allowed' } },
-          403,
-        );
-      }
-      c.header('access-control-allow-origin', origin ?? '');
-      c.header('access-control-allow-methods', allowedMethods);
-      c.header('access-control-allow-headers', allowedHeaders);
-      c.header('access-control-max-age', maxAge);
-      c.header('vary', 'Origin');
-      return c.body(null, 204);
+      return answerPreflight(c, origin, permitted, { allowedMethods, allowedHeaders, maxAge });
     }
 
     await next();

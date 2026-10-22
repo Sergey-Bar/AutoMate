@@ -78,6 +78,28 @@ export function normalizeEventLimit(limit: number | undefined): number {
 }
 
 /**
+ * Where a page starts, or null when the cursor leads nowhere.
+ *
+ * A cursor was supplied but is not one we issued: treating it as *absent* would silently restart
+ * from the first page, which a caller following cursors would loop on forever - and a garbage
+ * string that happens to be valid base64 decodes to nothing, so this is not hypothetical.
+ */
+function startIndex(ordered: readonly ExecutionRun[], after: string | undefined): number | null {
+  if (after === undefined || after.trim() === '') return 0;
+  const cursor = decodeRunCursor(after);
+  if (cursor === undefined) return null;
+  const byId = ordered.findIndex((run) => run.id === cursor.id);
+  // `+1` in a **newest-first** array is the next *older* run, which is the direction the cursor
+  // is meant to walk. Reversing the order without this staying at `+1` would make page 2 repeat
+  // the rows page 1 already served.
+  if (byId !== -1) return byId + 1;
+  // The cursor's run is gone (deleted, or filtered out of this workspace). Resume at the first
+  // row *older* than its timestamp, and if there is none, return nothing rather than silently
+  // restarting from the top.
+  const older = ordered.findIndex((run) => run.createdAt < cursor.createdAt);
+  return older === -1 ? null : older;
+}
+/**
  * Applies a window to an already-ordered array of runs.
  *
  * `limit + 1` rows are taken so `hasMore` is known without a second count
@@ -95,31 +117,8 @@ export function pageRuns(
 ): RunPage {
   const limit = normalizeRunLimit(options?.limit);
 
-  let from = 0;
-  if (options?.after !== undefined && options.after.trim() !== '') {
-    const cursor = decodeRunCursor(options.after);
-    if (cursor === undefined) {
-      // A cursor was supplied but is not one we issued. Treating it as *absent*
-      // would silently restart from the first page, which a caller following
-      // cursors would loop on forever — and a garbage string that happens to be
-      // valid base64 decodes to nothing, so this is not hypothetical.
-      return { runs: [], hasMore: false };
-    }
-    const byId = ordered.findIndex((run) => run.id === cursor.id);
-    if (byId !== -1) {
-      // `+1` in a **newest-first** array is the next *older* run, which is the direction
-      // the cursor is meant to walk. Reversing the order without this staying at `+1`
-      // would make page 2 repeat the rows page 1 already served.
-      from = byId + 1;
-    } else {
-      // The cursor's run is gone (deleted, or filtered out of this workspace). Resume at
-      // the first row *older* than its timestamp, and if there is none, return nothing
-      // rather than silently restarting from the top.
-      const older = ordered.findIndex((run) => run.createdAt < cursor.createdAt);
-      if (older === -1) return { runs: [], hasMore: false };
-      from = older;
-    }
-  }
+  const from = startIndex(ordered, options?.after);
+  if (from === null) return { runs: [], hasMore: false };
 
   const slice = ordered.slice(from, from + limit + 1);
   const hasMore = slice.length > limit;
