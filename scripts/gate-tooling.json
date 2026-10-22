@@ -113,7 +113,9 @@
     "deps:policy": "pr-reporting",
     "compose:boot": "pr-blocking",
     "release:compose": "release",
-    "release:bundle": "release"
+    "release:bundle": "release",
+    "release:notes": "release",
+    "release:visibility": "release"
   },
   "scripts": {
     "security:verify": {

@@ -40,6 +40,7 @@ collision recurring — not this paragraph, and not a reviewer's memory.
 | [ADR-010](./010-local-evidence-model-mapped-from-server-contract.md)           | A separate local evidence model, mapped one way from the server contract             | proposed | 2026-10-19 | —          |
 | [ADR-011](./011-execution-safety-posture-no-isolation-in-the-first-release.md) | Execution safety posture: control the process tree, promise no isolation             | proposed | 2026-10-19 | —          |
 | [ADR-012](./012-node-engine-and-typed-loopback-interface.md)                   | Node 24 engine behind a typed loopback interface                                     | proposed | 2026-10-19 | —          |
+| [ADR-013](./013-published-images-and-a-release-bundle.md)                      | Releases publish multi-arch images and a one-download bundle                         | accepted | 2026-10-22 | —          |
 
 ## Decisions with no record, and where they went
 

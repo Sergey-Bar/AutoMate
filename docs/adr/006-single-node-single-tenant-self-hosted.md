@@ -16,7 +16,9 @@ Four things the product deliberately does not do:
 - **Multi-tenant isolation.** `WORKSPACE_ID` is the only tenancy boundary in the
   system. A workspace-scoped read or write needs a cross-workspace isolation test,
   and there is no row-level security beneath it.
-- **Hosted SaaS.** Installation is one compose file on one machine.
+- **Hosted SaaS.** Installation is one compose file on one machine. Since
+  [ADR-013](./013-published-images-and-a-release-bundle.md) that file pulls published
+  images rather than building them, which changes the distribution and not this decision.
 - **iOS device execution.** The five agent domains are browser, api, load, security
   and mobile; four of the five answer an explicit `501 NOT_CONFIGURED` naming the
   domain and the action rather than pretending.
