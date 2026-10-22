@@ -22,6 +22,52 @@ export interface OutcomeObservation {
   runId: string;
   commitSha: string | null;
   outcome: TestOutcome;
+  /**
+   * When the run started. Run ids are random UUIDs, so this is the only thing that says
+   * which run came first; without it observations fall back to id order.
+   */
+  startedAt?: string | null;
+}
+
+/**
+ * Oldest first: by start time, then by id to make the order total.
+ *
+ * An observation with no (or an unreadable) start time sorts before every dated one, so
+ * the order stays transitive when only some runs are known.
+ */
+export function compareRunOrder(
+  left: { runId: string; startedAt?: string | null },
+  right: { runId: string; startedAt?: string | null },
+): number {
+  const time = (value: string | null | undefined): number => {
+    const parsed = value === null || value === undefined ? Number.NaN : Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+  };
+  const leftTime = time(left.startedAt);
+  const rightTime = time(right.startedAt);
+  if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1;
+  return left.runId.localeCompare(right.runId);
+}
+
+/**
+ * How many of a fingerprint's *trailing* results passed, in run order.
+ *
+ * Trailing, because the trivially-true hollow rule is about a test that has been green
+ * this way for thirty runs - one green run of a hollow test proves nothing.
+ */
+export function trailingPasses(
+  results: readonly CanonicalTestResult[],
+  startedAtByRun: ReadonlyMap<string, string>,
+): number {
+  const ordered = results
+    .map((result) => ({ result, runId: result.runId, startedAt: startedAtByRun.get(result.runId) }))
+    .sort(compareRunOrder);
+  let passes = 0;
+  for (let index = ordered.length - 1; index >= 0; index -= 1) {
+    if (ordered[index]?.result.outcome !== 'passed') break;
+    passes += 1;
+  }
+  return passes;
 }
 
 const STRONG_FLIP_OUTCOMES: ReadonlySet<TestOutcome> = new Set<TestOutcome>(['passed', 'failed']);
@@ -45,7 +91,7 @@ export function classifyFlakiness(
   fingerprint: string,
   observations: readonly OutcomeObservation[],
 ): FlakyVerdict {
-  const ordered = [...observations].sort((left, right) => left.runId.localeCompare(right.runId));
+  const ordered = [...observations].sort(compareRunOrder);
   const flips = countFlips(ordered);
   return {
     fingerprint,
