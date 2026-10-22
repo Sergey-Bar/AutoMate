@@ -3855,10 +3855,25 @@
       "title": "The documentation site is never deployed, and `status:10` point 12 defers to a row that did not exist",
       "band": "Major",
       "provenance": "hand",
-      "status": "debt",
+      "status": "fixed",
       "owner": "the repository owner — the decision is a CI permission, not a design one",
-      "removalCondition": "A workflow that publishes `site/.vitepress/dist` to GitHub Pages exists and runs `SITE_DOCTOR_BUILT=1 pnpm site:doctor` against the built output, which needs `pages: write` and `id-token: write` granted on purpose rather than added to get this row to close. Until then the site is not live, the address `https://sergey-bar.github.io/AutoMate/` serves nothing, and \"it is live at the URL\" — the last clause of §17's twelfth point — is a claim with no evidence behind it. The condition names what could happen: the workflow file being written.",
-      "summary": "Two defects in one place, and the second is only visible because the first was read.\n\n**`scripts/lib/status-ten.mjs:998` declares `deferral: 'SITE-1'` for point 12, and no `SITE-1` row existed in this ledger.** `applyDeferral` converts a `fail` into a `not_configured` only when the named row is present, is `debt`, and carries both an owner and a `removalCondition`. With no row at all, the lookup missed and nothing was deferred — which is the same shape as `RF-5`'s wave gate: a check wired to a row that is not there cannot fail, and the deferral it implies never happens. `pnpm findings:check` did not catch it, because that gate checks the rows against the policy and there was nothing to check; nothing checked the reference. `SITE-1` is now this row, so the deferral is real rather than nominal.\n\n**The site is not deployed.** `site-doctor` check 8 reports `GAP` without a build, three of its ten checks report `GAP` rather than clean without one, and the whole suite is `pr-reporting` at a tier justified by being \"honest while the site is not live\". Nothing in this repository publishes it.\n\n**Why this is debt and not a failure.** Shipping the site means granting `pages: write` and `id-token: write` to a workflow. That is a security decision with a named owner, and it is not a consequence of redesigning the documentation — the site has been unbuilt since before this programme's first plan. So the work is recorded, owned, and given a condition that could actually happen, rather than performed as a side effect of a design change.\n\n**What this row does not close.** The design work in Phase 2 of the cinematic plan, which improves the site without deploying it. A better-looking site that is still not live is not a published site."
+      "removalCondition": "Met 2026-10-22: a workflow publishes `site/dist` and runs `SITE_DOCTOR_BUILT=1 pnpm site:doctor` against the built output (permissions pages: write and id-token: write were granted on the deploy job only).",
+      "summary": "Two defects in one place, and the second is only visible because the first was read.\n\n**`scripts/lib/status-ten.mjs:998` declares `deferral: 'SITE-1'` for point 12, and no `SITE-1` row existed in this ledger.** `applyDeferral` converts a `fail` into a `not_configured` only when the named row is present, is `debt`, and carries both an owner and a `removalCondition`. With no row at all, the lookup missed and nothing was deferred — which is the same shape as `RF-5`'s wave gate: a check wired to a row that is not there cannot fail, and the deferral it implies never happens. `pnpm findings:check` did not catch it, because that gate checks the rows against the policy and there was nothing to check; nothing checked the reference. `SITE-1` is now this row, so the deferral is real rather than nominal.\n\n**The site is not deployed.** `site-doctor` check 8 reports `GAP` without a build, three of its ten checks report `GAP` rather than clean without one, and the whole suite is `pr-reporting` at a tier justified by being \"honest while the site is not live\". Nothing in this repository publishes it.\n\n**Why this is debt and not a failure.** Shipping the site means granting `pages: write` and `id-token: write` to a workflow. That is a security decision with a named owner, and it is not a consequence of redesigning the documentation — the site has been unbuilt since before this programme's first plan. So the work is recorded, owned, and given a condition that could actually happen, rather than performed as a side effect of a design change.\n\n**What this row does not close.** The design work in Phase 2 of the cinematic plan, which improves the site without deploying it. A better-looking site that is still not live is not a published site.",
+      "resolution": "\n\nClosed 2026-10-22. The workflow existed already; the missing piece was the built-output doctor, now a step before the upload (see MNT-31), and the removal condition's path is corrected here from `site/.vitepress/dist` to `site/dist`. GitHub Pages is enabled for this repository (`gh api repos/Sergey-Bar/AutoMate/pages` returned build_type `workflow`, source main, https_enforced), recent docs.yml runs on main completed `success`, and https://sergey-bar.github.io/AutoMate/ answered HTTP 200 when checked. The doctor step itself has not yet run in CI because it merges with this change; it was run locally against a real build and passed 10 of 10.",
+      "evidence": [
+        {
+          "path": ".github/workflows/docs.yml",
+          "asserts": "Publishes site/dist and runs SITE_DOCTOR_BUILT=1 pnpm site:doctor on the built output before the upload."
+        },
+        {
+          "path": "scripts/lib/docs-workflow.test.mjs",
+          "asserts": "The doctor step is present, untolerated, ordered after the build and before the upload."
+        }
+      ],
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "docs-workflow.test.mjs failed without the step and passes with it; local built doctor 10 pass, 0 GAP; Pages API and URL checked as stated in the resolution."
     },
     {
       "id": "RF-6e",
@@ -5196,6 +5211,53 @@
           "asserts": "Every registered domain/action pair answers with the explicit refusal the corrected rows name, and the Command of each deferred `quality.*` row runs this file."
         }
       ]
+    },
+    {
+      "id": "MNT-30",
+      "title": "`pnpm skill-scan` was never run in CI, so the graduation condition could not be observed",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "MAINT-2026-10",
+      "summary": "`scripts/skill-scan.mjs` is tier `pr-reporting` and no workflow installed skillspector or ran it, so the condition AGENTS.md names for graduating it (a CI run printing a `risk_assessment` with `is_complete: true`) could never be produced: a gate comparing against an input nobody produced, the RF-9 shape. The 2026-10-02 local run was `is_complete: false`, and later 95.8% with six analyzers degraded.\n\nThe `security` job now installs skillspector through `.github/actions/install-skillspector` (pip from the NVIDIA/SkillSpector git repository, pinned to the full commit behind tag v2.12.0, no PyPI release having been found) and runs `pnpm skill-scan` as a `continue-on-error` reporting step. The script appends `is_complete`, coverage, degraded analyzers and whether the graduation condition was met to `$GITHUB_STEP_SUMMARY`. The tier is unchanged. This row does **not** claim graduation: no CI run has been observed, because a run cannot be observed before the change merges.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "grep of .github/ for skillspector and skill-scan on origin/main returned nothing before this change; scripts/lib/skill-scan-ci.test.mjs failed on the missing export and missing action before the wiring existed.",
+      "owner": "the repository owner",
+      "removalCondition": "A run of the `security` job on main whose job summary shows `is_complete: true` and no degraded analyzers. Then one commit moves `skill-scan` to `pr-blocking` in scripts/gate-tooling.json, drops `continue-on-error` from the step, and closes this row. If the run shows is_complete false, the degraded analyzer in the summary is the next defect to record.",
+      "evidence": [
+        {
+          "path": ".github/actions/install-skillspector/action.yml",
+          "asserts": "Installs skillspector from a 40-character pinned commit and verifies `skillspector --version`."
+        },
+        {
+          "path": "scripts/lib/skill-scan-ci.test.mjs",
+          "asserts": "The security job installs the scanner before running skill-scan as a tolerated step, the tier is still pr-reporting, and the job summary states is_complete, coverage and degraded analyzers."
+        }
+      ]
+    },
+    {
+      "id": "MNT-31",
+      "title": "`SITE-1` named the wrong artifact path, and the deployed workflow did not run the doctor it promised",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "The SITE-1 removal condition said `site/.vitepress/dist`; the site builds to `site/dist` (`outDir: 'dist'` in site/.vitepress/config.mts, and site-doctor reads `site/dist`). `.github/workflows/docs.yml` deployed that directory but never ran `SITE_DOCTOR_BUILT=1 pnpm site:doctor`, so the DOM checks (7-9) reported `GAP` in CI and a broken built site could be published.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "scripts/lib/docs-workflow.test.mjs failed with `exactly one step runs pnpm site:doctor` against the workflow before the step was added, and passes after. A local build followed by the built doctor reported 10 pass, 0 fail, 0 GAP.",
+      "evidence": [
+        {
+          "path": ".github/workflows/docs.yml",
+          "asserts": "The build job runs `pnpm site:doctor` with SITE_DOCTOR_BUILT=1 after the site build and before upload-pages-artifact, with path site/dist."
+        },
+        {
+          "path": "scripts/lib/docs-workflow.test.mjs",
+          "asserts": "The doctor step exists once, is not tolerated, sits between the build and the upload, and the artifact is site/dist."
+        }
+      ],
+      "resolution": "Added the step and the test that holds its order."
     }
   ]
 }

@@ -545,6 +545,15 @@ jobs:
         run: pnpm security:secrets:history
       - name: Security and license verification
         run: pnpm security:verify
+      - name: Install skillspector
+        uses: ./.github/actions/install-skillspector
+      # `pr-reporting` (scripts/gate-tooling.json), so a failure here is reported and does
+      # not fail the `security` job. It graduates to `pr-blocking` in one commit that moves
+      # the tier and drops this `continue-on-error`, once a run of this step shows
+      # `is_complete: true` in the job summary. Not before: AGENTS.md records why.
+      - name: Skill scan (reporting)
+        continue-on-error: true
+        run: pnpm skill-scan
 
   e2e:
     name: Product E2E
