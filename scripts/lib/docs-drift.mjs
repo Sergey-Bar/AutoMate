@@ -840,10 +840,21 @@ function derivePorts(read) {
     }
   }
   // `127.0.0.1:55432:5432` — the host port a document may name, and the container
-  // port a `DATABASE_URL` inside the compose network uses. Both are real.
-  for (const match of compose.matchAll(/:(\d{2,5}):(\d{2,5})\b/g)) {
-    ports.add(match[1] ?? '');
-    ports.add(match[2] ?? '');
+  // port a `DATABASE_URL` inside the compose network uses. Both are real. The dev stack is
+  // read too: it publishes each service for a developer, and the getting-started guide
+  // names those ports.
+  const devCompose = read('infra/compose/compose.dev.yml');
+  for (const source of [compose, devCompose]) {
+    for (const match of source.matchAll(/:(\d{2,5}):(\d{2,5})\b/g)) {
+      ports.add(match[1] ?? '');
+      ports.add(match[2] ?? '');
+    }
+    // The production front door is interpolated — `${AUTOMATE_PORT:-8080}:8080` — so its
+    // default is the port a document names, and the plain pattern above cannot see it.
+    for (const match of source.matchAll(/:-(\d{2,5})\}:(\d{2,5})\b/g)) {
+      ports.add(match[1] ?? '');
+      ports.add(match[2] ?? '');
+    }
   }
   return new Set([...ports].filter((port) => port !== ''));
 }

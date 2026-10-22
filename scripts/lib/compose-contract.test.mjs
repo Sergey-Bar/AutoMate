@@ -3,12 +3,14 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  FRONT_DOOR,
   REQUIRED_OBJECT_STORE_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
   bootProblems,
   composeProblems,
   environmentKeys,
   environmentMap,
+  frontDoorProblems,
   serviceNames,
   upstreamProblems,
 } from './compose-contract.mjs';
@@ -374,4 +376,29 @@ test('both nginx images fail the build if the pid rewrite stops matching (MNT-23
       `${dockerfile} must verify the pid rewrite`,
     );
   }
+});
+
+// ─── One front door ─────────────────────────────────────────────────────────────────
+
+test('a second published port, or no front door, is a finding', () => {
+  const compose = [
+    'services:',
+    '  postgres:',
+    '    ports:',
+    "      - '127.0.0.1:55432:5432'",
+    '  edge:',
+    '    ports:',
+    `      - '${FRONT_DOOR}'`,
+    '',
+  ].join('\n');
+  const problems = frontDoorProblems('x.yml', compose);
+  assert.equal(problems.length, 1);
+  assert.ok(has(problems, /`postgres` publishes `127\.0\.0\.1:55432:5432`/));
+  assert.ok(has(frontDoorProblems('x.yml', 'services:\n  api:\n    image: a:1\n'), /no `edge`/));
+});
+
+test('the production stack publishes only the edge proxy, on loopback by default', () => {
+  const text = readRepo('infra/compose/docker-compose.unified.yml');
+  assert.deepEqual(frontDoorProblems('infra/compose/docker-compose.unified.yml', text), []);
+  assert.match(FRONT_DOOR, /^\$\{AUTOMATE_BIND:-127\.0\.0\.1\}:/);
 });

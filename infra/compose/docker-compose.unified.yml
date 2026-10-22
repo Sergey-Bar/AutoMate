@@ -5,8 +5,8 @@ services:
       POSTGRES_DB: automate
       POSTGRES_USER: automate
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-    ports:
-      - '127.0.0.1:55432:5432'
+    # No published port. The database is reached on the compose network only; the dev
+    # stack (`compose.dev.yml`) publishes it for a developer's tools.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -92,14 +92,13 @@ services:
       # store — would be a false claim. A deployment with a real S3 endpoint over TLS
       # omits this line and the policy enforces the stricter path.
       OBJECT_STORE_ALLOW_INSECURE: 'true'
-      PUBLIC_APP_URL: http://127.0.0.1:53173
+      # The URL a user opens: the edge proxy below, the stack's one published port.
+      PUBLIC_APP_URL: ${AUTOMATE_PUBLIC_URL:-http://localhost:${AUTOMATE_PORT:-8080}}
     depends_on:
       migrate:
         condition: service_completed_successfully
       objectstore:
         condition: service_healthy
-    ports:
-      - '127.0.0.1:53000:3000'
     volumes:
       - artifact_data:/var/lib/automate/artifacts
     healthcheck:
@@ -204,8 +203,35 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
+
+  # The front door, and the only published port. `/api/` goes to the API and `/` to the
+  # web UI, so a user opens one URL. Bound to loopback by default: the install has no
+  # login in front of it, so `AUTOMATE_BIND=0.0.0.0` makes it reachable by anyone who can
+  # reach this machine, and the start script says so when it is set.
+  edge:
+    build:
+      context: ../..
+      dockerfile: infra/docker/edge.Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     ports:
-      - '127.0.0.1:53173:8080'
+      - '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_PORT:-8080}:8080'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
 networks:
   runner_egress:
