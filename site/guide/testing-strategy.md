@@ -89,6 +89,30 @@ only through `--record`. The fast half, that the baseline file is well-formed, r
 every pull request. A surviving mutant is a finding about the tests, so the fix is a
 behavioural test, never an exclusion.
 
+## Properties and the authz matrix
+
+Two generated records sit beside the ratchets. Both are held to the tree in both directions,
+so neither can be a sentence nobody checks.
+
+**Property suites.** A `*.property.test.ts` file states an invariant over generated input
+instead of a handful of examples: no illegal job transition is accepted, a terminal run state
+absorbs, re-appending an outbox event adds no row, a retry delay never exceeds its ceiling,
+parsing a report never throws anything but a classified error. Each suite fixes its seed and
+`numRuns` so a red run replays, pins past regressions as `examples`, and contains a test that
+a deliberately wrong claim is refuted. `docs/quality/property-invariants.json` lists every
+invariant, and `scripts/lib/property-invariants.test.mjs` fails on a listed suite that is
+missing, an invariant with no suite, or a suite nothing lists. A property that finds a defect
+is written down first as a failing example, then fixed, and gets a ledger row.
+
+**The authz matrix.** `docs/quality/authz-matrix.json` lists every route the composed API
+registers and the access it enforces: `open`, `reporter-secret`, `runner-registration-secret`,
+`runner-credential` or `enrollment-token`. The class is read from the credential check tagged
+onto the route (`apps/api/src/http/access.ts`), not typed. `pnpm authz:check` (after a build)
+fails on a route with no row or a row that disagrees with the code, and the API's own suite
+sends every guarded route a request with no credential and a wrong one, expecting 401 or 403,
+and every open route a request with none, expecting not to be refused for it. `pnpm
+authz:matrix` regenerates the file after a deliberate change.
+
 ## Not configured is not a pass
 
 Many checks need something a given machine may not have: a scanner binary, a container

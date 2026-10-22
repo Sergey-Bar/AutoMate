@@ -47,6 +47,11 @@ export class RunnerControlService {
     return identity;
   }
 
+  /** Whether 	oken is an outstanding enrollment token. Does not consume it. */
+  hasEnrollmentToken(token: string): boolean {
+    return this.enrollment.has(token);
+  }
+
   issueEnrollmentToken(): string {
     const token = randomBytes(32).toString('base64url');
     this.enrollment.set(token, randomUUID());

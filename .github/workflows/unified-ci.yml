@@ -171,6 +171,9 @@ jobs:
         run: pnpm test
       - name: Workspace build
         run: pnpm build
+      # Reads the built API, so it follows the build. Fast, no tool, no database.
+      - name: Authz matrix
+        run: pnpm authz:check
       # The coverage artifacts the ratchet job reads. Uploaded here because this is
       # the job that produced them; the `provenance.json` beside each summary records
       # the content hash of the inputs that run measured, which is what makes it

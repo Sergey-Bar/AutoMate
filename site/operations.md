@@ -74,7 +74,7 @@ sentence: it fails when a migration exists on disk for a wave whose gating row i
 
 | Command                  | What it is                                                      |
 | ------------------------ | --------------------------------------------------------------- |
-| `pnpm verify`            | The whole chain. Sixteen steps.                                 |
+| `pnpm verify`            | The whole chain. Seventeen steps.                               |
 | `pnpm verify:local`      | The same chain, scanners recorded `not_configured`.             |
 | `pnpm coverage:ratchet`  | Coverage floors; fails on a regression, never on a lower floor. |
 | `pnpm docs:check`        | No document cites a file that does not exist.                   |

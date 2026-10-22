@@ -18,22 +18,22 @@ import { Hono } from 'hono';
 import { DomainError } from '../../errors/domain-error.js';
 import type { ExecutionRouteContext } from './shared.js';
 import type {} from './schemas.js';
-import { parseBody, registrationAuthorized } from './shared.js';
+import {
+  authenticatedRunner,
+  parseBody,
+  requireRegistrationSecret,
+  requireRunnerCredential,
+} from './shared.js';
 import { ClaimSchema, HeartbeatSchema, RegistrationSchema } from './schemas.js';
 import { createRunnerToken, hashRunnerToken } from '../../execution/in-memory-execution-store.js';
 import { randomUUID } from 'node:crypto';
-import { authenticate } from './shared.js';
 export function registerRunnerRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws } = context;
-  app.post('/api/v1/runners/register', async (c) => {
-    if (
-      !registrationAuthorized(c, options.runnerRegistrationSecret ?? options.registrationSecret)
-    ) {
-      throw new DomainError(
-        'RUNNER_REGISTRATION_UNAUTHORIZED',
-        'Runner registration secret is invalid',
-      );
-    }
+  const runnerOnly = requireRunnerCredential(options.store);
+  const registrationOnly = requireRegistrationSecret(
+    () => options.runnerRegistrationSecret ?? options.registrationSecret,
+  );
+  app.post('/api/v1/runners/register', registrationOnly, async (c) => {
     const parsed = await parseBody(c, RegistrationSchema);
     if (!parsed) throw new DomainError('INVALID_RUNNER_MANIFEST', 'Runner manifest is invalid');
     const manifest = (parsed.manifest ?? parsed) as {
@@ -119,9 +119,9 @@ export function registerRunnerRoutes(app: Hono, context: ExecutionRouteContext):
     );
   });
 
-  app.post('/api/v1/runners/:runnerId/heartbeat', async (c) => {
-    const runner = await authenticate(c, options.store);
-    if (!runner || runner.id !== c.req.param('runnerId'))
+  app.post('/api/v1/runners/:runnerId/heartbeat', runnerOnly, async (c) => {
+    const runner = authenticatedRunner(c);
+    if (runner.id !== c.req.param('runnerId'))
       throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, HeartbeatSchema);
     if (!parsed) throw new DomainError('INVALID_HEARTBEAT', 'Runner heartbeat is invalid');
@@ -134,9 +134,9 @@ export function registerRunnerRoutes(app: Hono, context: ExecutionRouteContext):
     return c.json(heartbeat);
   });
 
-  app.post('/api/v1/runners/:runnerId/jobs/claim', async (c) => {
-    const runner = await authenticate(c, options.store);
-    if (!runner || runner.id !== c.req.param('runnerId'))
+  app.post('/api/v1/runners/:runnerId/jobs/claim', runnerOnly, async (c) => {
+    const runner = authenticatedRunner(c);
+    if (runner.id !== c.req.param('runnerId'))
       throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
     const parsed = await parseBody(c, ClaimSchema);
     if (!parsed) throw new DomainError('INVALID_CLAIM', 'Runner claim is invalid');

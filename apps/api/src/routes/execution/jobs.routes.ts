@@ -29,13 +29,12 @@ import {
 import { DomainError, isDomainError } from '../../errors/domain-error.js';
 import { JobCompletionInput } from '../../execution/types.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
-import { authenticate } from './shared.js';
+import { authenticatedRunner, requireRunnerCredential } from './shared.js';
 import { createHash, randomUUID } from 'node:crypto';
 export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws, eventSequences, maxArtifactBytes } = context;
   const handleEvents = async (c: Context): Promise<Response> => {
-    const runner = await authenticate(c, options.store);
-    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+    const runner = authenticatedRunner(c);
     const body = await c.req.json().catch(() => null);
     const parsed = Array.isArray(body) ? null : EventBatchSchema.safeParse(body);
     if (!parsed?.success) throw new DomainError('INVALID_EVENT_BATCH', 'Event batch is invalid');
@@ -91,12 +90,12 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       202,
     );
   };
-  app.post('/api/v1/jobs/:jobId/events', handleEvents);
-  app.post('/api/v1/jobs/:jobId/events/batch', handleEvents);
+  const runnerOnly = requireRunnerCredential(options.store);
+  app.post('/api/v1/jobs/:jobId/events', runnerOnly, handleEvents);
+  app.post('/api/v1/jobs/:jobId/events/batch', runnerOnly, handleEvents);
 
-  app.post('/api/v1/jobs/:jobId/artifacts', async (c) => {
-    const runner = await authenticate(c, options.store);
-    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+  app.post('/api/v1/jobs/:jobId/artifacts', runnerOnly, async (c) => {
+    const runner = authenticatedRunner(c);
     const parsed = await parseBody(c, ArtifactSchema);
     if (!parsed) throw new DomainError('INVALID_ARTIFACT', 'Artifact metadata is invalid');
     const job = await options.store.getJob(c.req.param('jobId'), ws);
@@ -161,9 +160,8 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
     }
   });
 
-  app.post('/api/v1/jobs/:jobId/complete', async (c) => {
-    const runner = await authenticate(c, options.store);
-    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+  app.post('/api/v1/jobs/:jobId/complete', runnerOnly, async (c) => {
+    const runner = authenticatedRunner(c);
     const parsed = await parseBody(c, CompleteSchema);
     if (!parsed) throw new DomainError('INVALID_COMPLETION', 'Job completion is invalid');
     const jobId = c.req.param('jobId');
