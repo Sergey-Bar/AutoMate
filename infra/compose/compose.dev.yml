@@ -48,6 +48,8 @@ services:
       dockerfile: infra/docker/api.Dockerfile
     environment:
       NODE_ENV: development
+      # nginx sits in front and appends the peer it saw to X-Forwarded-For (MNT-7).
+      TRUST_PROXY: 'true'
       HOST: 0.0.0.0
       PORT: '3000'
       DATABASE_URL: postgresql://automate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/automate

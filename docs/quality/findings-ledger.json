@@ -4485,9 +4485,17 @@
         {
           "path": "apps/api/src/middleware/rate-limit.test.ts",
           "asserts": "`forgets windows that have expired, so distinct keys cannot grow memory for ever` and `holds no more than its ceiling of live windows`; both failed before the fix."
+        },
+        {
+          "path": "apps/api/src/routes/auth.ts",
+          "asserts": "`defaultClientKey` uses the socket address unless `trustProxy`, and then the last `X-Forwarded-For` hop."
+        },
+        {
+          "path": "apps/api/src/routes/auth.test.ts",
+          "asserts": "A client rotating `X-Forwarded-For` without a trusted proxy hits 429 on the fourth guess; with a proxy, a prepended hop is ignored."
         }
       ],
-      "resolution": "Bounded by expiry and by a ceiling. The `X-Forwarded-For` trust is named in the summary as the remaining half and is a configuration decision, not part of this fix."
+      "resolution": "Bounded by expiry and by a ceiling. The `X-Forwarded-For` trust is named in the summary as the remaining half and is a configuration decision, not part of this fix.\n\n**The remaining half is closed too (2.3.x).** The per-address budget no longer trusts a client-chosen header. `defaultClientKey` keys it on the TCP peer unless `TRUST_PROXY=true`, and with a proxy it reads the **last** `X-Forwarded-For` hop, because nginx's `$proxy_add_x_forwarded_for` appends the peer it saw to whatever the client sent, so the first hop is still the client's choice. Both compose files set `TRUST_PROXY: 'true'` on the API, which sits behind nginx there. `does not let a client choose its own address with X-Forwarded-For` failed first (four rotating addresses all answered 401), and `reads the hop the proxy appended, not one the client prepended` pins the hop choice."
     },
     {
       "id": "MNT-8",
@@ -4630,6 +4638,75 @@
         }
       ],
       "resolution": "Dated like `completeJob` dates a run, and proved against the real schema rather than as SQL text."
+    },
+    {
+      "id": "MNT-14",
+      "title": "No schedule could ever enqueue a fresh run: the job insert left out a NOT NULL column",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`PostgresExecutionStore.enqueueScheduledRun` inserted the run with its `timeout_ms` and then inserted the job **without** one. `execution_jobs.timeout_ms` is `NOT NULL` with no default (`0003_durable_execution.sql`), so every fresh occurrence failed inside the transaction: the run and the schedule advance rolled back, `pollSchedules` threw on every poll, the worker never reported ready, and no scheduled run was ever created. The package's tests stubbed `pg.Pool#query` and asserted SQL text, which cannot see a constraint, so the defect was invisible until the store was run against the real schema.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Found by the coverage pass's PGlite suite for the worker; a test enqueueing a fresh occurrence failed with `null value in column \"timeout_ms\" of relation \"execution_jobs\" violates not-null constraint`.",
+      "evidence": [
+        {
+          "path": "apps/worker/src/postgres-store.ts",
+          "asserts": "The scheduled job insert carries `timeout_ms`, the same value as the run row it belongs to."
+        },
+        {
+          "path": "apps/worker/src/postgres-store.schedules.test.ts",
+          "asserts": "`enqueues a fresh occurrence as a run and a job, with the run timeout on the job` reads back one queued job whose `timeout_ms` equals the run's."
+        }
+      ],
+      "resolution": "The job row gets the run's timeout, and the store is now tested against the real migration graph rather than as SQL text."
+    },
+    {
+      "id": "MNT-15",
+      "title": "The database and the Drizzle schema disagreed on six foreign keys and two indexes",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "A new test compares every table's foreign keys, indexes and checks in the migrated database with the schema. It found: `runs.project_id` carried **two** foreign keys (0003 created one and 0023 added `runs_project_id_fkey` assuming none existed), so every write and every `projects` delete was checked twice; `quality_gate_config.project_id`'s key had a hand-written name the schema does not produce; four keys on `runs` (`environment_id`, `release_id`, `policy_id`, `current_job_id`) existed only in the database; and two indexes (`execution_jobs_lease_owner_idx`, the partial `schedules_workspace_due_idx`) were never declared. A regenerated snapshot or `drizzle-kit push` would have dropped the undeclared ones.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "`packages/db/src/schema/constraints.test.ts` applies the migration chain to PGlite and diffs it with `getTableConfig` for every exported table.",
+      "evidence": [
+        {
+          "path": "packages/db/drizzle/0027_constraint_drift.sql",
+          "asserts": "Drops the duplicate `runs_project_id_fkey` and renames the `quality_gate_config` key to the name the schema produces."
+        },
+        {
+          "path": "packages/db/src/schema/constraints.test.ts",
+          "asserts": "The database and the schema agree on every foreign key and index, with an empty list of known drift; any new divergence fails."
+        }
+      ],
+      "resolution": "One migration for the two database-side defects, and schema declarations for the six objects the database already had."
+    },
+    {
+      "id": "MNT-16",
+      "title": "A bootstrap key that collided with another installation's was reported as `revoked`",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`DrizzleInstallationKeyStore.ensureBootstrap` refuses, correctly, to return another installation's key when the configured hash collides with it. But the error's reason fell back to `'revoked'` when this installation had no row at all, which sends an operator looking for a revocation that never happened.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-21",
+      "confirmedBy": "Read the `?? 'revoked'` fallback in `installation-key-repository.ts`; the collision test then asserted the reason and failed.",
+      "evidence": [
+        {
+          "path": "packages/db/src/repositories/installation-key-repository.ts",
+          "asserts": "`BootstrapKeyUnavailableError` has a `claimed_elsewhere` reason with its own message, used when the conflict is on another installation's key."
+        },
+        {
+          "path": "packages/db/src/repositories/repositories.test.ts",
+          "asserts": "`never returns another installation's key when the hash collides` requires reason `claimed_elsewhere` and no row written."
+        }
+      ],
+      "resolution": "The refusal names what happened."
     }
   ]
 }

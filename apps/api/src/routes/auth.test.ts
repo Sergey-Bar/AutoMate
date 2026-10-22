@@ -85,6 +85,64 @@ describe('auth routes', () => {
   describe('login rate limiting', () => {
     const limited = { ...options, loginRateLimit: { limit: 3, windowMs: 60_000 } };
 
+    it('does not let a client choose its own address with X-Forwarded-For', async () => {
+      // Without a trusted proxy in front, the header is whatever the client sent. A
+      // client that rotated it and guessed a new key per request reset both budgets on
+      // every attempt, so the limiter never limited anything.
+      const { app } = createAuthRoutes(limited);
+      const api = withErrorBoundary(app);
+      const statuses: number[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        const response = await api.request('/api/v1/auth/login', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-forwarded-for': `203.0.113.${String(index)}`,
+          },
+          body: JSON.stringify({ apiKey: `rotating-guess-${String(index)}` }),
+        });
+        statuses.push(response.status);
+      }
+      expect(statuses).toEqual([401, 401, 401, 429]);
+    });
+
+    it('reads X-Forwarded-For when the deployment says a proxy sets it', async () => {
+      const { app } = createAuthRoutes({ ...limited, trustProxy: true });
+      const api = withErrorBoundary(app);
+      const statuses: number[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        const response = await api.request('/api/v1/auth/login', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-forwarded-for': `203.0.113.${String(index)}`,
+          },
+          body: JSON.stringify({ apiKey: `proxied-guess-${String(index)}` }),
+        });
+        statuses.push(response.status);
+      }
+      // Four distinct client addresses, as the proxy reports them, each within budget.
+      expect(statuses).toEqual([401, 401, 401, 401]);
+    });
+
+    it('reads the hop the proxy appended, not one the client prepended', async () => {
+      const { app } = createAuthRoutes({ ...limited, trustProxy: true });
+      const api = withErrorBoundary(app);
+      const statuses: number[] = [];
+      for (let index = 0; index < 4; index += 1) {
+        const response = await api.request('/api/v1/auth/login', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-forwarded-for': `198.51.100.${String(index)}, 10.0.0.9`,
+          },
+          body: JSON.stringify({ apiKey: `prepended-guess-${String(index)}` }),
+        });
+        statuses.push(response.status);
+      }
+      expect(statuses).toEqual([401, 401, 401, 429]);
+    });
+
     it('refuses repeated failures with 429 and a Retry-After', async () => {
       const { app } = createAuthRoutes(limited);
       const api = withErrorBoundary(app);

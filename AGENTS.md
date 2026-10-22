@@ -87,8 +87,8 @@ pnpm test:render          # Rendering budget: LCP, INP, CLS, long tasks on the f
 pnpm render:baseline      # RECORDS the rendering ceilings. Never in CI, by design
 pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm compose:config       # Resolves the canonical production compose file
-pnpm migrate:plan         # Builds the plan. Reads the repository, never a database
-pnpm migrate:validate     # Checks the migration graph against the journal
+pnpm migrate:plan         # Legacy SQLite import: plan a migration (needs --from --source-id --source-commit --target-commit --out)
+pnpm migrate:validate     # Legacy SQLite import: validate a written plan (needs --plan). The journal check is db:check
 pnpm smoke:local          # HTTP probes against a running stack
 pnpm smoke:rehearsal      # A LOCAL-TARGET GUARD, not a rehearsal. Refuses a non-loopback target
 pnpm quality:baseline     # The nightly aggregate the numbers in docs/quality/ come from
@@ -435,12 +435,12 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   | --------------------------- | ----------- |
   | `apps/api`                  | 95/86/95/97 |
   | `apps/web`                  | 98/91/98/99 |
-  | `apps/runner`               | 70/58/66/72 |
-  | `apps/worker`               | 63/57/69/65 |
+  | `apps/runner`               | 91/86/93/93 |
+  | `apps/worker`               | 96/91/97/98 |
   | `packages/shared-contracts` | 99/98/97/99 |
-  | `packages/ui`               | 70/86/71/69 |
-  | `packages/db`               | 72/67/55/73 |
-  | `tools/migrate-cli`         | 59/42/85/60 |
+  | `packages/ui`               | 90/87/97/90 |
+  | `packages/db`               | 96/91/99/96 |
+  | `tools/migrate-cli`         | 96/92/98/96 |
 
   Every row was wrong when this table was last read, by 2 to 20 points — the floors
   move every time a package's tests grow, and nothing was checking. `coverage:baseline`

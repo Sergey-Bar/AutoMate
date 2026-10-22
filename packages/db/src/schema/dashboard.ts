@@ -25,6 +25,7 @@ import {
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { GATE_STATUSES } from './vocabularies.js';
+import { environments, executionJobs, qualityPolicies, releases } from './execution.js';
 
 export const RUN_PHASES = [
   'queued',
@@ -263,20 +264,32 @@ export const runs = pgTable(
     projectId: uuid('project_id').references((): AnyPgColumn => projects.id, {
       onDelete: 'set null',
     }),
-    environmentId: uuid('environment_id'),
-    releaseId: uuid('release_id'),
+    // Declared here since 2.3.x: 0003 created these keys and the schema never said so,
+    // so a generated migration would have dropped them (ledger MNT-15). The targets live
+    // in execution.ts, which imports this file; the references are lazy, so the cycle is
+    // never read during module evaluation.
+    environmentId: uuid('environment_id').references((): AnyPgColumn => environments.id, {
+      onDelete: 'set null',
+    }),
+    releaseId: uuid('release_id').references((): AnyPgColumn => releases.id, {
+      onDelete: 'set null',
+    }),
     suite: text('suite'),
     selection: jsonb('selection').$type<RunSelection>().notNull().default([]),
     requiredCapabilities: jsonb('required_capabilities').$type<string[]>().notNull().default([]),
     labels: jsonb('labels').$type<string[]>().notNull().default([]),
     timeoutMs: integer('timeout_ms'),
-    policyId: uuid('policy_id'),
+    policyId: uuid('policy_id').references((): AnyPgColumn => qualityPolicies.id, {
+      onDelete: 'set null',
+    }),
     idempotencyKey: text('idempotency_key'),
     retryOfRunId: uuid('retry_of_run_id').references((): AnyPgColumn => runs.id, {
       onDelete: 'set null',
     }),
     runnerId: uuid('runner_id').references(() => runners.id, { onDelete: 'set null' }),
-    currentJobId: uuid('current_job_id'),
+    currentJobId: uuid('current_job_id').references((): AnyPgColumn => executionJobs.id, {
+      onDelete: 'set null',
+    }),
     eventSequence: integer('event_sequence').notNull().default(0),
     cancelRequestedAt: timestamp('cancel_requested_at', { withTimezone: true }),
     cancelRequestedBy: text('cancel_requested_by'),
@@ -598,28 +611,37 @@ export const knownFailures = pgTable('known_failures', {
 
 // ─── schedules ─────────────────────────────────────────────────────────────
 // Source: schedules table — cron-based scheduled runs
-export const schedules = pgTable('schedules', {
-  id: text('id').primaryKey(),
-  cronExpr: text('cron_expr').notNull(),
-  // SQLite: text('run_options') // JSON
-  runOptions: jsonb('run_options'),
-  // SQLite: integer('enabled', { mode: 'boolean' })
-  enabled: boolean('enabled').default(true),
-  // The tenant this schedule runs in, and `NOT NULL` because a schedule that names no
-  // workspace has no correct one to default to.
-  //
-  // Added in `0015_schedule_workspace_scope.sql`. It used to exist only as
-  // `run_options->'request'->>'workspaceId'` — a string inside untyped JSONB, which
-  // meant the worker had nothing to scope its read by and nothing to validate the value
-  // against, so any principal able to insert a schedule chose the workspace its run
-  // executed in. With a column, the worker takes the workspace from here and refuses a
-  // row whose `run_options` disagrees.
-  workspaceId: text('workspace_id').notNull(),
-  // SQLite: text('last_run_at')
-  lastRunAt: timestamp('last_run_at', { withTimezone: true }),
-  // SQLite: text('created_at').notNull()
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-});
+export const schedules = pgTable(
+  'schedules',
+  {
+    id: text('id').primaryKey(),
+    cronExpr: text('cron_expr').notNull(),
+    // SQLite: text('run_options') // JSON
+    runOptions: jsonb('run_options'),
+    // SQLite: integer('enabled', { mode: 'boolean' })
+    enabled: boolean('enabled').default(true),
+    // The tenant this schedule runs in, and `NOT NULL` because a schedule that names no
+    // workspace has no correct one to default to.
+    //
+    // Added in `0015_schedule_workspace_scope.sql`. It used to exist only as
+    // `run_options->'request'->>'workspaceId'` — a string inside untyped JSONB, which
+    // meant the worker had nothing to scope its read by and nothing to validate the value
+    // against, so any principal able to insert a schedule chose the workspace its run
+    // executed in. With a column, the worker takes the workspace from here and refuses a
+    // row whose `run_options` disagrees.
+    workspaceId: text('workspace_id').notNull(),
+    // SQLite: text('last_run_at')
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    // SQLite: text('created_at').notNull()
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  // Created by 0015 for the due-schedule read; declared so a regenerated snapshot keeps it.
+  (table) => [
+    index('schedules_workspace_due_idx')
+      .on(table.workspaceId, table.lastRunAt)
+      .where(sql`enabled = true`),
+  ],
+);
 
 // ─── quality gate config ───────────────────────────────────────────────────
 // Source: quality_gate_config table — global + per-workspace quality gate thresholds

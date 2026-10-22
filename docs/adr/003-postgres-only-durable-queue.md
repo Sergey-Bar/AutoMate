@@ -58,5 +58,5 @@ all live in it.
   production and announces every permitted fallback with its component name.
 - `playwright.config.ts` — the `DATABASE_URL` guard, and `E2E_ALLOW_IN_MEMORY` as the
   deliberate opt-out.
-- `pnpm migrate:validate`, `pnpm db:check`, and the PGlite integration suites under
+- `pnpm db:check` and the PGlite integration suites under
   `tests/integration/`.

@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import { standardCoverage, STANDARD_TEST_TIMEOUT_MS } from '../../.config/vitest.shared.js';
 
+const coverage = standardCoverage(process.cwd());
+
 export default defineConfig({
   test: {
     environment: 'node',
@@ -11,7 +13,11 @@ export default defineConfig({
     hookTimeout: STANDARD_TEST_TIMEOUT_MS,
     // Standard floors plus an explicit `include`: without it, an untested
     // module is invisible to the coverage report.
-    coverage: standardCoverage(process.cwd()),
+    coverage: {
+      ...coverage,
+      // Test support (the PGlite harness), not product; see the exclusions register.
+      exclude: [...coverage.exclude, 'src/test-support/**'],
+    },
     include: ['src/**/*.test.ts'],
   },
 });

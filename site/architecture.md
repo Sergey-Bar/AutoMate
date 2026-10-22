@@ -41,9 +41,8 @@ Three properties are load-bearing and each has cost something to learn:
 ## Persistence
 
 Drizzle against PostgreSQL, with an explicit in-memory fallback for development
-rather than an implicit one. Migrations are a journal-ordered graph; `pnpm
-migrate:plan` reads the repository and never a database, and `pnpm db:check` fails
-when the journal and the schema disagree.
+rather than an implicit one. Migrations are a journal-ordered graph; `pnpm db:check` fails when the journal and the
+schema disagree, and the integration suites apply the whole graph to PGlite.
 
 The tenancy boundary is `WORKSPACE_ID`, and it is applied to the tables it was
 extended to — vault entries, connector credentials, schedules, outbox events, the
