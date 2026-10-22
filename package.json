@@ -32,6 +32,7 @@
     "db:migrate": "pnpm --filter @automate/db db:migrate",
     "db:check": "pnpm --filter @automate/db exec drizzle-kit check",
     "compose:config": "docker compose -f infra/compose/docker-compose.unified.yml config",
+    "compose:boot": "node ./scripts/compose-boot.mjs",
     "migrate:plan": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js plan",
     "migrate:validate": "pnpm --filter @automate/migrate-cli build && node tools/migrate-cli/dist/index.js validate",
     "migrate:rehearse": "pnpm build && node ./scripts/migration-rehearse.mjs",

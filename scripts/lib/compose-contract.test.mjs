@@ -4,9 +4,13 @@ import path from 'node:path';
 import test from 'node:test';
 import {
   REQUIRED_OBJECT_STORE_VARIABLES,
+  REQUIRED_PRODUCTION_VARIABLES,
+  bootProblems,
   composeProblems,
   environmentKeys,
+  environmentMap,
   serviceNames,
+  upstreamProblems,
 } from './compose-contract.mjs';
 
 /**
@@ -247,7 +251,127 @@ test('the production stack really does declare the object store', () => {
     'the api service must still claim to be production, or this file is testing nothing',
   );
   assert.ok(
-    serviceNames(text).includes('minio'),
+    serviceNames(text).includes('objectstore'),
     'the production stack must declare the object store service the endpoint names',
   );
+});
+
+// ─── First boot on a clean machine (ledger MNT-19 onward) ──────────────────────────
+
+/** @param {string} relative */
+function readRepo(relative) {
+  return readFileSync(path.join(REPO_ROOT, relative), 'utf8');
+}
+
+test('pull_policy: never, an untagged image and :latest are each a finding', () => {
+  const compose = [
+    'services:',
+    '  a:',
+    '    image: example/a:1.2.3',
+    '    pull_policy: never',
+    '  b:',
+    '    image: example/b',
+    '  c:',
+    '    image: example/c:latest',
+    '  d:',
+    '    image: ghcr.io/owner/d:${AUTOMATE_VERSION:?set AUTOMATE_VERSION}',
+    '',
+  ].join('\n');
+  const problems = bootProblems('x.yml', compose);
+  assert.equal(problems.length, 3, problems.join('\n'));
+  assert.ok(has(problems, /`a` sets pull_policy: never/));
+  assert.ok(has(problems, /`b` uses image `example\/b` with no tag/));
+  assert.ok(has(problems, /example\/c:latest/));
+});
+
+test('a production API missing a boot variable is a finding naming it', () => {
+  const compose = [
+    'services:',
+    '  api:',
+    '    build:',
+    '      dockerfile: infra/docker/api.Dockerfile',
+    '    environment:',
+    '      NODE_ENV: production',
+    ...REQUIRED_PRODUCTION_VARIABLES.filter((name) => name !== 'AUTOMATE_INSTALLATION_KEY').map(
+      (name) => `      ${name}: v`,
+    ),
+    '',
+  ].join('\n');
+  const problems = bootProblems('x.yml', compose);
+  assert.equal(problems.length, 1);
+  assert.ok(has(problems, /AUTOMATE_INSTALLATION_KEY/));
+});
+
+test('the boot variables are exactly the ones the API refuses to start without', () => {
+  // Derived in both directions from the two files that refuse, so the list cannot invent a
+  // requirement and cannot miss a new one.
+  const policy = readRepo('apps/api/src/startup-policy.ts');
+  const index = readRepo('apps/api/src/index.ts');
+  const refused = new Set([
+    ...[...policy.matchAll(/refuseIfUnusable\('([A-Z_]+)'/g)].map((match) => match[1] ?? ''),
+    ...(/DATABASE_URL is required in production/.test(policy) ? ['DATABASE_URL'] : []),
+    ...[...index.matchAll(/process\.env\['(AUTOMATE_INSTALLATION_KEY)'\]/g)].map(
+      (match) => match[1] ?? '',
+    ),
+  ]);
+  assert.deepEqual([...refused].sort(), [...REQUIRED_PRODUCTION_VARIABLES].sort());
+});
+
+test('an upstream on a port its target does not listen on is a finding', () => {
+  const conf = 'upstream w { server web:80; }\nupstream a { server api:3000; }\n';
+  const listening = new Map([
+    ['web', 8080],
+    ['api', 3000],
+  ]);
+  const problems = upstreamProblems('edge.conf', conf, listening);
+  assert.equal(problems.length, 1);
+  assert.ok(has(problems, /web:80, but web listens on 8080/));
+});
+
+for (const file of COMPOSE_FILES) {
+  test(`${file} can start on a machine that has never run it`, () => {
+    assert.deepEqual(bootProblems(file, readRepo(file)), []);
+  });
+}
+
+test('the edge proxy reaches each upstream on the port it listens on', () => {
+  const webListen = /listen\s+(\d+)/.exec(readRepo('infra/nginx/web.conf'));
+  assert.ok(webListen !== null, 'infra/nginx/web.conf declares no listen port');
+  const apiPort = environmentMap(readRepo('infra/compose/compose.dev.yml'), 'api').get('PORT');
+  const listening = new Map([
+    ['web', Number(webListen[1])],
+    ['api', Number(apiPort)],
+  ]);
+  assert.deepEqual(
+    upstreamProblems('infra/nginx/edge.conf', readRepo('infra/nginx/edge.conf'), listening),
+    [],
+  );
+});
+
+test('both nginx images keep their temp files on the /tmp tmpfs (MNT-23)', () => {
+  // `web` and `edge` run read-only as `nginx` with a tmpfs over /var/cache/nginx. The
+  // tmpfs is root-owned and hides the directory the Dockerfile chowned, so nginx's
+  // compiled-in temp paths under it failed `mkdir` and the container exited on start.
+  for (const conf of ['infra/nginx/web.conf', 'infra/nginx/edge.conf']) {
+    const text = readRepo(conf);
+    for (const directive of ['client_body', 'proxy', 'fastcgi', 'uwsgi', 'scgi']) {
+      assert.match(
+        text,
+        new RegExp(`^${directive}_temp_path\\s+/tmp/`, 'm'),
+        `${conf} must set ${directive}_temp_path under /tmp`,
+      );
+    }
+  }
+});
+
+test('both nginx images fail the build if the pid rewrite stops matching (MNT-23)', () => {
+  // The rewrite targeted `/var/run/nginx.pid`; nginx 1.27 writes `/run/nginx.pid`, so `sed`
+  // matched nothing, the build passed, and the read-only container could not write its pid.
+  for (const dockerfile of ['infra/docker/web.Dockerfile', 'infra/docker/edge.Dockerfile']) {
+    assert.match(
+      readRepo(dockerfile),
+      /grep -q '\^pid \/tmp\/nginx\.pid;' \/etc\/nginx\/nginx\.conf/,
+      `${dockerfile} must verify the pid rewrite`,
+    );
+  }
 });

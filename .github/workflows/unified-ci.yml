@@ -55,7 +55,7 @@ jobs:
         # one of them.
         #
         # The last three are the object store's. They are here because
-        # `infra/compose/docker-compose.unified.yml` now declares a `minio` service and wires
+        # `infra/compose/docker-compose.unified.yml` declares an `objectstore` service and wires
         # `OBJECT_STORE_*` into the API, which sets `NODE_ENV: production` — and
         # `apps/api/src/startup-policy.ts` refuses to start a production deployment
         # without them. Without these three values this step would fail on a missing
@@ -68,8 +68,9 @@ jobs:
           AUTOMATE_API_KEY: ci-config-validation-32-characters
           REPORTER_SECRET: ci-config-validation-32-characters
           RUNNER_REGISTRATION_SECRET: ci-config-validation-32-characters
-          MINIO_ROOT_USER: ci-config-validation-32-characters
-          MINIO_ROOT_PASSWORD: ci-config-validation-32-characters
+          AUTOMATE_INSTALLATION_KEY: ci-config-validation-32-characters
+          OBJECT_STORE_ACCESS_KEY_ID: ci-config-validation-32-characters
+          OBJECT_STORE_SECRET_ACCESS_KEY: ci-config-validation-32-characters
           OBJECT_STORE_BUCKET: ci-config-validation-32-characters
           OBJECT_STORE_REGION: ci-config-validation-32-characters
         run: pnpm compose:config
@@ -97,6 +98,25 @@ jobs:
         run: pnpm license:check
       - name: Audit
         run: pnpm audit --audit-level=high
+
+  compose-boot:
+    name: Compose boot
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # The production stack, started from nothing on a runner that has never seen it:
+    # every image built, every healthcheck waited on, then readiness, the web UI and a
+    # sign-in probed through the proxy. Static checks passed on four defects that only a
+    # running stack showed (ledger MNT-19 to MNT-23), so this is its own required job.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Boot the production stack
+        run: node ./scripts/compose-boot.mjs
 
   unit-and-coverage:
     name: Unit and coverage

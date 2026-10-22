@@ -358,3 +358,123 @@ export function composeProblems(file, text) {
   }
   return problems;
 }
+
+// ─── The stack has to boot on a machine that has never seen it ─────────────────────
+//
+// The rules above protect the object-store wiring. The ones below protect the first
+// `docker compose up` on a clean machine, which is the only experience a person who
+// downloads a release has. Each was a real defect in the committed files (ledger
+// MNT-19 onward): an image the stack refused to pull, a variable the API refuses to boot
+// without, and a proxy upstream on a port nothing listens on.
+
+/**
+ * Variables the production API refuses to start without.
+ *
+ * `apps/api/src/startup-policy.ts` refuses the five secrets and `DATABASE_URL`, and
+ * `apps/api/src/index.ts` refuses a database-backed production boot with no
+ * `AUTOMATE_INSTALLATION_KEY` (`NO_INSTALLATION_KEY`). The test beside this module reads
+ * both files and fails if a name here is not refused there, or one refused there is not
+ * here, so this list cannot become a second authority that drifts.
+ */
+export const REQUIRED_PRODUCTION_VARIABLES = [
+  'DATABASE_URL',
+  'COOKIE_SECRET',
+  'REPORTER_SECRET',
+  'AUTOMATE_API_KEY',
+  'VAULT_SECRET',
+  'RUNNER_REGISTRATION_SECRET',
+  'AUTOMATE_INSTALLATION_KEY',
+];
+
+/**
+ * A scalar key set directly on a service (`image:`, `pull_policy:`), or `null`.
+ *
+ * Only the service's own level counts, so `image:` inside some nested block is not
+ * mistaken for the service's image.
+ *
+ * @param {string} text
+ * @param {string} serviceName
+ * @param {string} key
+ * @returns {string | null}
+ */
+export function serviceScalar(text, serviceName, key) {
+  const pattern = new RegExp(`^\\s{4}${escapeRegExp(key)}\\s*:\\s*(\\S.*)$`);
+  for (const line of serviceLines(text, serviceName)) {
+    if (indentOf(line) !== 4) continue;
+    const found = pattern.exec(line.trimEnd());
+    if (found !== null) return unquote(found[1] ?? '');
+  }
+  return null;
+}
+
+/**
+ * Every way a compose file would fail to start on a machine that has never run it.
+ *
+ * - `pull_policy: never` refuses to fetch an image the machine does not already have,
+ *   so the first `up` anywhere new fails before a container exists.
+ * - an `image:` with no tag, or `:latest`, is a different image on every pull, so two
+ *   installs of one release are not the same install.
+ * - a production API service that does not declare a variable the API refuses to boot
+ *   without is a stack whose `api` exits on start and whose dependants wait forever.
+ *
+ * @param {string} file for the message
+ * @param {string} text the compose file
+ * @returns {string[]}
+ */
+export function bootProblems(file, text) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const service of serviceNames(text)) {
+    if (serviceScalar(text, service, 'pull_policy') === 'never') {
+      problems.push(
+        `${file}: service \`${service}\` sets pull_policy: never, so it cannot start on a ` +
+          'machine that does not already hold the image. Remove it.',
+      );
+    }
+    const image = serviceScalar(text, service, 'image');
+    if (image !== null && !image.includes('${') && !/:[^/]+$/.test(image)) {
+      problems.push(
+        `${file}: service \`${service}\` uses image \`${image}\` with no tag, which is ` +
+          'whatever the registry serves today. Pin a version.',
+      );
+    } else if (image !== null && image.endsWith(':latest')) {
+      problems.push(`${file}: service \`${service}\` pins \`${image}\`, which is not a version.`);
+    }
+    if (!enforcesObjectStorePolicy(text, service)) continue;
+    const environment = environmentMap(text, service);
+    const missing = REQUIRED_PRODUCTION_VARIABLES.filter((name) => !environment.has(name));
+    if (missing.length > 0) {
+      problems.push(
+        `${file}: service \`${service}\` sets NODE_ENV: production but does not declare ` +
+          `${missing.join(', ')}, which the API refuses to boot without ` +
+          '(`apps/api/src/startup-policy.ts`, `NO_INSTALLATION_KEY` in `apps/api/src/index.ts`).',
+      );
+    }
+  }
+  return problems;
+}
+
+/**
+ * nginx `upstream` servers whose port disagrees with what the target listens on.
+ *
+ * @param {string} file for the message
+ * @param {string} conf the nginx configuration
+ * @param {Map<string, number>} listening service name to the port it listens on
+ * @returns {string[]}
+ */
+export function upstreamProblems(file, conf, listening) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const match of conf.matchAll(/upstream\s+(\S+)\s*\{\s*server\s+([^:;\s]+):(\d+)\s*;/g)) {
+    const host = match[2] ?? '';
+    const port = Number(match[3]);
+    const expected = listening.get(host);
+    if (expected !== undefined && expected !== port) {
+      problems.push(
+        `${file}: upstream \`${match[1] ?? ''}\` proxies to ${host}:${String(port)}, but ` +
+          `${host} listens on ${String(expected)}, so every request it serves fails with 502.`,
+      );
+    }
+  }
+  return problems;
+}

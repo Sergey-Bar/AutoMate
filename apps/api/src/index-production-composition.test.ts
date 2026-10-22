@@ -379,9 +379,9 @@ describe('a valid production configuration', () => {
     const response = await composed?.app.request('/api/v1/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // The login credential is AUTOMATE_API_KEY; `resolveAuthSecrets` names it the
-      // installation key.
-      body: JSON.stringify({ apiKey: API_KEY }),
+      // The login credential is AUTOMATE_INSTALLATION_KEY, the key a production boot
+      // requires (ledger MNT-20); AUTOMATE_API_KEY is only the fallback when it is unset.
+      body: JSON.stringify({ apiKey: VALID_SECRETS.AUTOMATE_INSTALLATION_KEY }),
     });
     expect(response?.status, await response?.clone().text()).toBe(200);
     expect(response?.headers.get('set-cookie') ?? '').toMatch(/Max-Age=3600(;|$)/);
