@@ -36,6 +36,19 @@ confirmed defect is a row in a machine-checked
 
 ## Quick start
 
+You need [Docker](https://docs.docker.com/get-docker/) and nothing else.
+
+1. Download `automate-<version>.zip` from the
+   [latest release](https://github.com/Sergey-Bar/AutoMate/releases/latest) and unzip it.
+2. Start Docker.
+3. Run **`start.cmd`** on Windows (double-click it) or **`./start.sh`** on macOS and Linux.
+
+Your browser opens `http://localhost:8080`, and the terminal prints the key to sign in with.
+`stop`, `update` and `uninstall` work the same way; [Install](site/guide/install.md) has the
+details. To send a report from CI, see [sending results](site/guide/sending-results.md).
+
+### From source
+
 Requires Node.js 24 and pnpm 11 (`corepack enable` provides it). This runs on the
 in-memory store, so nothing else needs installing.
 

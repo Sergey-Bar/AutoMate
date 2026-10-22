@@ -2,6 +2,49 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 2.5.0 — 2026-10-22 — download and run
+
+Automate can now be installed by downloading one zip from the release page and running
+`start`. Every release publishes amd64 and arm64 images, the bundle and its checksum from
+a `v*` tag. Getting there meant making the production stack boot at all.
+
+### Added
+
+- **One-download install.** `automate-<version>.zip` holds the compose file, the start
+  scripts (`start.cmd`, `start.ps1`, `start.sh`), `.env.example` and a quick start. `start`
+  creates the secrets once, pulls, starts, waits for ready, opens `http://localhost:8080`
+  and prints the sign-in key; `stop`, `status`, `logs`, `update` and `uninstall [--purge]`
+  do what they say. See [Install](../site/guide/install.md).
+- **Published images** on `ghcr.io/sergey-bar/automate-*`, multi-arch, with an SBOM and a
+  build-provenance attestation, from `.github/workflows/release.yml`
+  ([ADR-013](./adr/013-published-images-and-a-release-bundle.md)). The release ends by
+  installing itself from the release page on a clean runner.
+- **`pnpm compose:boot`** and a `Compose boot` job start the production stack from nothing
+  on every pull request; a `Start scripts on Windows` job runs the start scripts under
+  PowerShell 7, Windows PowerShell 5.1 and `sh`.
+
+### Fixed
+
+- **MNT-19 (Critical)** — the production stack could not boot: the API refuses to start
+  without `AUTOMATE_INSTALLATION_KEY` and compose never set it.
+- **MNT-20** — that key was never read; sign-in used `AUTOMATE_API_KEY` instead.
+- **MNT-21 (Critical)** — `minio/minio` no longer exists on Docker Hub, and
+  `pull_policy: never` hid it. SeaweedFS replaces it and creates the bucket on start.
+- **MNT-22** — the edge proxy sent `/` to a port nothing listened on.
+- **MNT-23 (Critical)** — both nginx images exited on start (pid path, root-owned tmpfs).
+- **MNT-24** — runtime images shipped the monorepo and its dev dependencies.
+
+### Changed
+
+- The production stack publishes **one port**, `127.0.0.1:8080`, through the edge proxy.
+  `AUTOMATE_PORT` and `AUTOMATE_BIND` change it; the start scripts warn when it is opened
+  beyond the machine, because the install has no login.
+- Images are production-only: the API image went from 2.32 GB to 454 MB, the worker from
+  2.74 GB to 242 MB. `db-migrate.Dockerfile` is merged into `migrate.Dockerfile`.
+- `.env.compose.example` replaces the two MinIO root-credential variables with
+  `OBJECT_STORE_ACCESS_KEY_ID` / `OBJECT_STORE_SECRET_ACCESS_KEY` and adds
+  `AUTOMATE_INSTALLATION_KEY`.
+
 ## 2.4.0 — 2026-10-22 — open items from 2.3.0 closed
 
 Closes every item 2.3.0 left open, except the three majors held back on recorded
