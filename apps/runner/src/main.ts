@@ -196,10 +196,14 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
   };
   process.once('SIGINT', shutdown);
   process.once('SIGTERM', shutdown);
+  // The refresh in flight, if any. Shutdown waits for it: the API rotates the token the
+  // moment it answers, so a runner that exits before writing the new one restarts with a
+  // token nobody honours (ledger MNT-25). The write itself is atomic (`token-store.ts`).
+  let refreshInFlight: Promise<void> = Promise.resolve();
   const registrationRefresh = config.credential
     ? undefined
     : setInterval(() => {
-        void client
+        refreshInFlight = client
           .register(registrationRequest)
           .then((refreshed) =>
             writeStoredToken(config.spoolRoot, refreshed.runnerId, refreshed.token),
@@ -214,6 +218,7 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
     await service.run(lifecycle.signal);
   } finally {
     if (registrationRefresh) clearInterval(registrationRefresh);
+    await refreshInFlight;
     process.off('SIGINT', shutdown);
     process.off('SIGTERM', shutdown);
     await health.close();

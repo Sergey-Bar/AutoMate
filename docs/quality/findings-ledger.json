@@ -4947,6 +4947,29 @@
         }
       ],
       "resolution": "Runtime stages receive a production deploy only, cutting the API image from 2.32 GB to 454 MB and the worker from 2.74 GB to 242 MB. `db-migrate.Dockerfile` is deleted and both stacks build `migrate.Dockerfile`. `compose:boot` checks size and dev packages on the images it builds."
+    },
+    {
+      "id": "MNT-25",
+      "title": "A runner stopped mid-refresh exited before saving its rotated token, and the test that should have caught it was flaky",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`apps/runner/src/main.ts` refreshes its registration every ten minutes with `void client.register(...).then(writeStoredToken)` and nothing held the promise, so a shutdown that landed during a refresh returned from `main` before the rotated token was written. The API rotates the token as it answers, so that runner restarts presenting a token nobody honours. `main.compose.test.ts` \"refreshes the registration every ten minutes\" asserted the write by polling the token file inside `service.run` with `vi.waitFor`'s one-second default, which raced real file I/O: it failed intermittently under `pnpm verify`'s parallel load (seen on 2026-10-21 and again on 2026-10-22 with `expected 'issued-token' to be 'rotated-token'`) and passed alone.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "Rewritten to stop the service in the same turn the refresh fires and assert after `main` returns, the test failed deterministically before the fix with `expected 'issued-token' to be 'rotated-token'` — the flake's own message. After the fix it passed 510 consecutive runs, 460 of them in four parallel loops.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/main.ts",
+          "asserts": "The refresh promise is kept in `refreshInFlight`, and shutdown clears the interval and awaits it before closing the health server."
+        },
+        {
+          "path": "apps/runner/src/main.compose.test.ts",
+          "asserts": "`refreshes the registration every ten minutes and stores the rotated token` stops the service in the turn the refresh fires and requires the rotated token on disk once `main` returns; the failed-refresh test asserts its log line the same way. Neither polls with a time budget."
+        }
+      ],
+      "resolution": "Shutdown waits for an in-flight refresh, which is the product fix, and the tests assert after `main` returns instead of racing the file system, which is why they are deterministic. No retry was added."
     }
   ]
 }
