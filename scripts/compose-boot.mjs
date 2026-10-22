@@ -18,8 +18,11 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  NODE_RUNTIME_IMAGES,
   bootEnvironment,
   bootProbes,
+  budgetProblems,
+  devPackageProbe,
   envFileText,
   requiredVariables,
 } from './lib/compose-boot.mjs';
@@ -67,6 +70,51 @@ async function runProbes(probes) {
   return failures;
 }
 
+/**
+ * What the built images carry: each under its size ceiling, and no Node runtime able to
+ * resolve a dev-only package (the images used to ship Vitest, ESLint and TypeScript).
+ *
+ * @returns {string[]} failures
+ */
+function imageProblems() {
+  /** @type {Record<string, unknown>} */
+  const budget = JSON.parse(
+    readFileSync(path.join(REPO_ROOT, 'infra/docker/image-budget.json'), 'utf8'),
+  );
+  /** @type {Map<string, number>} */
+  const sizes = new Map();
+  /** @type {string[]} */
+  const failures = [];
+  for (const service of Object.keys(budget).filter((key) => !key.startsWith('$'))) {
+    const inspected = spawnSync(
+      'docker',
+      ['image', 'inspect', '--format', '{{.Size}}', `${PROJECT}-${service}`],
+      { encoding: 'utf8' },
+    );
+    if (inspected.status !== 0) failures.push(`image \`${service}\` was not built`);
+    else sizes.set(service, Number(inspected.stdout.trim()));
+  }
+  failures.push(...budgetProblems(sizes, budget));
+  for (const service of NODE_RUNTIME_IMAGES) {
+    const probed = spawnSync(
+      'docker',
+      ['run', '--rm', '--entrypoint', 'node', `${PROJECT}-${service}`, '-e', devPackageProbe()],
+      { encoding: 'utf8' },
+    );
+    const found =
+      probed.status === 0
+        ? /** @type {string[]} */ (JSON.parse(probed.stdout.trim() || '[]'))
+        : null;
+    if (found === null)
+      failures.push(`image \`${service}\` could not run node: ${probed.stderr.trim()}`);
+    else if (found.length > 0)
+      failures.push(`image \`${service}\` ships dev-only packages: ${found.join(', ')}`);
+  }
+  for (const [service, bytes] of sizes)
+    console.log(`     image ${service}: ${String(Math.round(bytes / 1024 / 1024))} MB`);
+  return failures;
+}
+
 async function main() {
   const values = bootEnvironment(
     requiredVariables(readFileSync(path.join(REPO_ROOT, COMPOSE_FILE), 'utf8')),
@@ -82,6 +130,7 @@ async function main() {
       failures.push('docker compose up --wait did not reach a healthy stack');
     } else {
       failures = await runProbes(bootProbes(base, values.get('AUTOMATE_INSTALLATION_KEY') ?? ''));
+      failures.push(...imageProblems());
     }
     if (failures.length > 0) {
       compose(envFile, ['ps', '-a']);

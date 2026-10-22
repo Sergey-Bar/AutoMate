@@ -2,7 +2,16 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { bootEnvironment, bootProbes, envFileText, requiredVariables } from './compose-boot.mjs';
+import {
+  DEV_ONLY_PACKAGES,
+  NODE_RUNTIME_IMAGES,
+  bootEnvironment,
+  bootProbes,
+  budgetProblems,
+  devPackageProbe,
+  envFileText,
+  requiredVariables,
+} from './compose-boot.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
@@ -59,4 +68,26 @@ test('the probes check readiness, the UI and a sign-in with the installation key
     ],
   );
   assert.equal(JSON.parse(String(probes[2]?.init?.body)).apiKey, 'the-key');
+});
+
+test('an image over its ceiling, or with none, is a finding', () => {
+  const mb = 1024 * 1024;
+  const problems = budgetProblems(
+    new Map([
+      ['api', 600 * mb],
+      ['web', 50 * mb],
+      ['extra', 10 * mb],
+    ]),
+    { api: { maxMegabytes: 560 }, web: { maxMegabytes: 100 } },
+  );
+  assert.deepEqual(problems, [
+    'image `api` is 600 MB, over its 560 MB ceiling',
+    'image `extra` (10 MB) has no ceiling in image-budget.json',
+  ]);
+});
+
+test('the dev-package probe names every dev-only package and prints what resolves', () => {
+  const probe = devPackageProbe();
+  for (const name of DEV_ONLY_PACKAGES) assert.ok(probe.includes(`"${name}"`), name);
+  assert.ok(NODE_RUNTIME_IMAGES.includes('api'));
 });

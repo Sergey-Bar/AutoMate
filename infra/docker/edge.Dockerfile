@@ -1,4 +1,10 @@
 FROM nginx:1.27-alpine
+ARG AUTOMATE_VERSION=dev
+ARG AUTOMATE_REVISION=unknown
+LABEL org.opencontainers.image.source="https://github.com/Sergey-Bar/AutoMate" \
+  org.opencontainers.image.title="automate-edge" \
+  org.opencontainers.image.version="${AUTOMATE_VERSION}" \
+  org.opencontainers.image.revision="${AUTOMATE_REVISION}"
 # Unprivileged, on 8080, for the same reasons as web.Dockerfile: the stock image
 # runs as root only because it binds 80, and the only capability it needs
 # afterwards is none.

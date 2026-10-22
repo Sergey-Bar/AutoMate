@@ -80,3 +80,46 @@ export function bootProbes(base, installationKey) {
     },
   ];
 }
+
+/** Packages that exist for development only; none may resolve inside a runtime image. */
+export const DEV_ONLY_PACKAGES = ['vitest', 'eslint', 'typescript'];
+
+/** The Node images whose runtime is a `pnpm deploy --prod` output. */
+export const NODE_RUNTIME_IMAGES = ['api', 'worker', 'migrate', 'runner'];
+
+/**
+ * A script for `node -e` that prints the dev-only packages it can resolve.
+ *
+ * @returns {string}
+ */
+export function devPackageProbe() {
+  const names = JSON.stringify(DEV_ONLY_PACKAGES);
+  return `const f=[];for(const n of ${names}){try{require.resolve(n);f.push(n)}catch{}}console.log(JSON.stringify(f))`;
+}
+
+/**
+ * Images over their size ceiling, and built images with no ceiling.
+ *
+ * @param {Map<string, number>} sizes service name to bytes
+ * @param {Record<string, unknown>} budget the parsed `infra/docker/image-budget.json`
+ * @returns {string[]}
+ */
+export function budgetProblems(sizes, budget) {
+  /** @type {string[]} */
+  const problems = [];
+  for (const [service, bytes] of sizes) {
+    const entry = /** @type {Record<string, unknown> | undefined} */ (budget[service]);
+    const ceiling = entry?.['maxMegabytes'];
+    const megabytes = Math.round(bytes / 1024 / 1024);
+    if (typeof ceiling !== 'number') {
+      problems.push(
+        `image \`${service}\` (${String(megabytes)} MB) has no ceiling in image-budget.json`,
+      );
+    } else if (megabytes > ceiling) {
+      problems.push(
+        `image \`${service}\` is ${String(megabytes)} MB, over its ${String(ceiling)} MB ceiling`,
+      );
+    }
+  }
+  return problems;
+}
