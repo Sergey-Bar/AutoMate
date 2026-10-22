@@ -97,7 +97,10 @@ export async function detectProject(view: RepositoryView): Promise<DetectResult>
 function normalise(detection: EcosystemDetection): EcosystemDetection {
   return EcosystemDetectionSchema.parse({
     ...detection,
-    frameworks: dedupeByKey(detection.frameworks, (framework) => framework.evidence),
+    frameworks: dedupeByKey(
+      detection.frameworks,
+      (framework) => `${framework.name}\u0000${framework.evidence}`,
+    ),
     candidateCommands: dedupeByKey(detection.candidateCommands, (command) => command.id).sort(
       (left, right) => right.confidence - left.confidence || left.id.localeCompare(right.id),
     ),

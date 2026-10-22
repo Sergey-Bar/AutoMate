@@ -19,7 +19,6 @@ import { PGlite } from '@electric-sql/pglite';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const drizzleDirectory = path.resolve(here, '../../../packages/db/drizzle');
-const journalPath = path.join(drizzleDirectory, 'meta', '_journal.json');
 
 /** One migration, in journal order. */
 export interface Migration {
@@ -36,7 +35,8 @@ export interface Migration {
  * respectively. Reading the directory listing would apply them in the wrong
  * order for any future migration whose tag sorts before its dependency.
  */
-export function readMigrations(): Migration[] {
+export function readMigrations(directory: string = drizzleDirectory): Migration[] {
+  const journalPath = path.join(directory, 'meta', '_journal.json');
   const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
     entries: Array<{ idx: number; tag: string }>;
   };
@@ -45,7 +45,7 @@ export function readMigrations(): Migration[] {
     .slice()
     .sort((left, right) => left.idx - right.idx)
     .map((entry) => {
-      const file = path.join(drizzleDirectory, `${entry.tag}.sql`);
+      const file = path.join(directory, `${entry.tag}.sql`);
       try {
         return { index: entry.idx, tag: entry.tag, sql: readFileSync(file, 'utf8') };
       } catch {
@@ -59,7 +59,7 @@ export function readMigrations(): Migration[] {
     // skipped silently, and the test would pass against a partial schema.
     throw new Error(`Migration files missing for journal entries: ${missing.join(', ')}`);
   }
-  const onDisk = readdirSync(drizzleDirectory).filter(
+  const onDisk = readdirSync(directory).filter(
     (file) =>
       file.endsWith('.sql') && !migrations.some((migration) => `${migration.tag}.sql` === file),
   );
@@ -82,9 +82,12 @@ function statements(migration: Migration): string[] {
 }
 
 /** Applies the whole graph, returning the tags applied. */
-export async function applyMigrations(client: PGlite): Promise<string[]> {
+export async function applyMigrations(
+  client: Pick<PGlite, 'exec'>,
+  directory: string = drizzleDirectory,
+): Promise<string[]> {
   const applied: string[] = [];
-  for (const migration of readMigrations()) {
+  for (const migration of readMigrations(directory)) {
     for (const statement of statements(migration)) {
       await client.exec(statement);
     }
@@ -109,8 +112,9 @@ export async function createMigratedDatabase(): Promise<PGlite> {
  * drift test that silently compares yesterday's schema passes without checking
  * anything, which is worse than having no drift test.
  */
-export function assertSchemaBuildIsFresh(): void {
-  const packageRoot = path.resolve(drizzleDirectory, '..');
+export function assertSchemaBuildIsFresh(
+  packageRoot: string = path.resolve(drizzleDirectory, '..'),
+): void {
   const buildOutput = path.join(packageRoot, 'dist', 'index.js');
   const guidance =
     'These assertions compare the migrations against the built schema. Use ' +
