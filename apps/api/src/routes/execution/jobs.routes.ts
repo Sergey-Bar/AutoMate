@@ -27,10 +27,86 @@ import {
   isCanonicalEventType,
 } from './schemas.js';
 import { DomainError, isDomainError } from '../../errors/domain-error.js';
-import { JobCompletionInput } from '../../execution/types.js';
+import type {
+  EventApplyResult,
+  ExecutionEventInput,
+  JobCompletionInput,
+} from '../../execution/types.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
 import { authenticate } from './shared.js';
 import { createHash, randomUUID } from 'node:crypto';
+
+type JobRecord = NonNullable<
+  Awaited<ReturnType<ExecutionRouteContext['options']['store']['getJob']>>
+>;
+
+/** The runner must own the lease, and present the current lease id and fencing token. */
+function assertEventLease(
+  job: JobRecord,
+  runnerId: string,
+  leaseId: string,
+  fencingToken: number,
+): void {
+  if (job.leaseOwner !== runnerId)
+    throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
+  if (job.leaseId !== leaseId) throw new DomainError('JOB_LEASE_INVALID', 'Job lease is stale');
+  if (job.fencingToken !== fencingToken)
+    throw new DomainError('JOB_FENCING_STALE', 'Job fencing token is stale');
+}
+
+/** An artifact's declared checksum and size, when it declares them, must match its bytes. */
+function assertArtifactMatchesBytes(
+  declared: { checksum?: string | undefined; sizeBytes?: number | undefined },
+  bytes: Uint8Array,
+): void {
+  const checksum = createHash('sha256').update(bytes).digest('hex');
+  if (declared.checksum !== undefined && declared.checksum.toLowerCase() !== checksum)
+    throw new DomainError('ARTIFACT_CHECKSUM_MISMATCH', 'Artifact checksum does not match bytes');
+  if (declared.sizeBytes !== undefined && declared.sizeBytes !== bytes.byteLength)
+    throw new DomainError('ARTIFACT_SIZE_MISMATCH', 'Artifact size does not match bytes');
+}
+
+/** Publish each accepted event the canonical stream knows, in batch order. */
+function publishAcceptedEvents(
+  bus: ExecutionRouteContext['options']['bus'],
+  results: EventApplyResult[],
+  events: ExecutionEventInput[],
+  runId: string,
+  eventSequences: ExecutionRouteContext['eventSequences'],
+): void {
+  for (const [index, result] of results.entries()) {
+    if (result.status !== 'accepted') continue;
+    const input = events[index];
+    if (!input) continue;
+    const type = input.type === 'run.phase' ? 'run.phase_changed' : input.type;
+    if (!isCanonicalEventType(type)) continue;
+    publishCanonical(
+      bus,
+      {
+        type,
+        eventId: input.eventId,
+        occurredAt: input.occurredAt ?? new Date().toISOString(),
+        runId,
+        payload: input.payload ?? {},
+      },
+      eventSequences,
+    );
+  }
+}
+
+/** 409 when any event conflicted, otherwise 202 - flagged duplicate when all were replays. */
+function eventBatchResponse(c: Context, results: EventApplyResult[]): Response {
+  if (results.some((result) => result.status === 'conflict'))
+    return c.json({ results, duplicate: false }, 409);
+  return c.json(
+    {
+      results,
+      duplicate: results.length > 0 && results.every((result) => result.status === 'duplicate'),
+    },
+    202,
+  );
+}
+
 export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): void {
   const { options, ws, eventSequences, maxArtifactBytes } = context;
   const handleEvents = async (c: Context): Promise<Response> => {
@@ -50,12 +126,8 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
     const workspaceId = workspace(options);
     const job = await options.store.getJob(jobId, workspaceId);
     if (!job) throw new DomainError('JOB_NOT_FOUND', 'Job not found');
-    if (job.leaseOwner !== runner.id)
-      throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by this runner');
-    if (job.leaseId !== batch.leaseId)
-      throw new DomainError('JOB_LEASE_INVALID', 'Job lease is stale');
-    if (job.fencingToken !== batch.fencingToken)
-      throw new DomainError('JOB_FENCING_STALE', 'Job fencing token is stale');
+    assertEventLease(job, runner.id, batch.leaseId, batch.fencingToken);
+
     const results = await options.store.appendEvents(
       jobId,
       batch.leaseId,
@@ -63,33 +135,8 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       batch.events,
       workspaceId,
     );
-    for (const [index, result] of results.entries()) {
-      if (result.status !== 'accepted') continue;
-      const input = batch.events[index];
-      if (!input) continue;
-      const type = input.type === 'run.phase' ? 'run.phase_changed' : input.type;
-      if (!isCanonicalEventType(type)) continue;
-      publishCanonical(
-        options.bus,
-        {
-          type,
-          eventId: input.eventId,
-          occurredAt: input.occurredAt ?? new Date().toISOString(),
-          runId: job.runId,
-          payload: input.payload ?? {},
-        },
-        eventSequences,
-      );
-    }
-    if (results.some((result) => result.status === 'conflict'))
-      return c.json({ results, duplicate: false }, 409);
-    return c.json(
-      {
-        results,
-        duplicate: results.length > 0 && results.every((result) => result.status === 'duplicate'),
-      },
-      202,
-    );
+    publishAcceptedEvents(options.bus, results, batch.events, job.runId, eventSequences);
+    return eventBatchResponse(c, results);
   };
   app.post('/api/v1/jobs/:jobId/events', handleEvents);
   app.post('/api/v1/jobs/:jobId/events/batch', handleEvents);
@@ -118,11 +165,7 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       throw new DomainError(decoded.code, decoded.message, { details: decoded.details });
     const bytes = decoded.bytes;
     const name = safeName(parsed.name);
-    const checksum = createHash('sha256').update(bytes).digest('hex');
-    if (parsed.checksum !== undefined && parsed.checksum.toLowerCase() !== checksum)
-      throw new DomainError('ARTIFACT_CHECKSUM_MISMATCH', 'Artifact checksum does not match bytes');
-    if (parsed.sizeBytes !== undefined && parsed.sizeBytes !== bytes.byteLength)
-      throw new DomainError('ARTIFACT_SIZE_MISMATCH', 'Artifact size does not match bytes');
+    assertArtifactMatchesBytes(parsed, bytes);
     try {
       const descriptor = await options.store.addArtifact({
         runId: job.runId,

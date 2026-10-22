@@ -180,6 +180,22 @@ function endsTheRun(input: ExecutionEventInput): boolean {
 }
 
 /**
+ * Why one event cannot be taken, or null. A stored event with different content is a hash
+ * mismatch and the same content is a replay; anything new after the run ended is refused, in
+ * or out of sequence; and a new event must carry exactly the next sequence.
+ */
+function refusalReason(
+  storedHash: string | undefined,
+  hash: string,
+  incoming: number,
+  expected: number,
+  terminal: boolean,
+): string | null {
+  if (storedHash !== undefined) return storedHash === hash ? null : 'event_hash_mismatch';
+  if (terminal) return 'terminal_event';
+  return incoming === expected ? null : 'sequence_gap';
+}
+/**
  * Check a batch against what is already stored, and say which events to write.
  *
  * The first problem ends the plan, and the whole batch is refused with that one result, because
@@ -196,17 +212,11 @@ export function planEventBatch(context: BatchContext): BatchPlan {
   for (const input of context.inputs) {
     const hash = context.hashOf(input);
     const eventKey = `${context.runId}:${input.eventId}`;
-    const storedHash = seen.get(eventKey);
-    if (storedHash !== undefined) {
-      if (storedHash !== hash) return conflict(input, 'event_hash_mismatch', hash);
-      events.push({ input, hash, eventKey, duplicate: true });
-      continue;
-    }
-    if (input.sequence !== sequence) {
-      return conflict(input, terminal ? 'terminal_event' : 'sequence_gap', hash);
-    }
-    if (terminal) return conflict(input, 'terminal_event', hash);
-    events.push({ input, hash, eventKey, duplicate: false });
+    const reason = refusalReason(seen.get(eventKey), hash, input.sequence, sequence, terminal);
+    if (reason) return conflict(input, reason, hash);
+    const duplicate = seen.has(eventKey);
+    events.push({ input, hash, eventKey, duplicate });
+    if (duplicate) continue;
     seen.set(eventKey, hash);
     sequence += 1;
     if (endsTheRun(input)) terminal = true;
