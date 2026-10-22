@@ -1,6 +1,6 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { DomainError } from '../errors/domain-error.js';
-import { streamSSE } from 'hono/streaming';
+import { streamSSE, type SSEStreamingApi } from 'hono/streaming';
 import {
   EVENT_VERSION,
   toDurableSseFrame,
@@ -57,183 +57,210 @@ function boundedPollInterval(value: number | undefined): number {
   return Math.max(1, Math.trunc(value));
 }
 
+/** What a durable-feed stream needs, once the request and the options have been checked. */
+interface LiveFeed {
+  feed: DurableRealtimeFeed;
+  workspaceId: string;
+  requestedCursor: number | null;
+  pageSize: number;
+  pollIntervalMs: number;
+}
+
+/**
+ * The cursor the client asked to resume from, or null for a fresh stream. A cursor that does not
+ * parse is a 400, and a feed with no workspace to read is a 503.
+ */
+function requestedCursorFor(c: Context, options: EventsRouteOptions): number | null {
+  const requestedCursor = options.feed
+    ? parseCursor(c.req.header('Last-Event-ID') ?? c.req.query('cursor'))
+    : null;
+  if (requestedCursor === undefined) {
+    throw new DomainError('INVALID_CURSOR', 'Invalid cursor');
+  }
+  if (options.feed && !options.workspaceId) {
+    // 503, and the taxonomy says so. This used to be a 500, which filed a
+    // configuration mistake under application defects and told the caller nothing.
+    throw new DomainError('NOT_CONFIGURED', 'Realtime workspace is not configured');
+  }
+  return requestedCursor;
+}
+
+/**
+ * Whether `cursor` has fallen behind what the feed still retains, and where to resume from if so.
+ * With no retention floor at all the resume point is the cursor itself, but it still counts as a
+ * gap: the feed cannot vouch for what lies between.
+ */
+async function retentionGap(
+  feed: DurableRealtimeFeed,
+  workspaceId: string,
+  cursor: number,
+): Promise<{ gap: boolean; resumeCursor: number }> {
+  const retentionFloor = await feed.getRetentionFloor(workspaceId);
+  if (retentionFloor === null) return { gap: true, resumeCursor: cursor };
+  if (cursor + 1 < retentionFloor) return { gap: true, resumeCursor: retentionFloor - 1 };
+  return { gap: false, resumeCursor: cursor };
+}
+
+function writeRefetch(
+  stream: SSEStreamingApi,
+  requestedCursor: number,
+  resumeCursor: number,
+): Promise<void> {
+  return stream.writeSSE({
+    id: String(resumeCursor),
+    event: 'refetch',
+    data: JSON.stringify({ reason: 'cursor_gap', requestedCursor, resumeCursor }),
+  });
+}
+
+function writeDurableEvent(stream: SSEStreamingApi, event: DurableRealtimeEvent): Promise<void> {
+  const frame = toDurableSseFrame({
+    sequence: event.sequence,
+    eventId: event.eventId ?? `sequence-${event.sequence}`,
+    eventVersion: event.eventVersion ?? EVENT_VERSION,
+    eventType: event.eventType,
+    occurredAt: event.occurredAt ?? new Date(),
+    payload: event.payload,
+  });
+  return stream.writeSSE({
+    id: String(event.sequence),
+    event: frame.event,
+    data: JSON.stringify(frame.data),
+  });
+}
+
+/** A feed that can push: subscribe from the resume point and write what it delivers. */
+async function streamSubscribed(stream: SSEStreamingApi, live: LiveFeed): Promise<void> {
+  const { feed, workspaceId, requestedCursor, pollIntervalMs } = live;
+  const cursor = requestedCursor ?? 0;
+  let resumeCursor = cursor;
+  if (requestedCursor !== null) {
+    resumeCursor = (await retentionGap(feed, workspaceId, cursor)).resumeCursor;
+  }
+  await new Promise<void>((resolve) => {
+    let closed = false;
+    let unsubscribe: () => void = () => undefined;
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      unsubscribe();
+      resolve();
+    };
+    stream.onAbort(finish);
+    // `unsubscribe` is still the no-op until the assignment below, and finding
+    // P-70 named that as a leak. It is not one, and the reason is the line
+    // marked below: the only `await` an abort can be delivered during is the
+    // refetch frame's `writeSSE`, and the guard after it returns before the
+    // subscription is ever made. There is no await between that guard and the
+    // assignment either, so no abort can arrive in between. A test asserting the
+    // subscription pair (`subscribes === unsubscribes`) passes with the code in
+    // this order and would pass with it reordered, which is what says the reorder
+    // is not the fix.
+    void (async () => {
+      if (requestedCursor !== null && resumeCursor !== cursor && !stream.aborted) {
+        await writeRefetch(stream, cursor, resumeCursor);
+      }
+      if (closed || stream.aborted) return;
+      unsubscribe = feed.subscribe!(
+        workspaceId,
+        resumeCursor,
+        async (event) => {
+          if (closed || stream.aborted) return;
+          await writeDurableEvent(stream, event);
+        },
+        pollIntervalMs,
+      );
+    })().catch(finish);
+  });
+}
+
+/** A feed that can only be read: page through it, then sleep until the next poll or an abort. */
+async function streamPolled(stream: SSEStreamingApi, live: LiveFeed): Promise<void> {
+  const { feed, workspaceId, requestedCursor, pageSize, pollIntervalMs } = live;
+  let cursor = requestedCursor ?? 0;
+  if (requestedCursor !== null) {
+    const { gap, resumeCursor } = await retentionGap(feed, workspaceId, cursor);
+    if (gap) {
+      if (!stream.aborted) await writeRefetch(stream, cursor, resumeCursor);
+      cursor = resumeCursor;
+    }
+  }
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let wakePoll: (() => void) | undefined;
+  const stopPolling = () => {
+    if (pollTimer) clearTimeout(pollTimer);
+    wakePoll?.();
+  };
+  stream.onAbort(stopPolling);
+  while (!stream.aborted) {
+    const page = await feed.readAfter({ workspaceId, afterSequence: cursor, limit: pageSize });
+    for (const event of page) {
+      if (stream.aborted) break;
+      await writeDurableEvent(stream, event);
+      cursor = event.sequence;
+    }
+    if (stream.aborted || page.length === pageSize) continue;
+    await new Promise<void>((resolve) => {
+      wakePoll = resolve;
+      pollTimer = setTimeout(() => {
+        pollTimer = undefined;
+        wakePoll = undefined;
+        resolve();
+      }, pollIntervalMs);
+    });
+  }
+}
+
+/**
+ * The in-process bus, with no durable feed.
+ *
+ * The teardown lives after the wait rather than inside the abort handler.
+ *
+ * The handler was `void stream.writeSSE(...)`, and this is worth being precise
+ * about: in the pinned Hono, `writeSSE` *resolves* after the client has gone
+ * away, because cancelling the readable side of a TransformStream does not error
+ * the writable side. So the row's claim that this discards a rejection was
+ * checked and did not reproduce - there is no unhandled-rejection crash path
+ * here, and `void` is this tree's sanctioned floating-promise escape hatch, so
+ * lint did not object either.
+ *
+ * What the old shape did get wrong is real and is what this fixes: two teardown
+ * points that are not one, and a promise nobody watches. `stop` is assigned by
+ * the synchronous `subscribe` call and released once after the wait, so a bus
+ * that delivers a buffered event *during* `subscribe` - whose write fails
+ * before `stop` exists - still tears down. A teardown function that might not be
+ * assigned yet is the leak the row named on the subscription path above, which
+ * does not have it because the `if (closed || stream.aborted) return` after the
+ * last await closes that window.
+ */
+async function streamBus(stream: SSEStreamingApi, bus: RealtimeBus): Promise<void> {
+  const unsubscribe = bus.subscribe((payload) => {
+    void stream.writeSSE({ event: 'message', data: JSON.stringify(payload) });
+  });
+
+  await new Promise<void>((resolve) => {
+    stream.onAbort(resolve);
+  });
+
+  unsubscribe();
+}
+
 export function createEventsRoutes(options: EventsRouteOptions): Hono {
   const app = new Hono();
   const pageSize = boundedPageSize(options.pageSize);
   const pollIntervalMs = boundedPollInterval(options.pollIntervalMs);
 
   app.get('/api/v1/events', (c) => {
-    const requestedCursor = options.feed
-      ? parseCursor(c.req.header('Last-Event-ID') ?? c.req.query('cursor'))
-      : null;
-    if (requestedCursor === undefined) {
-      throw new DomainError('INVALID_CURSOR', 'Invalid cursor');
-    }
-    if (options.feed && !options.workspaceId) {
-      // 503, and the taxonomy says so. This used to be a 500, which filed a
-      // configuration mistake under application defects and told the caller nothing.
-      throw new DomainError('NOT_CONFIGURED', 'Realtime workspace is not configured');
-    }
+    const requestedCursor = requestedCursorFor(c, options);
 
     return streamSSE(c, async (stream) => {
-      if (options.feed?.subscribe && options.workspaceId) {
-        const feed = options.feed;
-        const cursor = requestedCursor ?? 0;
-        let resumeCursor = cursor;
-        if (requestedCursor !== null) {
-          const retentionFloor = await options.feed.getRetentionFloor(options.workspaceId);
-          if (retentionFloor === null || cursor + 1 < retentionFloor) {
-            resumeCursor = retentionFloor === null ? cursor : retentionFloor - 1;
-          }
-        }
-        await new Promise<void>((resolve) => {
-          let closed = false;
-          let unsubscribe: () => void = () => undefined;
-          const finish = () => {
-            if (closed) return;
-            closed = true;
-            unsubscribe();
-            resolve();
-          };
-          stream.onAbort(finish);
-          // `unsubscribe` is still the no-op until the assignment below, and finding
-          // P-70 named that as a leak. It is not one, and the reason is the line
-          // marked below: the only `await` an abort can be delivered during is the
-          // refetch frame's `writeSSE`, and the guard after it returns before the
-          // subscription is ever made. There is no await between that guard and the
-          // assignment either, so no abort can arrive in between. A test asserting the
-          // subscription pair (`subscribes === unsubscribes`) passes with the code in
-          // this order and would pass with it reordered, which is what says the reorder
-          // is not the fix.
-          void (async () => {
-            if (requestedCursor !== null && resumeCursor !== cursor && !stream.aborted) {
-              await stream.writeSSE({
-                id: String(resumeCursor),
-                event: 'refetch',
-                data: JSON.stringify({
-                  reason: 'cursor_gap',
-                  requestedCursor: cursor,
-                  resumeCursor,
-                }),
-              });
-            }
-            if (closed || stream.aborted) return;
-            unsubscribe = feed.subscribe!(
-              options.workspaceId!,
-              resumeCursor,
-              async (event) => {
-                if (closed || stream.aborted) return;
-                const frame = toDurableSseFrame({
-                  sequence: event.sequence,
-                  eventId: event.eventId ?? `sequence-${event.sequence}`,
-                  eventVersion: event.eventVersion ?? EVENT_VERSION,
-                  eventType: event.eventType,
-                  occurredAt: event.occurredAt ?? new Date(),
-                  payload: event.payload,
-                });
-                await stream.writeSSE({
-                  id: String(event.sequence),
-                  event: frame.event,
-                  data: JSON.stringify(frame.data),
-                });
-              },
-              pollIntervalMs,
-            );
-          })().catch(finish);
-        });
+      const { feed, workspaceId } = options;
+      if (feed && workspaceId) {
+        const live: LiveFeed = { feed, workspaceId, requestedCursor, pageSize, pollIntervalMs };
+        await (feed.subscribe ? streamSubscribed(stream, live) : streamPolled(stream, live));
         return;
       }
-
-      if (options.feed && options.workspaceId) {
-        let cursor = requestedCursor ?? 0;
-        if (requestedCursor !== null) {
-          const retentionFloor = await options.feed.getRetentionFloor(options.workspaceId);
-          if (retentionFloor === null || cursor + 1 < retentionFloor) {
-            const resumeCursor = retentionFloor === null ? cursor : retentionFloor - 1;
-            if (!stream.aborted) {
-              await stream.writeSSE({
-                id: String(resumeCursor),
-                event: 'refetch',
-                data: JSON.stringify({
-                  reason: 'cursor_gap',
-                  requestedCursor: cursor,
-                  resumeCursor,
-                }),
-              });
-            }
-            cursor = resumeCursor;
-          }
-        }
-        let pollTimer: ReturnType<typeof setTimeout> | undefined;
-        let wakePoll: (() => void) | undefined;
-        const stopPolling = () => {
-          if (pollTimer) clearTimeout(pollTimer);
-          wakePoll?.();
-        };
-        stream.onAbort(stopPolling);
-        while (!stream.aborted) {
-          const page = await options.feed.readAfter({
-            workspaceId: options.workspaceId,
-            afterSequence: cursor,
-            limit: pageSize,
-          });
-          for (const event of page) {
-            if (stream.aborted) break;
-            const frame = toDurableSseFrame({
-              sequence: event.sequence,
-              eventId: event.eventId ?? `sequence-${event.sequence}`,
-              eventVersion: event.eventVersion ?? EVENT_VERSION,
-              eventType: event.eventType,
-              occurredAt: event.occurredAt ?? new Date(),
-              payload: event.payload,
-            });
-            await stream.writeSSE({
-              id: String(event.sequence),
-              event: frame.event,
-              data: JSON.stringify(frame.data),
-            });
-            cursor = event.sequence;
-          }
-          if (stream.aborted || page.length === pageSize) continue;
-          await new Promise<void>((resolve) => {
-            wakePoll = resolve;
-            pollTimer = setTimeout(() => {
-              pollTimer = undefined;
-              wakePoll = undefined;
-              resolve();
-            }, pollIntervalMs);
-          });
-        }
-        return;
-      }
-
-      // The teardown lives in the `finally`, not inside the abort handler.
-      //
-      // The handler was `void stream.writeSSE(...)`, and this is worth being precise
-      // about: in the pinned Hono, `writeSSE` *resolves* after the client has gone
-      // away, because cancelling the readable side of a TransformStream does not error
-      // the writable side. So the row's claim that this discards a rejection was
-      // checked and did not reproduce — there is no unhandled-rejection crash path
-      // here, and `void` is this tree's sanctioned floating-promise escape hatch, so
-      // lint did not object either.
-      //
-      // What the old shape did get wrong is real and is what this fixes: two teardown
-      // points that are not one, and a promise nobody watches. `stop` is assigned by
-      // the synchronous `subscribe` call and released once in the `finally`, so a bus
-      // that delivers a buffered event *during* `subscribe` — whose write fails
-      // before `stop` exists — still tears down. A teardown function that might not be
-      // assigned yet is the leak the row named on the subscription path below, which
-      // does not have it because the `if (closed || stream.aborted) return` after the
-      // last await closes that window.
-      const unsubscribe = options.bus.subscribe((payload) => {
-        void stream.writeSSE({ event: 'message', data: JSON.stringify(payload) });
-      });
-
-      await new Promise<void>((resolve) => {
-        stream.onAbort(resolve);
-      });
-
-      unsubscribe();
+      await streamBus(stream, options.bus);
     });
   });
 
