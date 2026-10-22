@@ -118,6 +118,29 @@ jobs:
       - name: Boot the production stack
         run: node ./scripts/compose-boot.mjs
 
+  start-scripts-windows:
+    name: Start scripts on Windows
+    needs: quality
+    runs-on: windows-2025
+    timeout-minutes: 15
+    # `scripts/lib/start-scripts.test.mjs` runs `start.sh` and `start.ps1` against a fake
+    # `docker` on the Linux job. This leg runs them where a downloaded release is most
+    # often started: Windows, under both PowerShell 7 and Windows PowerShell 5.1, which is
+    # what `start.cmd` launches, and under Git for Windows' `sh`.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Start scripts under PowerShell 7 and sh
+        run: node --test scripts/lib/start-scripts.test.mjs
+      - name: Start scripts under Windows PowerShell 5.1
+        env:
+          AUTOMATE_TEST_POWERSHELL: powershell
+        run: node --test --test-name-pattern "start.ps1" scripts/lib/start-scripts.test.mjs
+
   unit-and-coverage:
     name: Unit and coverage
     needs: quality
