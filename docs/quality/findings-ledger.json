@@ -2641,8 +2641,8 @@
       "confirmedOn": "2026-09-28",
       "confirmedBy": "kilo:fail-before-verification",
       "owner": "the repository owner, through the product roadmap: each table is built when the feature its justification names is scheduled (`docs/quality/capability-justification.md` names the feature per table)",
-      "removalCondition": "Each of the 21 tables named in `docs/quality/capability-justification.md` gains a production reader or is deleted in a migration. When the last row of that file is gone the file is deleted with it. The condition names what could happen: a reader being written.",
-      "resolution": "**Taken as debt, with the justification written down.** The row requires each dormant table to gain a reader, a writer, a route, a UI and a test — or a written justification. `docs/quality/capability-justification.md` is that justification: it names all 21 tables, states why each exists and why it is still here, and separates them from the 8 that have production access and the 4 with test-only access.\n\n**The count correction in the summary is the load-bearing part of this disposition.** The plan sized the wave at `~35` tables; the real figure is 21, because `schema/dashboard.ts` defines 33 in total. Two tables the row's own analysis corrects are the ones a grep gets wrong: `schedules` has a reader and two writers in `apps/worker/src/postgres-store.ts` written as **raw SQL** rather than through Drizzle, and `audit_events` is write-only with four production writers. Both are listed in the justification as read-or-written, and neither is a candidate.\n\n**These are debt, not defects, and the distinction is the whole point.** Nothing writes the 21, so nothing can read a wrong value out of them. The cost of leaving them is migration surface and reader confusion, not a wrong number on a screen — which is why this is not a Major open finding against v1.0.0. `locator_suggestions` is called out separately because it has no `updatedAt` column at all: a table with no freshness column has no defined staleness, so any row in it is permanently current by construction. It should be dropped before it is built, and the justification says so.\n\n**Deliberately not closed.** The row is `debt` rather than `fixed` because building twenty-one product surfaces is real work that has not been done. Closing it would record the documentation as the feature.\n\n**Revisited 2026-10-21, in the maintenance pass.** The owner decision was to keep all 21 tables as roadmap surface and drop none, so the row stays `debt`, now with a named owner rather than `unassigned`. The one concrete defect in it is closed: `locator_suggestions` had a mutable `status` and no `updatedAt`, and `0026_locator_suggestions_updated_at.sql` adds the column, pinned by `packages/db/src/schema/schema.test.ts` (which failed on the missing column first) and by the applied-migration list in `tests/integration/src/migrations.test.ts`.",
+      "removalCondition": "Each of the 19 tables named in `docs/quality/capability-justification.md` gains a production reader or is deleted in a migration. When the last row of that file is gone the file is deleted with it. The condition names what could happen: a reader being written.",
+      "resolution": "**Taken as debt, with the justification written down.** The row requires each dormant table to gain a reader, a writer, a route, a UI and a test — or a written justification. `docs/quality/capability-justification.md` is that justification: it names all 21 tables, states why each exists and why it is still here, and separates them from the 8 that have production access and the 4 with test-only access.\n\n**The count correction in the summary is the load-bearing part of this disposition.** The plan sized the wave at `~35` tables; the real figure is 21, because `schema/dashboard.ts` defines 33 in total. Two tables the row's own analysis corrects are the ones a grep gets wrong: `schedules` has a reader and two writers in `apps/worker/src/postgres-store.ts` written as **raw SQL** rather than through Drizzle, and `audit_events` is write-only with four production writers. Both are listed in the justification as read-or-written, and neither is a candidate.\n\n**These are debt, not defects, and the distinction is the whole point.** Nothing writes the 21, so nothing can read a wrong value out of them. The cost of leaving them is migration surface and reader confusion, not a wrong number on a screen — which is why this is not a Major open finding against v1.0.0. `locator_suggestions` is called out separately because it has no `updatedAt` column at all: a table with no freshness column has no defined staleness, so any row in it is permanently current by construction. It should be dropped before it is built, and the justification says so.\n\n**Deliberately not closed.** The row is `debt` rather than `fixed` because building twenty-one product surfaces is real work that has not been done. Closing it would record the documentation as the feature.\n\n**Revisited 2026-10-21, in the maintenance pass.** The owner decision was to keep all 21 tables as roadmap surface and drop none, so the row stays `debt`, now with a named owner rather than `unassigned`. The one concrete defect in it is closed: `locator_suggestions` had a mutable `status` and no `updatedAt`, and `0026_locator_suggestions_updated_at.sql` adds the column, pinned by `packages/db/src/schema/schema.test.ts` (which failed on the missing column first) and by the applied-migration list in `tests/integration/src/migrations.test.ts`.\n\n**Revisited 2026-10-22: three of the 21 are gone (ledger MNT-60).** The 2026-10-21 owner decision kept all 21 tables as roadmap surface; for the three the justification file itself called *superseded*, there is no roadmap feature to wait for, so `0030_drop_superseded_tables.sql` drops `results` (replaced by `canonical_run_results`), `blob_shards` (replaced by `runs.read_at`) and `api_keys` (replaced by the installation key). A search of `apps/`, `packages/`, `tools/`, `tests/` and `scripts/` found no reader or writer of them; the dependants (two foreign keys onto `results`, the `migrate-cli` mappings, the tenancy register, schema tests) were removed or redirected in the same change. `capability-justification.md` now counts 30 tables, 19 dormant with no access, and 3 with test-only access.\n\n**What remains: 19 dormant tables, still debt,** all untouched: `suites`, `attachments`, `trends`, `known_failures`, `defect_categories`, `fingerprint_categories`, `nl_query_history`, `failure_taxonomy_rules`, `failure_classifications`, `test_failure_correlations`, `locator_suggestions`, `failure_clusters`, `users`, `roles`, `agent_sessions`, `agent_session_runs`, `agent_session_files`, `repair_attempts` and `agent_conflicts`, plus the test-only `workspaces`, `generated_test_suggestions` and `saml_config`. `attachments` is the next candidate: it has no reader, writer or replacement named, and 0030 left its `result_id` pointing at nothing.",
       "evidence": [
         {
           "path": "docs/quality/capability-justification.md",
@@ -2651,6 +2651,10 @@
         {
           "path": "packages/db/drizzle/0026_locator_suggestions_updated_at.sql",
           "asserts": "Adds `locator_suggestions.updated_at` NOT NULL with a default, safe on a populated table."
+        },
+        {
+          "path": "packages/db/drizzle/0030_drop_superseded_tables.sql",
+          "asserts": "Drops `results`, `blob_shards` and `api_keys` after checking each is empty, or that the operator has set `automate.allow_drop_nonempty`."
         }
       ]
     },
@@ -5258,6 +5262,45 @@
         }
       ],
       "resolution": "Added the step and the test that holds its order."
+    },
+    {
+      "id": "MNT-60",
+      "title": "Three superseded tables carried schema, foreign keys and importer mappings nothing used",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`results`, `blob_shards` and `api_keys` were recorded in `docs/quality/capability-justification.md` as superseded (by `canonical_run_results`, by `runs.read_at` and by the installation key). Searching `apps/`, `packages/`, `tools/`, `tests/` and `scripts/` found **no production reader or writer** of any of them. What still named them was: the Drizzle exports and their type aliases in `schema/dashboard.ts`; two foreign keys from live tables onto `results` (`attachments.result_id`, cascade, and `artifacts.result_id`, set null), the second of which would have made a bare `DROP TABLE` fail; the `tools/migrate-cli` table mappings and workspace-scoped list; `api_keys`' admin-role and role CHECK constraints and an integration test that pinned them; `tenancy-scope.json` rows; and schema-shape tests.\n\n**Honest scope.** `attachments` is not superseded by anything and stays; it only loses its key. The `result_id` columns on `attachments` and `artifacts` keep their values and `artifacts_result_idx`, because they record which legacy result a row came from and erasing that is not this change's decision.\n\n**The importer was the dangerous part.** Removing the `results`, `blob_shards` and `api_keys` mappings alone would make `migrate-cli` ignore those tables in a legacy SQLite file without a word, a clean report over discarded rows. It now lists them in the plan as `retain-dormant` with the replacing table named, and `migrateToPostgres` returns a `skipped` entry with the row count and logs it. The importer opens the source read-only, so the rows stay in the SQLite file. Hashed personal keys are never imported.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "`tests/integration/src/drop-superseded-tables.test.ts` was run against the tree without 0030 and failed all 7 cases (`0030_drop_superseded_tables is missing from the journal`). Run again after it, the 7 cases pass. `tools/migrate-cli` tests for the skipped report and the plan disposition were written before the implementation.",
+      "evidence": [
+        {
+          "path": "packages/db/drizzle/0030_drop_superseded_tables.sql",
+          "asserts": "Counts rows in each of the three tables and raises naming every populated table and its count unless `automate.allow_drop_nonempty` is `on`; then drops the two foreign keys onto `results` and the three tables with no CASCADE, so an unknown dependant fails loudly."
+        },
+        {
+          "path": "tests/integration/src/drop-superseded-tables.test.ts",
+          "asserts": "An empty database drops all three tables and every key that named them; each table, populated, makes the migration refuse by name and count and apply nothing; a setting of `off` still refuses; with the setting on, populated tables go while runs, tests and the `result_id` values on `attachments` and `artifacts` are kept."
+        },
+        {
+          "path": "tools/migrate-cli/src/migrate.test.ts",
+          "asserts": "A legacy file holding rows in the superseded tables yields a `skipped` entry per table with its row count and a log line naming the replacement, and no database call; a file with none yields no `skipped` field."
+        },
+        {
+          "path": "tools/migrate-cli/src/engine.test.ts",
+          "asserts": "The plan marks the three tables `retain-dormant` with the replacing table in the reason, and `validatePlan` accepts it."
+        },
+        {
+          "path": "packages/db/src/schema/constraints.test.ts",
+          "asserts": "The drift comparison between the schema and the migrated database still reports zero foreign key or index drift, and `artifacts.result_id` is asserted to carry no key."
+        },
+        {
+          "path": "docs/quality/tenancy-scope.json",
+          "asserts": "The three rows are gone and the tally is recomputed from the schema by `scripts/lib/tenancy-scope.test.mjs` (54 tables, 13 global, 41 workspace-scoped, all with a hard boundary)."
+        }
+      ],
+      "resolution": "**Fixed** by `0030_drop_superseded_tables.sql`, the schema, the importer and the register changes above. The drop is fail-closed: a table holding rows stops the migration unless the operator sets `automate.allow_drop_nonempty = 'on'` after reviewing them.\n\n**Not verified here:** a populated production database. The migration is exercised against PGlite only."
     }
   ]
 }

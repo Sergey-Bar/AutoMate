@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
 import type { Pool as PgPool } from 'pg';
+import { SUPERSEDED_SOURCE_TABLES } from './plan.js';
 
 const BATCH_SIZE = 100;
 
@@ -33,6 +34,13 @@ export interface MigrationTableReport {
   failed: number;
 }
 
+/** A source table that holds no target since 0030, reported so its rows are not lost silently. */
+export interface MigrationSkippedTableReport {
+  table: string;
+  rowCount: number;
+  reason: string;
+}
+
 export interface MigrationErrorReport {
   table: string;
   id: string;
@@ -43,6 +51,8 @@ export interface MigrationReport {
   dryRun: boolean;
   tables: MigrationTableReport[];
   errors: MigrationErrorReport[];
+  /** Present only when the source holds a table that is no longer imported. */
+  skipped?: MigrationSkippedTableReport[];
 }
 
 interface ColumnMapping {
@@ -214,24 +224,6 @@ const TABLES: readonly TableMapping[] = [
     ],
     ['id', 'run_id'],
   ),
-  table('results', [
-    column('id'),
-    column('test_id'),
-    column('run_id'),
-    column('retry'),
-    column('status'),
-    column('duration_ms'),
-    column('started_at'),
-    column('error_message'),
-    column('error_stack'),
-    column('worker_index'),
-    column('parallel_index'),
-    column('stdout', 'json'),
-    column('stderr', 'json'),
-    column('steps', 'json'),
-    column('attachments', 'json'),
-    column('fingerprint'),
-  ]),
   table('attachments', [
     column('id'),
     column('result_id'),
@@ -306,15 +298,6 @@ const TABLES: readonly TableMapping[] = [
     [column('fingerprint'), column('category_id'), column('assigned_at')],
     ['fingerprint'],
   ),
-  table('blob_shards', [
-    column('id'),
-    column('run_id'),
-    column('shard_index'),
-    column('total_shards'),
-    column('file_path'),
-    column('uploaded_at'),
-    column('merged', 'boolean'),
-  ]),
   table('nl_query_history', [
     column('id'),
     column('user_query'),
@@ -399,19 +382,6 @@ const TABLES: readonly TableMapping[] = [
     column('tenant_id'),
     column('created_at'),
     column('updated_at'),
-  ]),
-  table('api_keys', [
-    column('id'),
-    column('name'),
-    column('key_hash'),
-    column('user_id'),
-    column('role'),
-    column('scopes', 'json'),
-    column('last_used_at'),
-    column('expires_at'),
-    column('revoked_at'),
-    column('tenant_id'),
-    column('created_at'),
   ]),
   table('agent_sessions', [
     column('id'),
@@ -538,12 +508,10 @@ const WORKSPACE_SCOPED_TABLES: ReadonlySet<string> = new Set([
   'runs',
   'suites',
   'tests',
-  'results',
   'attachments',
   'trends',
   'quarantine',
   'known_failures',
-  'blob_shards',
   'nl_query_history',
   'failure_classifications',
   'test_failure_correlations',
@@ -581,6 +549,14 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
       );
     }
     const tables = TABLES.filter((mapping) => existingTables.has(mapping.table));
+    const skipped = Object.entries(SUPERSEDED_SOURCE_TABLES)
+      .filter(([name]) => existingTables.has(name))
+      .map(([name, reason]) => ({ table: name, rowCount: getTableCount(sqlite, name), reason }));
+    for (const entry of skipped) {
+      log(
+        `Skipped ${entry.table}: ${entry.rowCount} ${pluralize('row', entry.rowCount)} (${entry.reason})`,
+      );
+    }
 
     const effectiveTables = tables.map((mapping) => validateTableSchema(sqlite, mapping));
 
@@ -608,7 +584,7 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
       for (const report of reports) {
         log(`${report.table}: ${report.rowCount} ${pluralize('row', report.rowCount)}`);
       }
-      return { dryRun: true, tables: reports, errors };
+      return { dryRun: true, tables: reports, errors, ...(skipped.length > 0 ? { skipped } : {}) };
     }
 
     const pool = new Pool({ connectionString: options.to });
@@ -634,7 +610,7 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
       }
     }
 
-    return { dryRun: false, tables: reports, errors };
+    return { dryRun: false, tables: reports, errors, ...(skipped.length > 0 ? { skipped } : {}) };
   } finally {
     sqlite.close();
   }

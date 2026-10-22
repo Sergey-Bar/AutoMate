@@ -498,60 +498,15 @@ export const tests = pgTable(
   ],
 );
 
-// ─── results ───────────────────────────────────────────────────────────────
-// Source: results table — per-retry execution result
-export const results = pgTable(
-  'results',
-  {
-    // SQLite: text('id').primaryKey()
-    id: text('id').primaryKey(),
-    testId: text('test_id').notNull(),
-    // SQLite: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' })
-    runId: uuid('run_id')
-      .notNull()
-      .references(() => runs.id, { onDelete: 'cascade' }),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'restrict' }),
-    retry: integer('retry').notNull().default(0),
-    status: text('status', {
-      enum: ['passed', 'failed', 'timedOut', 'skipped', 'interrupted'],
-    }).notNull(),
-    durationMs: integer('duration_ms'),
-    // SQLite: text('started_at')
-    startedAt: timestamp('started_at', { withTimezone: true }),
-    errorMessage: text('error_message'),
-    errorStack: text('error_stack'),
-    workerIndex: integer('worker_index'),
-    parallelIndex: integer('parallel_index'),
-    // SQLite: text('stdout') // JSON
-    stdout: jsonb('stdout'),
-    // SQLite: text('stderr') // JSON
-    stderr: jsonb('stderr'),
-    // SQLite: text('steps') // JSON tree
-    steps: jsonb('steps'),
-    // SQLite: text('attachments') // JSON array
-    attachments: jsonb('attachments'),
-    fingerprint: text('fingerprint'),
-  },
-  (t) => [
-    index('results_run_id_idx').on(t.runId),
-    index('results_test_id_idx').on(t.testId),
-    index('results_fingerprint_idx').on(t.fingerprint),
-    index('results_run_id_test_id_retry_idx').on(t.runId, t.testId, t.retry),
-    index('results_workspace_run_idx').on(t.workspaceId, t.runId),
-  ],
-);
-
 // ─── attachments ───────────────────────────────────────────────────────────
 // Source: attachments table — binary artifacts on disk
 export const attachments = pgTable(
   'attachments',
   {
     id: text('id').primaryKey(),
-    resultId: text('result_id')
-      .notNull()
-      .references(() => results.id, { onDelete: 'cascade' }),
+    // The legacy result this attachment came from. The key onto `results` went with that table
+    // in 0030; the value is kept as a record of provenance.
+    resultId: text('result_id').notNull(),
     workspaceId: text('workspace_id')
       .notNull()
       .references(() => workspaces.id, { onDelete: 'restrict' }),
@@ -773,29 +728,6 @@ export const fingerprintCategories = pgTable('fingerprint_categories', {
   assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull(),
 });
 
-// ─── blob shards ──────────────────────────────────────────────────────────
-// Source: blob_shards table — partial blob shard upload tracking
-export const blobShards = pgTable(
-  'blob_shards',
-  {
-    id: text('id').primaryKey(),
-    runId: uuid('run_id')
-      .notNull()
-      .references(() => runs.id, { onDelete: 'cascade' }),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.id, { onDelete: 'restrict' }),
-    shardIndex: integer('shard_index').notNull(),
-    totalShards: integer('total_shards').notNull(),
-    filePath: text('file_path').notNull(),
-    // SQLite: text('uploaded_at').notNull()
-    uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull(),
-    // SQLite: integer('merged', { mode: 'boolean' })
-    merged: boolean('merged').default(false),
-  },
-  (t) => [index('blob_shards_workspace_run_idx').on(t.workspaceId, t.runId)],
-);
-
 // ─── NL query history ────────────────────────────────────────────────────
 // Source: nl_query_history table — NL→SQL query history
 export const nlQueryHistory = pgTable(
@@ -997,39 +929,6 @@ export const roles = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
   (t) => [uniqueIndex('roles_name_unique').on(t.name)],
-);
-
-// ─── api_keys ─────────────────────────────────────────────────────────────────
-// Source: api_keys table — API access tokens (hashed)
-export const apiKeys = pgTable(
-  'api_keys',
-  {
-    id: text('id').primaryKey(),
-    name: text('name').notNull(),
-    keyHash: text('key_hash').notNull(),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
-    // Least privilege: a key created without a role gets `viewer`, not `admin`.
-    // The old default meant a caller who simply omitted the role silently
-    // received full administrative access. Granting `admin` is now an explicit
-    // choice at the boundary.
-    role: text('role', { enum: ['admin', 'editor', 'viewer', 'service'] })
-      .notNull()
-      .default('viewer'),
-    // SQLite: text('scopes') // JSON array
-    scopes: jsonb('scopes'),
-    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    revokedAt: timestamp('revoked_at', { withTimezone: true }),
-    tenantId: text('tenant_id'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  },
-  (t) => [
-    uniqueIndex('api_keys_key_hash_unique').on(t.keyHash),
-    index('api_keys_user_id_idx').on(t.userId),
-    // A row that claims administrative authority must say so in a column, not
-    // inherit it from a default.
-    check('api_keys_admin_role_explicit_check', sql`t.role <> 'admin' or t.scopes is not null`),
-  ],
 );
 
 // ─── agent_sessions ───────────────────────────────────────────────────────────
@@ -1324,8 +1223,6 @@ export type Suite = typeof suites.$inferSelect;
 export type InsertSuite = typeof suites.$inferInsert;
 export type Test = typeof tests.$inferSelect;
 export type InsertTest = typeof tests.$inferInsert;
-export type Result = typeof results.$inferSelect;
-export type InsertResult = typeof results.$inferInsert;
 export type Attachment = typeof attachments.$inferSelect;
 export type InsertAttachment = typeof attachments.$inferInsert;
 export type Trend = typeof trends.$inferSelect;
@@ -1346,8 +1243,6 @@ export type DefectCategory = typeof defectCategories.$inferSelect;
 export type InsertDefectCategory = typeof defectCategories.$inferInsert;
 export type FingerprintCategory = typeof fingerprintCategories.$inferSelect;
 export type InsertFingerprintCategory = typeof fingerprintCategories.$inferInsert;
-export type BlobShard = typeof blobShards.$inferSelect;
-export type InsertBlobShard = typeof blobShards.$inferInsert;
 export type NlQueryHistory = typeof nlQueryHistory.$inferSelect;
 export type InsertNlQueryHistory = typeof nlQueryHistory.$inferInsert;
 export type FailureTaxonomyRule = typeof failureTaxonomyRules.$inferSelect;
@@ -1364,8 +1259,6 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Role = typeof roles.$inferSelect;
 export type InsertRole = typeof roles.$inferInsert;
-export type ApiKey = typeof apiKeys.$inferSelect;
-export type InsertApiKey = typeof apiKeys.$inferInsert;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type InsertAgentSession = typeof agentSessions.$inferInsert;
 export type AgentSessionRun = typeof agentSessionRuns.$inferSelect;

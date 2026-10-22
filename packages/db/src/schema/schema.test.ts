@@ -16,7 +16,6 @@ import {
   runs,
   suites,
   tests,
-  results,
   attachments,
   trends,
   quarantine,
@@ -26,7 +25,6 @@ import {
   qualityGateConfig,
   defectCategories,
   fingerprintCategories,
-  blobShards,
   nlQueryHistory,
   failureTaxonomyRules,
   failureClassifications,
@@ -35,7 +33,6 @@ import {
   failureClusters,
   users,
   roles,
-  apiKeys,
   agentSessions,
   agentSessionRuns,
   agentSessionFiles,
@@ -120,16 +117,6 @@ describe('dashboard schema — tests', () => {
     const c = cols(tests);
     expect(c).toContain('id');
     expect(c).toContain('runId');
-  });
-});
-
-describe('dashboard schema — results', () => {
-  it('has table name "results"', () => {
-    expect(tname(results)).toBe('results');
-  });
-
-  it('has fingerprint column for deduplication', () => {
-    expect(cols(results)).toContain('fingerprint');
   });
 });
 
@@ -266,12 +253,6 @@ describe('dashboard schema — fingerprintCategories', () => {
   });
 });
 
-describe('dashboard schema — blobShards', () => {
-  it('has table name "blob_shards"', () => {
-    expect(tname(blobShards)).toBe('blob_shards');
-  });
-});
-
 describe('dashboard schema — nlQueryHistory', () => {
   it('has table name "nl_query_history"', () => {
     expect(tname(nlQueryHistory)).toBe('nl_query_history');
@@ -333,16 +314,6 @@ describe('dashboard schema — users', () => {
 describe('dashboard schema — roles', () => {
   it('has table name "roles"', () => {
     expect(tname(roles)).toBe('roles');
-  });
-});
-
-describe('dashboard schema — apiKeys', () => {
-  it('has table name "api_keys"', () => {
-    expect(tname(apiKeys)).toBe('api_keys');
-  });
-
-  it('has keyHash column for secure storage', () => {
-    expect(cols(apiKeys)).toContain('keyHash');
   });
 });
 

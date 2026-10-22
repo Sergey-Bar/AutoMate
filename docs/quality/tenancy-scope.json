@@ -24,10 +24,10 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 57,
-    "global": 14,
-    "workspaceScoped": 43,
-    "workspaceScopedWithHardBoundary": 43,
+    "total": 54,
+    "global": 13,
+    "workspaceScoped": 41,
+    "workspaceScopedWithHardBoundary": 41,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -37,7 +37,7 @@
     "installations": {
       "scope": "global",
       "column": "absent",
-      "reason": "The tenancy root. An installation IS the tenant boundary; a workspace column here would be a self-reference. This table is why `users`, `roles`, `api_keys`, `sessions`, `service_credentials`, `installation_keys` and `saml_config` are `global` too — identity is installation-scoped, and stating that explicitly is the point of this file."
+      "reason": "The tenancy root. An installation IS the tenant boundary; a workspace column here would be a self-reference. This table is why `users`, `roles`, `sessions`, `service_credentials`, `installation_keys` and `saml_config` are `global` too — identity is installation-scoped, and stating that explicitly is the point of this file."
     },
     "workspaces": {
       "scope": "global",
@@ -59,15 +59,10 @@
       "column": "absent",
       "reason": "Installation-scoped identity. Role grants resolve against an installation and are then filtered per workspace by the caller, not by this table."
     },
-    "api_keys": {
-      "scope": "global",
-      "column": "absent",
-      "reason": "Installation-scoped credential. Authenticates the caller; which workspaces it may touch is a separate authorisation decision, so scoping the row itself would conflate the two."
-    },
     "sessions": {
       "scope": "global",
       "column": "absent",
-      "reason": "Installation-scoped session. Same reasoning as `api_keys`: authentication is not authorization."
+      "reason": "Installation-scoped session. Same reasoning as `installation_keys`: authentication is not authorization."
     },
     "service_credentials": {
       "scope": "global",
@@ -184,15 +179,10 @@
       "column": "not-null",
       "reason": "Tests belong to a run. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17), backfilled from the run; the execution store writes the run's own workspace and `DrizzleRunRepository` refuses a test under a run its workspace does not own. Isolation: `apps/api/src/repositories/run-repository-workspace-isolation.test.ts`, `apps/api/src/routes/execution.test.ts`."
     },
-    "results": {
-      "scope": "workspace",
-      "column": "not-null",
-      "reason": "Test results are tenant-owned evidence about a run. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17): NOT NULL, a `restrict` key onto `workspaces`, an index leading with it, and backfilled from its run's `workspace_id`, never from a caller."
-    },
     "attachments": {
       "scope": "workspace",
       "column": "not-null",
-      "reason": "Attachments hang off tenant-owned results. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17), backfilled from the result's workspace. Dormant (see `docs/quality/capability-justification.md`)."
+      "reason": "Attachments hang off tenant-owned results; the `results` table itself was dropped by `0030_drop_superseded_tables.sql` (ledger MNT-60), leaving `result_id` as an unkeyed legacy pointer. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17), backfilled from the result's workspace. Dormant (see `docs/quality/capability-justification.md`)."
     },
     "quarantine": {
       "scope": "workspace",
@@ -203,11 +193,6 @@
       "scope": "workspace",
       "column": "not-null",
       "reason": "Known-failure markers are tenant-owned. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17): NOT NULL, a `restrict` key onto `workspaces` and an index leading with it. It has no parent row, so the backfill takes the only workspace, an explicit `automate.backfill_workspace`, or raises naming the table. Dormant (see `docs/quality/capability-justification.md`)."
-    },
-    "blob_shards": {
-      "scope": "workspace",
-      "column": "not-null",
-      "reason": "Shards of tenant-owned blobs, and the row where a lookup by digest could have returned another tenant's bytes. Hard-scoped by `0028_workspace_hard_boundaries.sql` (ledger MNT-17): NOT NULL, a `restrict` key onto `workspaces`, an index leading with it, and backfilled from its run's `workspace_id`, never from a caller."
     },
     "nl_query_history": {
       "scope": "workspace",

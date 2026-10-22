@@ -15,7 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { projects, results, runs, runners, workspaces } from './dashboard.js';
+import { projects, runs, runners, workspaces } from './dashboard.js';
 
 // The controlled vocabularies live in `./vocabularies.js` rather than here, because
 // `dashboard.ts` needs `GATE_STATUSES` and importing it from this module would be a
@@ -291,7 +291,9 @@ export const artifacts = pgTable(
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     jobId: uuid('job_id').references(() => executionJobs.id, { onDelete: 'set null' }),
     testId: text('test_id'),
-    resultId: text('result_id').references(() => results.id, { onDelete: 'set null' }),
+    // The legacy result this artifact came from. The key onto `results` went with that table
+    // in 0030; the value is kept as a record of provenance.
+    resultId: text('result_id'),
     attempt: integer('attempt'),
     kind: text('kind', { enum: ARTIFACT_KINDS }).notNull().default('other'),
     name: text('name').notNull(),

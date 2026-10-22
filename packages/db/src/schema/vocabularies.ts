@@ -2,7 +2,7 @@
  * The controlled vocabularies, in a module that imports nothing.
  *
  * These constants used to live at the top of `execution.ts`, which meant `dashboard.ts`
- * could not use them: `execution.ts:18` imports `results`, `runs`, `runners` and
+ * could not use them: `execution.ts:18` imports `runs`, `runners` and
  * `workspaces` from `dashboard.ts`, so a reciprocal import would be a cycle. That is
  * why `runs.gateStatus` ended up with a hand-written three-value list that had drifted
  * from the contract — `passed`/`failed`/`skipped`, where the contract is
