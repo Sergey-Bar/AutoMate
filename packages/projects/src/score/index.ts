@@ -2,7 +2,13 @@ import { QaScoreSchema, type QaScore } from '@automate/shared-contracts';
 import { PYRAMID_ROW, SCORE_CATEGORIES, SCORE_SURFACES } from '../vocabulary.js';
 import type { PyramidLayer, ScoreCategory, ScoreSurface } from '../vocabulary.js';
 import { buildCell, depth, stability, type CellComponents } from './cell.js';
-import { flakeRate, isExecuted, qualifiesForPresence, type OutcomeObservation } from './flaky.js';
+import {
+  flakeRate,
+  isExecuted,
+  qualifiesForPresence,
+  trailingPasses,
+  type OutcomeObservation,
+} from './flaky.js';
 import { geometricMean, geometricRowWeights, type ScoreRow } from './geometric.js';
 import { classifyHollow, meanValueScore } from './hollow.js';
 import { pyramidShape } from './pyramid.js';
@@ -81,9 +87,10 @@ export interface ScoreProvenance {
 export function score(inputs: ScoreInputs, at: string): QaScore {
   const weights = inputs.profile.weights;
   const executed = inputs.results.filter((result) => isExecuted(result.outcome));
-  const observations = groupObservations(inputs.results);
+  const startedAtByRun = new Map(inputs.runs.map((run) => [run.runId, run.startedAt]));
+  const observations = groupObservations(inputs.results, startedAtByRun);
   const flakiness = flakeRate(inputs.results, observations);
-  const verdicts = hollowVerdicts(inputs);
+  const verdicts = hollowVerdicts(inputs, startedAtByRun);
   const qualityRuns = inputs.runs.filter((run) => qualifiesForPresence(run));
   const runIdsWithResults = new Set(executed.map((result) => result.runId));
 
@@ -332,6 +339,7 @@ function provenance(inputs: ScoreInputs): ScoreProvenance {
 
 function groupObservations(
   results: readonly CanonicalTestResult[],
+  startedAtByRun: ReadonlyMap<string, string>,
 ): Map<string, OutcomeObservation[]> {
   const grouped = new Map<string, OutcomeObservation[]>();
   for (const result of results) {
@@ -341,6 +349,7 @@ function groupObservations(
       runId: result.runId,
       commitSha: result.commitSha,
       outcome: result.outcome,
+      startedAt: startedAtByRun.get(result.runId) ?? null,
     });
     grouped.set(result.fingerprint, list);
   }
@@ -348,7 +357,10 @@ function groupObservations(
 }
 
 /** Hollow verdicts per fingerprint, over every observation in the window. */
-function hollowVerdicts(inputs: ScoreInputs): Map<string, ReturnType<typeof classifyHollow>> {
+function hollowVerdicts(
+  inputs: ScoreInputs,
+  startedAtByRun: ReadonlyMap<string, string>,
+): Map<string, ReturnType<typeof classifyHollow>> {
   const byFingerprint = new Map<string, CanonicalTestResult[]>();
   for (const result of inputs.results) {
     const list = byFingerprint.get(result.fingerprint) ?? [];
@@ -361,27 +373,10 @@ function hollowVerdicts(inputs: ScoreInputs): Map<string, ReturnType<typeof clas
     const observations = byFingerprint.get(fingerprint) ?? [];
     verdicts.set(
       fingerprint,
-      classifyHollow(fingerprint, observations, trailingPasses(observations)),
+      classifyHollow(fingerprint, observations, trailingPasses(observations, startedAtByRun)),
     );
   }
   return verdicts;
-}
-
-/**
- * How many of a fingerprint's *trailing* observations passed.
- *
- * Trailing, because the trivially-true rule is about a test that has been green
- * this way for thirty runs — one green run of a hollow test proves nothing about
- * whether it is hollow.
- */
-function trailingPasses(results: readonly CanonicalTestResult[]): number {
-  const ordered = [...results].sort((left, right) => left.runId.localeCompare(right.runId));
-  let passes = 0;
-  for (let index = ordered.length - 1; index >= 0; index -= 1) {
-    if (ordered[index]?.outcome !== 'passed') break;
-    passes += 1;
-  }
-  return passes;
 }
 
 function mean(values: readonly number[]): number {

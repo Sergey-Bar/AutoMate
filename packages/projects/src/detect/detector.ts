@@ -20,6 +20,10 @@ export type { ArtifactGlob, CommandCandidate, EcosystemDetection, FrameworkSigna
 /**
  * Which score row a script name claims to be.
  *
+ * Stems are matched at the start of a word, not anywhere in it: `it\b` matched the tail of
+ * `unit` (so `test:unit` was an integration suite), `sec` matched `second`, and `load`
+ * matched `download`. `sec` and `it` are whole words only, because they are also prefixes.
+ *
  * The order is load-bearing: `e2e` is tested before `integration` because
  * `test:e2e-integration` exists and means an end-to-end suite. The default is
  * `unit` because a script named `test` in a repository with no other signal is a
@@ -29,9 +33,11 @@ export type { ArtifactGlob, CommandCandidate, EcosystemDetection, FrameworkSigna
 export function categoryForScriptName(name: string): CommandCandidate['category'] {
   const lower = name.toLowerCase();
   if (/e2e|end-?to-?end|playwright|cypress|selenium|puppeteer/.test(lower)) return 'e2e';
-  if (/perf|load|k6|stress|benchmark/.test(lower)) return 'performance';
-  if (/security|sec|scan|zap|vuln/.test(lower)) return 'security';
-  if (/integration|contract|it\b/.test(lower)) return 'integration';
+  if (/(?<![a-z0-9])(?:perf|load|k6|stress|benchmark)/.test(lower)) return 'performance';
+  if (/(?<![a-z0-9])(?:security|scan|zap|vuln)|(?<![a-z0-9])sec(?![a-z0-9])/.test(lower)) {
+    return 'security';
+  }
+  if (/integration|contract|(?<![a-z0-9])it(?![a-z0-9])/.test(lower)) return 'integration';
   return 'unit';
 }
 
