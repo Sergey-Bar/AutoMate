@@ -111,7 +111,8 @@
     "docs:capability-register:baseline": "never-in-ci",
     "migrate:rehearse": "never-in-ci",
     "deps:policy": "pr-reporting",
-    "compose:boot": "pr-blocking"
+    "compose:boot": "pr-blocking",
+    "release:compose": "release"
   },
   "scripts": {
     "security:verify": {
