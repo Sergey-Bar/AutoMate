@@ -327,6 +327,30 @@ export const DEFAULT_SPOOL_RETRY_POLICY: SpoolRetryPolicy = {
   maxDelayMs: 30_000,
 };
 
+/**
+ * The delay before delivery attempt `failedAttempts + 1`.
+ *
+ * Exponential from `baseDelayMs`, clamped at `maxDelayMs`, with half the window randomised so
+ * a fleet that lost the API together does not return in lockstep. `random` is the injected
+ * `[0, 1)` source. Pure, so the schedule's bounds are properties of this function (SPOOL-1)
+ * rather than something inferred from a service under a fake clock.
+ *
+ * The result lies in `[max(1, round(ceiling / 2)), ceiling]` where `ceiling` is the clamped
+ * exponential - *not* in `[baseDelayMs, maxDelayMs]`: the first delay may be as short as half
+ * the base, which is what the randomised half is for.
+ */
+export function spoolBackoffDelayMs(
+  policy: Pick<SpoolRetryPolicy, 'baseDelayMs' | 'maxDelayMs'>,
+  failedAttempts: number,
+  random: () => number,
+): number {
+  const ceiling = Math.min(
+    policy.maxDelayMs,
+    policy.baseDelayMs * 2 ** Math.max(0, failedAttempts - 1),
+  );
+  return Math.max(1, Math.round(ceiling / 2 + random() * (ceiling / 2)));
+}
+
 export interface SpoolEntry {
   id: string;
   jobId: string;
