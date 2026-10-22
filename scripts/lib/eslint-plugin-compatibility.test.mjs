@@ -205,6 +205,7 @@ test('no package declares its own ESLint config, because ESLint 10 makes that fa
     'packages/reporter',
     'packages/reporting',
     'packages/runner-sdk',
+    'packages/tool-sdk',
     'packages/connectors/github',
     'packages/connectors/jira',
     'packages/connectors/sdk',

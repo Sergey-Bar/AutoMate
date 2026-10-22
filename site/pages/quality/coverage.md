@@ -35,6 +35,7 @@ on a regression instead.
 | `packages/reporting`         | 95.34      | 98.73    | 96        | 94    |
 | `packages/runner-sdk`        | 93         | 90.04    | 100       | 93.58 |
 | `packages/shared-contracts`  | 99.27      | 97.72    | 97.22     | 99.25 |
+| `packages/tool-sdk`          | 100        | 100      | 100       | 100   |
 | `packages/ui`                | 89.6       | 86.5     | 96.5      | 90.4  |
 | `tests/integration`          | 100        | 100      | 100       | 100   |
 | `tools/migrate-cli`          | 95.6       | 91.6     | 98.3      | 95.5  |
