@@ -50,8 +50,11 @@ export function registerArtifactRoutes(app: Hono, context: ExecutionRouteContext
   app.get('/api/v1/runs/:runId/artifacts/:artifactId', async (c) => {
     const runId = c.req.param('runId');
     const artifactId = c.req.param('artifactId');
-    const artifact = await options.store.getArtifact(artifactId);
-    if (!artifact) return missingArtifact(c, options.store, artifactId, runId);
+    // Scoped by the workspace, not only by the run id in the path: the run id is the
+    // caller's, so comparing against it proved nothing, and any workspace that knew both
+    // ids downloaded another workspace's evidence (ledger MNT-17).
+    const artifact = await options.store.getArtifact(artifactId, ws);
+    if (!artifact) return missingArtifact(c, options.store, artifactId, runId, ws);
     if (artifact.runId !== runId) throw new DomainError('ARTIFACT_NOT_FOUND', 'Artifact not found');
     return new Response(Buffer.from(artifact.bytes), {
       headers: {

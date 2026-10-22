@@ -123,7 +123,7 @@ describe('listTestsForRuns', () => {
     client = new PGlite();
     await client.exec(readMigrations());
     const db = drizzle(client, { schema });
-    sql = new DrizzleRunRepository(db);
+    sql = new DrizzleRunRepository(db, DEFAULT_WORKSPACE_ID);
     for (const run of FIXTURE) await sql.upsertRun(run);
     for (const record of TESTS) {
       await sql.upsertTest(record);

@@ -31,7 +31,10 @@ import { auditEvents } from '@automate/db';
 export interface WriteContext {
   actorId: string;
   actorType: 'user' | 'system' | 'service';
-  workspaceId?: string | null;
+  // No `workspaceId`. It was an optional field here that no production caller set, so
+  // every audit row was written with a NULL workspace. The workspace is now the store's,
+  // bound at construction and passed to `auditRow` explicitly, so a caller cannot name a
+  // different one and there is one authority for it (ledger MNT-17).
   requestId?: string | null;
 }
 
@@ -70,8 +73,15 @@ export class InMemoryAuditSink implements AuditSink {
  * Both `timestamp` and `createdAt` are `NOT NULL` with no database default, so both
  * are set from one `now`. Two clocks reading a few milliseconds apart would make
  * "what happened first" unanswerable from the row alone.
+ *
+ * `workspaceId` is required and positional: `audit_events.workspace_id` is NOT NULL with
+ * a key onto `workspaces` since 0028, and the value is the writing store's own workspace.
  */
-export function auditRow(entry: AuditEntry, now: Date): typeof auditEvents.$inferInsert {
+export function auditRow(
+  entry: AuditEntry,
+  workspaceId: string,
+  now: Date,
+): typeof auditEvents.$inferInsert {
   return {
     timestamp: now,
     createdAt: now,
@@ -80,7 +90,7 @@ export function auditRow(entry: AuditEntry, now: Date): typeof auditEvents.$infe
     action: entry.action,
     resourceType: entry.resourceType,
     resourceId: entry.resourceId,
-    workspaceId: entry.workspaceId ?? null,
+    workspaceId,
     requestId: entry.requestId ?? null,
     details: entry.details ?? null,
   };

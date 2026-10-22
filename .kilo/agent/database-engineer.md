@@ -20,7 +20,7 @@ You are the **Database Engineer** for the Automate platform. You own `packages/d
 
 `WORKSPACE_ID` is the only tenancy boundary in the system. A tenancy boundary applied to some tables and not others is not a boundary. `schedules` (0015), `outbox_events` (0017), `conversations`/`messages` (0018) and the connector credentials (0020) each had to be migrated, and in two of those cases a `UNIQUE` constraint that should have been `(workspace_id, thing)` made one tenant's write land in another tenant's row — silently, with no error anywhere.
 
-**`docs/quality/tenancy-scope.json` is which tables this covers** — 56 rows, each committing its scope, its observed column state, and the reason. `pnpm tenancy:check` fails on a table with no row, and on a row that loses its `not-null`. It **reports** the 28 workspace-scoped tables without a hard boundary rather than failing, because that debt is `P-20` and a permanently red gate stops catching the regressions. Adding a table to the register is not a regression; dropping a boundary is.
+**`docs/quality/tenancy-scope.json` is which tables this covers** — 56 rows, each committing its scope, its observed column state, and the reason. `pnpm tenancy:check` fails on a table with no row, and on a row that loses its `not-null`. Every workspace-scoped table has a hard boundary since `0028_workspace_hard_boundaries.sql` (`MNT-17`) — `workspace_id` NOT NULL, a `restrict` key onto `workspaces`, an index leading with it — so a new one ships the same way, and a backfill takes the parent's workspace or fails closed rather than guessing. Adding a table to the register is not a regression; dropping a boundary is.
 
 When you add the column:
 

@@ -76,12 +76,13 @@ export function stripComments(source) {
  * Read the table declarations out of one schema source file.
  *
  * The parse is deliberately narrow and is the kind that fails loudly rather than
- * quietly: Drizzle declares `workspace_id` in exactly one shape in this codebase
- * (`text('workspace_id')` with an optional `.notNull()` and no `.references()`),
- * and the tests below pin that. If someone introduces a second shape, the
- * declaration stops matching, the column reads as absent, and the gate reports a
- * regression — which is the correct outcome for a parser that has met something
- * it does not understand.
+ * quietly: Drizzle declares `workspace_id` in one shape in this codebase —
+ * `text('workspace_id')`, then `.notNull()` if it is required, then optionally
+ * `.references(() => workspaces.id, …)` — and the tests below pin that. `.notNull()`
+ * must come first, which is how every declaration since MNT-17 is written. If someone
+ * introduces a second shape, the declaration stops matching or reads as nullable, and the
+ * gate reports a regression — which is the correct outcome for a parser that has met
+ * something it does not understand.
  *
  * @param {string} raw the text of one `packages/db/src/schema/*.ts` file
  * @returns {Array<{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }>}
@@ -109,12 +110,12 @@ export function parseTableStates(raw) {
 
     const declaration = COLUMN_HEAD.exec(columnBlock);
     // The modifier chain, bounded by the next comma. Bounded rather than matched by
-    // a greedy continuation because a continuation over `[^,\n]` backtracks, and
-    // `workspace_id` is declared in exactly one shape in this codebase: optional
-    // `.notNull()`, never `.references()`. An unfamiliar shape yields `notNull:
-    // false`, the gate reports a regression, and the parser is visibly wrong —
-    // which is the outcome a parser meeting something it does not understand should
-    // have.
+    // a greedy continuation because a continuation over `[^,\n]` backtracks. The first
+    // comma after `.notNull()` is inside `.references(() => workspaces.id, …)` when there
+    // is one, so the chain still contains `.notNull()`; a `.references()` written
+    // *before* `.notNull()` would put the comma first and read as nullable, and the gate
+    // reports a regression — which is the outcome a parser meeting something it does not
+    // understand should have.
     const after =
       declaration === null
         ? ''

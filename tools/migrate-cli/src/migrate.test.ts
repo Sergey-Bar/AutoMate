@@ -159,6 +159,7 @@ describe('migrateToPostgres', () => {
       from,
       to: 'postgres://user:pass@localhost:5432/automate',
       dryRun: false,
+      workspaceId: 'workspace-1',
     });
 
     expect(report.dryRun).toBe(false);
@@ -207,6 +208,7 @@ describe('migrateToPostgres', () => {
       from,
       to: 'postgres://user:pass@localhost:5432/automate',
       dryRun: false,
+      workspaceId: 'workspace-1',
     });
 
     expect(
@@ -247,11 +249,13 @@ describe('migrateToPostgres', () => {
       from,
       to: 'postgres://user:pass@localhost:5432/automate',
       dryRun: false,
+      workspaceId: 'workspace-1',
     });
 
     expect(mocks.query).toHaveBeenCalledTimes(2);
-    expect(mocks.query.mock.calls[0]?.[1]).toHaveLength(600);
-    expect(mocks.query.mock.calls[1]?.[1]).toHaveLength(6);
+    // Seven columns since 0028: the six the source has, and the workspace.
+    expect(mocks.query.mock.calls[0]?.[1]).toHaveLength(700);
+    expect(mocks.query.mock.calls[1]?.[1]).toHaveLength(7);
   });
 
   it('omits absent optional source columns so PostgreSQL defaults can apply', async () => {
@@ -280,10 +284,11 @@ describe('migrateToPostgres', () => {
       from,
       to: 'postgres://user:pass@localhost:5432/automate',
       dryRun: false,
+      workspaceId: 'workspace-1',
     });
 
     expect(String(mocks.query.mock.calls[0]?.[0])).toBe(
-      'INSERT INTO "model_config" ("id", "provider", "model", "endpoint", "updated_at") VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING',
+      'INSERT INTO "model_config" ("id", "provider", "model", "endpoint", "updated_at", "workspace_id") VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING',
     );
     expect(mocks.query.mock.calls[0]?.[1]).toEqual([
       'default',
@@ -291,6 +296,7 @@ describe('migrateToPostgres', () => {
       'llama3.1',
       'http://localhost:11434',
       '2026-01-01T00:00:00.000Z',
+      'workspace-1',
     ]);
   });
 
@@ -404,13 +410,20 @@ describe('migrateToPostgres refusals and row-level failures', () => {
        INSERT INTO connector_configs VALUES ('e', 'y', 'yes', NULL, NULL, 't');
        INSERT INTO connector_configs VALUES ('f', 'z', NULL, NULL, '{"a":1}', 't');`,
     );
-    await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
 
     const values = mocks.query.mock.calls[0]?.[1];
     expect(Array.isArray(values)).toBe(true);
     const rows: unknown[][] = [];
     for (let index = 0; index < 6; index += 1) {
-      rows.push((values as unknown[]).slice(index * 6, index * 6 + 6));
+      // Seven per row: the six source columns, then the workspace the import supplies.
+      rows.push((values as unknown[]).slice(index * 7, index * 7 + 7));
     }
     // `enabled` is the third column, `settings` the fifth.
     expect(rows.map((row) => row[2])).toEqual([true, false, true, true, false, null]);
@@ -432,7 +445,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
     });
     const log = vi.fn();
 
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log,
+    });
 
     expect(report.tables).toEqual([
       { table: 'defect_categories', rowCount: 3, inserted: 2, failed: 1 },
@@ -453,7 +472,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
       `CREATE TABLE tests (id TEXT, run_id TEXT, title TEXT, file TEXT, status TEXT, tags);
        INSERT INTO tests VALUES ('t1', 'r1', 'x', 'f', 'passed', X'00FF');`,
     );
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
 
     expect(report.errors).toEqual([
       { table: 'tests', id: 't1:r1', error: 'Expected JSON text in tags' },
@@ -469,7 +494,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
       `${CONNECTOR_SQL}
        INSERT INTO connector_configs VALUES ('c1', 'github', 1, NULL, '{not json', 't');`,
     );
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
     expect(report.errors).toHaveLength(1);
     expect(report.errors[0]).toMatchObject({ table: 'connector_configs', id: 'c1' });
     expect(report.errors[0]?.error).toMatch(/JSON/);
@@ -482,7 +513,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
        INSERT INTO trends VALUES ('2026-01-01', 'web', NULL, 3);`,
     );
     mocks.query.mockRejectedValue(new Error('null value in column "branch"'));
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
     expect(report.errors).toEqual([
       { table: 'trends', id: '2026-01-01:web:<null>', error: 'null value in column "branch"' },
     ]);
@@ -491,7 +528,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
   it('counts a row skipped by ON CONFLICT as not inserted', async () => {
     const from = createFixtureDatabase();
     mocks.query.mockResolvedValue({ rows: [], rowCount: null });
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
     expect(report.tables.map((entry) => entry.inserted)).toEqual([0, 0, 0]);
     expect(report.errors).toEqual([]);
   });
@@ -503,7 +546,13 @@ describe('migrateToPostgres refusals and row-level failures', () => {
        INSERT INTO defect_categories VALUES ('d1', 'a', '#fff', 't');`,
     );
     mocks.query.mockRejectedValue('connection reset');
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
     expect(report.errors).toEqual([
       { table: 'defect_categories', id: 'd1', error: 'connection reset' },
     ]);
@@ -512,8 +561,131 @@ describe('migrateToPostgres refusals and row-level failures', () => {
   it('keeps going table by table when every insert fails, then closes the pool', async () => {
     const from = createFixtureDatabase();
     mocks.query.mockRejectedValue(new Error('down'));
-    const report = await migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() });
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'workspace-1',
+      log: vi.fn(),
+    });
     expect(report.errors.map((error) => error.table)).toEqual(['runs', 'suites', 'tests']);
     expect(mocks.end).toHaveBeenCalledOnce();
+  });
+});
+
+describe('migrateToPostgres and the workspace boundary (ledger MNT-17)', () => {
+  const TARGET = 'postgres://user:pass@localhost:5432/automate';
+
+  function sqlite(name: string, sql: string): string {
+    const filePath = join(tempDir, name);
+    const db = new Database(filePath);
+    db.exec(sql);
+    db.close();
+    return filePath;
+  }
+
+  const KNOWN_FAILURE = `
+    CREATE TABLE known_failures (
+      id TEXT PRIMARY KEY, test_title TEXT NOT NULL, test_file TEXT NOT NULL,
+      comment TEXT, created_at TEXT NOT NULL, created_by TEXT
+    );
+    INSERT INTO known_failures VALUES ('k1', 't', 'f', NULL, '2026-01-01T00:00:00.000Z', 'qa');
+  `;
+
+  it('stamps a workspace-scoped row the source never scoped with the target workspace', async () => {
+    // The legacy SQLite schema has no `workspace_id` on most tables, and since 0028 every
+    // one of them is NOT NULL with a key onto `workspaces`. Copying the source columns
+    // alone would have failed every row of every such table on a real apply.
+    const from = sqlite('scoped.sqlite', KNOWN_FAILURE);
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'ws-target',
+      log: vi.fn(),
+    });
+    expect(report.errors).toEqual([]);
+    expect(String(mocks.query.mock.calls[0]?.[0])).toContain('"workspace_id"');
+    expect(mocks.query.mock.calls[0]?.[1]).toEqual([
+      'k1',
+      't',
+      'f',
+      null,
+      '2026-01-01T00:00:00.000Z',
+      'qa',
+      'ws-target',
+    ]);
+  });
+
+  it('copies a source workspace_id that already names the target, and refuses one that does not', async () => {
+    // A legacy source that did scope a table keeps its own column, read rather than
+    // replaced, so the same rule decides it: equal is copied, different is an error.
+    const from = sqlite(
+      'scoped-source.sqlite',
+      `CREATE TABLE quarantine (
+         id TEXT PRIMARY KEY, test_title TEXT, test_file TEXT, quarantined_at TEXT, workspace_id TEXT
+       );
+       INSERT INTO quarantine VALUES ('q1', 't', 'f', 't', 'ws-target');
+       INSERT INTO quarantine VALUES ('q2', 't', 'f', 't', 'ws-other');`,
+    );
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'ws-target',
+      log: vi.fn(),
+    });
+    expect(report.errors).toEqual([
+      { table: 'quarantine', id: 'q2', error: expect.stringMatching(/ws-other/) },
+    ]);
+    expect(report.tables).toEqual([{ table: 'quarantine', rowCount: 2, inserted: 1, failed: 1 }]);
+  });
+
+  it('refuses to write a workspace-scoped table with no target workspace', async () => {
+    const from = sqlite('unscoped.sqlite', KNOWN_FAILURE);
+    await expect(
+      migrateToPostgres({ from, to: TARGET, dryRun: false, log: vi.fn() }),
+    ).rejects.toThrow(/workspace/);
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it('records a run whose legacy workspace is not the target, rather than moving it', async () => {
+    const from = createFixtureDatabase();
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'someone-else',
+      log: vi.fn(),
+    });
+    expect(report.errors).toContainEqual({
+      table: 'runs',
+      id: '11111111-1111-4111-8111-111111111111',
+      error: expect.stringMatching(/workspace-1/),
+    });
+  });
+
+  it('folds a legacy audit tenant_id into workspace_id, and refuses one that disagrees', async () => {
+    const from = sqlite(
+      'audit.sqlite',
+      `CREATE TABLE audit_events (
+         id TEXT PRIMARY KEY, timestamp TEXT, actor_id TEXT, action TEXT, tenant_id TEXT,
+         created_at TEXT
+       );
+       INSERT INTO audit_events VALUES ('a1', 't', 'u', 'x', NULL, 't');
+       INSERT INTO audit_events VALUES ('a2', 't', 'u', 'x', 'ws-target', 't');
+       INSERT INTO audit_events VALUES ('a3', 't', 'u', 'x', 'elsewhere', 't');`,
+    );
+    const report = await migrateToPostgres({
+      from,
+      to: TARGET,
+      dryRun: false,
+      workspaceId: 'ws-target',
+      log: vi.fn(),
+    });
+    expect(String(mocks.query.mock.calls[0]?.[0])).not.toContain('"tenant_id"');
+    expect(report.errors).toEqual([
+      { table: 'audit_events', id: 'a3', error: expect.stringMatching(/elsewhere/) },
+    ]);
   });
 });

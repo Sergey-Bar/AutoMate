@@ -4707,6 +4707,49 @@
         }
       ],
       "resolution": "The refusal names what happened."
+    },
+    {
+      "id": "MNT-17",
+      "title": "28 workspace-scoped tables had no hard tenancy boundary, and four live paths read across it",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`pnpm tenancy:check` reported 28 workspace-scoped tables without a hard `workspace_id`: `runs` and `audit_events` nullable, `quality_gate_config` nullable by design, and 25 with no column. Reading the live ones found four defects the column alone would not have fixed. (1) `DrizzleRunRepository` — the reporter path and every dashboard run/test read — took no workspace: `getRun`, `listRuns`, `listTests` and the analytics summary answered for the whole installation, and `upsertRun`'s conflict branch set `workspace_id` to the writer's, so a second workspace reusing a run id moved the run into itself. (2) `GET /api/v1/runs/:runId/artifacts/:artifactId` read the artifact by id with no workspace and compared only the caller-supplied run id, so any workspace that knew both ids downloaded another's evidence (200, with a shared byte store as in production). (3) `quarantine` had no column, so the dashboard list, the resolve, the delete and the readiness card's pending count were installation-wide. (4) Every `audit_events` row was written with a NULL workspace, because `auditRow` took it from an optional `WriteContext` field no caller set; `tenant_id` sat beside it with no writer and no reader.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "Each isolation test below was written against the unfixed tree and watched failing for the expected reason before the fix: the repository returned the other workspace's run and resolved a cross-workspace `upsertRun`; the run-scoped artifact route answered 200 to the other workspace; the other workspace's quarantine store listed the entry; the audit row's `workspace_id` was NULL; and the `tests`/`artifacts` rows had no `workspace_id` column. The migration test failed with the migration absent.",
+      "evidence": [
+        {
+          "path": "packages/db/drizzle/0028_workspace_hard_boundaries.sql",
+          "asserts": "Adds `workspace_id NOT NULL` with a `restrict` key onto `workspaces` and an index leading with it to the 25 unscoped tables, and makes `runs` and `audit_events` NOT NULL with the same key. Backfills from the parent row where there is one, otherwise from an explicit `automate.backfill_workspace` or the only workspace, and raises naming the table otherwise. Registers workspace ids the data already names, folds `audit_events.tenant_id` into `workspace_id` (raising on a disagreement) and drops it, keys `quality_gate_config.workspace_id` without forcing it, and makes `trends`' key and `test_failure_correlations`' uniqueness per workspace."
+        },
+        {
+          "path": "tests/integration/src/workspace-boundaries.test.ts",
+          "asserts": "Applies the graph up to 0028, seeds pre-0028 rows, applies 0028: children take the parent's workspace with several workspaces present, parentless rows take the only workspace, a parentless row with two workspaces raises naming its table and leaves nothing applied, the explicit setting is honoured and refused when it names no workspace, a disagreeing `tenant_id` raises, and no helper function survives."
+        },
+        {
+          "path": "apps/api/src/repositories/run-repository-workspace-isolation.test.ts",
+          "asserts": "Two `DrizzleRunRepository` instances over one migrated database: runs and tests are stamped with the writer's workspace, invisible to every read from the other, and cannot be patched, re-tested or taken over by it; a record naming a different workspace is refused."
+        },
+        {
+          "path": "apps/api/src/routes/execution.test.ts",
+          "asserts": "`a run’s tests and artifacts carry the run’s own workspace`: the run, its completed tests and its artifact rows carry one workspace, and the run-scoped artifact download answers 404 to the other workspace with a shared byte store."
+        },
+        {
+          "path": "apps/api/src/modules/dashboard/dashboard-stores-workspace-isolation.test.ts",
+          "asserts": "A quarantine entry is stored and audited in its workspace and cannot be listed, resolved or removed from another, with no audit row for the refused decisions; a gate creation is audited under the store's workspace."
+        },
+        {
+          "path": "packages/db/src/schema/constraints.test.ts",
+          "asserts": "`gives every workspace-scoped table a restricting key onto its workspace (MNT-17)` requires the key and an index (or primary key) leading with `workspace_id` on all 28 tables, and the drift comparison requires the migration and the schema to agree on every new key and index."
+        },
+        {
+          "path": "docs/quality/tenancy-scope.json",
+          "asserts": "Every workspace-scoped row commits `not-null`; `quality_gate_config` is `global` with its NULL-is-the-default reason, and the recomputed tally is 43 / 43 / 0 / 0."
+        }
+      ],
+      "resolution": "Bounded all 27 tables that can be, in one migration, and bound every live path to the configured workspace: `DrizzleRunRepository`, `DrizzleQuarantineStore` and `DrizzleQualityGateStore` take the workspace at construction and every statement carries it; the execution store writes the run's workspace on tests and artifacts and reads them by their own column; the run-scoped artifact route is scoped; `auditRow` takes the workspace positionally and `WriteContext` no longer has one. `index.ts` threads `runtimeConfig.workspaceId` into all three and registers the configured workspace at boot, because the new keys refuse a write under an unregistered one. `tenant_id` was redundant and is gone. `quality_gate_config.workspace_id` stays nullable on purpose — NULL is the installation-wide default gate — and is classified `global`. `tools/migrate-cli` takes a `--workspace` and stamps it on every scoped table, recording rather than moving a legacy row that names another. Not in this row: seven tables bounded earlier by an unkeyed NOT NULL column (`schedules`, `outbox_events`, `conversations`, `messages`, `connector_configs`, `vault_entries`, `canonical_run_results`) still have no foreign key onto `workspaces`."
     }
   ]
 }

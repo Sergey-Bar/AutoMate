@@ -27,7 +27,7 @@ You are the **Codebase Researcher** for the Automate platform. Your job is to in
 
 Knowing this saves a search and prevents a wrong answer:
 
-- **The tenancy boundary** is `WORKSPACE_ID`, and nothing else. `docs/quality/tenancy-scope.json` is which tables that covers — one row per table, with the reason. Do not answer "is this table scoped?" by reading the schema: 28 workspace-scoped tables have no `workspace_id` at all, so the column's presence and the table's scope are two different questions.
+- **The tenancy boundary** is `WORKSPACE_ID`, and nothing else. `docs/quality/tenancy-scope.json` is which tables that covers — one row per table, with the reason. Answer "is this table scoped?" from the register, not the schema: the column's presence and the table's scope are two different questions — `quality_gate_config` carries a nullable `workspace_id` and is classified `global`, because its NULL is the installation-wide default gate.
 - **The controlled vocabularies** are in `packages/db/src/schema/vocabularies.ts`, a leaf module importing nothing. `execution.ts` re-exports all of it. If you find a second hand-written list of the same values elsewhere, that is drift.
 - **The API contracts** are Zod schemas in `packages/shared-contracts`, which is also what the client parses against. A hand-written mirror of a schema is a defect.
 - **The gate tiers** are in `scripts/gate-tooling.json`, and `scripts/lib/gate-tooling.test.mjs` enforces them. A script with no tier is an unclassified gate.

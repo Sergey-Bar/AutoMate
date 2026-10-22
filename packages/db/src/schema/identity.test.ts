@@ -63,10 +63,14 @@ describe('identity and system schema', () => {
       .sort();
     expect(auditTables).toEqual(['audit_events']);
 
-    // And the surviving table keeps the four columns that made it attributable.
+    // And the surviving table keeps the columns that made it attributable. `tenantId` is
+    // not among them since 0028: it was a second tenant column with no writer, folded
+    // into `workspaceId` and dropped (ledger MNT-17), so its *absence* is asserted.
     const columns = getTableColumns(auditEvents);
-    for (const column of ['ip', 'userAgent', 'tenantId', 'workspaceId', 'requestId', 'details']) {
+    for (const column of ['ip', 'userAgent', 'workspaceId', 'requestId', 'details']) {
       expect(columns, `audit_events lost ${column}`).toHaveProperty(column);
     }
+    expect(columns, 'audit_events regained a second tenant column').not.toHaveProperty('tenantId');
+    expect(columns.workspaceId.notNull, 'audit_events.workspace_id became nullable').toBe(true);
   });
 });

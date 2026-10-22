@@ -691,7 +691,7 @@ describe('the values it writes, against the real schema', () => {
   });
 
   it('writes a whole reporting sequence the column constraints accept', async () => {
-    const repository = new DrizzleRunRepository(drizzle(client, { schema }));
+    const repository = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID);
 
     await persistReporterEvent(
       event('run:start', { total: 3, branch: 'main', commitSha: 'abc1234', triggeredBy: 'ci' }),
@@ -741,7 +741,7 @@ describe('the values it writes, against the real schema', () => {
   });
 
   it('stores the run and test rows in the columns the dashboard reads them from', async () => {
-    const repository = new DrizzleRunRepository(drizzle(client, { schema }));
+    const repository = new DrizzleRunRepository(drizzle(client, { schema }), DEFAULT_WORKSPACE_ID);
 
     expect(await repository.listTests(RUN_ID)).toHaveLength(3);
     const [first] = await repository.listTests(RUN_ID);

@@ -12,6 +12,17 @@ export interface MigrateOptions {
   from: string;
   to: string;
   dryRun: boolean;
+  /**
+   * The workspace every imported row belongs to (ledger MNT-17).
+   *
+   * Since `0028_workspace_hard_boundaries` every workspace-scoped table carries
+   * `workspace_id NOT NULL` with a key onto `workspaces`, and the legacy SQLite schema
+   * has no such column on most of them. A legacy install is one tenant, so the import
+   * names that tenant once, here; a row whose own legacy value names a *different*
+   * workspace is recorded as a row error rather than moved. Required to write any
+   * workspace-scoped table, and not needed for a dry run.
+   */
+  workspaceId?: string;
   log?: LogFn;
 }
 
@@ -37,7 +48,14 @@ export interface MigrationReport {
 interface ColumnMapping {
   sqlite: string;
   pg: string;
-  kind?: 'json' | 'boolean';
+  /**
+   * `workspace` is the tenancy column: the target workspace when the source value is
+   * absent or NULL, the source value when it already names that workspace, and a row
+   * error otherwise.
+   */
+  kind?: 'json' | 'boolean' | 'workspace';
+  /** Supplied by the import rather than read from SQLite, which has no such column. */
+  injected?: boolean;
 }
 
 interface TableMapping {
@@ -161,7 +179,7 @@ const TABLES: readonly TableMapping[] = [
     column('raw_args'),
     column('source'),
     column('gate_status'),
-    column('workspace_id'),
+    column('workspace_id', 'workspace'),
     column('pr_number'),
     column('pr_branch'),
     column('base_branch'),
@@ -493,10 +511,58 @@ const TABLES: readonly TableMapping[] = [
     column('user_agent'),
     column('request_id'),
     column('details', 'json'),
-    column('tenant_id'),
+    // `tenant_id` was dropped by 0028 as a second tenant column; a legacy value is folded
+    // into `workspace_id` under the same rule as every other workspace column.
+    { sqlite: 'tenant_id', pg: 'workspace_id', kind: 'workspace' },
     column('created_at'),
   ]),
 ];
+
+/**
+ * Every table whose rows carry `workspace_id NOT NULL` in PostgreSQL.
+ *
+ * The chat and connector tables have been NOT NULL since 0018 and 0020 and the import
+ * never wrote them a workspace either, so they are here for the same reason as the 25
+ * that 0028 bounded. `quality_gate_config` is not: its NULL is the installation-wide
+ * default gate, and its own legacy value is copied as it is.
+ */
+const WORKSPACE_SCOPED_TABLES: ReadonlySet<string> = new Set([
+  'conversations',
+  'messages',
+  'message_attachments',
+  'connector_configs',
+  'flow_templates',
+  'execution_log',
+  'model_config',
+  'trace_links',
+  'runs',
+  'suites',
+  'tests',
+  'results',
+  'attachments',
+  'trends',
+  'quarantine',
+  'known_failures',
+  'blob_shards',
+  'nl_query_history',
+  'failure_classifications',
+  'test_failure_correlations',
+  'locator_suggestions',
+  'failure_clusters',
+  'agent_sessions',
+  'agent_session_runs',
+  'agent_session_files',
+  'generated_test_suggestions',
+  'repair_attempts',
+  'agent_conflicts',
+  'audit_events',
+]);
+
+const WORKSPACE_COLUMN: ColumnMapping = {
+  sqlite: 'workspace_id',
+  pg: 'workspace_id',
+  kind: 'workspace',
+};
 
 const BLOCKED_TABLES = new Set(['users', 'saml_config', 'saml_configs', 'sp_private_key']);
 
@@ -517,6 +583,16 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
     const tables = TABLES.filter((mapping) => existingTables.has(mapping.table));
 
     const effectiveTables = tables.map((mapping) => validateTableSchema(sqlite, mapping));
+
+    // Before any row is read: a scoped table with no target workspace cannot be written
+    // correctly, and finding that out row by row would report every row as a failure.
+    const scoped = effectiveTables.filter((mapping) => WORKSPACE_SCOPED_TABLES.has(mapping.table));
+    if (!options.dryRun && scoped.length > 0 && !options.workspaceId?.trim()) {
+      throw new Error(
+        `A target workspace is required to import ${scoped.map((mapping) => mapping.table).join(', ')}: ` +
+          'every one carries workspace_id NOT NULL. Pass --workspace <id>.',
+      );
+    }
 
     for (const mapping of effectiveTables) {
       reports.push({
@@ -541,7 +617,8 @@ export async function migrateToPostgres(options: MigrateOptions): Promise<Migrat
         const mapping = effectiveTableByName(effectiveTables, report.table);
         log(`Migrating ${report.table}... 0/${report.rowCount}`);
         const rows = readRows(sqlite, mapping);
-        const result = await insertRows(pool, mapping, rows, errors);
+        // Empty only when no table being written is scoped, which the check above ensures.
+        const result = await insertRows(pool, mapping, rows, errors, options.workspaceId ?? '');
         report.inserted = result.inserted;
         report.failed = result.failed;
         log(`Migrating ${report.table}... ${report.rowCount}/${report.rowCount} ✓`);
@@ -586,7 +663,15 @@ function getTableCount(db: Database.Database, tableName: string): number {
 function validateTableSchema(db: Database.Database, mapping: TableMapping): TableMapping {
   const rows = db.prepare(`PRAGMA table_info(${quoteSqliteIdentifier(mapping.table)})`).all();
   const actualColumns = rows.map((row) => readObjectString(row, 'name'));
-  const expectedColumns = new Set(mapping.columns.map((mappingColumn) => mappingColumn.sqlite));
+  const scoped = WORKSPACE_SCOPED_TABLES.has(mapping.table);
+  const declaresWorkspace = mapping.columns.some(
+    (mappingColumn) => mappingColumn.pg === 'workspace_id',
+  );
+  // A scoped table with no mapped tenant column gets one, read from the source when the
+  // source has it and supplied by the import when it does not.
+  const declared =
+    scoped && !declaresWorkspace ? [...mapping.columns, WORKSPACE_COLUMN] : mapping.columns;
+  const expectedColumns = new Set(declared.map((mappingColumn) => mappingColumn.sqlite));
   const unknownColumns = actualColumns.filter((actual) => !expectedColumns.has(actual));
 
   if (unknownColumns.length > 0) {
@@ -596,9 +681,12 @@ function validateTableSchema(db: Database.Database, mapping: TableMapping): Tabl
   }
 
   const actualColumnSet = new Set(actualColumns);
-  const columns = mapping.columns.filter((mappingColumn) =>
-    actualColumnSet.has(mappingColumn.sqlite),
-  );
+  const columns = declared.flatMap((mappingColumn): ColumnMapping[] => {
+    if (actualColumnSet.has(mappingColumn.sqlite)) return [mappingColumn];
+    // The tenancy column of a scoped table is never dropped for being absent upstream.
+    if (scoped && mappingColumn.kind === 'workspace') return [{ ...mappingColumn, injected: true }];
+    return [];
+  });
   const missingIdColumns = mapping.idColumns.filter((idColumn) => !actualColumnSet.has(idColumn));
 
   if (missingIdColumns.length > 0) {
@@ -612,6 +700,7 @@ function validateTableSchema(db: Database.Database, mapping: TableMapping): Tabl
 
 function readRows(db: Database.Database, mapping: TableMapping): SourceRow[] {
   const selectedColumns = mapping.columns
+    .filter((mappingColumn) => mappingColumn.injected !== true)
     .map((mappingColumn) => quoteSqliteIdentifier(mappingColumn.sqlite))
     .join(', ');
   const rows = db
@@ -625,6 +714,7 @@ async function insertRows(
   mapping: TableMapping,
   rows: readonly SourceRow[],
   errors: MigrationErrorReport[],
+  workspaceId: string,
 ): Promise<{ inserted: number; failed: number }> {
   let inserted = 0;
   let failed = 0;
@@ -632,12 +722,12 @@ async function insertRows(
   for (let start = 0; start < rows.length; start += BATCH_SIZE) {
     const batch = rows.slice(start, start + BATCH_SIZE);
     try {
-      const result = await pool.query(...buildInsertQuery(mapping, batch));
+      const result = await pool.query(...buildInsertQuery(mapping, batch, workspaceId));
       inserted += result.rowCount ?? 0;
     } catch {
       for (const row of batch) {
         try {
-          const result = await pool.query(...buildInsertQuery(mapping, [row]));
+          const result = await pool.query(...buildInsertQuery(mapping, [row], workspaceId));
           inserted += result.rowCount ?? 0;
         } catch (rowError) {
           failed += 1;
@@ -654,14 +744,19 @@ async function insertRows(
   return { inserted, failed };
 }
 
-function buildInsertQuery(mapping: TableMapping, rows: readonly SourceRow[]): [string, unknown[]] {
+function buildInsertQuery(
+  mapping: TableMapping,
+  rows: readonly SourceRow[],
+  workspaceId: string,
+): [string, unknown[]] {
   const columns = mapping.columns;
   const columnSql = columns.map((mappingColumn) => quotePgIdentifier(mappingColumn.pg)).join(', ');
   const values: unknown[] = [];
   const rowSql = rows
     .map((row, rowIndex) => {
       const placeholders = columns.map((mappingColumn, columnIndex) => {
-        values.push(convertValue(row[mappingColumn.sqlite] ?? null, mappingColumn));
+        const source = mappingColumn.injected === true ? null : (row[mappingColumn.sqlite] ?? null);
+        values.push(convertValue(source, mappingColumn, workspaceId));
         return `$${rowIndex * columns.length + columnIndex + 1}`;
       });
       return `(${placeholders.join(', ')})`;
@@ -674,7 +769,17 @@ function buildInsertQuery(mapping: TableMapping, rows: readonly SourceRow[]): [s
   ];
 }
 
-function convertValue(value: SqliteValue, mapping: ColumnMapping): unknown {
+function convertValue(value: SqliteValue, mapping: ColumnMapping, workspaceId: string): unknown {
+  if (mapping.kind === 'workspace') {
+    // Fail closed: a row is never moved into a workspace its own data does not name. The
+    // target is non-empty here — `migrateToPostgres` refuses to write a scoped table
+    // without one before reading a row.
+    if (value === null || value === '' || value === workspaceId) return workspaceId;
+    throw new Error(
+      `${mapping.sqlite} names workspace "${String(value)}", not the target workspace "${workspaceId}"`,
+    );
+  }
+
   if (value === null) {
     return null;
   }

@@ -197,6 +197,13 @@
       "when": 1790400000022,
       "tag": "0027_constraint_drift",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1790400000023,
+      "tag": "0028_workspace_hard_boundaries",
+      "breakpoints": true
     }
   ]
 }

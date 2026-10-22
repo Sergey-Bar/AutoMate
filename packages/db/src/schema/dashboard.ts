@@ -307,7 +307,12 @@ export const runs = pgTable(
     // so the constant could not be imported back from there — and so nothing noticed
     // (ledger P-5). `0016_gate_status_contract.sql` widens the CHECK to match.
     gateStatus: text('gate_status', { enum: GATE_STATUSES }),
-    workspaceId: text('workspace_id'),
+    // NOT NULL with a key onto `workspaces` since 0028 (ledger MNT-17). It was nullable
+    // with no key, so a run could belong to no workspace — invisible to every scoped
+    // read — or to one `workspaces` never registered.
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     queuedAt: timestamp('queued_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -382,18 +387,29 @@ export const canonicalRunResults = pgTable(
 
 // ─── suites ────────────────────────────────────────────────────────────────
 // Source: suites table — test suite hierarchy
-export const suites = pgTable('suites', {
-  // SQLite: text('id').primaryKey()
-  id: text('id').primaryKey(),
-  // SQLite: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' })
-  runId: uuid('run_id')
-    .notNull()
-    .references(() => runs.id, { onDelete: 'cascade' }),
-  parentId: text('parent_id'),
-  title: text('title').notNull(),
-  file: text('file'),
-  project: text('project'),
-});
+//
+// Every table from here down that holds a run's evidence carries the run's workspace
+// (0028, ledger MNT-17): NOT NULL, a `restrict` key onto `workspaces`, and an index that
+// leads with it. The migration fills it from the parent row, never from a caller.
+export const suites = pgTable(
+  'suites',
+  {
+    // SQLite: text('id').primaryKey()
+    id: text('id').primaryKey(),
+    // SQLite: text('run_id').notNull().references(() => runs.id, { onDelete: 'cascade' })
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    parentId: text('parent_id'),
+    title: text('title').notNull(),
+    file: text('file'),
+    project: text('project'),
+  },
+  (t) => [index('suites_workspace_run_idx').on(t.workspaceId, t.runId)],
+);
 
 // ─── tests ─────────────────────────────────────────────────────────────────
 // Source: tests table — individual test instances per run (composite PK)
@@ -406,6 +422,9 @@ export const tests = pgTable(
     runId: uuid('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     suiteId: text('suite_id').references(() => suites.id),
     title: text('title').notNull(),
     file: text('file').notNull(),
@@ -465,6 +484,7 @@ export const tests = pgTable(
     // SQLite: primaryKey({ columns: [t.id, t.runId] })
     primaryKey({ columns: [t.id, t.runId] }),
     index('tests_run_id_idx').on(t.runId),
+    index('tests_workspace_run_idx').on(t.workspaceId, t.runId),
     index('tests_stable_id_idx').on(t.stableId),
     // The enum is compile-time only, so the spellings it permits are not
     // enforced by the database. Without this a second spelling of a state can
@@ -488,6 +508,9 @@ export const results = pgTable(
     runId: uuid('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     retry: integer('retry').notNull().default(0),
     status: text('status', {
       enum: ['passed', 'failed', 'timedOut', 'skipped', 'interrupted'],
@@ -514,30 +537,44 @@ export const results = pgTable(
     index('results_test_id_idx').on(t.testId),
     index('results_fingerprint_idx').on(t.fingerprint),
     index('results_run_id_test_id_retry_idx').on(t.runId, t.testId, t.retry),
+    index('results_workspace_run_idx').on(t.workspaceId, t.runId),
   ],
 );
 
 // ─── attachments ───────────────────────────────────────────────────────────
 // Source: attachments table — binary artifacts on disk
-export const attachments = pgTable('attachments', {
-  id: text('id').primaryKey(),
-  resultId: text('result_id')
-    .notNull()
-    .references(() => results.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  contentType: text('content_type').notNull(),
-  path: text('path').notNull(),
-  sizeBytes: integer('size_bytes'),
-  thumbnailPath: text('thumbnail_path'),
-  // SQLite: integer('is_screenshot_diff', { mode: 'boolean' })
-  isScreenshotDiff: boolean('is_screenshot_diff').default(false),
-});
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: text('id').primaryKey(),
+    resultId: text('result_id')
+      .notNull()
+      .references(() => results.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    contentType: text('content_type').notNull(),
+    path: text('path').notNull(),
+    sizeBytes: integer('size_bytes'),
+    thumbnailPath: text('thumbnail_path'),
+    // SQLite: integer('is_screenshot_diff', { mode: 'boolean' })
+    isScreenshotDiff: boolean('is_screenshot_diff').default(false),
+  },
+  (t) => [index('attachments_workspace_result_idx').on(t.workspaceId, t.resultId)],
+);
 
 // ─── trends ────────────────────────────────────────────────────────────────
 // Source: trends table — daily aggregates for analytics charts (composite PK)
+//
+// The key leads with the workspace since 0028: `(date, project, branch)` alone made two
+// workspaces with a project of the same name one row.
 export const trends = pgTable(
   'trends',
   {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     date: text('date').notNull(),
     project: text('project').notNull(),
     branch: text('branch').notNull().default('main'),
@@ -549,7 +586,7 @@ export const trends = pgTable(
     avgDurationMs: real('avg_duration_ms'),
     p95DurationMs: real('p95_duration_ms'),
   },
-  (t) => [primaryKey({ columns: [t.date, t.project, t.branch] })],
+  (t) => [primaryKey({ columns: [t.workspaceId, t.date, t.project, t.branch] })],
 );
 
 // ─── quarantine ────────────────────────────────────────────────────────────
@@ -558,6 +595,12 @@ export const quarantine = pgTable(
   'quarantine',
   {
     id: text('id').primaryKey(),
+    // Added by 0028 (ledger MNT-17). There was no column, so the list, the resolve and
+    // the delete answered for the whole installation, and the readiness card counted
+    // every workspace's pending entries as one.
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     testTitle: text('test_title').notNull(),
     testFile: text('test_file').notNull(),
     reason: text('reason'),
@@ -594,20 +637,29 @@ export const quarantine = pgTable(
     // entry ever quarantined. Found by `tests/integration`'s EXPLAIN fixture, which
     // states for each hot query the index it is served by.
     index('quarantine_quarantined_idx').on(table.quarantinedAt),
+    // The listing as it now runs: one workspace, in quarantine order (0028).
+    index('quarantine_workspace_quarantined_idx').on(table.workspaceId, table.quarantinedAt),
   ],
 );
 
 // ─── known failures ────────────────────────────────────────────────────────
 // Source: known_failures table — known-failure registry
-export const knownFailures = pgTable('known_failures', {
-  id: text('id').primaryKey(),
-  testTitle: text('test_title').notNull(),
-  testFile: text('test_file').notNull(),
-  comment: text('comment'),
-  // SQLite: text('created_at').notNull()
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  createdBy: text('created_by').default('manual'),
-});
+export const knownFailures = pgTable(
+  'known_failures',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    testTitle: text('test_title').notNull(),
+    testFile: text('test_file').notNull(),
+    comment: text('comment'),
+    // SQLite: text('created_at').notNull()
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    createdBy: text('created_by').default('manual'),
+  },
+  (t) => [index('known_failures_workspace_idx').on(t.workspaceId)],
+);
 
 // ─── schedules ─────────────────────────────────────────────────────────────
 // Source: schedules table — cron-based scheduled runs
@@ -649,7 +701,13 @@ export const qualityGateConfig = pgTable(
   'quality_gate_config',
   {
     id: text('id').primaryKey().default('global'),
-    workspaceId: text('workspace_id'),
+    // **Nullable by design**, and the only `workspace_id` in the schema that is. NULL is
+    // the installation-wide default gate (`global`) and every gate the dashboard creates;
+    // a value scopes a per-workspace override. 0028 adds the `restrict` key so a gate
+    // that names a workspace names a real one, and keeps the NULLs — forcing a value
+    // would turn the installation default into one workspace's private gate. The tenancy
+    // register classifies this table `global` for that reason.
+    workspaceId: text('workspace_id').references(() => workspaces.id, { onDelete: 'restrict' }),
     /**
      * The project this gate governs, added in 0024.
      *
@@ -713,32 +771,46 @@ export const fingerprintCategories = pgTable('fingerprint_categories', {
 
 // ─── blob shards ──────────────────────────────────────────────────────────
 // Source: blob_shards table — partial blob shard upload tracking
-export const blobShards = pgTable('blob_shards', {
-  id: text('id').primaryKey(),
-  runId: uuid('run_id')
-    .notNull()
-    .references(() => runs.id, { onDelete: 'cascade' }),
-  shardIndex: integer('shard_index').notNull(),
-  totalShards: integer('total_shards').notNull(),
-  filePath: text('file_path').notNull(),
-  // SQLite: text('uploaded_at').notNull()
-  uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull(),
-  // SQLite: integer('merged', { mode: 'boolean' })
-  merged: boolean('merged').default(false),
-});
+export const blobShards = pgTable(
+  'blob_shards',
+  {
+    id: text('id').primaryKey(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    shardIndex: integer('shard_index').notNull(),
+    totalShards: integer('total_shards').notNull(),
+    filePath: text('file_path').notNull(),
+    // SQLite: text('uploaded_at').notNull()
+    uploadedAt: timestamp('uploaded_at', { withTimezone: true }).notNull(),
+    // SQLite: integer('merged', { mode: 'boolean' })
+    merged: boolean('merged').default(false),
+  },
+  (t) => [index('blob_shards_workspace_run_idx').on(t.workspaceId, t.runId)],
+);
 
 // ─── NL query history ────────────────────────────────────────────────────
 // Source: nl_query_history table — NL→SQL query history
-export const nlQueryHistory = pgTable('nl_query_history', {
-  // SQLite: integer('id').primaryKey({ autoIncrement: true })
-  id: serial('id').primaryKey(),
-  userQuery: text('user_query').notNull(),
-  generatedSql: text('generated_sql').notNull(),
-  resultCount: integer('result_count'),
-  userId: text('user_id'),
-  // SQLite: text('created_at').notNull()
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-});
+export const nlQueryHistory = pgTable(
+  'nl_query_history',
+  {
+    // SQLite: integer('id').primaryKey({ autoIncrement: true })
+    id: serial('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    userQuery: text('user_query').notNull(),
+    generatedSql: text('generated_sql').notNull(),
+    resultCount: integer('result_count'),
+    userId: text('user_id'),
+    // SQLite: text('created_at').notNull()
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+  },
+  (t) => [index('nl_query_history_workspace_created_idx').on(t.workspaceId, t.createdAt)],
+);
 
 // ─── failure taxonomy rules ────────────────────────────────────────────────
 // Source: failure_taxonomy_rules table — rule-based failure classifier config
@@ -772,6 +844,9 @@ export const failureClassifications = pgTable(
     runId: uuid('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     category: text('category', {
       enum: ['infra_issue', 'env_issue', 'test_debt', 'flaky', 'app_bug', 'unknown'],
     }).notNull(),
@@ -785,7 +860,10 @@ export const failureClassifications = pgTable(
     isManualOverride: boolean('is_manual_override').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
-  (t) => [uniqueIndex('failure_classifications_fingerprint_run_unique').on(t.fingerprint, t.runId)],
+  (t) => [
+    uniqueIndex('failure_classifications_fingerprint_run_unique').on(t.fingerprint, t.runId),
+    index('failure_classifications_workspace_run_idx').on(t.workspaceId, t.runId),
+  ],
 );
 
 // ─── test failure correlations ─────────────────────────────────────────────
@@ -794,6 +872,9 @@ export const testFailureCorrelations = pgTable(
   'test_failure_correlations',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     testStableId: text('test_stable_id').notNull(),
     sourceFilePath: text('source_file_path').notNull(),
     failureCount: integer('failure_count').notNull().default(0),
@@ -807,32 +888,45 @@ export const testFailureCorrelations = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
   (t) => [
-    uniqueIndex('test_failure_correlations_test_file_unique').on(t.testStableId, t.sourceFilePath),
+    // Per workspace since 0028: unique on its own, one tenant's correlation for a test
+    // and file suppressed another's.
+    uniqueIndex('test_failure_correlations_workspace_test_file_unique').on(
+      t.workspaceId,
+      t.testStableId,
+      t.sourceFilePath,
+    ),
   ],
 );
 
 // ─── locator suggestions ───────────────────────────────────────────────────
 // Source: locator_suggestions table — self-healing locator suggestions
-export const locatorSuggestions = pgTable('locator_suggestions', {
-  id: text('id').primaryKey(),
-  testId: text('test_id').notNull(),
-  runId: uuid('run_id')
-    .notNull()
-    .references(() => runs.id, { onDelete: 'cascade' }),
-  originalSelector: text('original_selector').notNull(),
-  suggestedSelector: text('suggested_selector').notNull(),
-  // SQLite: real('confidence').notNull()
-  confidence: real('confidence').notNull(),
-  rationale: text('rationale').notNull(),
-  status: text('status', {
-    enum: ['pending', 'accepted', 'rejected', 'expired'],
-  })
-    .notNull()
-    .default('pending'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
-  // Added in 0026. `status` moves and nothing recorded when (ledger C-6).
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const locatorSuggestions = pgTable(
+  'locator_suggestions',
+  {
+    id: text('id').primaryKey(),
+    testId: text('test_id').notNull(),
+    runId: uuid('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    originalSelector: text('original_selector').notNull(),
+    suggestedSelector: text('suggested_selector').notNull(),
+    // SQLite: real('confidence').notNull()
+    confidence: real('confidence').notNull(),
+    rationale: text('rationale').notNull(),
+    status: text('status', {
+      enum: ['pending', 'accepted', 'rejected', 'expired'],
+    })
+      .notNull()
+      .default('pending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    // Added in 0026. `status` moves and nothing recorded when (ledger C-6).
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('locator_suggestions_workspace_run_idx').on(t.workspaceId, t.runId)],
+);
 
 // ─── failure_clusters ─────────────────────────────────────────────────────────
 // Source: failure_clusters table — cross-run error cluster groups
@@ -840,6 +934,9 @@ export const failureClusters = pgTable(
   'failure_clusters',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     fingerprint: text('fingerprint').notNull(),
     clusterLabel: text('cluster_label').notNull(),
     firstSeenRunId: uuid('first_seen_run_id'),
@@ -856,6 +953,7 @@ export const failureClusters = pgTable(
   (t) => [
     index('failure_clusters_fingerprint_idx').on(t.fingerprint),
     index('failure_clusters_status_idx').on(t.status),
+    index('failure_clusters_workspace_fingerprint_idx').on(t.workspaceId, t.fingerprint),
   ],
 );
 
@@ -936,6 +1034,9 @@ export const agentSessions = pgTable(
   'agent_sessions',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     provider: text('provider').notNull(),
     repository: text('repository').notNull(),
     prNumber: integer('pr_number').notNull(),
@@ -958,6 +1059,7 @@ export const agentSessions = pgTable(
     index('agent_sessions_pr_number_repository_idx').on(t.prNumber, t.repository),
     index('agent_sessions_status_idx').on(t.status),
     index('agent_sessions_pr_branch_idx').on(t.prBranch),
+    index('agent_sessions_workspace_status_idx').on(t.workspaceId, t.status),
   ],
 );
 
@@ -972,12 +1074,16 @@ export const agentSessionRuns = pgTable(
     runId: uuid('run_id')
       .notNull()
       .references(() => runs.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     linkedAt: timestamp('linked_at', { withTimezone: true }).notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.sessionId, t.runId] }),
     index('agent_session_runs_session_id_idx').on(t.sessionId),
     index('agent_session_runs_run_id_idx').on(t.runId),
+    index('agent_session_runs_workspace_session_idx').on(t.workspaceId, t.sessionId),
   ],
 );
 
@@ -990,6 +1096,9 @@ export const agentSessionFiles = pgTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => agentSessions.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     filePath: text('file_path').notNull(),
     changeType: text('change_type', {
       enum: ['added', 'modified', 'removed', 'renamed'],
@@ -999,6 +1108,7 @@ export const agentSessionFiles = pgTable(
   (t) => [
     uniqueIndex('agent_session_files_session_id_file_path_unique').on(t.sessionId, t.filePath),
     index('agent_session_files_session_id_idx').on(t.sessionId),
+    index('agent_session_files_workspace_session_idx').on(t.workspaceId, t.sessionId),
   ],
 );
 
@@ -1008,6 +1118,9 @@ export const generatedTestSuggestions = pgTable(
   'generated_test_suggestions',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     sessionId: text('session_id').references(() => agentSessions.id, { onDelete: 'set null' }),
     runId: uuid('run_id').references(() => runs.id, { onDelete: 'set null' }),
     sourceType: text('source_type', { enum: ['pr_diff', 'requirement', 'source'] }).notNull(),
@@ -1035,6 +1148,7 @@ export const generatedTestSuggestions = pgTable(
   (t) => [
     index('generated_test_suggestions_session_id_idx').on(t.sessionId),
     index('generated_test_suggestions_status_idx').on(t.status),
+    index('generated_test_suggestions_workspace_status_idx').on(t.workspaceId, t.status),
   ],
 );
 
@@ -1047,6 +1161,9 @@ export const repairAttempts = pgTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => agentSessions.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     runId: uuid('run_id').references(() => runs.id, { onDelete: 'set null' }),
     attemptNumber: integer('attempt_number').notNull(),
     status: text('status', {
@@ -1068,6 +1185,7 @@ export const repairAttempts = pgTable(
       t.sessionId,
       t.attemptNumber,
     ),
+    index('repair_attempts_workspace_session_idx').on(t.workspaceId, t.sessionId),
   ],
 );
 
@@ -1077,6 +1195,9 @@ export const agentConflicts = pgTable(
   'agent_conflicts',
   {
     id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     repository: text('repository').notNull(),
     // SQLite: text('session_ids').notNull()
     sessionIds: jsonb('session_ids').notNull(),
@@ -1096,6 +1217,7 @@ export const agentConflicts = pgTable(
   (t) => [
     index('agent_conflicts_repository_idx').on(t.repository),
     index('agent_conflicts_status_idx').on(t.status),
+    index('agent_conflicts_workspace_status_idx').on(t.workspaceId, t.status),
   ],
 );
 
@@ -1171,8 +1293,16 @@ export const auditEvents = pgTable(
     requestId: text('request_id'),
     // SQLite: text('details') // JSON blob
     details: jsonb('details'),
-    tenantId: text('tenant_id'),
-    workspaceId: text('workspace_id'),
+    // NOT NULL with a key onto `workspaces` since 0028 (ledger MNT-17). Every production
+    // writer wrote NULL, because nothing in the dashboard module knew the workspace.
+    //
+    // `tenant_id` sat beside it and was dropped by the same migration: a second tenant
+    // column with no writer and no reader, not constrained to agree with this one, so a
+    // reader could not tell which the writer meant. The migration folded any value into
+    // this column and refused a disagreement rather than discarding it.
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
   },
   (t) => [

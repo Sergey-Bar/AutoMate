@@ -4,10 +4,11 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc, inArray } from 'drizzle-orm';
+import { eq, and, sql, asc, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
+import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import {
   toPersistedStatus,
   type RunAnalyticsSummary,
@@ -89,6 +90,16 @@ export class DrizzleRunRepository implements RunRepository {
   constructor(
     private readonly db: AnyPgDb,
     /**
+     * The one workspace this repository reads and writes (ledger MNT-17).
+     *
+     * Required, and bound at construction the way `DrizzleReporterIngestionService` is,
+     * because `RunRepository`'s methods take no workspace and every one of them answered
+     * for the whole installation: `getRun` returned another workspace's run by id, the
+     * dashboard listed every run, and `upsertRun`'s conflict branch moved an existing run
+     * into whichever workspace wrote last. Every statement below now carries it.
+     */
+    private readonly workspaceId: string,
+    /**
      * The most ids one `IN (...)` may carry.
      *
      * Injectable so a test can set it to something small. Asserting the bound otherwise
@@ -105,11 +116,20 @@ export class DrizzleRunRepository implements RunRepository {
   // ── RunRepository implementation ─────────────────────────────────────────
 
   async upsertRun(run: RunRecord): Promise<void> {
-    await this.db
+    // The record and the repository both name a workspace, and two authorities for one
+    // value is the shape P-5 records. They must agree; a disagreement is a wiring defect,
+    // and writing either one would put the run somewhere its writer cannot read it.
+    if (run.workspaceId !== this.workspaceId) {
+      throw new DomainError(
+        ErrorCode.CONFLICT,
+        `Run ${run.id} names workspace "${run.workspaceId}", but this repository writes "${this.workspaceId}"`,
+      );
+    }
+    const written = await this.db
       .insert(runs)
       .values({
         id: run.id,
-        workspaceId: run.workspaceId,
+        workspaceId: this.workspaceId,
         phase: run.phase,
         outcome: run.outcome,
         startedAt: new Date(run.startedAt),
@@ -128,11 +148,11 @@ export class DrizzleRunRepository implements RunRepository {
       .onConflictDoUpdate({
         target: runs.id,
         set: {
-          // On conflict as well as on insert. A run first written by a path that omitted
-          // the workspace, and then updated through the reporter, must be *moved* into
-          // the workspace rather than keeping the NULL it was born with — otherwise the
-          // repair only happens on first write and the row stays invisible.
-          workspaceId: run.workspaceId,
+          // The workspace is **not** in the update set. It used to be, to repair a run
+          // first written with NULL; the column is NOT NULL now (0028), so that repair has
+          // nothing left to do, and keeping it would let a second workspace reusing a run
+          // id move the run into itself. `setWhere` makes the conflict branch a no-op for
+          // a row another workspace owns, and the empty `returning` below says so.
           // Coherent on update as well as insert: a run first written by a path that
           // left the phase at its default must be repaired here, not on the next create.
           phase: run.phase,
@@ -150,14 +170,22 @@ export class DrizzleRunRepository implements RunRepository {
           commitSha: run.commitSha ?? null,
           triggeredBy: run.triggeredBy,
         },
-      });
+        setWhere: eq(runs.workspaceId, this.workspaceId),
+      })
+      .returning({ id: runs.id });
+    if (written.length === 0) {
+      throw new DomainError(
+        ErrorCode.CONFLICT,
+        `Run ${run.id} already exists in another workspace`,
+      );
+    }
   }
 
   async patchRun(id: string, patch: RunPatch): Promise<void> {
     const existing = await this.db
       .select({ id: runs.id })
       .from(runs)
-      .where(eq(runs.id, id))
+      .where(this.ownRun(id))
       .limit(1);
     if (existing.length === 0) return; // no-op per interface contract
 
@@ -187,11 +215,11 @@ export class DrizzleRunRepository implements RunRepository {
           skipped: sql`${runs.skipped} + ${patch.skippedDelta}`,
         }),
       })
-      .where(eq(runs.id, id));
+      .where(this.ownRun(id));
   }
 
   async getRun(id: string): Promise<RunRecord | null> {
-    const rows = await this.db.select().from(runs).where(eq(runs.id, id)).limit(1);
+    const rows = await this.db.select().from(runs).where(this.ownRun(id)).limit(1);
     if (rows.length === 0) return null;
     return this._mapRun(rows[0]);
   }
@@ -199,7 +227,11 @@ export class DrizzleRunRepository implements RunRepository {
   async listRuns(options?: { limit?: number }): Promise<RunRecord[]> {
     // `limit` applied in the query rather than after it, so a capped read does not
     // still pull the whole table across the wire first (ledger Q-50).
-    const query = this.db.select().from(runs).orderBy(asc(runs.startedAt));
+    const query = this.db
+      .select()
+      .from(runs)
+      .where(eq(runs.workspaceId, this.workspaceId))
+      .orderBy(asc(runs.startedAt));
     const rows = options?.limit === undefined ? await query : await query.limit(options.limit);
     return rows.map((r) => this._mapRun(r));
   }
@@ -227,7 +259,8 @@ export class DrizzleRunRepository implements RunRepository {
         durationCount: sql<number>`count(${runs.durationMs})::int`,
         durationTotal: sql<number>`coalesce(sum(${runs.durationMs}), 0)::bigint`,
       })
-      .from(runs);
+      .from(runs)
+      .where(eq(runs.workspaceId, this.workspaceId));
     const totalRuns = Number(row?.totalRuns ?? 0);
     const completed = Number(row?.completed ?? 0);
     const passed = Number(row?.passed ?? 0);
@@ -241,11 +274,23 @@ export class DrizzleRunRepository implements RunRepository {
   }
 
   async upsertTest(test: TestRecord): Promise<void> {
+    // A test is evidence about its run, so it is written only under a run this workspace
+    // owns. Without the check a second workspace could attach rows to another's run: the
+    // foreign key on `run_id` proves the run exists, not whose it is.
+    const owner = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(this.ownRun(test.runId))
+      .limit(1);
+    if (owner.length === 0) {
+      throw new DomainError(ErrorCode.RUN_NOT_FOUND, `Run ${test.runId} not found`);
+    }
     await this.db
       .insert(tests)
       .values({
         id: test.id,
         runId: test.runId,
+        workspaceId: this.workspaceId,
         title: test.title,
         file: test.file,
         status: test.status,
@@ -265,6 +310,7 @@ export class DrizzleRunRepository implements RunRepository {
           errorCode: test.errorCode,
           errorMessage: test.errorMessage,
         },
+        setWhere: eq(tests.workspaceId, this.workspaceId),
       });
   }
 
@@ -276,7 +322,7 @@ export class DrizzleRunRepository implements RunRepository {
     const existing = await this.db
       .select({ id: tests.id })
       .from(tests)
-      .where(and(eq(tests.id, testId), eq(tests.runId, runId)))
+      .where(this.ownTest(testId, runId))
       .limit(1);
     if (existing.length === 0) return; // no-op per interface contract
 
@@ -288,21 +334,20 @@ export class DrizzleRunRepository implements RunRepository {
         ...(patch.errorCode !== undefined && { errorCode: patch.errorCode }),
         ...(patch.errorMessage !== undefined && { errorMessage: patch.errorMessage }),
       })
-      .where(and(eq(tests.id, testId), eq(tests.runId, runId)));
+      .where(this.ownTest(testId, runId));
   }
 
   async getTest(testId: string, runId: string): Promise<TestRecord | null> {
-    const rows = await this.db
-      .select()
-      .from(tests)
-      .where(and(eq(tests.id, testId), eq(tests.runId, runId)))
-      .limit(1);
+    const rows = await this.db.select().from(tests).where(this.ownTest(testId, runId)).limit(1);
     if (rows.length === 0) return null;
     return this._mapTest(rows[0]);
   }
 
   async listTests(runId: string): Promise<TestRecord[]> {
-    const rows = await this.db.select().from(tests).where(eq(tests.runId, runId));
+    const rows = await this.db
+      .select()
+      .from(tests)
+      .where(and(eq(tests.workspaceId, this.workspaceId), eq(tests.runId, runId)));
     return rows.map((t) => this._mapTest(t));
   }
 
@@ -328,7 +373,12 @@ export class DrizzleRunRepository implements RunRepository {
       const rows = await this.db
         .select()
         .from(tests)
-        .where(inArray(tests.runId, oneBatchOf(batch, this.maxIdsPerInArray)));
+        .where(
+          and(
+            eq(tests.workspaceId, this.workspaceId),
+            inArray(tests.runId, oneBatchOf(batch, this.maxIdsPerInArray)),
+          ),
+        );
       for (const row of rows) {
         const bucket = grouped.get(row.runId) ?? [];
         bucket.push(this._mapTest(row));
@@ -340,15 +390,25 @@ export class DrizzleRunRepository implements RunRepository {
 
   // ── Internal helpers ──────────────────────────────────────────────────────
 
+  /** One run, and only if this workspace owns it. */
+  private ownRun(id: string): SQL | undefined {
+    return and(eq(runs.workspaceId, this.workspaceId), eq(runs.id, id));
+  }
+
+  /** One test, and only if this workspace owns it. */
+  private ownTest(testId: string, runId: string): SQL | undefined {
+    return and(
+      eq(tests.workspaceId, this.workspaceId),
+      eq(tests.id, testId),
+      eq(tests.runId, runId),
+    );
+  }
+
   private _mapRun(row: typeof runs.$inferSelect): RunRecord {
     return {
       id: row.id,
-      // A row written before `workspace_id` was required, or by a path that omitted
-      // it, reads back as NULL. It is surfaced as the empty string rather than
-      // silently dropped, so a caller filtering on a workspace sees an empty-workspace
-      // row it can account for instead of a run that vanishes from a query it should
-      // have matched.
-      workspaceId: row.workspaceId ?? '',
+      // NOT NULL since 0028, so there is no empty-workspace row left to surface.
+      workspaceId: row.workspaceId,
       phase: row.phase,
       outcome: row.outcome,
       startedAt: row.startedAt.toISOString(),
