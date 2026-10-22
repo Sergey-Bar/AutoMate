@@ -75,6 +75,8 @@ pnpm test:runner          # runner, runner-sdk, worker
 pnpm test:performance     # k6 thresholds. Exits non-zero as not_configured without k6
 pnpm capability:evidence  # Every capability-register row names a command that resolves and cites files/tests that exist and are collected; --run executes the commands
 pnpm coverage:ratchet     # Fails on a coverage regression per package, and on a floor that was lowered
+pnpm mutation             # StrykerJS over five packages (needs pnpm build first), reports to <package>/reports/mutation/
+pnpm mutation:ratchet     # Fails on a mutation score below its floor, a lowered floor, or a missing baseline/report. --record adds/raises deliberately
 pnpm findings:check       # The findings ledger has not drifted from the tree
 pnpm findings:baseline    # Rewrites docs/quality/findings-status.json. Deliberate, never automatic
 pnpm security:verify      # audit + secrets + secrets history + config check + semgrep/gitleaks + licence + duplication + complexity + capability register + findings
@@ -352,6 +354,7 @@ packages/
   reporting/         Evidence, KPI, and quality-gate policies
   runner-sdk/        Spool, retry policy, and the runner HTTP client
   shared-contracts/  Type-safe API contracts and Zod schemas
+  tool-sdk/          Agent operation declaration, dispatch, result normalisation, error classes
   ui/                Shared Tailwind 4 component library
 tools/
   migrate-cli/       Migration utilities

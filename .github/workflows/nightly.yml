@@ -214,6 +214,55 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+  mutation:
+    name: Mutation testing
+    runs-on: ubuntu-24.04
+    # Five packages, one Stryker run each, `coverageAnalysis: perTest`. About 15 minutes on a
+    # developer laptop (shared-contracts alone is 6); a two-core runner is slower, and 90
+    # leaves room without letting a hung Vitest worker hold the runner for the default 6 hours.
+    timeout-minutes: 90
+    # `continue-on-error` until this job has run once on a GitHub runner: the floors in
+    # `docs/quality/mutation-baseline.json` were measured on Windows, and a first run that
+    # turns the whole nightly red for a platform difference is how a gate gets switched off.
+    # Graduating is one commit: read the first run's job summary, lower nothing, record
+    # with `pnpm mutation:ratchet --record` if the numbers differ upward, and delete this line.
+    continue-on-error: true
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # Two commits: the ratchet compares the recorded floors with HEAD~1's.
+          fetch-depth: 2
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      # The packages import `@automate/shared-contracts` through `dist/`. Unbuilt, those test
+      # files fail to load and Stryker reports their mutants as NoCoverage instead of failing:
+      # a score that quietly measures less than the suite. `pnpm mutation` refuses to start
+      # without the build for the same reason.
+      - name: Build the workspace
+        run: pnpm build
+      - name: Mutation testing
+        run: pnpm mutation
+      - name: Mutation ratchet
+        run: pnpm mutation:ratchet
+      - name: Upload the mutation reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mutation-reports
+          path: packages/*/reports/mutation/mutation.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   performance:
     name: Performance thresholds
     runs-on: ubuntu-24.04

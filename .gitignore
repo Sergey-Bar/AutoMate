@@ -111,3 +111,7 @@ var/
 
 # Vitest cache
 .vite/
+
+# StrykerJS: reports and in-place backup (see .config/stryker.config.mjs)
+**/reports/mutation/
+**/.stryker-tmp/
