@@ -50,6 +50,32 @@ function canonicalJson(value: unknown): string {
   return `{${entries.join(',')}}`;
 }
 
+function stringOr(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function legacyAttemptStatus(status: unknown): 'passed' | 'failed' | 'unknown' {
+  if (status === 'passed' || status === 'failed') return status;
+  return 'unknown';
+}
+
+/** One test attempt, as the legacy `test:*` payload describes it. */
+function legacyAttempt(payload: Record<string, unknown>, occurredAt: string) {
+  const testId = stringOr(payload.testId, '');
+  return {
+    index: typeof payload.retry === 'number' ? payload.retry + 1 : 1,
+    testId,
+    specPath: stringOr(payload.file, 'unknown.spec.ts'),
+    title: stringOr(payload.title, testId),
+    status: legacyAttemptStatus(payload.status),
+    rawStatus: stringOr(payload.status, 'unknown'),
+    startedAt: occurredAt,
+    finishedAt: occurredAt,
+    evidence: [],
+    flakiness: 'unknown' as const,
+  };
+}
+
 export function normalizeLegacyEvent(
   input: unknown,
   context: {
@@ -60,13 +86,13 @@ export function normalizeLegacyEvent(
 ): CanonicalReporterEvent {
   if (!input || typeof input !== 'object') throw new Error('Legacy event must be an object');
   const value = input as Record<string, unknown>;
-  const type = typeof value.type === 'string' ? value.type : '';
+  const type = stringOr(value.type, '');
   if (!legacyTypes.has(type)) throw new Error(`Unsupported legacy event type: ${type}`);
   const payload =
     value.payload && typeof value.payload === 'object'
       ? (value.payload as Record<string, unknown>)
       : {};
-  const runId = typeof value.runId === 'string' ? value.runId : '';
+  const runId = stringOr(value.runId, '');
   const base = {
     contractVersion: '2' as const,
     eventId: context.eventId,
@@ -92,26 +118,18 @@ export function normalizeLegacyEvent(
       },
     });
   }
-  const testId = typeof payload.testId === 'string' ? payload.testId : '';
-  const attempt = {
-    index: typeof payload.retry === 'number' ? payload.retry + 1 : 1,
-    testId,
-    specPath: typeof payload.file === 'string' ? payload.file : 'unknown.spec.ts',
-    title: typeof payload.title === 'string' ? payload.title : testId,
-    status:
-      payload.status === 'passed' ? 'passed' : payload.status === 'failed' ? 'failed' : 'unknown',
-    rawStatus: typeof payload.status === 'string' ? payload.status : 'unknown',
-    startedAt: context.occurredAt,
-    finishedAt: context.occurredAt,
-    evidence: [],
-    flakiness: 'unknown' as const,
-  };
-  return CanonicalReporterEventSchema.parse({
-    ...base,
-    type: type === 'test:begin' ? 'check.started' : 'check.completed',
-    data:
-      type === 'test:begin'
-        ? { index: attempt.index, testId, specPath: attempt.specPath, title: attempt.title }
-        : attempt,
-  });
+  const attempt = legacyAttempt(payload, context.occurredAt);
+  if (type === 'test:begin') {
+    return CanonicalReporterEventSchema.parse({
+      ...base,
+      type: 'check.started',
+      data: {
+        index: attempt.index,
+        testId: attempt.testId,
+        specPath: attempt.specPath,
+        title: attempt.title,
+      },
+    });
+  }
+  return CanonicalReporterEventSchema.parse({ ...base, type: 'check.completed', data: attempt });
 }
