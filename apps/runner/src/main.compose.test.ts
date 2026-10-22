@@ -284,15 +284,19 @@ describe('runner main composition', () => {
           : { runnerId: 'issued-runner', token: 'rotated-token' },
       );
     };
-    state.run = async () => {
+    // The refresh fires and the service stops in the same turn, which is a SIGTERM that
+    // lands mid-refresh. `main` must not return until the rotated token is on disk: the
+    // API has already rotated the old one away, so a runner that exits first restarts
+    // presenting a dead token (ledger MNT-25). Asserting after `main` returns, rather than
+    // polling a file with a one-second budget, is also what made this test deterministic.
+    state.run = () => {
       vi.advanceTimersByTime(10 * 60_000);
-      await vi.waitFor(async () => {
-        await expect(readStoredToken(spoolRoot, 'issued-runner')).resolves.toBe('rotated-token');
-      });
+      return Promise.resolve();
     };
 
     await main(env());
 
+    await expect(readStoredToken(spoolRoot, 'issued-runner')).resolves.toBe('rotated-token');
     expect(state.clients[1]?.register).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -307,17 +311,16 @@ describe('runner main composition', () => {
       failure.name = 'RunnerApiError';
       return Promise.reject(failure);
     };
-    state.run = async () => {
+    state.run = () => {
       vi.advanceTimersByTime(10 * 60_000);
-      await vi.waitFor(() => {
-        expect(errors).toHaveBeenCalledWith(
-          'automate-runner registration refresh failed (RunnerApiError)',
-        );
-      });
+      return Promise.resolve();
     };
 
     await main(env());
 
+    expect(errors).toHaveBeenCalledWith(
+      'automate-runner registration refresh failed (RunnerApiError)',
+    );
     expect(errors.mock.calls.flat().join('\n')).not.toContain('issued-token');
     await expect(readStoredToken(spoolRoot, 'issued-runner')).resolves.toBe('issued-token');
   });
