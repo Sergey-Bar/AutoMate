@@ -122,12 +122,17 @@ function collectCellFindings(builder: Builder, score: QaScore, wanted: string | 
     if (wanted !== null && cell.category !== wanted) continue;
     if (cell.presence === 0) missing.push(cell.key);
     else if (cell.depth === 0) greenButEmpty(builder, cell.key);
-    if (cell.inputs.hollowFingerprints.length > 0)
-      hollowTests(builder, cell.key, cell.inputs.hollowFingerprints);
-    if (cell.inputs.flakyFingerprints.length > 0)
-      flakyTests(builder, cell.key, cell.inputs.flakyFingerprints);
+    annotateFingerprints(builder, cell);
   }
   return missing;
+}
+
+/** Any cell, with or without a suite, can carry hollow or flaky tests. */
+function annotateFingerprints(builder: Builder, cell: QaScore['cells'][number]): void {
+  if (cell.inputs.hollowFingerprints.length > 0)
+    hollowTests(builder, cell.key, cell.inputs.hollowFingerprints);
+  if (cell.inputs.flakyFingerprints.length > 0)
+    flakyTests(builder, cell.key, cell.inputs.flakyFingerprints);
 }
 
 /**

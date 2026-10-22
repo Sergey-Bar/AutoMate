@@ -584,42 +584,56 @@ export class DrizzleExecutionStore implements ExecutionStore {
     );
   }
 
+  /** The run an idempotency key already created, with its job, or null when the key is new. */
+  private async existingRunResult(
+    workspaceId: string,
+    idempotencyKey: string,
+  ): Promise<CreateRunResult | null> {
+    const existing = await this.findByIdempotency(workspaceId, idempotencyKey);
+    if (!existing) return null;
+    const existingId = stringValue(existing.id);
+    const job = (
+      await this.db
+        .select()
+        .from(executionJobs)
+        .where(
+          and(
+            eq(executionJobs.runId, existingId),
+            eq(executionJobs.attempt, numberValue(existing.attempt, 1)),
+          ),
+        )
+        .limit(1)
+    )[0];
+    if (!job) return null;
+    return {
+      run: (await this.getRun(existingId, workspaceId)) as ExecutionRun,
+      job: mapJob(rowValue(job)),
+      duplicate: true,
+    };
+  }
+
+  /** A retry is one attempt past the run it retries; a first run is attempt 1. */
+  private async nextAttempt(
+    retryOfRunId: string | undefined,
+    workspaceId: string,
+  ): Promise<number> {
+    if (!retryOfRunId) return 1;
+    return ((await this.getRun(retryOfRunId, workspaceId))?.attempt ?? 0) + 1;
+  }
   async createRun(
     input: CreateRunInput,
     idempotencyKey: string,
     workspaceId = 'default-workspace',
   ): Promise<CreateRunResult> {
-    const existing = await this.findByIdempotency(workspaceId, idempotencyKey);
-    if (existing) {
-      const existingId = stringValue(existing.id);
-      const job = (
-        await this.db
-          .select()
-          .from(executionJobs)
-          .where(
-            and(
-              eq(executionJobs.runId, existingId),
-              eq(executionJobs.attempt, numberValue(existing.attempt, 1)),
-            ),
-          )
-          .limit(1)
-      )[0];
-      if (job)
-        return {
-          run: (await this.getRun(existingId, workspaceId)) as ExecutionRun,
-          job: mapJob(rowValue(job)),
-          duplicate: true,
-        };
-    }
+    const duplicate = await this.existingRunResult(workspaceId, idempotencyKey);
+    if (duplicate) return duplicate;
     const timestamp = nowDate(this.options);
     const id = randomUUID();
     const projectId = input.projectId ? uuidFor(input.projectId) : null;
     const environmentId = input.environmentId ? uuidFor(input.environmentId) : null;
     const releaseId = input.releaseId ? uuidFor(input.releaseId) : null;
     const policyId = input.policyId ? uuidFor(input.policyId) : null;
-    const attempt = input.retryOfRunId
-      ? ((await this.getRun(input.retryOfRunId, workspaceId))?.attempt ?? 0) + 1
-      : 1;
+    const attempt = await this.nextAttempt(input.retryOfRunId, workspaceId);
     const jobId = randomUUID();
     const runValues = {
       id,

@@ -182,106 +182,20 @@ export async function persistReporterEvent(
   repo: RunRepository,
   options: { workspaceId?: string } = {},
 ): Promise<boolean> {
-  const { type, runId, timestamp } = event;
   // Explicit, defaulted, and the same constant the listing filters on. Omitting it used
   // to write NULL, and the row was then invisible to `GET /api/v1/runs` — persisted,
   // queryable with psql, and absent from the product.
   const workspaceId = options.workspaceId ?? DEFAULT_WORKSPACE_ID;
 
-  switch (type) {
-    case 'run:start': {
-      const parsed = RunStartPayloadSchema.safeParse(event.payload);
-      if (!parsed.success) return false;
-      const p = parsed.data;
-      // The phase and outcome, derived from the status rather than written beside it.
-      // Leaving `phase` at its column default is what made a reported run look queued
-      // for ever; see `phaseForReportedStatus`.
-      const state = phaseForReportedStatus('running');
-      await repo.upsertRun({
-        id: runId,
-        workspaceId,
-        phase: state.phase,
-        outcome: state.outcome,
-        startedAt: timestamp,
-        finishedAt: null,
-        status: 'running',
-        total: p.total,
-        passed: 0,
-        failed: 0,
-        flaky: 0,
-        skipped: 0,
-        durationMs: null,
-        branch: p.branch ?? null,
-        commitSha: p.commitSha ?? null,
-        triggeredBy: p.triggeredBy ?? 'reporter',
-      });
-      return true;
-    }
-
-    case 'test:begin': {
-      const parsed = TestBeginPayloadSchema.safeParse(event.payload);
-      if (!parsed.success) return false;
-      const p = parsed.data;
-      await repo.upsertTest({
-        id: p.testId,
-        runId,
-        title: p.title,
-        // Apply path safety to the file field (user-supplied)
-        file: sanitizeAttachmentPath(p.file),
-        status: 'running',
-        durationMs: null,
-        // A test that has not finished has no reason. Written explicitly rather than
-        // left to a default, so `test:begin` after a retry clears the previous
-        // attempt's message instead of showing it against a test now running.
-        errorCode: null,
-        errorMessage: null,
-      });
-      // test:begin only creates a test row — run record unchanged.
-      return false;
-    }
-
-    case 'test:end': {
-      const parsed = TestEndPayloadSchema.safeParse(event.payload);
-      if (!parsed.success) return false;
-      const p = parsed.data;
-      // The stored spelling, computed once, so the comparison below and the counter
-      // delta both see the same value the column will hold. Comparing the raw
-      // payload instead made `timed_out` and `timedOut` look like two different
-      // states and produced a delta for a transition that had not happened.
-      const next = toStoredTestStatus(p.status);
-      const previous = await repo.getTest(p.testId, runId);
-      await repo.patchTest(p.testId, runId, {
-        status: next,
-        durationMs: p.durationMs ?? null,
-        // The reason, bounded and normalised. This is the write that was missing: the
-        // reporter has always sent it and the product has always dropped it, so a
-        // failed run recorded *that* a test failed and nothing about why.
-        ...normaliseFailure(p.error),
-      });
-      if (previous && previous.status !== next) {
-        const delta = transitionDelta(previous.status, next);
-        if (delta) await repo.patchRun(runId, delta);
-      }
-      return true;
-    }
-
-    case 'run:end': {
-      const parsed = RunEndPayloadSchema.safeParse(event.payload);
-      if (!parsed.success) return false;
-      const p = parsed.data;
-      // The phase and outcome travel with the status. Patching only `status` is what
-      // left every reported run at `phase: 'queued'` after it had finished.
-      const state = phaseForReportedStatus(p.status);
-      await repo.patchRun(runId, {
-        status: state.status,
-        phase: state.phase,
-        outcome: state.outcome,
-        finishedAt: new Date().toISOString(),
-        durationMs: p.durationMs ?? null,
-      });
-      return true;
-    }
-
+  switch (event.type) {
+    case 'run:start':
+      return persistRunStart(event, repo, workspaceId);
+    case 'test:begin':
+      return persistTestBegin(event, repo);
+    case 'test:end':
+      return persistTestEnd(event, repo);
+    case 'run:end':
+      return persistRunEnd(event, repo);
     default:
       // step:begin, step:end, stdout, stderr and future event types are
       // accepted by the route layer but not persisted in this slice.
@@ -289,6 +203,112 @@ export async function persistReporterEvent(
   }
 }
 
+async function persistRunStart(
+  event: NormalizedReporterEvent,
+  repo: RunRepository,
+  workspaceId: string,
+): Promise<boolean> {
+  const parsed = RunStartPayloadSchema.safeParse(event.payload);
+  if (!parsed.success) return false;
+  const p = parsed.data;
+  // The phase and outcome, derived from the status rather than written beside it.
+  // Leaving `phase` at its column default is what made a reported run look queued
+  // for ever; see `phaseForReportedStatus`.
+  const state = phaseForReportedStatus('running');
+  await repo.upsertRun({
+    id: event.runId,
+    workspaceId,
+    phase: state.phase,
+    outcome: state.outcome,
+    startedAt: event.timestamp,
+    finishedAt: null,
+    status: 'running',
+    total: p.total,
+    passed: 0,
+    failed: 0,
+    flaky: 0,
+    skipped: 0,
+    durationMs: null,
+    branch: p.branch ?? null,
+    commitSha: p.commitSha ?? null,
+    triggeredBy: p.triggeredBy ?? 'reporter',
+  });
+  return true;
+}
+
+/** `test:begin` only creates a test row - the run record is unchanged, so it returns false. */
+async function persistTestBegin(
+  event: NormalizedReporterEvent,
+  repo: RunRepository,
+): Promise<boolean> {
+  const parsed = TestBeginPayloadSchema.safeParse(event.payload);
+  if (!parsed.success) return false;
+  const p = parsed.data;
+  await repo.upsertTest({
+    id: p.testId,
+    runId: event.runId,
+    title: p.title,
+    // Apply path safety to the file field (user-supplied)
+    file: sanitizeAttachmentPath(p.file),
+    status: 'running',
+    durationMs: null,
+    // A test that has not finished has no reason. Written explicitly rather than
+    // left to a default, so `test:begin` after a retry clears the previous
+    // attempt's message instead of showing it against a test now running.
+    errorCode: null,
+    errorMessage: null,
+  });
+  return false;
+}
+
+async function persistTestEnd(
+  event: NormalizedReporterEvent,
+  repo: RunRepository,
+): Promise<boolean> {
+  const parsed = TestEndPayloadSchema.safeParse(event.payload);
+  if (!parsed.success) return false;
+  const p = parsed.data;
+  const runId = event.runId;
+  // The stored spelling, computed once, so the comparison below and the counter
+  // delta both see the same value the column will hold. Comparing the raw
+  // payload instead made `timed_out` and `timedOut` look like two different
+  // states and produced a delta for a transition that had not happened.
+  const next = toStoredTestStatus(p.status);
+  const previous = await repo.getTest(p.testId, runId);
+  await repo.patchTest(p.testId, runId, {
+    status: next,
+    durationMs: p.durationMs ?? null,
+    // The reason, bounded and normalised. This is the write that was missing: the
+    // reporter has always sent it and the product has always dropped it, so a
+    // failed run recorded *that* a test failed and nothing about why.
+    ...normaliseFailure(p.error),
+  });
+  if (previous && previous.status !== next) {
+    const delta = transitionDelta(previous.status, next);
+    if (delta) await repo.patchRun(runId, delta);
+  }
+  return true;
+}
+
+async function persistRunEnd(
+  event: NormalizedReporterEvent,
+  repo: RunRepository,
+): Promise<boolean> {
+  const parsed = RunEndPayloadSchema.safeParse(event.payload);
+  if (!parsed.success) return false;
+  const p = parsed.data;
+  // The phase and outcome travel with the status. Patching only `status` is what
+  // left every reported run at `phase: 'queued'` after it had finished.
+  const state = phaseForReportedStatus(p.status);
+  await repo.patchRun(event.runId, {
+    status: state.status,
+    phase: state.phase,
+    outcome: state.outcome,
+    finishedAt: new Date().toISOString(),
+    durationMs: p.durationMs ?? null,
+  });
+  return true;
+}
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
