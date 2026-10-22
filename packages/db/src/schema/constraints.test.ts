@@ -296,13 +296,11 @@ describe('execution schema referential intent', () => {
       schema.runs,
       schema.suites,
       schema.tests,
-      schema.results,
       schema.attachments,
       schema.trends,
       schema.quarantine,
       schema.knownFailures,
       schema.qualityGateConfig,
-      schema.blobShards,
       schema.nlQueryHistory,
       schema.failureClassifications,
       schema.testFailureCorrelations,
@@ -355,7 +353,8 @@ describe('execution schema referential intent', () => {
     expect(targets(environments)['project_id']).toBe('projects.id on delete set null');
     expect(targets(runEvents)['job_id']).toBe('execution_jobs.id on delete set null');
     expect(targets(artifacts)['job_id']).toBe('execution_jobs.id on delete set null');
-    expect(targets(artifacts)['result_id']).toBe('results.id on delete set null');
+    // `result_id` is a plain pointer column since 0030 dropped `results`; it has no key.
+    expect(targets(artifacts)['result_id']).toBeUndefined();
     expect(targets(gateEvaluations)['release_id']).toBe('releases.id on delete set null');
   });
 

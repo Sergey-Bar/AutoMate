@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import * as schema from '@automate/db';
-import { canonicalRunResults, quarantine, runs, workspaces, apiKeys } from '@automate/db';
+import { canonicalRunResults, quarantine, runs, workspaces } from '@automate/db';
 import {
   applyMigrations,
   assertSchemaBuildIsFresh,
@@ -110,9 +110,9 @@ describe('migration graph', () => {
       'quarantine_ttf_resolution_check',
     );
     expect(await constraintNames(shared, 'artifacts')).toContain('artifacts_evidence_check');
-    expect(await constraintNames(shared, 'api_keys')).toContain(
-      'api_keys_admin_role_explicit_check',
-    );
+    // `api_keys` and its admin-role check went in 0030; the drop is proved in
+    // `drop-superseded-tables.test.ts`.
+    expect(tables).not.toContain('api_keys');
   });
 
   it('leaves exactly one audit table, and it is the attributable one', async () => {
@@ -171,6 +171,7 @@ describe('migration graph', () => {
       '0027_constraint_drift',
       '0028_workspace_hard_boundaries',
       '0029_workspace_foreign_keys',
+      '0030_drop_superseded_tables',
     ]);
   });
 
@@ -485,32 +486,6 @@ describe('fail-closed constraints from migration 0006', () => {
         checksum: 'a'.repeat(64),
         sizeBytes: 5,
       } as typeof schema.artifacts.$inferInsert),
-    ).resolves.toBeDefined();
-  });
-
-  it('defaults a new API key to viewer and demands scopes for admin', async () => {
-    await db.insert(apiKeys).values({
-      id: 'key-1',
-      name: 'default',
-      keyHash: 'hash-1',
-      createdAt: new Date(),
-    });
-    const inserted = await client.query<{ role: string }>(
-      "SELECT role FROM api_keys WHERE id = 'key-1'",
-    );
-    // A key created with no role used to become `admin`.
-    expect(inserted.rows[0]?.role).toBe('viewer');
-
-    const admin = {
-      id: 'key-2',
-      name: 'admin',
-      keyHash: 'hash-2',
-      role: 'admin' as const,
-      createdAt: new Date(),
-    };
-    await expect(db.insert(apiKeys).values(admin)).rejects.toThrow();
-    await expect(
-      db.insert(apiKeys).values({ ...admin, scopes: ['runs:read'] }),
     ).resolves.toBeDefined();
   });
 

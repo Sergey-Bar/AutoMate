@@ -29,6 +29,20 @@ const dormantSourceTables = new Set([
   'generation_sessions',
 ]);
 
+/**
+ * Source tables with no target since `0030_drop_superseded_tables` (ledger MNT-60).
+ *
+ * A legacy file may still hold rows in them. They are not imported, because there is no
+ * table to write them to, and the plan and the import report say so rather than leaving
+ * a clean-looking result over rows that were discarded. The source file is read-only to
+ * the importer, so nothing is lost: the rows stay in the SQLite file.
+ */
+export const SUPERSEDED_SOURCE_TABLES: Readonly<Record<string, string>> = {
+  results: 'Superseded by canonical_run_results; per-retry rows are not imported',
+  blob_shards: 'Superseded by runs.read_at; sharded blob tracking is not imported',
+  api_keys: 'Superseded by the installation key; hashed personal keys are never imported',
+};
+
 export function buildPlan(input: {
   sourceId: string;
   sourceCommit: string;
@@ -59,14 +73,16 @@ export function buildPlan(input: {
       ...table,
       disposition: blockedSourceTables.has(table.name)
         ? 'blocked'
-        : dormantSourceTables.has(table.name)
+        : dormantSourceTables.has(table.name) || table.name in SUPERSEDED_SOURCE_TABLES
           ? 'retain-dormant'
           : 'migrate',
       reason: blockedSourceTables.has(table.name)
         ? 'Requires an approved security/identity transformation'
-        : dormantSourceTables.has(table.name)
-          ? 'Retained as dormant compatibility data'
-          : undefined,
+        : table.name in SUPERSEDED_SOURCE_TABLES
+          ? SUPERSEDED_SOURCE_TABLES[table.name]
+          : dormantSourceTables.has(table.name)
+            ? 'Retained as dormant compatibility data'
+            : undefined,
     })),
     artifacts: { digest: input.artifactDigest ?? '0'.repeat(64), count: input.artifactCount ?? 0 },
     vault: {

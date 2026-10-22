@@ -383,6 +383,44 @@ describe('migrateToPostgres refusals and row-level failures', () => {
     expect(log).toHaveBeenCalledWith('defect_categories: 0 rows');
   });
 
+  it('reports a populated superseded table as skipped, rather than ignoring it silently', async () => {
+    // 0030 dropped `results`, `blob_shards` and `api_keys`, so there is nowhere to write
+    // them. A legacy file that holds rows in them must say so: an import that quietly
+    // returns a clean report over rows it discarded is a data loss nobody was told of.
+    const from = sqlite(
+      'superseded.sqlite',
+      `CREATE TABLE results (id TEXT PRIMARY KEY, test_id TEXT, run_id TEXT, status TEXT);
+       INSERT INTO results VALUES ('r-1', 't-1', 'run-1', 'passed'), ('r-2', 't-1', 'run-1', 'failed');
+       CREATE TABLE api_keys (id TEXT PRIMARY KEY, name TEXT, key_hash TEXT);
+       INSERT INTO api_keys VALUES ('k-1', 'legacy', 'hash');
+       CREATE TABLE blob_shards (id TEXT PRIMARY KEY);
+       CREATE TABLE defect_categories (id TEXT PRIMARY KEY, name TEXT, color TEXT, created_at TEXT);`,
+    );
+    const log = vi.fn();
+    const report = await migrateToPostgres({ from, to: TARGET, dryRun: true, log });
+
+    expect(report.tables.map((entry) => entry.table)).toEqual(['defect_categories']);
+    expect(report.skipped).toEqual([
+      expect.objectContaining({ table: 'results', rowCount: 2 }),
+      expect.objectContaining({ table: 'blob_shards', rowCount: 0 }),
+      expect.objectContaining({ table: 'api_keys', rowCount: 1 }),
+    ]);
+    expect(log).toHaveBeenCalledWith(
+      expect.stringMatching(/^Skipped results: 2 rows .*canonical_run_results/),
+    );
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
+  it('adds no skipped entry when the source has none of the superseded tables', async () => {
+    const report = await migrateToPostgres({
+      from: createFixtureDatabase(),
+      to: TARGET,
+      dryRun: true,
+      log: vi.fn(),
+    });
+    expect(report.skipped).toBeUndefined();
+  });
+
   it('logs through console.info when no log function is supplied', async () => {
     const from = createFixtureDatabase();
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);

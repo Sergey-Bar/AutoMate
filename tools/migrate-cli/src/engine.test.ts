@@ -88,6 +88,30 @@ describe('migration engine control plane', () => {
       expect(() => validatePlan(plan)).not.toThrow();
     });
 
+    it('marks a superseded table as not imported, with the table that replaced it', () => {
+      const plan = buildPlan({
+        sourceId: 's',
+        sourceCommit: 'a',
+        targetCommit: 'b',
+        toolVersion: '0.2.0',
+        tables: [
+          { name: 'results', rowCount: 9, columns: ['id'] },
+          { name: 'blob_shards', rowCount: 0, columns: ['id'] },
+          { name: 'api_keys', rowCount: 1, columns: ['id'] },
+          { name: 'runs', rowCount: 1, columns: ['id'] },
+        ],
+      });
+      expect(plan.tables.map((table) => table.disposition)).toEqual([
+        'retain-dormant',
+        'retain-dormant',
+        'retain-dormant',
+        'migrate',
+      ]);
+      expect(plan.tables[0]?.reason).toMatch(/canonical_run_results/);
+      expect(plan.tables[2]?.reason).toMatch(/installation key/);
+      expect(() => validatePlan(plan)).not.toThrow();
+    });
+
     it('refuses vault entries without a key reference, and only then', () => {
       expect(() => validatePlan({ ...base, vault: { ...base.vault, count: 2 } })).toThrow(
         'Vault entries require a key reference',
