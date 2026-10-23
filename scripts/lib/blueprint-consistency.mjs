@@ -202,24 +202,30 @@ export function checkHeaders(corpus) {
   const findings = [];
   for (const doc of corpus.docs) {
     for (const field of HEADER_FIELDS) {
-      const value = headerValue(doc.text, field);
-      if (value === null || value === '') {
-        findings.push(`${doc.path}: header is missing \`**${field}:**\``);
-        continue;
-      }
-      if (field === 'Status' && !DOCUMENT_STATUSES.includes(value)) {
-        findings.push(
-          `${doc.path}: \`**Status:**\` must be one of ${DOCUMENT_STATUSES.join(
-            ', ',
-          )}; got \`${value}\``,
-        );
-      }
-      if (field === 'Last reviewed' && !isIsoDate(value)) {
-        findings.push(`${doc.path}: \`**Last reviewed:**\` must be an ISO date; got \`${value}\``);
-      }
+      const problem = headerProblem(doc, field);
+      if (problem !== null) findings.push(problem);
     }
   }
   return findings;
+}
+
+/**
+ * What is wrong with one header field of one document, or null. Missing beats malformed.
+ *
+ * @param {{ path: string, text: string }} doc
+ * @param {string} field
+ * @returns {string | null}
+ */
+function headerProblem(doc, field) {
+  const value = headerValue(doc.text, field);
+  if (value === null || value === '') return `${doc.path}: header is missing \`**${field}:**\``;
+  if (field === 'Status' && !DOCUMENT_STATUSES.includes(value)) {
+    return `${doc.path}: \`**Status:**\` must be one of ${DOCUMENT_STATUSES.join(', ')}; got \`${value}\``;
+  }
+  if (field === 'Last reviewed' && !isIsoDate(value)) {
+    return `${doc.path}: \`**Last reviewed:**\` must be an ISO date; got \`${value}\``;
+  }
+  return null;
 }
 
 /**
@@ -741,6 +747,7 @@ export function checkKpis(corpus) {
   const fixtureIds = new Set(corpus.fixtures.manifest.map((entry) => entry.id));
   /** @type {string[]} */
   const findings = [];
+  /** @type {Set<string>} */
   const defined = new Set();
   for (const { heading, body } of sections) {
     const ids = heading.match(/K-\d+/g) ?? [];
@@ -750,20 +757,30 @@ export function checkKpis(corpus) {
     }
     findings.push(...kpiSectionProblems(dictionary.path, ids[0] ?? '', body, fixtureIds));
   }
-  for (const metric of corpus.kpiMetricIds) {
-    if (!dictionary.text.includes(`\`${metric}\``)) {
-      findings.push(
+  const unadopted = corpus.kpiMetricIds.filter(
+    (metric) => !dictionary.text.includes(`\`${metric}\``),
+  );
+  findings.push(
+    ...unadopted.map(
+      (metric) =>
         `${dictionary.path}: the reporting metric \`${metric}\` is neither adopted nor marked not adopted`,
-      );
-    }
-  }
-  const ux = findDoc(corpus, 'docs/local/ux-spec.md');
-  for (const cited of new Set(ux?.text.match(/\bK-\d{2}\b/g) ?? [])) {
-    if (!defined.has(cited)) {
-      findings.push(`${ux?.path ?? ''}: cites ${cited}, which the KPI dictionary does not define`);
-    }
-  }
+    ),
+  );
+  findings.push(...undefinedKpiCitations(findDoc(corpus, 'docs/local/ux-spec.md'), defined));
   return findings;
+}
+
+/**
+ * Every KPI the UX spec cites that the dictionary does not define.
+ *
+ * @param {{ path: string, text: string } | undefined} ux
+ * @param {Set<string>} defined
+ * @returns {string[]}
+ */
+function undefinedKpiCitations(ux, defined) {
+  return [...new Set(ux?.text.match(/\bK-\d{2}\b/g) ?? [])]
+    .filter((cited) => !defined.has(cited))
+    .map((cited) => `${ux?.path ?? ''}: cites ${cited}, which the KPI dictionary does not define`);
 }
 
 /**
@@ -821,14 +838,22 @@ export function checkThreats(corpus) {
   }
   const defined = new Set(rows.map((cells) => cells[0]));
   for (const doc of corpus.docs) {
-    if (doc.path === model.path) continue;
-    for (const cited of new Set(doc.text.match(/\bT-\d{2}\b/g) ?? [])) {
-      if (!defined.has(cited)) {
-        findings.push(`${doc.path}: cites ${cited}, which the threat model does not define`);
-      }
-    }
+    if (doc.path !== model.path) findings.push(...undefinedThreatCitations(doc, defined));
   }
   return findings;
+}
+
+/**
+ * Every threat a document cites that the threat model does not define.
+ *
+ * @param {{ path: string, text: string }} doc
+ * @param {Set<string | undefined>} defined
+ * @returns {string[]}
+ */
+function undefinedThreatCitations(doc, defined) {
+  return [...new Set(doc.text.match(/\bT-\d{2}\b/g) ?? [])]
+    .filter((cited) => !defined.has(cited))
+    .map((cited) => `${doc.path}: cites ${cited}, which the threat model does not define`);
 }
 
 /**
@@ -935,6 +960,22 @@ function roadmapPhaseProblems(roadmapPath, phase, body, planned, scheduled) {
 }
 
 /**
+ * The ratings of one scenario that are not Low, Medium or High.
+ *
+ * @param {string} docPath
+ * @param {string} id
+ * @param {Array<[string, string]>} ratings name and value pairs
+ * @returns {string[]}
+ */
+function badRatings(docPath, id, ratings) {
+  return ratings
+    .filter(([, value]) => !['Low', 'Medium', 'High'].includes(value))
+    .map(
+      ([name, value]) =>
+        `${docPath}: ${id} has ${name} \`${value}\`; it must be Low, Medium or High`,
+    );
+}
+/**
  * Failure scenarios: severity and likelihood from a fixed vocabulary, and a stated expected
  * behaviour, recovery and verification for each.
  *
@@ -959,16 +1000,12 @@ export function checkRisks(corpus) {
     recovery = '',
     verification = '',
   ] of rows) {
-    for (const [name, value] of /** @type {Array<[string, string]>} */ ([
-      ['severity', severity],
-      ['likelihood', likelihood],
-    ])) {
-      if (!['Low', 'Medium', 'High'].includes(value)) {
-        findings.push(
-          `${doc.path}: ${id} has ${name} \`${value}\`; it must be Low, Medium or High`,
-        );
-      }
-    }
+    findings.push(
+      ...badRatings(doc.path, id, [
+        ['severity', severity],
+        ['likelihood', likelihood],
+      ]),
+    );
     if (expected === '') findings.push(`${doc.path}: ${id} states no expected behaviour`);
     if (recovery === '') findings.push(`${doc.path}: ${id} states no recovery`);
     if (verification === '') findings.push(`${doc.path}: ${id} states no verification`);

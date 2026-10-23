@@ -90,19 +90,21 @@ function javaCommands(
   return commands;
 }
 
-export const detectJava: EcosystemDetector = async ({ paths, read }) => {
-  const files = ['pom.xml', 'build.gradle', 'build.gradle.kts'].filter((file) =>
-    paths.includes(file),
-  );
-  if (files.length === 0) return null;
-
+/** The build files that could be read, by name. */
+async function readBuildFiles(
+  files: readonly string[],
+  read: (file: string) => Promise<string | null>,
+): Promise<Map<string, string>> {
   const texts = new Map<string, string>();
   for (const file of files) {
     const body = await read(file);
     if (body !== null) texts.set(file, body);
   }
-  if (texts.size === 0) return null;
+  return texts;
+}
 
+/** Each known framework, with the first build file that mentions it as evidence. */
+function frameworkSignals(texts: ReadonlyMap<string, string>): FrameworkSignal[] {
   const frameworks: FrameworkSignal[] = [];
   for (const [name, category] of JAVA_FRAMEWORKS) {
     for (const [file, body] of texts) {
@@ -111,6 +113,18 @@ export const detectJava: EcosystemDetector = async ({ paths, read }) => {
       break;
     }
   }
+  return frameworks;
+}
+export const detectJava: EcosystemDetector = async ({ paths, read }) => {
+  const files = ['pom.xml', 'build.gradle', 'build.gradle.kts'].filter((file) =>
+    paths.includes(file),
+  );
+  if (files.length === 0) return null;
+
+  const texts = await readBuildFiles(files, read);
+  if (texts.size === 0) return null;
+
+  const frameworks = frameworkSignals(texts);
 
   // **Dogfooded against `spring-projects/spring-petclinic`, which ships both a
   // `pom.xml` and a `build.gradle`, and both `mvnw` and `gradlew`.**

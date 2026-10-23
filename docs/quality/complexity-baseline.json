@@ -1,143 +1,20 @@
 {
   "$comment": [
-    "Known offenders over the ceiling of 15, recorded rather than refactored.",
+    "Known offenders over the ceiling, recorded rather than refactored. There are none at 12.",
     "",
-    "The three rows raised in the UI craft pass are design-system GATES, and that is the",
-    "whole reason they were recorded instead of rewritten. `theme-resolution.test.ts` is",
-    "the gate that fails on any Tailwind class generating nothing, and",
-    "`packages/ui/src/tokens/theme.test.ts` asserts the token set resolves. Both are",
-    "data-driven: the complexity is a loop over colour prefixes with a chain of guards,",
-    "which is what enumerating a design system looks like.",
+    "The ceiling was 15 with 31 recorded offenders (worst 73) until 2026-10-22, when every function",
+    "over 12 was split into named helpers behind characterization tests (Q-1 clause (a) in the",
+    "findings ledger carries the path to 10). The design-system gates that used to be recorded here",
+    "(`apps/web/src/theme-resolution.test.ts`, `packages/ui/src/tokens/theme.test.ts`,",
+    "`apps/web/src/Composition.test.tsx`) were refactored with their assertions unchanged, and the",
+    "composition scanners gained control-arm tests proving they still flag what they claim to.",
     "",
-    "Rewriting them blind would have been the wrong trade. Flattening the guard chain into",
-    "one boolean expression lowers the metric, but these files ARE the gate: a refactor that",
-    "quietly widened what a utility class is accepted for would leave the suite green and the",
-    "gate weaker, which is the failure this ratchet exists to prevent. The trade was a",
-    "recorded number instead.",
-    "",
-    "Note what this row does NOT do: it does not pretend the growth was free. The file went",
-    "from one offender at 18 to two at 25 and 19, and both numbers are here rather than the",
-    "flattering one."
+    "The gate fails when a file holds more offenders than recorded here, or when the worst offender",
+    "gets worse (`scripts/lib/complexity-ratchet.mjs`). It used to compare only the number of files."
   ],
-  "ceiling": 15,
-  "count": 23,
-  "offenders": [
-    {
-      "file": "apps/web/src/routes/dashboard/run-detail.tsx",
-      "line": 356,
-      "complexity": 42
-    },
-    {
-      "file": "apps/runner/src/execution.ts",
-      "line": 279,
-      "complexity": 35
-    },
-    {
-      "file": "apps/worker/src/postgres-store.ts",
-      "line": 365,
-      "complexity": 29
-    },
-    {
-      "file": "scripts/lib/tenancy-scope.mjs",
-      "line": 148,
-      "complexity": 28
-    },
-    {
-      "file": "apps/runner/src/runner-service.ts",
-      "line": 328,
-      "complexity": 26
-    },
-    {
-      "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 292,
-      "complexity": 25
-    },
-    {
-      "file": "scripts/tenancy-check.mjs",
-      "line": 63,
-      "complexity": 23
-    },
-    {
-      "file": "packages/automation/src/ollama-gateway.ts",
-      "line": 50,
-      "complexity": 22
-    },
-    {
-      "file": "apps/worker/src/scheduler.ts",
-      "line": 25,
-      "complexity": 21
-    },
-    {
-      "file": "packages/automation/src/kilo-gateway.ts",
-      "line": 202,
-      "complexity": 20
-    },
-    {
-      "file": "packages/reporter/src/compatibility/legacy-reporter.ts",
-      "line": 53,
-      "complexity": 20
-    },
-    {
-      "file": "tools/migrate-cli/src/cli.ts",
-      "line": 35,
-      "complexity": 20
-    },
-    {
-      "file": "apps/web/src/theme-resolution.test.ts",
-      "line": 314,
-      "complexity": 19
-    },
-    {
-      "file": "scripts/skill-scan.mjs",
-      "line": 309,
-      "complexity": 18
-    },
-    {
-      "file": "packages/ui/src/tokens/theme.test.ts",
-      "line": 202,
-      "complexity": 17
-    },
-    {
-      "file": "scripts/oci-checks.mjs",
-      "line": 80,
-      "complexity": 17
-    },
-    {
-      "file": "scripts/write-coverage-provenance.mjs",
-      "line": 48,
-      "complexity": 17
-    },
-    {
-      "file": "tests/integration/src/enum-constraints.test.ts",
-      "line": 33,
-      "complexity": 17
-    },
-    {
-      "file": "apps/worker/src/in-memory-store.ts",
-      "line": 250,
-      "complexity": 16
-    },
-    {
-      "file": "apps/worker/src/worker.ts",
-      "line": 123,
-      "complexity": 16
-    },
-    {
-      "file": "packages/runner-sdk/src/spool.ts",
-      "line": 862,
-      "complexity": 16
-    },
-    {
-      "file": "scripts/unify-preflight.mjs",
-      "line": 165,
-      "complexity": 16
-    },
-    {
-      "file": "tools/migrate-cli/src/cli.ts",
-      "line": 102,
-      "complexity": 16
-    }
-  ],
+  "ceiling": 12,
+  "count": 0,
+  "offenders": [],
   "measuredAt": "2026-10-22",
-  "worst": 42
+  "worst": 0
 }

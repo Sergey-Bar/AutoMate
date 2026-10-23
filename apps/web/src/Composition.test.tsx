@@ -98,20 +98,7 @@ function codeOf(source: string): string {
  * refused both patterns this replaced.
  */
 function isFigureText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  let body = trimmed;
-  for (const suffix of ['%', '\u00d7', 'pts', 'pt']) {
-    if (body.endsWith(suffix)) {
-      body = body.slice(0, -suffix.length).trimEnd();
-      break;
-    }
-  }
-  if (body.length === 0) return false;
-  const signless =
-    body.startsWith('+') || body.startsWith('-') || body.startsWith('\u2212')
-      ? body.slice(1)
-      : body;
+  const signless = withoutSign(withoutUnit(text.trim()));
   if (signless.length === 0) return false;
   let digits = 0;
   for (const character of signless) {
@@ -123,6 +110,17 @@ function isFigureText(text: string): boolean {
     return false;
   }
   return digits > 0;
+}
+
+/** The text without the first unit suffix it ends with; empty text stays empty. */
+function withoutUnit(text: string): string {
+  const suffix = ['%', '\u00d7', 'pts', 'pt'].find((candidate) => text.endsWith(candidate));
+  return suffix === undefined ? text : text.slice(0, -suffix.length).trimEnd();
+}
+
+/** The text without one leading sign; the minus may be the ASCII hyphen or U+2212. */
+function withoutSign(text: string): string {
+  return /^[+\-\u2212]/u.test(text) ? text.slice(1) : text;
 }
 
 /** Every heading the file opens, in source order, as `{ level, text }`. */
@@ -137,6 +135,67 @@ function headings(source: string): Array<{ level: number; text: string }> {
     found.push({ level, text });
   }
   return found;
+}
+
+/** The heading-order problems in one screen: an opening level below the h1, or a skipped level. */
+function headingOffenders(file: { name: string; body: string }): string[] {
+  const offenders: string[] = [];
+  const found = headings(file.body);
+  // **The first heading has to be the screen's `h1`, and this is the half the pairwise
+  // check below cannot see.** An `h4` appearing first satisfies "no level is skipped"
+  // vacuously — the walk starts from zero, and 0 → 4 is not a skip — while the screen's
+  // heading list begins three levels down and its `h1` arrives third. That is exactly
+  // what `run-detail.tsx` did, and what this rule was written to catch.
+  const first = found[0];
+  if (first !== undefined && first.level !== 1 && file.name.startsWith('routes/dashboard/')) {
+    // A screen may compose a sub-component whose heading is the screen's, in which case
+    // the `h1` lives in that component and the screen file's own headings follow it.
+    const hasH1 = found.some((heading) => heading.level === 1);
+    if (!hasH1) {
+      offenders.push(`${file.name}: opens with h${String(first.level)} ("${first.text}")`);
+    }
+  }
+  let previous = 0;
+  for (const heading of found) {
+    // `h4` after an `h2` skips `h3`, and a screen reader navigating by heading then meets
+    // a hole, which is where the structure is supposed to be legible.
+    if (previous !== 0 && heading.level > previous + 1) {
+      offenders.push(
+        `${file.name}: h${String(previous)} then h${String(heading.level)} ("${heading.text}")`,
+      );
+    }
+    previous = heading.level;
+  }
+  return offenders;
+}
+
+/** The table cells in one screen that hold a figure and are not marked `numeric`. */
+function figureCellOffenders(file: { name: string; body: string }): string[] {
+  const offenders: string[] = [];
+  const code = codeOf(file.body);
+  for (const match of code.matchAll(/<TableCell([^>]*)>([\s\S]*?)<\/TableCell>/g)) {
+    const attributes = match[1] ?? '';
+    const body = match[2] ?? '';
+    if (/\bnumeric\b/.test(attributes)) continue;
+    // A figure is a `toFixed`, a percentage, or a bare number rendered on its own.
+    //
+    // **Written as readers, not patterns.** The first version used
+    // `/\{[%s]*\d+(\.\d+)?[%\s]*\}/` and `/^\s*\d+(\.\d+)?\s*$/`, both of which nest a
+    // quantifier behind an optional group — the shape `security/detect-unsafe-regex`
+    // refuses, and it refused them. This is the third time in this repository that the
+    // answer has been the same one: read it and ask `Number`, as `theme.test.ts`'s
+    // `isSizeArgument` and `isFigureText` above both do.
+    if (body.includes('toFixed(')) {
+      offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
+      continue;
+    }
+    const literal = body.replace(/\{[^}]*\}/g, ' ').trim();
+    if (literal.length === 0) continue;
+    if (isFigureText(literal)) {
+      offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
+    }
+  }
+  return offenders;
 }
 
 const SCREENS = screenSources();
@@ -176,35 +235,7 @@ describe('every screen is composed, not just dressed', () => {
   );
 
   it('descends the heading levels rather than skipping one, and starts at the h1', () => {
-    const offenders: string[] = [];
-    for (const file of SCREENS) {
-      const found = headings(file.body);
-      // **The first heading has to be the screen's `h1`, and this is the half the pairwise
-      // check below cannot see.** An `h4` appearing first satisfies "no level is skipped"
-      // vacuously — the walk starts from zero, and 0 → 4 is not a skip — while the screen's
-      // heading list begins three levels down and its `h1` arrives third. That is exactly
-      // what `run-detail.tsx` did, and what this rule was written to catch.
-      const first = found[0];
-      if (first !== undefined && first.level !== 1 && file.name.startsWith('routes/dashboard/')) {
-        // A screen may compose a sub-component whose heading is the screen's, in which case
-        // the `h1` lives in that component and the screen file's own headings follow it.
-        const hasH1 = found.some((heading) => heading.level === 1);
-        if (!hasH1) {
-          offenders.push(`${file.name}: opens with h${String(first.level)} ("${first.text}")`);
-        }
-      }
-      let previous = 0;
-      for (const heading of found) {
-        // `h4` after an `h2` skips `h3`, and a screen reader navigating by heading then meets
-        // a hole, which is where the structure is supposed to be legible.
-        if (previous !== 0 && heading.level > previous + 1) {
-          offenders.push(
-            `${file.name}: h${String(previous)} then h${String(heading.level)} ("${heading.text}")`,
-          );
-        }
-        previous = heading.level;
-      }
-    }
+    const offenders = SCREENS.flatMap(headingOffenders);
     expect(
       offenders,
       'a heading level was skipped, or the file opens below the screen h1. A screen reader ' +
@@ -288,32 +319,7 @@ describe('the screens obey the typography rules the library asserts for itself',
    * numbers and a heuristic that guessed from the text would right-align a run id.
    */
   it('marks every figure cell in a screen numeric, so a column does not shift', () => {
-    const offenders: string[] = [];
-    for (const file of SCREENS) {
-      const code = codeOf(file.body);
-      for (const match of code.matchAll(/<TableCell([^>]*)>([\s\S]*?)<\/TableCell>/g)) {
-        const attributes = match[1] ?? '';
-        const body = match[2] ?? '';
-        if (/\bnumeric\b/.test(attributes)) continue;
-        // A figure is a `toFixed`, a percentage, or a bare number rendered on its own.
-        //
-        // **Written as readers, not patterns.** The first version used
-        // `/\{[%s]*\d+(\.\d+)?[%\s]*\}/` and `/^\s*\d+(\.\d+)?\s*$/`, both of which nest a
-        // quantifier behind an optional group — the shape `security/detect-unsafe-regex`
-        // refuses, and it refused them. This is the third time in this repository that the
-        // answer has been the same one: read it and ask `Number`, as `theme.test.ts`'s
-        // `isSizeArgument` and `isFigureText` above both do.
-        if (body.includes('toFixed(')) {
-          offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
-          continue;
-        }
-        const literal = body.replace(/\{[^}]*\}/g, ' ').trim();
-        if (literal.length === 0) continue;
-        if (isFigureText(literal)) {
-          offenders.push(`${file.name}: <TableCell>${body.slice(0, 50).trim()}`);
-        }
-      }
-    }
+    const offenders = SCREENS.flatMap(figureCellOffenders);
     expect(
       offenders,
       'a cell holding a figure is not marked ' +
@@ -353,5 +359,40 @@ describe('the screens obey the typography rules the library asserts for itself',
       'a figure rendered by a screen with `toFixed` and no `tabular-nums` shifts sideways as ' +
         'it updates. In a column it is the defect this repository records as DESIGN-4.',
     ).toEqual([]);
+  });
+});
+
+describe('the heading and numeric-cell scanners detect what they claim to', () => {
+  it('flags a screen that opens below the h1, and one that skips a level', () => {
+    const opensLow = { name: 'routes/dashboard/x.tsx', body: '<h4>Deep</h4><h1>Late</h1>' };
+    expect(headingOffenders(opensLow)).toEqual([]); // the h1 is composed in later in the file
+    const noH1 = { name: 'routes/dashboard/x.tsx', body: '<h2>Only</h2>' };
+    expect(headingOffenders(noH1)).toEqual(['routes/dashboard/x.tsx: opens with h2 ("Only")']);
+    const skips = { name: 'components/x.tsx', body: '<h1>A</h1><h3>C</h3>' };
+    expect(headingOffenders(skips)).toEqual(['components/x.tsx: h1 then h3 ("C")']);
+    expect(headingOffenders({ name: 'components/x.tsx', body: '<h1>A</h1><h2>B</h2>' })).toEqual(
+      [],
+    );
+  });
+
+  it('flags a figure cell that is not numeric and passes one that is', () => {
+    const plain = { name: 's.tsx', body: '<TableCell>{value.toFixed(1)}</TableCell>' };
+    expect(figureCellOffenders(plain)).toHaveLength(1);
+    const literal = { name: 's.tsx', body: '<TableCell>42%</TableCell>' };
+    expect(figureCellOffenders(literal)).toHaveLength(1);
+    const marked = { name: 's.tsx', body: '<TableCell numeric>{value.toFixed(1)}</TableCell>' };
+    expect(figureCellOffenders(marked)).toEqual([]);
+    expect(figureCellOffenders({ name: 's.tsx', body: '<TableCell>Run id</TableCell>' })).toEqual(
+      [],
+    );
+  });
+
+  it('reads a figure with a sign and a unit, and refuses prose', () => {
+    for (const figure of ['12', '-3.5', '+4,200', '\u22122', '97%', '3 pts', '2\u00d7']) {
+      expect(isFigureText(figure), figure).toBe(true);
+    }
+    for (const prose of ['', '%', '-', 'Run id', '12 runs', '1.2.x']) {
+      expect(isFigureText(prose), prose).toBe(false);
+    }
   });
 });

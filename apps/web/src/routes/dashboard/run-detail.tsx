@@ -371,54 +371,9 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
   } = useRunDetail(id, api);
   const [retryTarget, setRetryTarget] = useState<string | null>(null);
 
-  if (isLoading) {
-    return (
-      <PageFrame>
-        <PageHeader title="Run detail" />
-        <div data-testid="run-detail-loading" className="text-sm text-fg-muted">
-          Loading canonical run {id}...
-        </div>
-      </PageFrame>
-    );
-  }
+  if (isLoading) return <RunDetailLoading id={id} />;
 
-  if (error) {
-    // On the status, not on the message. The API already sends a distinct code and
-    // status for this — `DomainError('RUN_NOT_FOUND')` renders as
-    // `{ error: { code, message, requestId } }` with a 404 — and the old check read
-    // `error.message` looking for the words "not found". It worked only because the
-    // server's English prose happened to contain them: translate the string, or
-    // reword it, and the run silently becomes a generic error (ledger W-6).
-    //
-    // The hook types this as `Error` while the value it stores is an `ApiError`, so
-    // the status is read through an `instanceof` check rather than a cast. An error
-    // that is not an `ApiError` carries no status to read, and falls through to the
-    // generic state, which is the honest answer for an error of unknown provenance.
-    if (error instanceof ApiError && error.status === 404) {
-      return (
-        <PageFrame>
-          <PageHeader title="Run detail" />
-          <EmptyState
-            headingLevel={2}
-            data-testid="run-not-found"
-            title="Run not found"
-            description={`No canonical run exists for ${id}.`}
-          />
-        </PageFrame>
-      );
-    }
-    return (
-      <PageFrame>
-        <PageHeader title="Run detail" />
-        <EmptyState
-          headingLevel={2}
-          data-testid="run-error"
-          title="Run unavailable"
-          description={error.message}
-        />
-      </PageFrame>
-    );
-  }
+  if (error) return <RunDetailError error={error} id={id} />;
 
   // A type guard, and nothing more: every line below narrows `run`, so this
   // cannot be deleted without a typecheck error. It is also currently `unreachable` —
@@ -448,7 +403,218 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
     }
   };
 
-  const summary = (
+  const summary = <SummaryPanels run={run} />;
+  const tests = <TestPanel run={run} />;
+  const artifactPanel = <ArtifactPanel artifacts={artifacts} evidenceError={evidenceError} />;
+  const eventPanel = <EventPanel events={events} />;
+  const gatePanel = <GatePanel gate={gate} readiness={readiness} />;
+  return (
+    <PageFrame data-testid="run-detail-page">
+      <RunHeader
+        run={run}
+        isLive={isLive}
+        isActing={isActing}
+        onCancel={() => void performCancel()}
+        onRetry={() => void performRetry()}
+      />
+      <ActionNotice actionError={actionError} retryTarget={retryTarget} />
+
+      <RunVerdict run={run} gate={gate} />
+
+      <Responsive
+        label="Run sections"
+        desktop={
+          <>
+            {summary}
+            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
+              {tests}
+              <div className="flex min-h-0 flex-col gap-3">
+                {artifactPanel}
+                {eventPanel}
+              </div>
+              <div className="flex min-h-0 flex-col gap-3">{gatePanel}</div>
+            </div>
+          </>
+        }
+        panels={[
+          {
+            id: 'summary',
+            label: 'Summary',
+            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{summary}</div>,
+          },
+          { id: 'tests', label: 'Tests', node: tests },
+          { id: 'artifacts', label: 'Artifacts', node: artifactPanel },
+          { id: 'events', label: 'Events', node: eventPanel },
+          {
+            id: 'gate',
+            label: 'Gate',
+            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{gatePanel}</div>,
+          },
+        ]}
+      />
+    </PageFrame>
+  );
+}
+
+type RunDetailState = ReturnType<typeof useRunDetail>;
+
+function RunDetailLoading({ id }: { id: string }) {
+  return (
+    <PageFrame>
+      <PageHeader title="Run detail" />
+      <div data-testid="run-detail-loading" className="text-sm text-fg-muted">
+        Loading canonical run {id}...
+      </div>
+    </PageFrame>
+  );
+}
+
+/**
+ * On the status, not on the message. The API already sends a distinct code and
+ * status for this — `DomainError('RUN_NOT_FOUND')` renders as
+ * `{ error: { code, message, requestId } }` with a 404 — and the old check read
+ * `error.message` looking for the words "not found". It worked only because the
+ * server's English prose happened to contain them: translate the string, or
+ * reword it, and the run silently becomes a generic error (ledger W-6).
+ *
+ * The hook types this as `Error` while the value it stores is an `ApiError`, so
+ * the status is read through an `instanceof` check rather than a cast. An error
+ * that is not an `ApiError` carries no status to read, and falls through to the
+ * generic state, which is the honest answer for an error of unknown provenance.
+ */
+function RunDetailError({ error, id }: { error: Error; id: string }) {
+  if (error instanceof ApiError && error.status === 404) {
+    return (
+      <PageFrame>
+        <PageHeader title="Run detail" />
+        <EmptyState
+          headingLevel={2}
+          data-testid="run-not-found"
+          title="Run not found"
+          description={`No canonical run exists for ${id}.`}
+        />
+      </PageFrame>
+    );
+  }
+  return (
+    <PageFrame>
+      <PageHeader title="Run detail" />
+      <EmptyState
+        headingLevel={2}
+        data-testid="run-error"
+        title="Run unavailable"
+        description={error.message}
+      />
+    </PageFrame>
+  );
+}
+
+function RunHeader({
+  run,
+  isLive,
+  isActing,
+  onCancel,
+  onRetry,
+}: {
+  run: Run;
+  isLive: boolean;
+  isActing: boolean;
+  onCancel: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
+      <div className="min-w-0">
+        <a
+          href="/dashboard/runs"
+          className="inline-flex min-h-11 items-center rounded-sm text-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        >
+          ← Runs
+        </a>
+        <h1 className="mt-1 text-3xl font-semibold tracking-tight">Run detail</h1>
+        <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
+          {run.suite ? <span className="truncate font-mono text-fg">{run.suite}</span> : null}
+          <span data-testid="run-id" className="truncate font-mono">
+            {run.id}
+          </span>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>
+        <Badge data-testid="run-phase" variant={isRunActive(run) ? 'default' : 'outline'}>
+          {run.phase}
+        </Badge>
+        <Badge data-testid="run-status" variant={outcomeTone(run.outcome)}>
+          {(run.outcome ?? 'PENDING').toUpperCase()}
+        </Badge>
+        {isRunActive(run) ? (
+          <Button
+            data-testid="cancel-run"
+            variant="destructive"
+            disabled={isActing}
+            onClick={onCancel}
+            className="min-h-11"
+          >
+            Cancel run
+          </Button>
+        ) : null}
+        {!isRunActive(run) && run.outcome !== 'passed' ? (
+          <Button
+            data-testid="retry-run"
+            variant="secondary"
+            disabled={isActing}
+            onClick={onRetry}
+            className="min-h-11"
+          >
+            Retry run
+          </Button>
+        ) : null}
+      </div>
+    </header>
+  );
+}
+
+function ActionNotice({
+  actionError,
+  retryTarget,
+}: {
+  actionError: RunDetailState['actionError'];
+  retryTarget: string | null;
+}) {
+  if (!actionError && !retryTarget) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm">
+      {actionError ? (
+        <p role="alert" className="max-w-measure text-danger">
+          {actionError.message}
+        </p>
+      ) : null}
+      {retryTarget ? (
+        <a
+          data-testid="retry-run-link"
+          href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
+          className="rounded-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+        >
+          Open retried run {retryTarget}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+/** Badge tone for a gate status. */
+function gateTone(status: string): 'success' | 'danger' | 'warning' {
+  if (status === 'passed') return 'success';
+  return status === 'failed' ? 'danger' : 'warning';
+}
+
+/** Badge tone for a release-readiness decision. */
+function readinessTone(decision: string): 'success' | 'danger' | 'warning' {
+  if (decision === 'ready') return 'success';
+  return decision === 'blocked' ? 'danger' : 'warning';
+}
+
+function SummaryPanels({ run }: { run: Run }) {
+  return (
     <>
       <div className="shrink-0 rounded-xl border border-border bg-surface-raised px-4 py-3">
         <PhaseTimeline phase={run.phase} />
@@ -514,7 +680,10 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       ) : null}
     </>
   );
-  const tests = (
+}
+
+function TestPanel({ run }: { run: Run }) {
+  return (
     <>
       <Panel title="Test attempts" className="flex-1">
         <div
@@ -528,7 +697,16 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       </Panel>
     </>
   );
-  const artifactPanel = (
+}
+
+function ArtifactPanel({
+  artifacts,
+  evidenceError,
+}: {
+  artifacts: RunDetailState['artifacts'];
+  evidenceError: RunDetailState['evidenceError'];
+}) {
+  return (
     <>
       <Panel title="Artifacts" className="min-h-0 flex-1">
         {evidenceError ? (
@@ -568,7 +746,10 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       </Panel>
     </>
   );
-  const eventPanel = (
+}
+
+function EventPanel({ events }: { events: RunDetailState['events'] }) {
+  return (
     <>
       <Panel title="Live event timeline" className="min-h-0 flex-1">
         {events.length > 0 ? (
@@ -601,21 +782,21 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       </Panel>
     </>
   );
-  const gatePanel = (
+}
+
+function GatePanel({
+  gate,
+  readiness,
+}: {
+  gate: RunDetailState['gate'];
+  readiness: RunDetailState['readiness'];
+}) {
+  return (
     <>
       <Panel title="Quality gate" data-testid="run-gate" className="min-h-0 flex-1">
         {gate ? (
           <>
-            <Badge
-              className="self-start"
-              variant={
-                gate.status === 'passed'
-                  ? 'success'
-                  : gate.status === 'failed'
-                    ? 'danger'
-                    : 'warning'
-              }
-            >
+            <Badge className="self-start" variant={gateTone(gate.status)}>
               {gate.status.toUpperCase()}
             </Badge>
             <div
@@ -649,15 +830,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
           title="Release readiness"
           data-testid="run-readiness"
           action={
-            <Badge
-              variant={
-                readiness.decision === 'ready'
-                  ? 'success'
-                  : readiness.decision === 'blocked'
-                    ? 'danger'
-                    : 'warning'
-              }
-            >
+            <Badge variant={readinessTone(readiness.decision)}>
               {readiness.decision.toUpperCase()}
             </Badge>
           }
@@ -674,113 +847,7 @@ export function RunDetailPage({ id, api }: { id: string; api?: ApiClient }) {
       ) : null}
     </>
   );
-
-  return (
-    <PageFrame data-testid="run-detail-page">
-      <header className="flex shrink-0 flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <a
-            href="/dashboard/runs"
-            className="inline-flex min-h-11 items-center rounded-sm text-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-          >
-            ← Runs
-          </a>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight">Run detail</h1>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-sm text-fg-muted">
-            {run.suite ? <span className="truncate font-mono text-fg">{run.suite}</span> : null}
-            <span data-testid="run-id" className="truncate font-mono">
-              {run.id}
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-fg-muted">{isLive ? 'LIVE' : 'RECONNECTING'}</span>
-          <Badge data-testid="run-phase" variant={isRunActive(run) ? 'default' : 'outline'}>
-            {run.phase}
-          </Badge>
-          <Badge data-testid="run-status" variant={outcomeTone(run.outcome)}>
-            {(run.outcome ?? 'PENDING').toUpperCase()}
-          </Badge>
-          {isRunActive(run) ? (
-            <Button
-              data-testid="cancel-run"
-              variant="destructive"
-              disabled={isActing}
-              onClick={() => void performCancel()}
-              className="min-h-11"
-            >
-              Cancel run
-            </Button>
-          ) : null}
-          {!isRunActive(run) && run.outcome !== 'passed' ? (
-            <Button
-              data-testid="retry-run"
-              variant="secondary"
-              disabled={isActing}
-              onClick={() => void performRetry()}
-              className="min-h-11"
-            >
-              Retry run
-            </Button>
-          ) : null}
-        </div>
-      </header>
-      {actionError || retryTarget ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-3 text-sm">
-          {actionError ? (
-            <p role="alert" className="max-w-measure text-danger">
-              {actionError.message}
-            </p>
-          ) : null}
-          {retryTarget ? (
-            <a
-              data-testid="retry-run-link"
-              href={`/dashboard/runs/${encodeURIComponent(retryTarget)}`}
-              className="rounded-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
-            >
-              Open retried run {retryTarget}
-            </a>
-          ) : null}
-        </div>
-      ) : null}
-
-      <RunVerdict run={run} gate={gate} />
-
-      <Responsive
-        label="Run sections"
-        desktop={
-          <>
-            {summary}
-            <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] gap-3">
-              {tests}
-              <div className="flex min-h-0 flex-col gap-3">
-                {artifactPanel}
-                {eventPanel}
-              </div>
-              <div className="flex min-h-0 flex-col gap-3">{gatePanel}</div>
-            </div>
-          </>
-        }
-        panels={[
-          {
-            id: 'summary',
-            label: 'Summary',
-            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{summary}</div>,
-          },
-          { id: 'tests', label: 'Tests', node: tests },
-          { id: 'artifacts', label: 'Artifacts', node: artifactPanel },
-          { id: 'events', label: 'Events', node: eventPanel },
-          {
-            id: 'gate',
-            label: 'Gate',
-            node: <div className="flex min-h-0 flex-1 flex-col gap-3">{gatePanel}</div>,
-          },
-        ]}
-      />
-    </PageFrame>
-  );
 }
-
 /** One summary figure, with the test id on the value itself so its text is exactly the number. */
 function Figure({
   label,

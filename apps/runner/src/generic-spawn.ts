@@ -448,26 +448,28 @@ export function globToRegExp(glob: string): RegExp {
   for (let index = 0; index < normalised.length; index += 1) {
     const character = normalised[index];
     if (character === '*' && normalised[index + 1] === '*') {
-      index += 1;
-      if (normalised[index + 1] === '/') {
-        index += 1;
-        pattern += '(?:.*/)?';
-      } else {
-        pattern += '.*';
-      }
+      const star = doubleStar(normalised, index);
+      pattern += star.pattern;
+      index = star.index;
       continue;
     }
-    if (character === '*') {
-      pattern += '[^/]*';
-      continue;
-    }
-    if (character === '?') {
-      pattern += '[^/]';
-      continue;
-    }
-    pattern += character?.replace(/[.+^${}()|[\]\\]/gu, '\\$&') ?? '';
+    pattern += globCharacter(character);
   }
   return new RegExp(`^${pattern}$`, 'u');
+}
+
+/** `**` matches across directories; `**` followed by `/` also matches no directory at all. */
+function doubleStar(glob: string, index: number): { pattern: string; index: number } {
+  const second = index + 1;
+  if (glob[second + 1] === '/') return { pattern: '(?:.*/)?', index: second + 1 };
+  return { pattern: '.*', index: second };
+}
+
+/** One glob character as a regular expression: `*` and `?` stay within a directory. */
+function globCharacter(character: string | undefined): string {
+  if (character === '*') return '[^/]*';
+  if (character === '?') return '[^/]';
+  return character?.replace(/[.+^${}()|[\]\\]/gu, '\\$&') ?? '';
 }
 
 /**

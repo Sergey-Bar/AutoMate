@@ -59,6 +59,45 @@ const drawerVariants = cva(
   },
 );
 
+/** Show the dialog modally and move focus to its first tabbable element (or the dialog). */
+function openDialog(dialog: HTMLDialogElement): void {
+  // simple polyfill/check for showModal in tests
+  if (dialog.showModal) {
+    dialog.showModal();
+  } else {
+    dialog.open = true;
+  }
+  const [first] = tabbableWithin(dialog);
+  (first ?? dialog).focus();
+}
+
+function closeDialog(dialog: HTMLDialogElement): void {
+  if (dialog.close) {
+    dialog.close();
+  } else {
+    dialog.open = false;
+  }
+}
+
+/** Keep Tab inside the dialog: wrap from the last element to the first and back. */
+function trapTab(event: ReactKeyboardEvent<HTMLDialogElement>, dialog: HTMLDialogElement): void {
+  const focusable = tabbableWithin(dialog);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    dialog.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === dialog)) {
+    event.preventDefault();
+    last?.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first?.focus();
+  }
+}
 export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
   ({ className, open, onOpenChange, position = 'right', children, ...props }, ref) => {
     const internalRef = useRef<HTMLDialogElement>(null);
@@ -100,20 +139,9 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
       if (open && !dialog.open) {
         returnFocusTo.current =
           document.activeElement instanceof HTMLElement ? document.activeElement : null;
-        // simple polyfill/check for showModal in tests
-        if (dialog.showModal) {
-          dialog.showModal();
-        } else {
-          dialog.open = true;
-        }
-        const [first] = tabbableWithin(dialog);
-        (first ?? dialog).focus();
+        openDialog(dialog);
       } else if (!open && dialog.open) {
-        if (dialog.close) {
-          dialog.close();
-        } else {
-          dialog.open = false;
-        }
+        closeDialog(dialog);
       }
 
       return () => dialog.removeEventListener('close', handleClose);
@@ -124,22 +152,7 @@ export const Drawer = forwardRef<HTMLDialogElement, DrawerProps>(
       if (event.key !== 'Tab') return;
       const dialog = internalRef.current;
       if (!dialog) return;
-      const focusable = tabbableWithin(dialog);
-      if (focusable.length === 0) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      if (event.shiftKey && (active === first || active === dialog)) {
-        event.preventDefault();
-        last?.focus();
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first?.focus();
-      }
+      trapTab(event, dialog);
     }, []);
 
     // For testing purposes, if not open, we can just hide it completely,

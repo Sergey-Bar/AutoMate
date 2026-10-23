@@ -160,6 +160,28 @@ export function attemptsOf(error: unknown): number {
   return error instanceof ConnectorHttpError ? error.attempts : 1;
 }
 
+/** The error to throw when retrying stops, carrying how many attempts were made. */
+function withAttempts(error: unknown, attempts: number): unknown {
+  if (error instanceof ConnectorHttpError) error.attempts = attempts;
+  return error;
+}
+
+/**
+ * Whether a failed attempt is the last one: not transient, not safe to repeat, or out of retries.
+ *
+ * Absent `idempotent` is treated as false, not true: an adapter that forgets to pass the
+ * manifest's claim must lose the retry, because the cost of that mistake is a duplicated side
+ * effect and the cost of the opposite is one failed request.
+ */
+function mustStopRetrying(
+  error: unknown,
+  attempts: number,
+  options: { retries: number; idempotent?: boolean },
+): boolean {
+  const transient = error instanceof ConnectorHttpError && isRetryableStatus(error.status);
+  const safeToRepeat = options.idempotent === true || error instanceof ConnectorRejectionError;
+  return !transient || !safeToRepeat || attempts > options.retries;
+}
 /**
  * The longest a single backoff sleep may be.
  *
@@ -209,15 +231,8 @@ export async function executeWithRetry<T>(
     try {
       return { value: await operation(attempt.signal), attempts };
     } catch (error) {
-      const transient = error instanceof ConnectorHttpError && isRetryableStatus(error.status);
-      // Absent `idempotent` is treated as false, not true: an adapter that forgets to
-      // pass the manifest's claim must lose the retry, because the cost of that mistake is
-      // a duplicated side effect and the cost of the opposite is one failed request.
-      const safeToRepeat = options.idempotent === true || error instanceof ConnectorRejectionError;
-      if (!transient || !safeToRepeat || attempts > options.retries) {
-        if (error instanceof ConnectorHttpError) error.attempts = attempts;
-        throw error;
-      }
+      if (mustStopRetrying(error, attempts, options)) throw withAttempts(error, attempts);
+
       // Checked before the backoff, not after. A cancelled caller has already given up,
       // and making it wait out a 400ms sleep before the cancellation is honoured is time
       // the caller has already decided not to spend.

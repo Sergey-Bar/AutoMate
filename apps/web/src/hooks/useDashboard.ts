@@ -92,6 +92,44 @@ function foldEvidence(
   };
 }
 
+/** Add a live event to the snapshot: the event itself, its effect on the run, artifact and gate. */
+function applyRunEvent(current: RunDetailData, event: RunEvent): RunDetailData {
+  const events = current.events.some((item) => item.eventId === event.eventId)
+    ? current.events
+    : [...current.events, event];
+  return {
+    ...current,
+    events,
+    run: current.run ? projectRunEvent(current.run, event) : current.run,
+    artifacts:
+      event.type === 'artifact.created'
+        ? [
+            ...current.artifacts.filter((artifact) => artifact.id !== event.payload.artifact.id),
+            event.payload.artifact,
+          ]
+        : current.artifacts,
+    gate: event.type === 'gate.evaluated' ? event.payload.evaluation : current.gate,
+  };
+}
+
+/** Events that mean the persisted snapshot has moved on: tests, artifacts and the gate. */
+function eventNeedsRefresh(type: string): boolean {
+  return type.startsWith('test.') || type === 'artifact.created' || type === 'gate.evaluated';
+}
+/** The release readiness for a run that belongs to a release; nothing for one that does not. */
+function readinessFor(
+  api: typeof defaultApiClient,
+  releaseId: string | null | undefined,
+  signal: AbortSignal,
+): Promise<ReleaseReadiness | null> {
+  return releaseId ? api.getReleaseReadiness(releaseId, { signal }) : Promise.resolve(null);
+}
+
+/** The error to show for a failed refresh, or null for a cancelled request, which is no failure. */
+function refreshFailure(caught: unknown): Error | null {
+  if (isAbortError(caught)) return null;
+  return caught instanceof Error ? caught : new Error('Failed to fetch run');
+}
 export function useRunDetail(id: string, api = defaultApiClient) {
   const [data, setData] = useState<RunDetailData>({
     run: null,
@@ -128,9 +166,7 @@ export function useRunDetail(id: string, api = defaultApiClient) {
         const [artifactsResult, gateResult, readinessResult] = await Promise.allSettled([
           api.getRunArtifacts(id, { signal }),
           api.getRunGate(id, { signal }),
-          run.releaseId
-            ? api.getReleaseReadiness(run.releaseId, { signal })
-            : Promise.resolve(null),
+          readinessFor(api, run.releaseId, signal),
         ]);
         if (!mountedRef.current) return;
 
@@ -138,10 +174,8 @@ export function useRunDetail(id: string, api = defaultApiClient) {
           foldEvidence(current, run, artifactsResult, gateResult, readinessResult),
         );
       } catch (caught) {
-        if (isAbortError(caught)) return;
-        if (mountedRef.current) {
-          setError(caught instanceof Error ? caught : new Error('Failed to fetch run'));
-        }
+        const failure = refreshFailure(caught);
+        if (failure && mountedRef.current) setError(failure);
       } finally {
         // **`!signal.aborted`, not `mountedRef.current`** — and the difference is the
         // blank page the route-level axe gate found. `mountedRef` is one boolean shared
@@ -166,33 +200,8 @@ export function useRunDetail(id: string, api = defaultApiClient) {
       onEvent: (event) => {
         if (event.runId !== id || seenEvents.current.has(event.eventId)) return;
         seenEvents.current.add(event.eventId);
-        setData((current) => {
-          const events = current.events.some((item) => item.eventId === event.eventId)
-            ? current.events
-            : [...current.events, event];
-          return {
-            ...current,
-            events,
-            run: current.run ? projectRunEvent(current.run, event) : current.run,
-            artifacts:
-              event.type === 'artifact.created'
-                ? [
-                    ...current.artifacts.filter(
-                      (artifact) => artifact.id !== event.payload.artifact.id,
-                    ),
-                    event.payload.artifact,
-                  ]
-                : current.artifacts,
-            gate: event.type === 'gate.evaluated' ? event.payload.evaluation : current.gate,
-          };
-        });
-        if (
-          event.type.startsWith('test.') ||
-          event.type === 'artifact.created' ||
-          event.type === 'gate.evaluated'
-        ) {
-          void refresh();
-        }
+        setData((current) => applyRunEvent(current, event));
+        if (eventNeedsRefresh(event.type)) void refresh();
       },
       onReconnect: () => void refresh(),
       onConnectionChange: setIsLive,

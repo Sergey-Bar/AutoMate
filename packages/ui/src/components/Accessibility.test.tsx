@@ -626,20 +626,7 @@ describe('one focus idiom, on one token', () => {
  * and a lone `%` is not a figure either.
  */
 function isFigureText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  let body = trimmed;
-  for (const suffix of ['%', '\u00d7', 'pts', 'pt']) {
-    if (body.endsWith(suffix)) {
-      body = body.slice(0, -suffix.length).trimEnd();
-      break;
-    }
-  }
-  if (body.length === 0) return false;
-  const signless =
-    body.startsWith('+') || body.startsWith('-') || body.startsWith('\u2212')
-      ? body.slice(1)
-      : body;
+  const signless = withoutSign(withoutUnit(text.trim()));
   if (signless.length === 0) return false;
   // At least one digit, and nothing but digits and separators — two passes over a fixed
   // alphabet rather than one pattern, which is the property the rule wants.
@@ -653,6 +640,17 @@ function isFigureText(text: string): boolean {
     return false;
   }
   return digits > 0;
+}
+
+/** The text without the first unit suffix it ends with; empty text stays empty. */
+function withoutUnit(text: string): string {
+  const suffix = ['%', '\u00d7', 'pts', 'pt'].find((candidate) => text.endsWith(candidate));
+  return suffix === undefined ? text : text.slice(0, -suffix.length).trimEnd();
+}
+
+/** The text without one leading sign; the minus may be the ASCII hyphen or U+2212. */
+function withoutSign(text: string): string {
+  return /^[+\-\u2212]/u.test(text) ? text.slice(1) : text;
 }
 
 function isFigure(element: HTMLElement): boolean {

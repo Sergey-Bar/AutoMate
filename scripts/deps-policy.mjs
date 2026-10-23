@@ -245,6 +245,22 @@ function parseBaseline() {
 }
 
 /**
+ * Record each registry dependency of one dependency group against the importer that declares it.
+ * Workspace links are not dependencies on anything a registry can change.
+ *
+ * @param {Map<string, { version: string, declaredIn: Set<string> }>} rows
+ * @param {string} importer
+ * @param {Record<string, { version: string }>} group
+ */
+function addGroupRows(rows, importer, group) {
+  for (const [name, entry] of Object.entries(group)) {
+    if (entry.version.startsWith('link:')) continue;
+    const existing = rows.get(name);
+    if (existing) existing.declaredIn.add(importer);
+    else rows.set(name, { version: entry.version, declaredIn: new Set([importer]) });
+  }
+}
+/**
  * The rows a first-time baseline would carry, printed and not written.
  *
  * @returns {{ name: string, version: string, declaredIn: string[] }[]}
@@ -254,14 +270,7 @@ export function proposedBaselineRows() {
   /** @type {Map<string, { version: string, declaredIn: Set<string> }>} */
   const rows = new Map();
   for (const [importer, groups] of Object.entries(parsed.importers)) {
-    for (const group of Object.values(groups)) {
-      for (const [name, entry] of Object.entries(group)) {
-        if (entry.version.startsWith('link:')) continue;
-        const existing = rows.get(name);
-        if (existing) existing.declaredIn.add(importer);
-        else rows.set(name, { version: entry.version, declaredIn: new Set([importer]) });
-      }
-    }
+    for (const group of Object.values(groups)) addGroupRows(rows, importer, group);
   }
   return [...rows.entries()]
     .map(([name, row]) => ({

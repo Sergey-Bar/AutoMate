@@ -137,6 +137,81 @@ export function parseTableStates(raw) {
 }
 
 /**
+ * What the schema actually has for a table's workspace column.
+ *
+ * @param {{ hasWorkspaceColumn: boolean, notNull: boolean }} state
+ * @returns {'absent' | 'not-null' | 'nullable'}
+ */
+function observedColumnState(state) {
+  if (!state.hasWorkspaceColumn) return 'absent';
+  return state.notNull ? 'not-null' : 'nullable';
+}
+
+/**
+ * Why a register row cannot be judged at all (an unknown scope or column state, or no reason),
+ * or null when it is well formed.
+ *
+ * @param {string} table
+ * @param {{ scope: string, column: string, reason: string }} row
+ * @returns {string | null}
+ */
+function malformedRowMessage(table, row) {
+  if (row.scope !== 'workspace' && row.scope !== 'global') {
+    return `${table}: register says scope "${String(row.scope)}", which is not one of ${SCOPES.join(' / ')}`;
+  }
+  if (!COLUMN_STATES.includes(row.column)) {
+    return `${table}: register says column "${String(row.column)}", which is not one of ${COLUMN_STATES.join(' / ')}`;
+  }
+  if (typeof row.reason !== 'string' || row.reason.trim() === '') {
+    return `${table}: register row carries no reason, so a reader cannot judge the classification`;
+  }
+  return null;
+}
+
+/**
+ * Both directions are drift. Dropping `notNull` is a regression that blocks; gaining it is an
+ * improvement the register has not caught up with, which also blocks - a register that is wrong
+ * in the flattering direction is still wrong, and letting it drift is how it becomes decorative.
+ *
+ * @param {string} table
+ * @param {string} committed
+ * @param {string} observed
+ * @returns {{ weakening: boolean, message: string }}
+ */
+function columnDrift(table, committed, observed) {
+  const weakening = committed === 'not-null' && observed !== 'not-null';
+  const message =
+    `${table}: register commits column "${committed}" and the schema has "${observed}"` +
+    (weakening
+      ? ' \u2014 the tenancy boundary weakened'
+      : ' \u2014 the schema improved past the register');
+  return { weakening, message };
+}
+/**
+ * What one classified table contributes to the audit, if anything.
+ *
+ * @param {{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }} state
+ * @param {{ scope: string, column: string, reason: string }} row
+ * @returns {{ bucket: 'regressions' | 'stale' | 'debt', message: string } | null}
+ */
+function auditRow(state, row) {
+  const malformed = malformedRowMessage(state.table, row);
+  if (malformed !== null) return { bucket: 'stale', message: malformed };
+
+  const observed = observedColumnState(state);
+  if (row.column !== observed) {
+    const drift = columnDrift(state.table, row.column, observed);
+    return { bucket: drift.weakening ? 'regressions' : 'stale', message: drift.message };
+  }
+
+  // Committed state matches. If the table is meant to be workspace-scoped and is
+  // not yet carrying a hard boundary, that is the tracked debt.
+  if (row.scope === 'workspace' && observed !== 'not-null') {
+    return { bucket: 'debt', message: `${state.table}: workspace-scoped, column ${observed}` };
+  }
+  return null;
+}
+/**
  * Compare the schema against the register.
  *
  * @param {Array<{ table: string, hasWorkspaceColumn: boolean, notNull: boolean }>} states
@@ -146,62 +221,25 @@ export function parseTableStates(raw) {
  * @returns {{ regressions: string[], unclassified: string[], stale: string[], debt: string[] }}
  */
 export function auditTenancy(states, register) {
+  /** @type {string[]} */
   const regressions = [];
+  /** @type {string[]} */
   const unclassified = [];
+  /** @type {string[]} */
   const stale = [];
+  /** @type {string[]} */
   const debt = [];
+  const buckets = { regressions, stale, debt };
 
   for (const state of states) {
     const row = register[state.table];
-
     if (row === undefined) {
       unclassified.push(state.table);
       continue;
     }
-
-    const observed = !state.hasWorkspaceColumn ? 'absent' : state.notNull ? 'not-null' : 'nullable';
-
-    if (row.scope !== 'workspace' && row.scope !== 'global') {
-      stale.push(
-        `${state.table}: register says scope "${String(row.scope)}", which is not one of ${SCOPES.join(' / ')}`,
-      );
-      continue;
-    }
-    if (!COLUMN_STATES.includes(row.column)) {
-      stale.push(
-        `${state.table}: register says column "${String(row.column)}", which is not one of ${COLUMN_STATES.join(' / ')}`,
-      );
-      continue;
-    }
-    if (typeof row.reason !== 'string' || row.reason.trim() === '') {
-      stale.push(
-        `${state.table}: register row carries no reason, so a reader cannot judge the classification`,
-      );
-      continue;
-    }
-
-    if (row.column !== observed) {
-      // Both directions are drift. Dropping `notNull` is a regression that blocks;
-      // gaining it is an improvement the register has not caught up with, which
-      // also blocks — a register that is wrong in the flattering direction is
-      // still wrong, and letting it drift is how it becomes decorative.
-      const weakening = row.column === 'not-null' && observed !== 'not-null';
-      const message =
-        `${state.table}: register commits column "${row.column}" and the schema has "${observed}"` +
-        (weakening
-          ? ' — the tenancy boundary weakened'
-          : ' — the schema improved past the register');
-      if (weakening) regressions.push(message);
-      else stale.push(message);
-      continue;
-    }
-
-    // Committed state matches. If the table is meant to be workspace-scoped and is
-    // not yet carrying a hard boundary, that is the tracked debt.
-    if (row.scope === 'workspace' && observed !== 'not-null') {
-      debt.push(`${state.table}: workspace-scoped, column ${observed}`);
-    }
+    const finding = auditRow(state, row);
+    if (finding === null) continue;
+    buckets[finding.bucket].push(finding.message);
   }
-
   return { regressions, unclassified, stale, debt };
 }

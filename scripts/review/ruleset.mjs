@@ -198,18 +198,35 @@ function validateRules(ruleset) {
   const problems = [];
   const seen = new Set();
   for (const rule of ruleset.rules) {
-    const id = typeof rule?.id === 'string' && rule.id.length > 0 ? rule.id : undefined;
+    const id = ruleId(rule);
     if (id === undefined) {
       problems.push('a rule has no id');
       continue;
     }
     if (seen.has(id)) problems.push(`rule ${id} is declared twice`);
     seen.add(id);
-    for (const requirement of RULE_REQUIREMENTS) {
-      if (!requirement.check(rule)) problems.push(requirement.problem(id));
-    }
+    problems.push(...unmetRequirements(rule, id));
   }
   return problems;
+}
+
+/**
+ * @param {any} rule
+ * @returns {string | undefined} the rule's id, when it has a non-empty one
+ */
+function ruleId(rule) {
+  return typeof rule?.id === 'string' && rule.id.length > 0 ? rule.id : undefined;
+}
+
+/**
+ * @param {any} rule
+ * @param {string} id
+ * @returns {string[]} one problem per requirement the rule does not meet
+ */
+function unmetRequirements(rule, id) {
+  return RULE_REQUIREMENTS.filter((requirement) => !requirement.check(rule)).map((requirement) =>
+    requirement.problem(id),
+  );
 }
 
 /**

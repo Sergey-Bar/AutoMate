@@ -293,39 +293,51 @@ function collectUtilityCandidates(): string[] {
   const candidates = new Set<string>();
   for (const root of [uiComponentsRoot, webSourceRoot]) {
     for (const file of listSourceFiles(root)) {
-      const source = stripComments(readFileSync(file, 'utf8'));
-      for (const match of source.matchAll(/['"`]([a-z0-9][a-z0-9:/[\]()._%!\-\s]*)['"`]/g)) {
-        const literal = match[1];
-        if (!literal) continue;
-        for (const token of literal.split(/\s+/)) {
-          if (!/^[a-z0-9][a-z0-9:/?[\]()._%!-]*$/.test(token)) continue;
-          candidates.add(token);
-          // Also record the base utility behind any variant prefix.
-          const base = token.split(':').pop();
-          if (base !== undefined && /^[a-z][a-z0-9-]*$/.test(base)) candidates.add(base);
-        }
-      }
+      addCandidatesFrom(stripComments(readFileSync(file, 'utf8')), candidates);
     }
   }
   return [...candidates].sort();
 }
 
+/** Record every utility-looking token of every string literal in `source`. */
+function addCandidatesFrom(source: string, candidates: Set<string>): void {
+  for (const match of source.matchAll(/['"`]([a-z0-9][a-z0-9:/[\]()._%!\-\s]*)['"`]/g)) {
+    const literal = match[1];
+    if (!literal) continue;
+    for (const token of literal.split(/\s+/)) addCandidate(token, candidates);
+  }
+}
+
+function addCandidate(token: string, candidates: Set<string>): void {
+  if (!/^[a-z0-9][a-z0-9:/?[\]()._%!-]*$/.test(token)) return;
+  candidates.add(token);
+  // Also record the base utility behind any variant prefix.
+  const base = token.split(':').pop();
+  if (base !== undefined && /^[a-z][a-z0-9-]*$/.test(base)) candidates.add(base);
+}
+
+/**
+ * Whether `argument` after a colour-utility `prefix` names a colour, as opposed to a size, a
+ * shape, a text-wrap mode or a border style that happens to share the prefix.
+ */
+function isColorArgument(prefix: string, argument: string): boolean {
+  if (argument.length === 0) return false;
+  if (NON_COLOR_ARGUMENTS.has(argument)) return false;
+  if (NON_COLOR_SHAPES.some((pattern) => pattern.test(argument))) return false;
+  if (prefix === 'text' && NON_COLOR_TEXT_WRAP.has(argument)) return false;
+  if (prefix === 'border' && NON_COLOR_BORDER_STYLES.has(argument)) return false;
+  if (isSizeArgument(argument)) return false;
+  return isColorName(argument);
+}
+
 function colorUtilities(candidates: readonly string[]): string[] {
-  return candidates.filter((candidate) => {
-    for (const prefix of COLOR_UTILITIES) {
-      if (!candidate.startsWith(`${prefix}-`)) continue;
-      const argument = candidate.slice(prefix.length + 1);
-      if (argument.length === 0) continue;
-      if (NON_COLOR_ARGUMENTS.has(argument)) continue;
-      if (NON_COLOR_SHAPES.some((pattern) => pattern.test(argument))) continue;
-      if (prefix === 'text' && NON_COLOR_TEXT_WRAP.has(argument)) continue;
-      if (prefix === 'border' && NON_COLOR_BORDER_STYLES.has(argument)) continue;
-      if (isSizeArgument(argument)) continue;
-      if (!isColorName(argument)) continue;
-      return true;
-    }
-    return false;
-  });
+  return candidates.filter((candidate) =>
+    COLOR_UTILITIES.some(
+      (prefix) =>
+        candidate.startsWith(`${prefix}-`) &&
+        isColorArgument(prefix, candidate.slice(prefix.length + 1)),
+    ),
+  );
 }
 
 const cached = new Map<string, string>();

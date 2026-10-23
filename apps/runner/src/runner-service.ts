@@ -13,7 +13,11 @@ import {
   type RunPhase,
   type TerminalCanonicalTestStatus,
 } from '@automate/shared-contracts';
-import { RunnerConfigurationError, type ExecutionProvider } from './execution.js';
+import {
+  RunnerConfigurationError,
+  type ExecutionArtifact,
+  type ExecutionProvider,
+} from './execution.js';
 import { readGenericCommand } from './execution-router.js';
 import {
   ExecutionEventInputSchema,
@@ -143,6 +147,21 @@ type TerminalStatus =
   | 'infra_failed'
   | 'config_failed'
   | 'blocked';
+
+/** How a run that threw before completing is classified: cancelled, a bad request, or ours. */
+function failureStatus(
+  aborted: boolean,
+  error: unknown,
+): 'cancelled' | 'config_failed' | 'infra_failed' {
+  if (aborted) return 'cancelled';
+  return error instanceof RunnerConfigurationError ? 'config_failed' : 'infra_failed';
+}
+
+const FAILURE_CODES = {
+  cancelled: 'RUNNER_CANCELLED',
+  config_failed: 'CONFIG_FAILED',
+  infra_failed: 'RUNNER_INFRA_FAILED',
+} as const;
 
 function terminal(
   claim: JobClaim,
@@ -394,26 +413,8 @@ export class RunnerService {
       workspacePath = result.workspacePath;
       await state.eventChain;
       await this.transition(claim, state, 'collecting');
-      const artifactIds: string[] = [];
-      for (const artifact of result.artifacts) {
-        const bytes = await readFile(artifact.path);
-        const descriptor = await this.options.protocol.uploadArtifact(claim.jobId, {
-          leaseId: claim.leaseId,
-          fencingToken: claim.fencingToken,
-          kind: artifact.kind,
-          name: basename(artifact.name),
-          testId: null,
-          contentType: artifact.contentType,
-          bytes,
-          checksum: artifact.digest,
-          metadata: { path: artifact.name, sizeBytes: artifact.bytes },
-        });
-        artifactIds.push(descriptor.id);
-        await this.event(claim, state, {
-          type: 'artifact.created',
-          payload: { artifact: descriptor },
-        });
-      }
+      const artifactIds = await this.uploadArtifacts(claim, state, result.artifacts);
+
       const status: TerminalStatus = result.status === 'succeeded' ? 'passed' : result.status;
       const completion = terminal(claim, status, this.now(), result.error);
       await this.completionEvent(claim, state, completion, artifactIds);
@@ -422,19 +423,10 @@ export class RunnerService {
       if (completionAttempted) {
         this.onError(error);
       } else {
-        const status: TerminalStatus = state.controller.signal.aborted
-          ? 'cancelled'
-          : error instanceof RunnerConfigurationError
-            ? 'config_failed'
-            : 'infra_failed';
+        const status = failureStatus(state.controller.signal.aborted, error);
         const message = error instanceof Error ? error.message : 'Runner execution failed';
         const completion = terminal(claim, status, this.now(), {
-          code:
-            status === 'cancelled'
-              ? 'RUNNER_CANCELLED'
-              : status === 'config_failed'
-                ? 'CONFIG_FAILED'
-                : 'RUNNER_INFRA_FAILED',
+          code: FAILURE_CODES[status],
           message,
         });
         await this.completionEvent(claim, state, completion, []).catch(this.onError);
@@ -445,6 +437,35 @@ export class RunnerService {
         await this.options.executor.cleanup(workspacePath).catch(this.onError);
       }
     }
+  }
+
+  /** Upload each artifact and announce it; returns the ids the server assigned, in order. */
+  private async uploadArtifacts(
+    claim: JobClaim,
+    state: ActiveJob,
+    artifacts: ExecutionArtifact[],
+  ): Promise<string[]> {
+    const artifactIds: string[] = [];
+    for (const artifact of artifacts) {
+      const bytes = await readFile(artifact.path);
+      const descriptor = await this.options.protocol.uploadArtifact(claim.jobId, {
+        leaseId: claim.leaseId,
+        fencingToken: claim.fencingToken,
+        kind: artifact.kind,
+        name: basename(artifact.name),
+        testId: null,
+        contentType: artifact.contentType,
+        bytes,
+        checksum: artifact.digest,
+        metadata: { path: artifact.name, sizeBytes: artifact.bytes },
+      });
+      artifactIds.push(descriptor.id);
+      await this.event(claim, state, {
+        type: 'artifact.created',
+        payload: { artifact: descriptor },
+      });
+    }
+    return artifactIds;
   }
 
   private async completionEvent(
@@ -627,30 +648,9 @@ export class RunnerService {
     const settledIds: string[] = [];
     while (index < pending.length) {
       const batch = this.batch(pending, index);
-      let outcome: DeliveryOutcome;
-      try {
-        outcome = await this.deliver(batch);
-      } catch (error) {
-        this.onError(error);
-        await this.retryOrDeadLetter(
-          batch.map((entry) => entry.id),
-          error instanceof Error ? error.name : 'DELIVERY_FAILED',
-        );
-        return;
-      }
-      if (!outcome.settled) {
-        if (outcome.conflict && TERMINAL_SPOOL_CONFLICTS.has(outcome.conflict)) {
-          this.retryAttempts = 0;
-          settledIds.push(...batch.map((entry) => entry.id));
-          index += batch.length;
-          this.onError(new Error(`Runner spool entry permanently rejected (${outcome.conflict})`));
-          continue;
-        }
-        this.onError(new Error('Runner spool entries are not acknowledged and stay queued'));
-        await this.retryOrDeadLetter(outcome.unsettled, 'EVENT_NOT_ACCEPTED');
-        return;
-      }
-      this.retryAttempts = 0;
+      const outcome = await this.tryDeliver(batch);
+      if (outcome === null) return;
+      if (!(await this.settleOutcome(outcome))) return;
       settledIds.push(...batch.map((entry) => entry.id));
       index += batch.length;
     }
@@ -665,6 +665,38 @@ export class RunnerService {
     }
   }
 
+  /** Null when delivery threw: the failure is reported and charged against the retry budget. */
+  private async tryDeliver(batch: SpoolEntry[]): Promise<DeliveryOutcome | null> {
+    try {
+      return await this.deliver(batch);
+    } catch (error) {
+      this.onError(error);
+      await this.retryOrDeadLetter(
+        batch.map((entry) => entry.id),
+        error instanceof Error ? error.name : 'DELIVERY_FAILED',
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Whether the batch has left the queue: delivered, or permanently rejected by the server.
+   * False means it stays queued and the flush stops, with the attempt charged.
+   */
+  private async settleOutcome(outcome: DeliveryOutcome): Promise<boolean> {
+    if (outcome.settled) {
+      this.retryAttempts = 0;
+      return true;
+    }
+    if (outcome.conflict && TERMINAL_SPOOL_CONFLICTS.has(outcome.conflict)) {
+      this.retryAttempts = 0;
+      this.onError(new Error(`Runner spool entry permanently rejected (${outcome.conflict})`));
+      return true;
+    }
+    this.onError(new Error('Runner spool entries are not acknowledged and stay queued'));
+    await this.retryOrDeadLetter(outcome.unsettled, 'EVENT_NOT_ACCEPTED');
+    return false;
+  }
   private batch(pending: readonly SpoolEntry[], index: number): SpoolEntry[] {
     const head = pending[index];
     if (!head) return [];

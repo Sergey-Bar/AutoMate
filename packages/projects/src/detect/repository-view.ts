@@ -45,9 +45,7 @@ export function fileSystemView(
         for (const entry of entries) {
           const full = path.join(current, entry.name);
           if (entry.isDirectory()) {
-            if (ignore.includes(entry.name)) continue;
-            if (entry.name.startsWith('.') && !dotDirectories.includes(entry.name)) continue;
-            stack.push(full);
+            if (shouldDescend(entry.name, ignore, dotDirectories)) stack.push(full);
             continue;
           }
           found.push(full.slice(rootLength).split(path.sep).join('/'));
@@ -67,6 +65,15 @@ export function fileSystemView(
   };
 }
 
+/** A directory is walked unless it is ignored, or hidden and not named as one to include. */
+function shouldDescend(
+  name: string,
+  ignore: readonly string[],
+  dotDirectories: readonly string[],
+): boolean {
+  if (ignore.includes(name)) return false;
+  return !name.startsWith('.') || dotDirectories.includes(name);
+}
 /**
  * Directories the walk does not descend into.
  *

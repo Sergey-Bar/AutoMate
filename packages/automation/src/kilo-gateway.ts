@@ -223,33 +223,7 @@ export class KiloGateway implements AiGateway {
       const frame = this.parseFrame(line);
       if (frame === undefined) continue;
       if (frame === DONE) return;
-      const choices = (frame['choices'] as JsonRecord[] | undefined) ?? [];
-      const choice = choices[0];
-      const delta = choice?.['delta'] as JsonRecord | undefined;
-      const content = typeof delta?.['content'] === 'string' ? delta['content'] : '';
-      if (content) yield { type: 'text', text: content };
-
-      const calls = delta?.['tool_calls'];
-      if (Array.isArray(calls)) {
-        accumulateToolCalls(toolCalls, calls as JsonRecord[]);
-      }
-
-      const usage = frame['usage'];
-      if (usage && typeof usage === 'object' && !Array.isArray(usage)) {
-        yield mapUsage(usage as JsonRecord);
-      }
-
-      if (choice?.['finish_reason']) {
-        // Emitted once, at the end, from the assembled calls — and the accumulator is
-        // then cleared, so a stream carrying more than one `finish_reason` cannot
-        // re-emit the same tool call (ledger G-3).
-        if (toolCalls.order.length > 0) {
-          yield { type: 'tool-call', call: assembledCalls(toolCalls) };
-          toolCalls.order.length = 0;
-          toolCalls.byIndex.clear();
-        }
-        yield { type: 'done', finishReason: String(choice['finish_reason']) };
-      }
+      yield* chunksFromFrame(frame, toolCalls);
     }
   }
 
@@ -270,3 +244,40 @@ export class KiloGateway implements AiGateway {
 }
 
 const DONE = '[DONE]';
+
+/**
+ * The chunks one parsed frame yields. Tool-call fragments are accumulated, not yielded, until
+ * the frame that carries a `finish_reason`.
+ */
+function* chunksFromFrame(
+  frame: JsonRecord,
+  toolCalls: ToolCallAccumulator,
+): Generator<CompletionChunk> {
+  const choices = (frame['choices'] as JsonRecord[] | undefined) ?? [];
+  const choice = choices[0];
+  const delta = choice?.['delta'] as JsonRecord | undefined;
+  const content = typeof delta?.['content'] === 'string' ? delta['content'] : '';
+  if (content) yield { type: 'text', text: content };
+
+  const calls = delta?.['tool_calls'];
+  if (Array.isArray(calls)) {
+    accumulateToolCalls(toolCalls, calls as JsonRecord[]);
+  }
+
+  const usage = frame['usage'];
+  if (usage && typeof usage === 'object' && !Array.isArray(usage)) {
+    yield mapUsage(usage as JsonRecord);
+  }
+
+  if (choice?.['finish_reason']) {
+    // Emitted once, at the end, from the assembled calls — and the accumulator is
+    // then cleared, so a stream carrying more than one `finish_reason` cannot
+    // re-emit the same tool call (ledger G-3).
+    if (toolCalls.order.length > 0) {
+      yield { type: 'tool-call', call: assembledCalls(toolCalls) };
+      toolCalls.order.length = 0;
+      toolCalls.byIndex.clear();
+    }
+    yield { type: 'done', finishReason: String(choice['finish_reason']) };
+  }
+}

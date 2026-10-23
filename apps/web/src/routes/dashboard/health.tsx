@@ -179,6 +179,71 @@ function HealthGrid({ scan }: { scan: RepoScan }): React.ReactElement {
   );
 }
 
+type CapabilityEntry = RepoScan['capabilities'][number];
+
+/** An optional capability the repository does not have is neither a gap nor a pass. */
+function capabilityState(entry: CapabilityEntry): 'covered' | 'optional' | 'missing' {
+  if (entry.covered) return 'covered';
+  return entry.weight === 0 ? 'optional' : 'missing';
+}
+
+const CAPABILITY_ICON_TONE = {
+  covered: 'text-success',
+  optional: 'text-fg-muted',
+  missing: 'text-warning',
+} as const;
+
+const CAPABILITY_SR_LABEL = {
+  covered: ', covered',
+  optional: ', optional',
+  missing: ', missing',
+} as const;
+
+function capabilityHint(entry: CapabilityEntry, state: ReturnType<typeof capabilityState>): string {
+  if (state === 'covered') return entry.providers.slice(0, 2).join(', ');
+  return state === 'optional' ? 'Optional for this stack' : 'Nothing covers this yet';
+}
+
+function CapabilityMark({ state }: { state: ReturnType<typeof capabilityState> }) {
+  if (state === 'covered') {
+    return <Check size={12} aria-hidden="true" className="ml-auto shrink-0 text-success" />;
+  }
+  if (state === 'optional') return null;
+  return <X size={12} aria-hidden="true" className="ml-auto shrink-0 text-warning" />;
+}
+
+function CapabilityTile({ entry }: { entry: CapabilityEntry }): React.ReactElement {
+  const state = capabilityState(entry);
+  return (
+    <li
+      data-testid={`capability-${entry.capability}`}
+      data-covered={entry.covered}
+      className={cn(
+        'flex min-h-0 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-2.5 py-1.5 sm:gap-1 sm:p-3',
+        state === 'missing' ? 'border-dashed border-warning' : 'border-border',
+      )}
+    >
+      <span className="flex min-w-0 items-center gap-1.5 text-xs sm:text-sm">
+        <KindIcon
+          kind={entry.capability}
+          size={14}
+          className={cn('shrink-0', CAPABILITY_ICON_TONE[state])}
+        />
+        <span className="truncate" title={CAPABILITY_LABELS[entry.capability]}>
+          {CAPABILITY_LABELS[entry.capability]}
+        </span>
+        <CapabilityMark state={state} />
+        <span className="sr-only">{CAPABILITY_SR_LABEL[state]}</span>
+      </span>
+      <span
+        className="hidden truncate text-xs text-fg-muted sm:block"
+        title={entry.providers.join(', ')}
+      >
+        {capabilityHint(entry, state)}
+      </span>
+    </li>
+  );
+}
 function Capabilities({ scan }: { scan: RepoScan }): React.ReactElement {
   return (
     <Panel title="QA capabilities" data-testid="health-capabilities" className="flex-1">
@@ -187,53 +252,9 @@ function Capabilities({ scan }: { scan: RepoScan }): React.ReactElement {
             the layout gives it: four rows on a wide screen, eight on a phone.
           */}
       <ul className="grid min-h-0 flex-1 auto-rows-fr grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 xl:grid-cols-5">
-        {scan.capabilities.map((entry) => {
-          // An optional capability the repository does not have is neither a gap nor a pass.
-          const optional = !entry.covered && entry.weight === 0;
-          return (
-            <li
-              key={entry.capability}
-              data-testid={`capability-${entry.capability}`}
-              data-covered={entry.covered}
-              className={cn(
-                'flex min-h-0 min-w-0 flex-col justify-center gap-0.5 overflow-hidden rounded-xl border px-2.5 py-1.5 sm:gap-1 sm:p-3',
-                entry.covered || optional ? 'border-border' : 'border-dashed border-warning',
-              )}
-            >
-              <span className="flex min-w-0 items-center gap-1.5 text-xs sm:text-sm">
-                <KindIcon
-                  kind={entry.capability}
-                  size={14}
-                  className={cn(
-                    'shrink-0',
-                    entry.covered ? 'text-success' : optional ? 'text-fg-muted' : 'text-warning',
-                  )}
-                />
-                <span className="truncate" title={CAPABILITY_LABELS[entry.capability]}>
-                  {CAPABILITY_LABELS[entry.capability]}
-                </span>
-                {entry.covered ? (
-                  <Check size={12} aria-hidden="true" className="ml-auto shrink-0 text-success" />
-                ) : optional ? null : (
-                  <X size={12} aria-hidden="true" className="ml-auto shrink-0 text-warning" />
-                )}
-                <span className="sr-only">
-                  {entry.covered ? ', covered' : optional ? ', optional' : ', missing'}
-                </span>
-              </span>
-              <span
-                className="hidden truncate text-xs text-fg-muted sm:block"
-                title={entry.providers.join(', ')}
-              >
-                {entry.covered
-                  ? entry.providers.slice(0, 2).join(', ')
-                  : optional
-                    ? 'Optional for this stack'
-                    : 'Nothing covers this yet'}
-              </span>
-            </li>
-          );
-        })}
+        {scan.capabilities.map((entry) => (
+          <CapabilityTile key={entry.capability} entry={entry} />
+        ))}
       </ul>
     </Panel>
   );

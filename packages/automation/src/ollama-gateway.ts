@@ -78,42 +78,45 @@ export class OllamaGateway implements AiGateway {
       const payload = parseJsonLine(line);
       if (payload === undefined) continue;
 
-      const message = payload['message'] as JsonRecord | undefined;
-      const content = typeof message?.['content'] === 'string' ? message['content'] : '';
-      if (content) yield { type: 'text', text: content };
-
-      const toolCalls = message?.['tool_calls'];
-      if (Array.isArray(toolCalls) && toolCalls.length > 0) {
-        yield { type: 'tool-call', call: toolCalls };
-      }
-
-      const inputTokens = numeric(payload['prompt_eval_count']);
-      const outputTokens = numeric(payload['eval_count']);
-      if (inputTokens !== undefined || outputTokens !== undefined) {
-        yield {
-          type: 'usage',
-          usage: {
-            inputTokens,
-            outputTokens,
-            totalTokens:
-              inputTokens === undefined && outputTokens === undefined
-                ? undefined
-                : (inputTokens ?? 0) + (outputTokens ?? 0),
-          },
-        };
-      }
-
-      if (payload['done'] === true) {
-        yield {
-          type: 'done',
-          finishReason:
-            typeof payload['done_reason'] === 'string' ? payload['done_reason'] : 'stop',
-        };
-      }
+      yield* chunksFromPayload(payload);
     }
   }
 }
 
 function numeric(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** The chunks one NDJSON object carries, in the order a consumer expects them. */
+function chunksFromPayload(payload: JsonRecord): CompletionChunk[] {
+  const chunks: CompletionChunk[] = [];
+  const message = payload['message'] as JsonRecord | undefined;
+  const content = typeof message?.['content'] === 'string' ? message['content'] : '';
+  if (content) chunks.push({ type: 'text', text: content });
+
+  const toolCalls = message?.['tool_calls'];
+  if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+    chunks.push({ type: 'tool-call', call: toolCalls });
+  }
+
+  const inputTokens = numeric(payload['prompt_eval_count']);
+  const outputTokens = numeric(payload['eval_count']);
+  if (inputTokens !== undefined || outputTokens !== undefined) {
+    chunks.push({
+      type: 'usage',
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: (inputTokens ?? 0) + (outputTokens ?? 0),
+      },
+    });
+  }
+
+  if (payload['done'] === true) {
+    chunks.push({
+      type: 'done',
+      finishReason: typeof payload['done_reason'] === 'string' ? payload['done_reason'] : 'stop',
+    });
+  }
+  return chunks;
 }

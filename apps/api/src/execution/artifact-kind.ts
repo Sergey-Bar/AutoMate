@@ -24,23 +24,33 @@
  * of the ways to reach it with something it will not hold.
  */
 export function normalizeArtifactKind(value: string): string {
-  const normalized = value.toLowerCase();
-  if (normalized === 'raw_report' || normalized === 'report') return 'report';
-  if (normalized === 'playwright-json' || normalized === 'json') return 'json';
-  if (normalized === 'junit') return 'junit';
-  if (normalized === 'stdout') return 'stdout';
-  if (normalized === 'stderr') return 'stderr';
-  if (normalized === 'screenshot') return 'screenshot';
-  if (normalized === 'video') return 'video';
-  if (normalized === 'trace') return 'trace';
-  if (normalized === 'html' || normalized === 'html-report') return 'html';
-  if (normalized === 'log' || normalized === 'event-log') return 'log';
-  // An identity mapping, and the one line here that `artifacts_kind_check` forced.
-  // `attachment` was in the column's twelve-value vocabulary and had no branch in the
-  // function, so it fell through to `other` — CHECK-valid, and lossy: the dashboard's
-  // attachment filter could not match an attachment. The totality case in
-  // `artifact-kind.test.ts` is what found it, and it is the reason the de-duplication
-  // was worth doing rather than merely tidy.
-  if (normalized === 'attachment') return 'attachment';
-  return 'other';
+  return ARTIFACT_KINDS.get(value.toLowerCase()) ?? 'other';
 }
+
+/**
+ * Every spelling a producer uses, and the column value it becomes. A `Map`, not an object
+ * literal, because the key is a producer-supplied string and `constructor` must not resolve.
+ *
+ * `attachment` is an identity mapping, and the one entry here that `artifacts_kind_check`
+ * forced. It was in the column's twelve-value vocabulary and had no branch in the function,
+ * so it fell through to `other` — CHECK-valid, and lossy: the dashboard's attachment filter
+ * could not match an attachment. The totality case in `artifact-kind.test.ts` is what found
+ * it.
+ */
+const ARTIFACT_KINDS: ReadonlyMap<string, string> = new Map([
+  ['raw_report', 'report'],
+  ['report', 'report'],
+  ['playwright-json', 'json'],
+  ['json', 'json'],
+  ['junit', 'junit'],
+  ['stdout', 'stdout'],
+  ['stderr', 'stderr'],
+  ['screenshot', 'screenshot'],
+  ['video', 'video'],
+  ['trace', 'trace'],
+  ['html', 'html'],
+  ['html-report', 'html'],
+  ['log', 'log'],
+  ['event-log', 'log'],
+  ['attachment', 'attachment'],
+]);

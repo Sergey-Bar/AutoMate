@@ -5491,6 +5491,48 @@
         }
       ],
       "resolution": "The in-memory check order is now terminal first, then sequence, as `planEventBatch` has it. The stores still differ in two ways that are not changed here: the in-memory store rejects a malformed event with `invalid_event` (the route schema does that for the PostgreSQL path) and its conflict results carry no `hash`."
+    },
+    {
+      "id": "MNT-111",
+      "title": "A SimpleCov report that was the JSON literal null threw a TypeError instead of the format's own refusal",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`SIMPLECOV_ADAPTER.parse` read `parsed.coverage` before it checked that `parsed` was an object, so the `parsed === null` arm of its own guard was unreachable: an upload whose body was `null` (valid JSON) failed with `Cannot read properties of null (reading 'coverage')` instead of `simplecov report declares no coverage map`. The route turns an adapter failure into `INVALID_REPORTER_UPLOAD` with the adapter's message, so the person fixing the upload was shown a JavaScript engine error about a property of null rather than being told what the document lacked. Found while splitting the function for Q-1 clause (a).",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "The new `refuses a document that is null with a message naming the format` case failed against the unchanged adapter with `expected [Function] to throw error including 'simplecov report declares no coverage map' but got 'Cannot read properties of null'`, then passed once the document is checked before the property is read.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/coverage.test.ts",
+          "asserts": "Seven malformed SimpleCov documents (not JSON, null, a bare array, no coverage key, a null, array and scalar coverage) are each refused with a message naming the format, and a coverage entry that is not a line array is skipped."
+        }
+      ],
+      "resolution": "`simplecovCoverageMap` checks the document is a non-array object, then that `coverage` is a non-array object, and only then returns the map. No other adapter reads a property before checking the value."
+    },
+    {
+      "id": "MNT-112",
+      "title": "The complexity ratchet compared the number of files holding an offender, so most regressions passed",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`scripts/complexity-gate.mjs` failed only when `offendersByFile.size > recordedFiles.size`, a comparison of the number of distinct files. A second over-ceiling function in a file that already had one, an offender fixed in one file while another file gained one, and a recorded function getting worse (16 to 40) all left the sizes equal and passed. The gate was therefore not holding the line Q-1 says it holds: the baseline recorded 31 offenders against 32 on `main` with the gate green, and `tools/migrate-cli/src/cli.ts` held two offenders under one row.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-22",
+      "confirmedBy": "Read from the comparison itself, then pinned by `scripts/lib/complexity-ratchet.test.mjs`, whose second-offender, swapped-file and worse-worst cases are exactly the inputs the old comparison passed. Measured at the ceiling of 15 on `main`, 32 functions were over it against a baseline of 31.",
+      "evidence": [
+        {
+          "path": "scripts/lib/complexity-ratchet.test.mjs",
+          "asserts": "A second offender in a recorded file, one file fixed while another breaks, a file the baseline does not mention, and a worse worst offender are each growth; an equal or smaller tree is not."
+        },
+        {
+          "path": "scripts/complexity-gate.mjs",
+          "asserts": "The gate fails on `grownFiles` or `worsenedTo` from `lib/complexity-ratchet.mjs` rather than on the number of files."
+        }
+      ],
+      "resolution": "The comparison moved to `scripts/lib/complexity-ratchet.mjs`: each file's offender count may not exceed the recorded one, a file the baseline does not mention may hold none, and the worst offender may not get worse. Line numbers are still ignored, for the reason the gate always gave."
     }
   ]
 }

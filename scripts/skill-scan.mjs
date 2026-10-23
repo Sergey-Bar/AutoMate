@@ -306,41 +306,37 @@ function publishSummary(report) {
   appendFileSync(target, summaryMarkdown(report));
 }
 
-export function main() {
-  if (!existsSync(SKILL_ROOT)) {
-    // Nothing to scan is not a failure. A repository with no skills has no skill
-    // supply chain, and failing here would make the gate's absence mandatory.
-    console.log('skill-scan: no .kilo/skills directory — nothing to scan.');
+/**
+ * What to do when the scanner is not installed: pass under the explicit host opt-in, fail otherwise.
+ *
+ * @param {{ reason: string }} status
+ * @returns {number} the exit code
+ */
+function unavailableExitCode(status) {
+  if (isHostDegradationOptedIn(process.env)) {
+    console.log(
+      notConfiguredMessage([`skills: ${status.reason}`]).replace(
+        /^Static analysis:/,
+        'Skill scan:',
+      ),
+    );
     return 0;
   }
+  console.error(
+    `skill-scan: ${status.reason}. A skill is instructions the agent obeys, and an ` +
+      'unrun scan of one is not a pass.\n' +
+      `  install:   uv tool install 'skillspector @ git+https://github.com/NVIDIA/skillspector.git'\n` +
+      `  or opt in: ${HOST_SCANNERS_ENV}=${HOST_SCANNERS_UNAVAILABLE} (local hosts only; CI must install it)`,
+  );
+  return 1;
+}
 
-  const status = probeScanner((command, args) => {
-    const result = spawnSync(command, args, {
-      encoding: 'utf8',
-      timeout: scanTimeoutMs(process.env.AUTOMATE_SCAN_TIMEOUT_MS),
-    });
-    return { status: result.status, stderr: result.stderr ?? '' };
-  });
-
-  if (!status.available) {
-    if (isHostDegradationOptedIn(process.env)) {
-      console.log(
-        notConfiguredMessage([`skills: ${status.reason}`]).replace(
-          /^Static analysis:/,
-          'Skill scan:',
-        ),
-      );
-      return 0;
-    }
-    console.error(
-      `skill-scan: ${status.reason}. A skill is instructions the agent obeys, and an ` +
-        'unrun scan of one is not a pass.\n' +
-        `  install:   uv tool install 'skillspector @ git+https://github.com/NVIDIA/skillspector.git'\n` +
-        `  or opt in: ${HOST_SCANNERS_ENV}=${HOST_SCANNERS_UNAVAILABLE} (local hosts only; CI must install it)`,
-    );
-    return 1;
-  }
-
+/**
+ * Run the scanner and read its JSON report.
+ *
+ * @returns {{ parsed: unknown } | { exitCode: number }}
+ */
+function runScanner() {
   const result = spawnSync('skillspector', ['scan', SKILL_ROOT, '--no-llm', '--format', 'json'], {
     encoding: 'utf8',
     timeout: scanTimeoutMs(process.env.AUTOMATE_SCAN_TIMEOUT_MS),
@@ -349,7 +345,7 @@ export function main() {
   if (result.error) {
     const detail = result.error instanceof Error ? result.error.message : String(result.error);
     console.error(`skill-scan: the scanner failed to run (${detail}).`);
-    return 2;
+    return { exitCode: 2 };
   }
 
   // A killed scanner is unavailable, never clean. Counting a ten-minute stall as
@@ -360,7 +356,7 @@ export function main() {
       `skill-scan: the scanner was killed at the ${Math.round(timeout / 1000)}s ceiling. ` +
         'That is unavailable, not clean — raise AUTOMATE_SCAN_TIMEOUT_MS if the scan is genuinely this slow.',
     );
-    return 2;
+    return { exitCode: 2 };
   }
 
   let parsed;
@@ -368,11 +364,18 @@ export function main() {
     parsed = JSON.parse(result.stdout);
   } catch {
     console.error('skill-scan: the scanner exited without a readable JSON report.');
-    return 2;
+    return { exitCode: 2 };
   }
+  return { parsed };
+}
 
-  publishSummary(parsed);
-
+/**
+ * Classify the report against the baseline and print it.
+ *
+ * @param {unknown} parsed
+ * @returns {number} the exit code
+ */
+function reportFindings(parsed) {
   const known = knownFingerprints();
   const { newFindings, stale, total } = classifyFindings(parsed, known);
   const completeness = completenessFor(parsed);
@@ -436,6 +439,30 @@ export function main() {
 
   console.log(lines.join('\n'));
   return 0;
+}
+
+export function main() {
+  if (!existsSync(SKILL_ROOT)) {
+    // Nothing to scan is not a failure. A repository with no skills has no skill
+    // supply chain, and failing here would make the gate's absence mandatory.
+    console.log('skill-scan: no .kilo/skills directory — nothing to scan.');
+    return 0;
+  }
+
+  const status = probeScanner((command, args) => {
+    const result = spawnSync(command, args, {
+      encoding: 'utf8',
+      timeout: scanTimeoutMs(process.env.AUTOMATE_SCAN_TIMEOUT_MS),
+    });
+    return { status: result.status, stderr: result.stderr ?? '' };
+  });
+
+  if (!status.available) return unavailableExitCode(status);
+
+  const scan = runScanner();
+  if ('exitCode' in scan) return scan.exitCode;
+  publishSummary(scan.parsed);
+  return reportFindings(scan.parsed);
 }
 
 /**
