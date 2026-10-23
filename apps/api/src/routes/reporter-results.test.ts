@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { Hono } from 'hono';
+import { accessOf } from '../http/access.js';
 import type { CanonicalRunResult } from '@automate/shared-contracts';
 import {
   ReporterIngestionService,
@@ -192,10 +193,13 @@ describe('the ingestion surface this file owns', () => {
       createReporterResultsRoute(new ReporterIngestionService('workspace-1'), {
         reporterSecret: undefined,
         requireReporterSecret: false,
-      }) as unknown as { routes: Array<{ method: string; path: string }> }
+      }) as unknown as { routes: Array<{ method: string; path: string; handler: unknown }> }
     ).routes;
 
-    expect(routes.map((route) => `${route.method} ${route.path}`)).toEqual([
+    // The credential check is a tagged guard Hono lists as an entry of its own on the same
+    // path; the endpoint is the one entry that is not a guard.
+    const endpoints = routes.filter((route) => accessOf(route.handler) === undefined);
+    expect(endpoints.map((route) => `${route.method} ${route.path}`)).toEqual([
       'POST /api/v1/reporter/results',
     ]);
   });

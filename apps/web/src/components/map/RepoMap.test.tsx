@@ -207,6 +207,25 @@ describe('the repo map', () => {
     expect(node('layer:unit')).toHaveFocus();
   });
 
+  it('highlights a trace under the pointer, ignores keys that are not arrows, and stops at the last column', async () => {
+    renderMap();
+    await screen.findByTestId('map-canvas');
+    // Pointer: entering a node traces it and dims the rest; leaving restores everything.
+    fireEvent.mouseEnter(node('layer:e2e'));
+    expect(node('layer:e2e')).toHaveAttribute('data-dimmed', 'false');
+    expect(node('tool:vitest')).toHaveAttribute('data-dimmed', 'true');
+    fireEvent.mouseLeave(node('layer:e2e'));
+    expect(node('tool:vitest')).toHaveAttribute('data-dimmed', 'false');
+    // A key that is not an arrow is not handled, so the browser keeps its default for it.
+    node('layer:unit').focus();
+    expect(fireEvent.keyDown(node('layer:unit'), { key: 'a' })).toBe(true);
+    expect(node('layer:unit')).toHaveFocus();
+    // An arrow with nowhere to go (right of the last column) leaves focus where it is.
+    node('verdict').focus();
+    fireEvent.keyDown(node('verdict'), { key: 'ArrowRight' });
+    expect(node('verdict')).toHaveFocus();
+  });
+
   it('opens a node’s evidence, with a next step, and closes three ways', async () => {
     const onChange = vi.fn();
     renderMap({}, onChange);

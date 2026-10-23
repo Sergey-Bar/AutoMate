@@ -27,7 +27,7 @@
       "file the workflow audit reads, so the classification is checkable rather than",
       "remembered.",
       "",
-      "  pr-blocking   — a red job stops the merge. `verify` may grow from 16 to at most",
+      "  pr-blocking   — a red job stops the merge. `verify` may grow from 17 to at most",
       "                  20 steps; past that, it goes nightly.",
       "  pr-reporting  — runs on every PR, uploads its report, blocks nothing.",
       "  nightly       — too slow, too flaky, or needs a database for a pull request.",
@@ -118,7 +118,9 @@
     "release:compose": "release",
     "release:bundle": "release",
     "release:notes": "release",
-    "release:visibility": "release"
+    "release:visibility": "release",
+    "authz:check": "pr-blocking",
+    "authz:matrix": "never-in-ci"
   },
   "scripts": {
     "security:verify": {
@@ -288,6 +290,10 @@
       "requires": ["docker|podman"],
       "preinstalledInJobImage": true,
       "why": "Starts the production compose stack from nothing with a random value for every required variable, waits for every healthcheck, and probes readiness, the web UI and a sign-in with the installation key through the proxy, then removes the volumes. The static compose checks could not see the nginx pid path or the root-owned tmpfs (ledger MNT-23), which failed on the first container start; only running the stack catches that class. Its own job (\\Compose boot\\), not \\\u000berify\\: it builds every image and \\\u000berify\\ has a 20-step budget."
+    },
+    "authz:check": {
+      "requires": [],
+      "why": "Imports the built API (`apps/api/dist`, so it runs after `pnpm build`) in its test composition, reads every registered route and the credential checks tagged onto it, and compares them with `docs/quality/authz-matrix.json`. No tool and no database: the in-memory composition is the one the route tests use. **Tier `pr-blocking`** because it is fast (under two seconds) and green. It fails on a route with no row, a row with no route, an access class that disagrees with the guard on the route, and a guarded route with no test that names it. `authz:matrix` is the writer, tier `never-in-ci`: a workflow that regenerated the matrix would make it agree with the tree instead of with the code. `apps/api/src/authz-matrix.test.ts` is the other half and runs under `pnpm test`: it sends real requests and fails when behaviour disagrees with the class."
     }
   },
   "environment": {

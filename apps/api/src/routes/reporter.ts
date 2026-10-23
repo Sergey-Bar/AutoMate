@@ -67,6 +67,7 @@ import type { ReporterResultStore } from '../services/reporter-ingestion.js';
 import { persistReporterEvent } from '../services/reporter-persistence.js';
 import { canonicalRunFromUploadEvents } from '../services/reporter-event-canonical.js';
 import { bearerToken } from '../http/bearer-token.js';
+import { guard } from '../http/access.js';
 import type { RealtimeBus } from '../realtime/realtime-bus.js';
 
 // ---------------------------------------------------------------------------
@@ -557,35 +558,38 @@ export function createReporterRoutes(
   // ------------------------------------------------------------------
   // Auth middleware — guards all /api/v1/reporter/* paths
   // ------------------------------------------------------------------
-  app.use('/api/v1/reporter/*', async (c, next) => {
-    if (reporterSecret === undefined) {
-      // No secret configured — open mode (development / test)
+  app.use(
+    '/api/v1/reporter/*',
+    guard('reporter-secret', async (c, next) => {
+      if (reporterSecret === undefined) {
+        // No secret configured — open mode (development / test)
+        await next();
+        return;
+      }
+
+      // Accept token from Authorization header (preferred).
+      // Query param ?token= is only accepted when allowQueryToken is explicitly enabled
+      // (legacy ws-reporter compatibility mode).
+      const queryToken = c.req.query('token');
+
+      const headerToken = bearerToken(c.req.header('Authorization'));
+      const token =
+        headerToken ??
+        (options?.allowQueryToken && queryToken !== undefined && queryToken !== ''
+          ? queryToken
+          : undefined);
+
+      if (token === undefined) {
+        throw new DomainError('MISSING_REPORTER_TOKEN', 'Missing reporter authentication token');
+      }
+
+      if (!safeCompare(token, reporterSecret)) {
+        throw new DomainError('INVALID_REPORTER_TOKEN', 'Invalid reporter authentication token');
+      }
+
       await next();
-      return;
-    }
-
-    // Accept token from Authorization header (preferred).
-    // Query param ?token= is only accepted when allowQueryToken is explicitly enabled
-    // (legacy ws-reporter compatibility mode).
-    const queryToken = c.req.query('token');
-
-    const headerToken = bearerToken(c.req.header('Authorization'));
-    const token =
-      headerToken ??
-      (options?.allowQueryToken && queryToken !== undefined && queryToken !== ''
-        ? queryToken
-        : undefined);
-
-    if (token === undefined) {
-      throw new DomainError('MISSING_REPORTER_TOKEN', 'Missing reporter authentication token');
-    }
-
-    if (!safeCompare(token, reporterSecret)) {
-      throw new DomainError('INVALID_REPORTER_TOKEN', 'Invalid reporter authentication token');
-    }
-
-    await next();
-  });
+    }),
+  );
 
   // ------------------------------------------------------------------
   // POST /api/v1/reporter/events
