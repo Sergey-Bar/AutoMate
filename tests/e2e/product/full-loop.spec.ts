@@ -206,13 +206,13 @@ test.describe('the full loop', () => {
       const { integrations } = (await listing.json()) as {
         integrations: Array<{ domain: string; status: string; implemented: boolean }>;
       };
-      for (const domain of ['browser', 'load']) {
+      for (const domain of ['browser', 'api', 'load']) {
         expect(integrations.find((item) => item.domain === domain)).toMatchObject({
           status: 'configured',
           implemented: true,
         });
       }
-      for (const domain of ['api', 'security', 'mobile']) {
+      for (const domain of ['security', 'mobile']) {
         expect(integrations.find((item) => item.domain === domain)).toMatchObject({
           status: 'not_configured',
           implemented: false,
@@ -256,6 +256,72 @@ test.describe('the full loop', () => {
         );
       });
       expect(finished.outcome, `the smoke project must pass\n${active.output()}`).toBe('passed');
+      expect(finished.summary.total, 'the runner reported real tests').toBeGreaterThan(0);
+
+      const events = (await (
+        await request.get(`${API_BASE}/api/v1/runs/${body.runId}/events`, {
+          headers: API_AUTH_HEADERS,
+        })
+      ).json()) as RunEvent[];
+      expect(events.some((event) => event.type === 'test.completed')).toBe(true);
+    } finally {
+      await runner?.stop();
+      rmSync(scratch, { recursive: true, force: true });
+      if (
+        runId !== undefined &&
+        (await getRun(request, runId).catch(() => undefined))?.phase !== 'complete'
+      ) {
+        await request
+          .post(`${API_BASE}/api/v1/runs/${runId}/cancel`, { headers: API_AUTH_HEADERS })
+          .catch(() => undefined);
+      }
+    }
+  });
+
+  /**
+   * api.run through the same route, claimed by the real runner, which runs the real `bru`
+   * against the bundled `pass` collection (its one request is `GET {{baseUrl}}/health`).
+   */
+  test('api.run through the agent route is claimed and completed by the real runner', async ({
+    request,
+  }) => {
+    const scratch = mkdtempSync(path.join(tmpdir(), 'automate-agent-api-'));
+    let runner: ServiceHandle | undefined;
+    let runId: string | undefined;
+    try {
+      const accepted = await request.post(`${API_BASE}/api/v1/agents/api/run`, {
+        headers: { ...API_AUTH_HEADERS, 'Idempotency-Key': randomUUID() },
+        data: { collection: 'pass', environment: 'local', targetUrl: API_BASE },
+      });
+      expect(accepted.status(), await accepted.text()).toBe(202);
+      const body = (await accepted.json()) as { runId: string; links: { run: string } };
+      runId = body.runId;
+      expect(accepted.headers()['location']).toBe(body.links.run);
+      expect((await getRun(request, body.runId))?.phase, 'accepted, not yet run').toBe('queued');
+
+      runner = await startService('runner', {
+        AUTOMATE_API_URL: API_BASE,
+        RUNNER_INSTANCE_ID: randomUUID(),
+        RUNNER_REGISTRATION_SECRET,
+        RUNNER_ALLOWED_TARGET_URLS: API_BASE,
+        RUNNER_POLL_INTERVAL_MS: '500',
+        RUNNER_HEALTH_HOST: '127.0.0.1',
+        RUNNER_HEALTH_PORT: '0',
+        RUNNER_SPOOL_ROOT: path.join(scratch, 'spool'),
+        RUNNER_WORKSPACE_ROOT: path.join(scratch, 'workspace'),
+      });
+      const active = runner;
+      const finished = await waitForRunPhase(
+        request,
+        body.runId,
+        ['complete'],
+        EXECUTION_BUDGET_MS,
+      ).catch((error: unknown) => {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\n\n--- ${active.name}\n${active.output()}`,
+        );
+      });
+      expect(finished.outcome, `the pass collection must pass\n${active.output()}`).toBe('passed');
       expect(finished.summary.total, 'the runner reported real tests').toBeGreaterThan(0);
 
       const events = (await (
