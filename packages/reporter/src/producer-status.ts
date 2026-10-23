@@ -83,10 +83,13 @@ export const TEST_STATUS_MAPPING = {
   },
   // JUnit declares no status attribute of its own — the outcome children are the evidence
   // — but several tools emit `status="flaky"` for a retried test, and the canonical adapter
-  // already honoured it, so it stays honoured here.
+  // already honoured it, so it stays honoured here. Bruno's CLI writes `pass` / `fail` on every
+  // test case; without those two rows a passing Bruno request read as `unknown`.
   junit: {
     passed: 'passed',
     failed: 'failed',
+    pass: 'passed',
+    fail: 'failed',
     skipped: 'skipped',
     flaky: 'flaky',
     timedOut: 'timedOut',

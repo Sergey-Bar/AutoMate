@@ -99,6 +99,38 @@ describe('a job is routed by the shape of its own configuration', () => {
     expect(playwright.execute).not.toHaveBeenCalled();
   });
 
+  it('sends a job naming an API collection to the API adapter, and to nothing else', async () => {
+    const generic = stubProvider();
+    const playwright = stubProvider();
+    const api = stubProvider();
+    const router = new RoutingExecutionAdapter(generic, playwright, stubProvider(), api);
+
+    await router.execute(context({ apiCollection: 'pass', targetUrl: 'https://a.test' }));
+
+    expect(api.execute).toHaveBeenCalledOnce();
+    expect(generic.execute).not.toHaveBeenCalled();
+    expect(playwright.execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses an API collection combined with a command or a Playwright project', async () => {
+    const api = stubProvider();
+    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider(), stubProvider(), api);
+    const command = { argv: ['x'], workingDirectory: '.', artifactGlobs: [] };
+    for (const other of [{ command }, { playwrightProject: 'chromium' }]) {
+      await expect(
+        router.execute(context({ apiCollection: 'pass', ...other })),
+      ).rejects.toBeInstanceOf(RunnerConfigurationError);
+    }
+    expect(api.execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses an API collection on a runner that has no API adapter', async () => {
+    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider(), stubProvider());
+    await expect(router.execute(context({ apiCollection: 'pass' }))).rejects.toBeInstanceOf(
+      RunnerConfigurationError,
+    );
+  });
+
   it('cleans up through the generic adapter', async () => {
     const generic = stubProvider();
     const router = new RoutingExecutionAdapter(generic, stubProvider(), stubProvider());

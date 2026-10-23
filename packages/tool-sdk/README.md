@@ -30,7 +30,7 @@ An operation with no registered adapter yields `kind: 'configuration'`, which
 An adapter that finds the request wrong in a way only the tool can see throws
 `ToolInputError`, which is rendered as a `400` that keeps its wording.
 
-The first real adapter is `browser.run` in `apps/api` (`src/agents/browser-adapter.ts`). It
+The first real adapter is `browser.run` in `apps/api` (`src/agents/browser-adapter.ts`); `api.run` (`src/agents/api-adapter.ts`) follows it. They
 is built on `src/agents/execution-bridge.ts`, which any domain whose tool already runs as an
 execution job can reuse: `defineAcceptedRunOperation` declares the operation (its answer is the
 accepted run and links to it), and `createExecutionBridgeAdapter` queues the run through the same

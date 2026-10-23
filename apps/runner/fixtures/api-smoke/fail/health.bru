@@ -1,0 +1,21 @@
+meta {
+  name: health reports a state it does not have
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("the service reports selected-failure", function () {
+    expect(res.body.status).to.equal("selected-failure");
+  });
+}

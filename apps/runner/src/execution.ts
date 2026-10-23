@@ -47,6 +47,10 @@ export interface ExecutionContext {
   command?: unknown;
   /** The Playwright project, when the job is a browser run. */
   playwrightProject?: string;
+  /** The Bruno collection (relative to the collection root), when the job is an API run. */
+  apiCollection?: string;
+  /** The Bruno environment name, when the API run names one. */
+  apiEnvironment?: string;
   /** The `configuration.k6` block, when the job is a load run. Parsed by the k6 adapter. */
   k6?: unknown;
   deadlineMs: number;

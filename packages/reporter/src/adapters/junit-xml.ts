@@ -149,6 +149,10 @@ export const junitXmlAdapter: ProducerAdapter = {
     const testCases: TestCase[] = [];
     let current: TestCase | undefined;
     let currentText = '';
+    /** The `message` attribute of the first outcome child; Bruno writes the reason only there. */
+    let currentMessage = '';
+    /** The `file` of each enclosing suite; a test case without its own takes the nearest. */
+    const suiteFiles: Array<string | undefined> = [];
     let truncated = false;
     /** The document could not be parsed to its end. See the `error` handler. */
     let malformed = false;
@@ -174,22 +178,27 @@ export const junitXmlAdapter: ProducerAdapter = {
       malformed = true;
     });
     parser.on('opentag', (tag) => {
-      if (tag.name === 'testcase') {
+      if (tag.name === 'testsuite') {
+        suiteFiles.push((tag.attributes as Record<string, string>).file);
+      } else if (tag.name === 'testcase') {
         const attributes = tag.attributes as Record<string, string>;
         current = {
           name: attributes.name ?? 'unnamed test',
           classname: attributes.classname,
-          file: attributes.file,
+          file: attributes.file ?? suiteFiles.at(-1),
           time: attributes.time ? Number(attributes.time) * 1000 : undefined,
           status: 'unknown',
           flakiness: 'unknown',
           declaredStatus: attributes.status,
         };
         currentText = '';
+        currentMessage = '';
         truncated = false;
         currentChildren.clear();
       } else if (OUTCOME_CHILDREN.has(tag.name.toLowerCase())) {
         currentChildren.add(tag.name.toLowerCase());
+        const message = (tag.attributes as Record<string, string>).message;
+        if (currentMessage === '' && message) currentMessage = message.slice(0, MAX_MESSAGE_CHARS);
       }
     });
     // Growth happens at `+=`, so the cap belongs here and not on the serialised
@@ -211,11 +220,12 @@ export const junitXmlAdapter: ProducerAdapter = {
       append(text);
     });
     parser.on('closetag', (tag) => {
+      if (tag.name === 'testsuite') suiteFiles.pop();
       if (tag.name === 'testcase' && current) {
         finish(
           testCases,
           currentChildren,
-          currentText,
+          currentText.trim() ? currentText : currentMessage,
           {
             textTruncated: truncated,
             incomplete: false,
@@ -243,7 +253,7 @@ export const junitXmlAdapter: ProducerAdapter = {
       finish(
         testCases,
         currentChildren,
-        currentText,
+        currentText.trim() ? currentText : currentMessage,
         {
           textTruncated: truncated,
           // The path that reaches here is the one where `current` was still open at

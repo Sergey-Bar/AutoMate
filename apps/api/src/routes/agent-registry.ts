@@ -19,6 +19,7 @@
  */
 import { AgentDomainSchema } from '@automate/shared-contracts';
 import { AGENT_ACTIONS, type ToolRegistry } from '@automate/tool-sdk';
+import { API_UNSUPPORTED_REASONS } from '../agents/api-adapter.js';
 import { BROWSER_UNSUPPORTED_REASONS } from '../agents/browser-adapter.js';
 import { LOAD_UNSUPPORTED_REASONS } from '../agents/load-adapter.js';
 
@@ -34,6 +35,7 @@ const UNSUPPORTED_REASONS: Readonly<Record<string, string>> = Object.fromEntries
   (
     [
       ['browser', BROWSER_UNSUPPORTED_REASONS],
+      ['api', API_UNSUPPORTED_REASONS],
       ['load', LOAD_UNSUPPORTED_REASONS],
     ] as const
   ).flatMap(([domain, reasons]) =>

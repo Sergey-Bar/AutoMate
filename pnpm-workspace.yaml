@@ -37,6 +37,10 @@ pmOnFail: error
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  # `@usebruno/cli` (the API domain's runner) reaches `protobufjs` through its gRPC support. Its
+  # postinstall only checks which protobufjs-cli is installed and prints a warning, so it is
+  # declined rather than run; `strictDepBuilds` otherwise fails the install and the images.
+  protobufjs: false
 
 # **Four pnpm 11 defaults are now in force, and one of them costs something.**
 #
@@ -153,6 +157,14 @@ overrides:
   # Removed 2026-10-21: `esbuild@>=0.27.3 <0.28.1: ^0.28.1`, through vitest. With vitest at
   # 4.1.12 the install resolves and `pnpm audit` reports nothing without it.
   esbuild@<=0.24.2: ^0.25.0
+  # **Four high advisories reached through `@usebruno/cli` 4.2.1** (the runner's API domain):
+  # axios <1.20 (also under `vitepress`), form-data <4.0.6, js-yaml <4.3.2 and
+  # `@faker-js/faker` <=10.4. Each is forced to its patched release, and `api-run.test.ts` runs the
+  # real CLI with them. The moderate advisories in the same tree are below `--audit-level=high`.
+  '@faker-js/faker@<=10.4.0': ^10.5.0
+  axios@>=1.0.0 <1.20.0: ^1.20.0
+  form-data@>=4.0.0 <4.0.6: ^4.0.6
+  js-yaml@>=4.0.0 <4.3.2: ^4.3.2
   # Removed 2026-10-21: `uuid@<11.1.1: ^11.1.1`, through storybook. Storybook 10 no longer
   # depends on `uuid`, so nothing in the tree resolves it and the override matched nothing.
 

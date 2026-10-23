@@ -15,8 +15,8 @@ import { createAgentRoutes } from './agents.js';
  *
  * `agents.ts` dispatches through the SDK, so this holds by construction for every pair no
  * adapter serves. It stays as the pin on the wire: the status and the body, key for key, and
- * the two intended differences (`browser.run` is served; `browser.scan` and `browser.generate`
- * add a `reason`).
+ * the intended differences (`browser.run` and `api.run` are served; the unserved browser and api
+ * actions add a `reason`).
  */
 describe('agents.ts and @automate/tool-sdk agree', () => {
   const app = createAgentRoutes();
@@ -26,8 +26,9 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
     let pairs = 0;
     for (const domain of AGENT_DOMAINS) {
       for (const action of AGENT_ACTIONS) {
-        // The browser pairs and load's `scan` / `generate` carry a reason; the test below covers them.
-        if (domain === 'browser' || (domain === 'load' && action !== 'run')) continue;
+        // The browser and api pairs and load's `scan` / `generate` carry a reason; the test below covers them.
+        if (domain === 'browser' || domain === 'api' || (domain === 'load' && action !== 'run'))
+          continue;
         pairs += 1;
         const response = await app.request(`/api/v1/agents/${domain}/${action}`, {
           method: 'POST',
@@ -42,13 +43,15 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
         expect(Object.keys(body)).toEqual(Object.keys(problem.body));
       }
     }
-    expect(pairs).toBe(10);
+    expect(pairs).toBe(7);
   });
 
-  it('answers browser and load scan / generate with the SDK body plus the reason', async () => {
+  it('answers the unserved browser, api and load actions with the SDK body plus the reason', async () => {
     for (const [domain, action] of [
       ['browser', 'scan'],
       ['browser', 'generate'],
+      ['api', 'scan'],
+      ['api', 'generate'],
       ['load', 'scan'],
       ['load', 'generate'],
     ] as const) {

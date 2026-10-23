@@ -9,13 +9,30 @@ describe('runner configuration', () => {
         RUNNER_INSTANCE_ID: 'runner-1',
         RUNNER_REGISTRATION_SECRET: 'registration-secret',
       }),
-    ).toMatchObject({ maxConcurrentJobs: 1, slots: 1, capabilities: ['playwright', 'chromium'] });
+    ).toMatchObject({
+      maxConcurrentJobs: 1,
+      slots: 1,
+      capabilities: ['playwright', 'chromium', 'api'],
+    });
     expect(() =>
       parseRunnerConfig({
         AUTOMATE_API_URL: 'http://localhost:3000',
         RUNNER_INSTANCE_ID: 'runner-1',
       }),
     ).toThrow();
+  });
+
+  it('roots API collections in the shipped fixtures unless told otherwise', () => {
+    const base = {
+      AUTOMATE_API_URL: 'http://localhost:3000',
+      RUNNER_INSTANCE_ID: 'runner-1',
+      RUNNER_CREDENTIAL: 'token',
+    };
+    expect(parseRunnerConfig(base).apiCollectionRoot).toMatch(/fixtures[\\\\/]api-smoke[\\\\/]?$/u);
+    expect(
+      parseRunnerConfig({ ...base, RUNNER_API_COLLECTION_ROOT: '/srv/collections' })
+        .apiCollectionRoot,
+    ).toBe('/srv/collections');
   });
 
   it('names each runner after its instance unless told otherwise', () => {

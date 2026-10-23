@@ -11,10 +11,11 @@ import {
  *
  * Three modes, one seam. `PlaywrightExecutionAdapter` drives a browser suite with an
  * allowlist of projects and target origins; `GenericSpawnAdapter` runs a declared
- * argv in a registered repository; `K6ExecutionAdapter` runs one bounded load script.
- * Which one runs is decided by **which keys the job's `configuration` carries**
- * (`command`, `playwrightProject`, `k6`) and there is no fallback: a job declaring
- * two of them is a configuration failure, not something to guess at.
+ * argv in a registered repository; `K6ExecutionAdapter` runs one bounded load script;
+ * `ApiExecutionAdapter` runs a named Bruno collection. Which one runs is decided by **which
+ * keys the job's `configuration` carries** (`command`, `playwrightProject`, `k6`,
+ * `apiCollection`) and there is no fallback: a job declaring two of them is a
+ * configuration failure, not something to guess at.
  *
  * Guessing would be the dangerous failure. A job that arrived with a malformed
  * command and fell back to "run Playwright" would execute the wrong suite against
@@ -25,21 +26,30 @@ export class RoutingExecutionAdapter implements ExecutionProvider {
     private readonly generic: ExecutionProvider,
     private readonly playwright: ExecutionProvider,
     private readonly k6: ExecutionProvider,
+    private readonly api?: ExecutionProvider,
   ) {}
 
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
     const command = (context as { command?: GenericCommand }).command;
-    const modes = [command, context.playwrightProject, context.k6].filter(
+    const modes = [command, context.playwrightProject, context.k6, context.apiCollection].filter(
       (mode) => mode !== undefined,
     );
     if (modes.length > 1) {
       throw new RunnerConfigurationError(
-        'A job can declare only one of a generic command, a Playwright project and a k6 script',
+        'A job can declare only one of a generic command, a Playwright project, a k6 script and an API collection',
       );
     }
     if (context.k6 !== undefined) return this.k6.execute(context);
+    if (context.apiCollection !== undefined) return this.executeApi(context);
     if (command === undefined) return this.playwright.execute(context);
     return this.generic.execute({ ...context, command });
+  }
+
+  private executeApi(context: ExecutionContext): Promise<ExecutionResult> {
+    if (this.api === undefined) {
+      throw new RunnerConfigurationError('This runner does not run API collections');
+    }
+    return this.api.execute(context);
   }
 
   async cleanup(workspacePath: string): Promise<void> {
