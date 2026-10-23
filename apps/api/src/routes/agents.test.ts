@@ -50,7 +50,11 @@ describe('agent maturity routes', () => {
     // drift.
     const source = readFileSync(path.join(import.meta.dirname, 'agents.ts'), 'utf8');
     expect(source).toMatch(/agent-registry/);
-    expect(source).toMatch(/AgentRequestSchema\.shape/);
+    // Dispatch goes through the tool-sdk registry, whose action list is read from
+    // `AgentRequestSchema.shape.action` (see `tool-sdk/src/operation.ts`); the route keeps no
+    // action set of its own.
+    expect(source).toMatch(/registry\.dispatch\(/);
+    expect(source).not.toMatch(/new Set\(\s*\[\s*'(generate|run|scan)'/);
     // And no hand-written literal of the five values anywhere in the file.
     expect(source).not.toMatch(/new Set\(\s*\[\s*'browser'/);
   });

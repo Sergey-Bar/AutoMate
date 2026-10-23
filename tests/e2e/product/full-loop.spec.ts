@@ -184,4 +184,95 @@ test.describe('the full loop', () => {
       }
     }
   });
+
+  /**
+   * `POST /api/v1/agents/browser/run` (ledger X-3 / BK-1): the agent route queues the same
+   * Playwright job the runs API does, the shipped runner claims it, and the run is read back
+   * through `/api/v1/runs`. Nothing is stubbed: the run completes only if Chromium really ran
+   * the smoke project against the API's own `/health`.
+   *
+   * It lives in this project because a real runner claims **any** queued job, and this is the
+   * one project whose queue is guaranteed empty when it starts. The first test leaves the
+   * queue empty again (it either completes its run or cancels it).
+   */
+  test('browser.run through the agent route is claimed and completed by the real runner', async ({
+    request,
+  }) => {
+    const scratch = mkdtempSync(path.join(tmpdir(), 'automate-agent-browser-'));
+    let runner: ServiceHandle | undefined;
+    let runId: string | undefined;
+    try {
+      const listing = await request.get(`${API_BASE}/api/v1/agents`, { headers: API_AUTH_HEADERS });
+      const { integrations } = (await listing.json()) as {
+        integrations: Array<{ domain: string; status: string; implemented: boolean }>;
+      };
+      expect(integrations.find((item) => item.domain === 'browser')).toMatchObject({
+        status: 'configured',
+        implemented: true,
+      });
+      for (const domain of ['api', 'load', 'security', 'mobile']) {
+        expect(integrations.find((item) => item.domain === domain)).toMatchObject({
+          status: 'not_configured',
+          implemented: false,
+        });
+      }
+
+      const accepted = await request.post(`${API_BASE}/api/v1/agents/browser/run`, {
+        headers: { ...API_AUTH_HEADERS, 'Idempotency-Key': randomUUID() },
+        data: { project: 'smoke-pass', targetUrl: API_BASE },
+      });
+      expect(accepted.status(), await accepted.text()).toBe(202);
+      const body = (await accepted.json()) as {
+        runId: string;
+        jobId: string;
+        links: { run: string };
+      };
+      runId = body.runId;
+      expect(accepted.headers()['location']).toBe(body.links.run);
+      expect((await getRun(request, body.runId))?.phase, 'accepted, not yet run').toBe('queued');
+
+      runner = await startService('runner', {
+        AUTOMATE_API_URL: API_BASE,
+        RUNNER_INSTANCE_ID: randomUUID(),
+        RUNNER_REGISTRATION_SECRET,
+        RUNNER_ALLOWED_TARGET_URLS: API_BASE,
+        RUNNER_POLL_INTERVAL_MS: '500',
+        RUNNER_HEALTH_HOST: '127.0.0.1',
+        RUNNER_HEALTH_PORT: '0',
+        RUNNER_SPOOL_ROOT: path.join(scratch, 'spool'),
+        RUNNER_WORKSPACE_ROOT: path.join(scratch, 'workspace'),
+      });
+      const active = runner;
+      const finished = await waitForRunPhase(
+        request,
+        body.runId,
+        ['complete'],
+        EXECUTION_BUDGET_MS,
+      ).catch((error: unknown) => {
+        throw new Error(
+          `${error instanceof Error ? error.message : String(error)}\n\n--- ${active.name}\n${active.output()}`,
+        );
+      });
+      expect(finished.outcome, `the smoke project must pass\n${active.output()}`).toBe('passed');
+      expect(finished.summary.total, 'the runner reported real tests').toBeGreaterThan(0);
+
+      const events = (await (
+        await request.get(`${API_BASE}/api/v1/runs/${body.runId}/events`, {
+          headers: API_AUTH_HEADERS,
+        })
+      ).json()) as RunEvent[];
+      expect(events.some((event) => event.type === 'test.completed')).toBe(true);
+    } finally {
+      await runner?.stop();
+      rmSync(scratch, { recursive: true, force: true });
+      if (
+        runId !== undefined &&
+        (await getRun(request, runId).catch(() => undefined))?.phase !== 'complete'
+      ) {
+        await request
+          .post(`${API_BASE}/api/v1/runs/${runId}/cancel`, { headers: API_AUTH_HEADERS })
+          .catch(() => undefined);
+      }
+    }
+  });
 });

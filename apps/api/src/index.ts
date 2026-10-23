@@ -27,6 +27,9 @@ import { createExecutionRoutes } from './routes/execution.js';
 import { createAnalyticsTrendRoutes } from './execution/trend.js';
 import { createInsightsRoutes } from './execution/insights.js';
 import { createAgentRoutes } from './routes/agents.js';
+import { createAgentCatalog } from './routes/agent-registry.js';
+import { createToolRegistry } from '@automate/tool-sdk';
+import { registerBrowserAgent } from './agents/browser-adapter.js';
 import { createChatRoutes } from './routes/chat.js';
 import { aiGatewayOrUnconfigured, resolveAiGateway } from './observability/ai-gateway.js';
 import { InMemoryExecutionStore } from './execution/in-memory-execution-store.js';
@@ -252,6 +255,22 @@ function createExecutionStore(): ExecutionStore {
 
 const executionStore = withClassifiedErrors(createExecutionStore());
 const dashboardStores = createDashboardStores();
+
+/**
+ * The one tool registry the agent routes dispatch through, and the catalog that
+ * `/api/v1/features` and `/api/v1/agents` both read availability from. Browser is the first
+ * domain with a real adapter: `browser.run` queues a Playwright job through the same store
+ * `POST /api/v1/runs` uses. The other four domains register nothing and answer `501`.
+ */
+const agentRegistry = createToolRegistry();
+registerBrowserAgent({
+  registry: agentRegistry,
+  store: executionStore,
+  workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+  // As `POST /api/v1/runs`: required in production, generated otherwise.
+  requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
+});
+const agentCatalog = createAgentCatalog(agentRegistry);
 
 /**
  * The one canonical store both reporting and the reporter doors resolve.
@@ -510,6 +529,7 @@ app.route(
   '/',
   createHealthRoutes({
     databaseUrl: runtimeConfig.databaseUrl,
+    agentAvailability: agentCatalog.available,
     checkDatabase: databaseResources
       ? async () => {
           await databaseResources.db.execute(sql`SELECT 1`);
@@ -550,7 +570,7 @@ app.route(
     bus: realtimeBus,
   }),
 );
-app.route('/', createAgentRoutes());
+app.route('/', createAgentRoutes({ registry: agentRegistry }));
 app.route(
   '/',
   createAnalyticsTrendRoutes({
