@@ -1822,9 +1822,29 @@
         {
           "path": "tests/e2e/product/full-loop.spec.ts",
           "asserts": "Its second test creates a run through `POST /api/v1/agents/browser/run`, lets the shipped runner claim and execute it in Chromium, and reads it complete with outcome `passed` through the runs API."
+        },
+        {
+          "path": "apps/api/src/agents/load-adapter.test.ts",
+          "asserts": "`load.run` queues a `k6` job whose configuration is `{ k6: { script, vus, durationSeconds }, targetUrl }` with defaults made explicit and a derived timeout; refuses over-ceiling VUs and duration, traversal and absolute scripts, extra arguments, a command, a thresholds override and a caller timeout with a 400 and queues nothing; is idempotent on its key; and a run accepted for one workspace is invisible to another over the same store."
+        },
+        {
+          "path": "apps/api/src/routes/agents-load.test.ts",
+          "asserts": "`POST /api/v1/agents/load/run` answers 202 with a Location and the queued job requires `k6`; over-limit input is the 400 body shape; `load.scan` and `load.generate` answer 501 with a reason; `/api/v1/agents` and `/api/v1/features` report load configured from the one registry; a run created for one workspace is invisible to another."
+        },
+        {
+          "path": "apps/runner/src/k6-execution.test.ts",
+          "asserts": "The runner builds the exact k6 argv, spawns without a shell in its own process group with an allowlisted environment, refuses over-ceiling load, escaping and linked scripts and non-allowlisted targets before spawning, maps exit code and summary to passed / failed / infra_failed, kills at the deadline and on cancel, and - where a k6 binary exists - runs real k6 against a mock server for a passing script, a threshold-breaching script and a deadline kill."
+        },
+        {
+          "path": "packages/shared-contracts/src/schemas/load.test.ts",
+          "asserts": "The load input is strict and bounded: the ceilings are accepted exactly and one past is refused, and so is every route to an arbitrary command or argument."
+        },
+        {
+          "path": "infra/docker/runner.Dockerfile",
+          "asserts": "The runner image installs k6 from a pinned release after a SHA-256 check for each architecture, in a throwaway stage so the download tooling never reaches the runtime image."
         }
       ],
-      "resolution": "\n\n**2026-10-22 - entry criterion met, row stays open.** `packages/tool-sdk` (`@automate/tool-sdk`) now exists, so the first clause of the removal condition - the file - holds. It is a leaf package: operation declaration (`defineOperation`, `runResultOperation`), a registry whose `dispatch` validates input, applies a per-attempt timeout that is enforced even against an adapter that ignores its signal, retries through `executeWithRetry` so only an idempotent operation or a known-rejected request is repeated, normalises output to `CanonicalRunResult`, and classifies failures as `retryable | configuration | tool_failure | invalid_input`. An `AgentAdapter` port is what other packages implement; the SDK spawns nothing and opens nothing. A pair with no adapter yields `configuration` / `AGENT_NOT_CONFIGURED`, and `toAgentProblem` renders it as the same 501 body `routes/agents.ts` sends, key order included.\n\n**What did not change:** `apps/api` behaviour. All 15 pairs still answer 501 and the route does not import the SDK; `DOMAINS_WITH_ADAPTERS` is still empty. The second clause - at least one domain with a real adapter - is unmet, so the row stays `debt` and BK-1 stays its owner. **Not verified here:** any adapter, because none exists; the SDK is exercised only by a fake adapter.\n\n**2026-10-22 - progress: the browser domain has a real adapter; row stays open.** `POST /api/v1/agents/browser/run` now queues a Playwright execution job and answers `202` with a `Location` to the run. `routes/agents.ts` dispatches through the `@automate/tool-sdk` registry; `apps/api/src/agents/browser-adapter.ts` registers `browser.run` on `apps/api/src/agents/execution-bridge.ts`, which creates the run through `execution/run-submission.ts` - the same `submitRun` `POST /api/v1/runs` now calls - bound to the configured workspace. Input is `BrowserRunInputSchema` in `shared-contracts` (a Playwright project name and a target URL, plus the run-request fields the runs API already defines; a spec path or grep is refused because the runner cannot honour one). `DOMAINS_WITH_ADAPTERS` is deleted: `/api/v1/agents` and `/api/v1/features` read availability from the tool registry the dispatch uses, so `agent.browser` is `true` and the other four are `false`.\n\n**What `run` and `scan` mean.** `run` = execute one Playwright project against a target (the only thing the runner does with a Playwright job). `scan` stays `501` with a `reason`: the runner has no test-listing, dry-run or accessibility-scan mode, so any scan result would be invented. `generate` stays `501` with a `reason`: it needs the AI gateway and a destination for the spec.\n\n**Still open - this is why the row is not closed.** `api`, `load`, `security` and `mobile` still answer `501 AGENT_NOT_CONFIGURED` for all three actions (12 pairs), and so do `browser.scan` and `browser.generate`. The bridge those domains reuse is `defineAcceptedRunOperation` + `createExecutionBridgeAdapter`; each needs a runner image that carries its tool first.\n\n**Verified:** package tests (api, shared-contracts, tool-sdk), including a cross-workspace isolation test for a run created through the agent route. **Not verified locally:** the end-to-end second test in `tests/e2e/product/full-loop.spec.ts`, which starts the shipped runner against PostgreSQL and Chromium; it runs in CI only."
+      "resolution": "\n\n**2026-10-22 - entry criterion met, row stays open.** `packages/tool-sdk` (`@automate/tool-sdk`) now exists, so the first clause of the removal condition - the file - holds. It is a leaf package: operation declaration (`defineOperation`, `runResultOperation`), a registry whose `dispatch` validates input, applies a per-attempt timeout that is enforced even against an adapter that ignores its signal, retries through `executeWithRetry` so only an idempotent operation or a known-rejected request is repeated, normalises output to `CanonicalRunResult`, and classifies failures as `retryable | configuration | tool_failure | invalid_input`. An `AgentAdapter` port is what other packages implement; the SDK spawns nothing and opens nothing. A pair with no adapter yields `configuration` / `AGENT_NOT_CONFIGURED`, and `toAgentProblem` renders it as the same 501 body `routes/agents.ts` sends, key order included.\n\n**What did not change:** `apps/api` behaviour. All 15 pairs still answer 501 and the route does not import the SDK; `DOMAINS_WITH_ADAPTERS` is still empty. The second clause - at least one domain with a real adapter - is unmet, so the row stays `debt` and BK-1 stays its owner. **Not verified here:** any adapter, because none exists; the SDK is exercised only by a fake adapter.\n\n**2026-10-22 - progress: the browser domain has a real adapter; row stays open.** `POST /api/v1/agents/browser/run` now queues a Playwright execution job and answers `202` with a `Location` to the run. `routes/agents.ts` dispatches through the `@automate/tool-sdk` registry; `apps/api/src/agents/browser-adapter.ts` registers `browser.run` on `apps/api/src/agents/execution-bridge.ts`, which creates the run through `execution/run-submission.ts` - the same `submitRun` `POST /api/v1/runs` now calls - bound to the configured workspace. Input is `BrowserRunInputSchema` in `shared-contracts` (a Playwright project name and a target URL, plus the run-request fields the runs API already defines; a spec path or grep is refused because the runner cannot honour one). `DOMAINS_WITH_ADAPTERS` is deleted: `/api/v1/agents` and `/api/v1/features` read availability from the tool registry the dispatch uses, so `agent.browser` is `true` and the other four are `false`.\n\n**What `run` and `scan` mean.** `run` = execute one Playwright project against a target (the only thing the runner does with a Playwright job). `scan` stays `501` with a `reason`: the runner has no test-listing, dry-run or accessibility-scan mode, so any scan result would be invented. `generate` stays `501` with a `reason`: it needs the AI gateway and a destination for the spec.\n\n**Still open - this is why the row is not closed.** `api`, `load`, `security` and `mobile` still answer `501 AGENT_NOT_CONFIGURED` for all three actions (12 pairs), and so do `browser.scan` and `browser.generate`. The bridge those domains reuse is `defineAcceptedRunOperation` + `createExecutionBridgeAdapter`; each needs a runner image that carries its tool first.\n\n**Verified:** package tests (api, shared-contracts, tool-sdk), including a cross-workspace isolation test for a run created through the agent route. **Not verified locally:** the end-to-end second test in `tests/e2e/product/full-loop.spec.ts`, which starts the shipped runner against PostgreSQL and Chromium; it runs in CI only.\n\n**2026-10-23 - progress: the load domain has a real adapter; row stays open.** `POST /api/v1/agents/load/run` queues a bounded k6 job (`apps/api/src/agents/load-adapter.ts` on the same execution bridge as browser) and answers `202`. `LoadRunInputSchema` is strict - a script path relative to the runner's script root, a target URL, `vus` (max 50) and `durationSeconds` (max 300); there is no command, no k6 argument, no threshold override (k6 has no flag for one; thresholds live in the script) and no caller-chosen timeout (derived: duration + 60 s). The runner re-applies the same ceilings (`LoadJobConfigurationSchema`), the script root (links included), `RUNNER_ALLOWED_TARGET_URLS`, a process-group kill at the deadline, and builds the k6 argv itself (`apps/runner/src/k6-execution.ts`). The `--summary-export` document is read by `@automate/reporter`'s `parseK6Summary` and each threshold becomes a `test.completed` event: exit 99 or a crossed threshold fails the run, and a clean exit with no readable summary is `infra_failed`. **Where k6 runs, and why:** in the existing runner image (a pinned `v2.3.0` with SHA-256 for amd64 and arm64, fetched in a throwaway stage), advertised by the `k6` capability, rather than as a separate service - the runner code shows a runner is an image plus advertised capabilities, so a second service would duplicate enrolment, health, spool and credential for one binary. Running real k6 against the adapter found MNT-140 and MNT-141 in the parser. **Still open:** security and mobile have no adapter (api is a separate change); `load.scan` and `load.generate` stay `501` with reasons. **Not verified here:** the amd64 image build and `compose:boot` are recorded in the PR; the real-k6 tests run only where `k6` is on PATH, so CI covers the adapter against a fake process; the arm64 digest was checked against the release checksums and an independent hash of the downloaded archive, but an arm64 image was not built."
     },
     {
       "id": "X-4",
@@ -5533,6 +5553,52 @@
         }
       ],
       "resolution": "The comparison moved to `scripts/lib/complexity-ratchet.mjs`: each file's offender count may not exceed the recorded one, a file the baseline does not mention may hold none, and the worst offender may not get worse. Line numbers are still ignored, for the reason the gate always gave."
+    },
+    {
+      "id": "MNT-140",
+      "title": "The k6 adapter ignored the thresholds `k6 run --summary-export` writes, so a breached latency threshold was never a verdict",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "`packages/reporter/src/adapters/k6-json.ts` read thresholds only from `options.thresholds`, a block `--summary-export` never writes: that format puts each metric's verdict on the metric, as `thresholds: { \"<expression>\": <crossed> }` with `true` meaning breached. A metric with pass/fail counters (`checks`, `http_req_failed`) still produced an attempt, but `http_req_duration` has none, so `p(95)<50` crossed by 9x produced no attempt at all and the run could read as passed. The adapter was unit-tested only against hand-written documents in the shape it already expected, so nothing had ever fed it a document k6 wrote - which is why it looked finished: it had never had a producer (capability register `tool.k6`).",
+      "confirmed": true,
+      "confirmedOn": "2026-10-23",
+      "confirmedBy": "Found by running real k6 v2.3.0 (`--summary-export`) against a local server for the load domain (X-3 / BK-1): the breaching fixture exited 99 with `http_req_duration.thresholds[\"p(95)<5\"] === true`, and the adapter had no attempt for it. `k6-json.test.ts` now pins the exported shape, and `apps/runner/src/k6-execution.test.ts` runs the real binary where one exists.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/k6-json.test.ts",
+          "asserts": "A crossed threshold on a metric with no pass/fail counters is a failed attempt naming the bound; an uncrossed one is passed; a threshold present both in `options` and on the metric is listed once; a non-boolean verdict is `unknown`, never `passed`."
+        },
+        {
+          "path": "apps/runner/src/k6-execution.test.ts",
+          "asserts": "Against real k6, a script whose p(95) bound cannot be met exits 99 and the run is `failed` with a `test.completed` event for `threshold:http_req_duration[p(95)<5]`."
+        }
+      ],
+      "resolution": "`nativeThresholdAttempts` reads each metric's own `thresholds` (k6's evaluated answer, `true` = breached) and they take precedence over any re-derivation from `options`. The adapter version is `2`, so a changed reading is answerable later."
+    },
+    {
+      "id": "MNT-141",
+      "title": "The k6 adapter read `http_req_failed` with its counters inverted, so a run with no failed request was reported failed",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "For the lower-is-better metrics `describeBreach` treated `fails > 0` as a breach. In a k6 summary `http_req_failed.passes` counts the requests that DID fail and `fails` the ones that did not, so a clean run (`passes: 0, fails: 20, value: 0`) was reported as 20 failures. The module comment even named this inversion as the thing the polarity table existed to prevent, and the test for it used `value: 0.02`, which hid the counters. Separately, a metric the script put its own thresholds on (`checks: rate>0.95`) was also failed on its raw counters, so a tolerated 3% failure rate that k6 itself passed failed the run.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-23",
+      "confirmedBy": "Found by the same real-k6 run as MNT-140: the passing fixture exited 0 and the adapter reported `k6.http_req_failed` failed from `fails: 20`.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/k6-json.test.ts",
+          "asserts": "A summary exactly as k6 v2.3.0 exports it with no failed request is `passed`; `http_req_failed` is breached by its `passes`, not its `fails`; a metric with thresholds of its own is judged by them, so a tolerated failure rate does not fail the run, while a metric with none still fails on any failed sample."
+        },
+        {
+          "path": "apps/runner/src/k6-execution.test.ts",
+          "asserts": "Against real k6, the passing fixture (exit 0, every threshold met) is `passed`."
+        }
+      ],
+      "resolution": "`describeBreach` reads `passes` for the lower-is-better metrics, and `metricAttempts` skips a metric that carries its own thresholds because they are its verdict. Stated limit: a metric with no thresholds (a bare `check`) still fails the run on any failed sample, which is stricter than k6."
     }
   ]
 }

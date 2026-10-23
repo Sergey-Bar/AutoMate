@@ -16,14 +16,21 @@ import type { CanonicalStatus } from '../producer-status.js';
  *
  *  - one attempt per **check-like metric** — a metric carrying `passes`/`fails`,
  *    which is how k6 says a count of things passed or failed; and
- *  - one attempt per **declared threshold**, evaluated against the metric it names.
+ *  - one attempt per **declared threshold**: k6's own evaluated verdict when the summary
+ *    carries one (`--summary-export` writes it on the metric), else evaluated here against
+ *    the metric it names.
  *
  * The threshold is k6's real verdict. A load script that reports 200 requests and
  * 200 successes while blowing its latency budget has failed, and the threshold is
  * the only place in the document that says so.
  */
 
-export const K6_JSON_ADAPTER_VERSION = '1';
+/**
+ * `2`: reads the thresholds `k6 run --summary-export` writes on each metric, and counts a
+ * Rate's `passes` (not its `fails`) as the failures. Version 1 read neither, so it could not
+ * fail a run on a crossed latency bound and failed a clean run on `http_req_failed`.
+ */
+export const K6_JSON_ADAPTER_VERSION = '2';
 
 interface K6Metric {
   value?: number;
@@ -119,11 +126,60 @@ function satisfies(
 }
 
 /**
+ * The verdicts k6 itself wrote on a metric: `{ "<expression>": <crossed> }`, where `true` means
+ * the bound was breached. `k6 run --summary-export` puts them here, and nowhere in `options`.
+ */
+function metricThresholds(metric: K6Metric): Record<string, unknown> {
+  const raw = (metric as { thresholds?: unknown }).thresholds;
+  return typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>)
+    : {};
+}
+
+/** k6's evaluated answer for one threshold: `true` is breached. Anything else is unreadable. */
+function verdictStatus(crossed: unknown): CanonicalStatus {
+  if (crossed === true) return 'failed';
+  return crossed === false ? 'passed' : 'unknown';
+}
+
+/**
+ * One attempt per threshold k6 evaluated. This is the verdict: k6 compared the bound against
+ * the aggregate itself, so nothing is re-derived. A value that is not a boolean is `unknown`,
+ * never `passed` - a bound nobody can read has not been met.
+ */
+function nativeThresholdAttempts(
+  metrics: Record<string, K6Metric>,
+  startedAt: string,
+): CanonicalAttemptInput[] {
+  const attempts: CanonicalAttemptInput[] = [];
+  for (const [name, metric] of Object.entries(metrics)) {
+    for (const [expression, crossed] of Object.entries(metricThresholds(metric))) {
+      const status = verdictStatus(crossed);
+      const title = `k6 threshold ${name}[${expression.trim()}]`;
+      attempts.push({
+        index: 1,
+        testId: `threshold:${name}[${expression.trim()}]`,
+        specPath: `k6/threshold/${name}`,
+        title,
+        status,
+        rawStatus: String(crossed),
+        startedAt,
+        flakiness: 'unknown',
+        ...(status === 'failed' ? { error: { message: `${title} - crossed` } } : {}),
+      });
+    }
+  }
+  return attempts;
+}
+
+/**
  * One attempt per check-like metric.
  *
  * A metric with no `passes`/`fails` is **not** an attempt: it is the evidence a
  * threshold is evaluated against, and turning it into one would make
- * `http_req_duration` look like a test that either passed or failed.
+ * `http_req_duration` look like a test that either passed or failed. A metric that carries
+ * thresholds of its own is not one either - its thresholds are its verdict, and failing it on
+ * its raw counters as well would overrule a tolerance the script chose (`rate>0.95`).
  */
 function metricAttempts(
   metrics: Record<string, K6Metric>,
@@ -131,6 +187,7 @@ function metricAttempts(
 ): CanonicalAttemptInput[] {
   const attempts: CanonicalAttemptInput[] = [];
   for (const [name, metric] of Object.entries(metrics)) {
+    if (Object.keys(metricThresholds(metric)).length > 0) continue;
     if (!hasVerdict(name, metric)) continue;
     const breach = describeBreach(name, metric);
     attempts.push({
@@ -169,12 +226,17 @@ function hasVerdict(name: string, metric: K6Metric): boolean {
  * throws it away, and "failed" without a reason is a row nobody acts on.
  */
 function describeBreach(name: string, metric: K6Metric): string | null {
-  const failures = metric.fails ?? 0;
   if (LOWER_IS_BETTER.has(name)) {
-    return (metric.value ?? 0) > 0 || failures > 0
-      ? `value ${metric.value ?? 0} is above zero`
-      : null;
+    // A Rate's `passes` counts its non-zero samples: for these metrics, the failures. Its
+    // `fails` counts the samples that were fine, so reading it as failures inverts the verdict.
+    if (typeof metric.passes === 'number') {
+      return metric.passes > 0
+        ? `${metric.passes} of ${metric.passes + (metric.fails ?? 0)} samples failed`
+        : null;
+    }
+    return (metric.value ?? 0) > 0 ? `value ${metric.value ?? 0} is above zero` : null;
   }
+  const failures = metric.fails ?? 0;
   return failures > 0 ? `${failures} of ${(metric.passes ?? 0) + failures} failed` : null;
 }
 
@@ -259,10 +321,13 @@ export function parseK6Summary(input: Uint8Array, context: ProducerContext): Can
   const document = decode(input);
   const metrics = document.metrics ?? {};
   const fromMetrics = metricAttempts(metrics, context.startedAt);
-  const attempts =
-    fromMetrics.length > 0
-      ? [...fromMetrics, ...thresholdAttempts(document, context.startedAt)]
-      : thresholdAttempts(document, context.startedAt);
+  const native = nativeThresholdAttempts(metrics, context.startedAt);
+  // A threshold k6 evaluated is listed once, from k6's own verdict, even if `options` declares it.
+  const evaluated = new Set(native.map((attempt) => attempt.testId));
+  const declared = thresholdAttempts(document, context.startedAt).filter(
+    (attempt) => !evaluated.has(attempt.testId),
+  );
+  const attempts = [...fromMetrics, ...native, ...declared];
   const rows = attempts.length > 0 ? attempts : unmeasuredAttempt(context.startedAt);
 
   return canonicalRunResult(

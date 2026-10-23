@@ -15,6 +15,7 @@
     "lint": "eslint --max-warnings=0 src/"
   },
   "dependencies": {
+    "@automate/reporter": "workspace:*",
     "@automate/runner-sdk": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
     "@playwright/test": "catalog:",

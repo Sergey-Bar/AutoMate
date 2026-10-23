@@ -111,7 +111,7 @@ export const BrowserRunInputSchema = z.strictObject({
 });
 export type BrowserRunInput = z.infer<typeof BrowserRunInputSchema>;
 
-function isPlainHttpUrl(value: string): boolean {
+export function isPlainHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return (

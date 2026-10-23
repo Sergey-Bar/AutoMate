@@ -143,9 +143,9 @@ describe('the other browser actions and the other domains', () => {
     }
   });
 
-  it('keeps api, load, security and mobile at the SDK’s 501, byte for byte', async () => {
+  it('keeps api, security and mobile at the SDK’s 501, byte for byte', async () => {
     const { agents, registry } = compose();
-    for (const domain of ['api', 'load', 'security', 'mobile']) {
+    for (const domain of ['api', 'security', 'mobile']) {
       for (const action of ['generate', 'run', 'scan']) {
         const response = await post(agents)(`/api/v1/agents/${domain}/${action}`, {});
         const dispatched = await registry.dispatch(domain, action, {});

@@ -271,6 +271,9 @@ importers:
 
   apps/runner:
     dependencies:
+      '@automate/reporter':
+        specifier: workspace:*
+        version: link:../../packages/reporter
       '@automate/runner-sdk':
         specifier: workspace:*
         version: link:../../packages/runner-sdk
