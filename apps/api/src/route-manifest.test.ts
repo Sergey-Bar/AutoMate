@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Hono } from 'hono';
+import { accessOf } from './http/access.js';
 import { createExecutionRoutes } from './routes/execution.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createReporterRoutes } from './routes/reporter.js';
@@ -144,8 +145,17 @@ async function registeredRoutes(
  * (`ALL /*` is registered by more than one module) and a false gap. They are
  * asserted separately in the middleware case below rather than dropped.
  */
-function isEndpoint(route: { method: string; path: string }): boolean {
-  return route.method !== 'ALL' && !route.path.includes('*');
+/**
+ * A credential check attached to a route (http/access.ts). Hono lists it as an entry of its
+ * own with the route's method and path, so counting it would make every guarded route look
+ * registered twice. The authz matrix is what reads these.
+ */
+function isGuard(route: { handler: unknown }): boolean {
+  return accessOf(route.handler) !== undefined;
+}
+
+function isEndpoint(route: { method: string; path: string; handler: unknown }): boolean {
+  return route.method !== 'ALL' && !route.path.includes('*') && !isGuard(route);
 }
 
 /**
@@ -277,7 +287,9 @@ describe('the mounted route set', () => {
   });
 
   it('registers the two wildcard guards, and no others', async () => {
-    const middleware = (await registeredRoutes(mountedApp())).filter((route) => !isEndpoint(route));
+    const middleware = (await registeredRoutes(mountedApp())).filter(
+      (route) => route.method === 'ALL' || route.path.includes('*'),
+    );
     // Stated rather than skipped: a third wildcard guard, or a wildcard left over
     // from a deleted module, is exactly the kind of thing that silently changes
     // which handler wins.

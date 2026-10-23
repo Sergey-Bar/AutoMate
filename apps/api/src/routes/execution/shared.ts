@@ -15,12 +15,13 @@
 import { timingSafeEqual } from 'node:crypto';
 import { DomainError } from '../../errors/domain-error.js';
 import path from 'node:path';
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { z } from 'zod/v4';
 import { DEFAULT_WORKSPACE_ID, type RunRecord } from '../../repositories/run-repository.js';
 import type { CanonicalRealtimeEvent, RealtimeBus } from '../../realtime/realtime-bus.js';
 import { defaultPolicy } from '../../execution/quality-gate.js';
 import { bearerToken } from '../../http/bearer-token.js';
+import { guard } from '../../http/access.js';
 import type {
   DomainName,
   ExecutionRun,
@@ -232,6 +233,53 @@ export async function authenticate(c: Context, store: ExecutionStore) {
   const token = bearerToken(c.req.header('authorization'));
   if (!token) return null;
   return store.authenticateRunner(token);
+}
+
+type AuthenticatedRunner = NonNullable<Awaited<ReturnType<ExecutionStore['authenticateRunner']>>>;
+
+/**
+ * The runner a request authenticated as, keyed by the request so it cannot outlive it.
+ *
+ * Held beside the guard rather than on the Hono context so route groups stay plain Hono
+ * and a handler's context type does not have to declare a variable it does not own.
+ */
+const authenticatedRunners = new WeakMap<Request, AuthenticatedRunner>();
+
+/**
+ * Requires a runner credential: the bearer token a registration issued.
+ *
+ * A middleware rather than the first lines of each handler, so the requirement is attached
+ * to the route where the authz matrix can read it. The refusal is the same
+ * RUNNER_UNAUTHORIZED the handlers threw, and it still precedes body parsing.
+ */
+export function requireRunnerCredential(store: ExecutionStore): MiddlewareHandler {
+  return guard('runner-credential', async (c, next) => {
+    const runner = await authenticate(c, store);
+    if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+    authenticatedRunners.set(c.req.raw, runner);
+    await next();
+  });
+}
+
+/** The runner 
+equireRunnerCredential authenticated for this request. */
+export function authenticatedRunner(c: Context): AuthenticatedRunner {
+  const runner = authenticatedRunners.get(c.req.raw);
+  if (!runner) throw new DomainError('RUNNER_UNAUTHORIZED', 'Runner token is invalid');
+  return runner;
+}
+
+/** Requires the runner registration secret, with the same refusal the handler used to throw. */
+export function requireRegistrationSecret(secret: () => string | undefined): MiddlewareHandler {
+  return guard('runner-registration-secret', async (c, next) => {
+    if (!registrationAuthorized(c, secret())) {
+      throw new DomainError(
+        'RUNNER_REGISTRATION_UNAUTHORIZED',
+        'Runner registration secret is invalid',
+      );
+    }
+    await next();
+  });
 }
 
 export function legacyRun(record: RunRecord): ExecutionRun {
