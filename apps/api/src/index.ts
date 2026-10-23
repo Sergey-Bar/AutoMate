@@ -31,6 +31,7 @@ import { createAgentCatalog } from './routes/agent-registry.js';
 import { createToolRegistry } from '@automate/tool-sdk';
 import { registerApiAgent } from './agents/api-adapter.js';
 import { registerBrowserAgent } from './agents/browser-adapter.js';
+import { registerLoadAgent } from './agents/load-adapter.js';
 import { createChatRoutes } from './routes/chat.js';
 import { aiGatewayOrUnconfigured, resolveAiGateway } from './observability/ai-gateway.js';
 import { InMemoryExecutionStore } from './execution/in-memory-execution-store.js';
@@ -261,8 +262,8 @@ const dashboardStores = createDashboardStores();
  * The one tool registry the agent routes dispatch through, and the catalog that
  * `/api/v1/features` and `/api/v1/agents` both read availability from. Browser is the first
  * domain with a real adapter: `browser.run` queues a Playwright job through the same store
- * `POST /api/v1/runs` uses, and `api.run` queues a Bruno job the same way. The other three
- * domains register nothing and answer `501`.
+ * `POST /api/v1/runs` uses, `api.run` queues a Bruno job and `load.run` a bounded k6 job the
+ * same way. The other two domains register nothing and answer `501`.
  */
 const agentRegistry = createToolRegistry();
 registerBrowserAgent({
@@ -273,6 +274,12 @@ registerBrowserAgent({
   requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
 });
 registerApiAgent({
+  registry: agentRegistry,
+  store: executionStore,
+  workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+  requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
+});
+registerLoadAgent({
   registry: agentRegistry,
   store: executionStore,
   workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',

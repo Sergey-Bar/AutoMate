@@ -76,7 +76,12 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   { family: 'run submission', files: ['execution/run-submission.ts'] },
   {
     family: 'agent execution bridge',
-    files: ['agents/execution-bridge.ts', 'agents/browser-adapter.ts', 'agents/api-adapter.ts'],
+    files: [
+      'agents/execution-bridge.ts',
+      'agents/browser-adapter.ts',
+      'agents/api-adapter.ts',
+      'agents/load-adapter.ts',
+    ],
   },
   { family: 'reporter results', files: ['routes/reporter-results.ts'] },
   { family: 'reporting', files: ['routes/reporting.ts'] },

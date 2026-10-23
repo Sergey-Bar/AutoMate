@@ -5121,6 +5121,33 @@
         "required": ["runId", "sequence"],
         "additionalProperties": false
       },
+      "LoadJobConfigurationSchema": {
+        "type": "object",
+        "properties": {
+          "script": { "type": "string", "maxLength": 200 },
+          "vus": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+        },
+        "required": ["script", "vus", "durationSeconds"],
+        "additionalProperties": false
+      },
+      "LoadRunInputSchema": {
+        "type": "object",
+        "properties": {
+          "script": { "type": "string", "maxLength": 200 },
+          "targetUrl": { "type": "string" },
+          "vus": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "durationSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+          "projectId": { "type": "string", "minLength": 1 },
+          "environmentId": { "type": "string", "minLength": 1 },
+          "releaseId": { "type": "string", "minLength": 1 },
+          "branch": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "minLength": 1 },
+          "idempotencyKey": { "type": "string", "minLength": 1 }
+        },
+        "required": ["script", "targetUrl"],
+        "additionalProperties": false
+      },
       "MttrSchema": {
         "type": "object",
         "properties": {

@@ -57,7 +57,7 @@ describe('a job is routed by the shape of its own configuration', () => {
   it('sends a job with a command to the generic adapter', async () => {
     const generic = stubProvider();
     const playwright = stubProvider();
-    const router = new RoutingExecutionAdapter(generic, playwright);
+    const router = new RoutingExecutionAdapter(generic, playwright, stubProvider());
 
     await router.execute(
       context({ command: { argv: ['pytest'], workingDirectory: '.', artifactGlobs: [] } }),
@@ -72,7 +72,7 @@ describe('a job is routed by the shape of its own configuration', () => {
     // working exactly as it did, because it is the one mode with real deployments.
     const generic = stubProvider();
     const playwright = stubProvider();
-    const router = new RoutingExecutionAdapter(generic, playwright);
+    const router = new RoutingExecutionAdapter(generic, playwright, stubProvider());
 
     await router.execute(context({ playwrightProject: 'chromium', targetUrl: 'https://a.test' }));
 
@@ -83,7 +83,7 @@ describe('a job is routed by the shape of its own configuration', () => {
   it('refuses a job declaring both a command and a Playwright project', async () => {
     const generic = stubProvider();
     const playwright = stubProvider();
-    const router = new RoutingExecutionAdapter(generic, playwright);
+    const router = new RoutingExecutionAdapter(generic, playwright, stubProvider());
 
     // Preferring one would execute the wrong suite against the wrong target and
     // report it as the operator's intent. Refusing is the only safe answer.
@@ -103,7 +103,7 @@ describe('a job is routed by the shape of its own configuration', () => {
     const generic = stubProvider();
     const playwright = stubProvider();
     const api = stubProvider();
-    const router = new RoutingExecutionAdapter(generic, playwright, api);
+    const router = new RoutingExecutionAdapter(generic, playwright, stubProvider(), api);
 
     await router.execute(context({ apiCollection: 'pass', targetUrl: 'https://a.test' }));
 
@@ -114,7 +114,7 @@ describe('a job is routed by the shape of its own configuration', () => {
 
   it('refuses an API collection combined with a command or a Playwright project', async () => {
     const api = stubProvider();
-    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider(), api);
+    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider(), stubProvider(), api);
     const command = { argv: ['x'], workingDirectory: '.', artifactGlobs: [] };
     for (const other of [{ command }, { playwrightProject: 'chromium' }]) {
       await expect(
@@ -125,7 +125,7 @@ describe('a job is routed by the shape of its own configuration', () => {
   });
 
   it('refuses an API collection on a runner that has no API adapter', async () => {
-    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider());
+    const router = new RoutingExecutionAdapter(stubProvider(), stubProvider(), stubProvider());
     await expect(router.execute(context({ apiCollection: 'pass' }))).rejects.toBeInstanceOf(
       RunnerConfigurationError,
     );
@@ -133,12 +133,43 @@ describe('a job is routed by the shape of its own configuration', () => {
 
   it('cleans up through the generic adapter', async () => {
     const generic = stubProvider();
-    const router = new RoutingExecutionAdapter(generic, stubProvider());
+    const router = new RoutingExecutionAdapter(generic, stubProvider(), stubProvider());
     await router.cleanup('/tmp/workspace');
     expect(generic.cleanup).toHaveBeenCalledWith('/tmp/workspace');
   });
 });
 
+describe('a load job goes to the k6 adapter, and only a load job does', () => {
+  const k6 = { script: 'smoke.js', vus: 1, durationSeconds: 5 };
+
+  it('sends a job carrying a k6 block to the k6 adapter', async () => {
+    const [generic, playwright, k6Adapter] = [stubProvider(), stubProvider(), stubProvider()];
+    const router = new RoutingExecutionAdapter(generic, playwright, k6Adapter);
+
+    await router.execute(context({ k6, targetUrl: 'http://a.test' }));
+
+    expect(k6Adapter.execute).toHaveBeenCalledOnce();
+    expect(playwright.execute).not.toHaveBeenCalled();
+    expect(generic.execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a job that mixes a k6 block with a command or a Playwright project', async () => {
+    const [generic, playwright, k6Adapter] = [stubProvider(), stubProvider(), stubProvider()];
+    const router = new RoutingExecutionAdapter(generic, playwright, k6Adapter);
+
+    await expect(
+      router.execute(context({ k6, playwrightProject: 'smoke-pass' })),
+    ).rejects.toBeInstanceOf(RunnerConfigurationError);
+    await expect(
+      router.execute(
+        context({ k6, command: { argv: ['sh'], workingDirectory: '.', artifactGlobs: [] } }),
+      ),
+    ).rejects.toBeInstanceOf(RunnerConfigurationError);
+    expect(k6Adapter.execute).not.toHaveBeenCalled();
+    expect(generic.execute).not.toHaveBeenCalled();
+    expect(playwright.execute).not.toHaveBeenCalled();
+  });
+});
 describe('a command is read out of a job spec, and validated before it spawns', () => {
   it('reads argv and globs out of a well-formed spec', () => {
     const command = readGenericCommand({

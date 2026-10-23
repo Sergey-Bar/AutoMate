@@ -51,6 +51,8 @@ export interface ExecutionContext {
   apiCollection?: string;
   /** The Bruno environment name, when the API run names one. */
   apiEnvironment?: string;
+  /** The `configuration.k6` block, when the job is a load run. Parsed by the k6 adapter. */
+  k6?: unknown;
   deadlineMs: number;
   signal: AbortSignal;
   onEvent?: (event: z.infer<typeof eventLineSchema>) => Promise<void>;
@@ -128,7 +130,7 @@ function defaultSpawn(
   return spawn(command, [...args], { ...options, shell: false, stdio: 'pipe' });
 }
 
-function contentType(path: string): string {
+export function contentType(path: string): string {
   const extension = extname(path).toLowerCase();
   if (extension === '.json') return 'application/json';
   if (extension === '.xml') return 'application/xml';
@@ -141,7 +143,28 @@ function contentType(path: string): string {
   return 'application/octet-stream';
 }
 
-function sanitizeError(value: unknown, redactions: readonly string[]): string {
+/**
+ * The target a job names, or a refusal: a plain http(s) URL, no credentials, whose origin the
+ * runner's operator allowlisted (`RUNNER_ALLOWED_TARGET_URLS`). Shared by every adapter that
+ * points a tool at a caller-named target, so the rule is one rule.
+ */
+export function assertAllowedTarget(value: string, allowedOrigins: ReadonlySet<string>): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RunnerConfigurationError('Execution target URL is invalid');
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
+    throw new RunnerConfigurationError('Execution target URL is not allowed');
+  }
+  if (!allowedOrigins.has(url.origin)) {
+    throw new RunnerConfigurationError(`Execution target origin is not allowlisted: ${url.origin}`);
+  }
+  return url.toString();
+}
+
+export function sanitizeError(value: unknown, redactions: readonly string[]): string {
   let message = value instanceof Error ? value.message : String(value);
   for (const secret of redactions) {
     if (secret) message = message.replaceAll(secret, '[REDACTED]');
@@ -149,7 +172,7 @@ function sanitizeError(value: unknown, redactions: readonly string[]): string {
   return message;
 }
 
-function sanitizeEnvironment(
+export function sanitizeEnvironment(
   environment: NodeJS.ProcessEnv,
   redactions: readonly string[],
 ): NodeJS.ProcessEnv {
@@ -169,7 +192,7 @@ function assertInside(root: string, candidate: string): void {
   }
 }
 
-async function collectFiles(root: string): Promise<string[]> {
+export async function collectFiles(root: string): Promise<string[]> {
   const result: string[] = [];
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -459,21 +482,7 @@ export class PlaywrightExecutionAdapter implements ExecutionProvider {
   }
 
   private validateTarget(value: string): string {
-    let url: URL;
-    try {
-      url = new URL(value);
-    } catch {
-      throw new RunnerConfigurationError('Execution target URL is invalid');
-    }
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) {
-      throw new RunnerConfigurationError('Execution target URL is not allowed');
-    }
-    if (!this.allowedTargets.has(url.origin)) {
-      throw new RunnerConfigurationError(
-        `Execution target origin is not allowlisted: ${url.origin}`,
-      );
-    }
-    return url.toString();
+    return assertAllowedTarget(value, this.allowedTargets);
   }
 
   private async collectArtifacts(workspacePath: string): Promise<ExecutionArtifact[]> {
@@ -533,7 +542,7 @@ interface ChildExit {
 }
 
 /** A log that keeps the first `maxBytes` bytes of what it is given and drops the rest. */
-class CappedLog {
+export class CappedLog {
   text = '';
   private bytes = 0;
 

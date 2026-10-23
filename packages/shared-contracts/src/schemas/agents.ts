@@ -156,7 +156,7 @@ export const ApiRunInputSchema = z.strictObject({
 });
 export type ApiRunInput = z.infer<typeof ApiRunInputSchema>;
 
-function isPlainHttpUrl(value: string): boolean {
+export function isPlainHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);
     return (

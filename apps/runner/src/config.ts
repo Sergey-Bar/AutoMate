@@ -5,6 +5,7 @@ import { z } from 'zod/v4';
 
 const defaultProjectRoot = fileURLToPath(new URL('../fixtures/playwright-smoke/', import.meta.url));
 const defaultApiCollectionRoot = fileURLToPath(new URL('../fixtures/api-smoke/', import.meta.url));
+const defaultK6ScriptRoot = fileURLToPath(new URL('../fixtures/k6/', import.meta.url));
 const defaultSpoolRoot = join(tmpdir(), 'automate-runner-spool');
 
 function csv(value: string): string[] {
@@ -71,6 +72,12 @@ const RunnerConfigSchema = z
      */
     apiCollectionRoot: z.string().min(1).default(defaultApiCollectionRoot),
     allowedPlaywrightProjects: z.string().default('smoke-pass,smoke-failure').transform(csv),
+    /**
+     * Where the k6 load scripts live. A load job names a script *relative to this directory*
+     * and the adapter refuses anything that resolves outside it (links included), so the
+     * scripts that run are the operator's, never the caller's. See `k6-execution.ts`.
+     */
+    k6ScriptRoot: z.string().min(1).default(defaultK6ScriptRoot),
     allowedTargetUrls: z.string().default('http://127.0.0.1:3000').transform(origins),
     artifactMaxBytes: z.coerce.number().int().min(1).max(500_000_000).default(50_000_000),
     logMaxBytes: z.coerce.number().int().min(1_024).max(50_000_000).default(5_000_000),
@@ -136,6 +143,7 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     playwrightProjectRoot: input['RUNNER_PLAYWRIGHT_PROJECT_ROOT'],
     apiCollectionRoot: input['RUNNER_API_COLLECTION_ROOT'],
     allowedPlaywrightProjects: input['RUNNER_PLAYWRIGHT_PROJECTS'],
+    k6ScriptRoot: input['RUNNER_K6_SCRIPT_ROOT'],
     allowedTargetUrls: input['RUNNER_ALLOWED_TARGET_URLS'],
     artifactMaxBytes: input['RUNNER_ARTIFACT_MAX_BYTES'],
     logMaxBytes: input['RUNNER_LOG_MAX_BYTES'],
