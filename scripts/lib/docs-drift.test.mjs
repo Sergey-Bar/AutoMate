@@ -420,3 +420,12 @@ test('the committed documentation does not drift from the code', () => {
       '`packages/config`, `playwright.config.ts`, the compose file and the root package.json.',
   );
 });
+
+test('settings read through a config object, not process.env, are real variables', () => {
+  // The runner reads its settings as `input['RUNNER_K6_SCRIPT_ROOT']`, an object passed in
+  // by the entry point, so a collector that only looked at `process.env` called every
+  // runner setting a typo the moment a changelog named it.
+  for (const name of ['RUNNER_K6_SCRIPT_ROOT', 'RUNNER_API_COLLECTION_ROOT']) {
+    assert.ok(environment.knownEnvVars.has(name), `${name} is read by apps/runner/src/config.ts`);
+  }
+});

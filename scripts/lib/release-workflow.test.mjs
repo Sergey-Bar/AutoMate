@@ -56,7 +56,7 @@ test('it runs on v* tags only, and reads by default', () => {
 test('the jobs exist, in the order a release needs them', () => {
   assert.deepEqual(
     [...jobs().keys()],
-    ['prepare', 'verify', 'images', 'manifests', 'visibility', 'release', 'acceptance'],
+    ['prepare', 'verify', 'images', 'manifests', 'visibility', 'release', 'acceptance', 'upgrade'],
   );
 });
 
@@ -70,7 +70,7 @@ test('only the jobs that write get write permissions', () => {
     'id-token: write',
   ]);
   assert.deepEqual(permissionsOf(all.get('release') ?? ''), ['contents: write']);
-  for (const id of ['prepare', 'verify', 'visibility', 'acceptance']) {
+  for (const id of ['prepare', 'verify', 'visibility', 'acceptance', 'upgrade']) {
     assert.deepEqual(permissionsOf(all.get(id) ?? ''), [], `${id} must inherit read-only`);
   }
 });
@@ -122,4 +122,18 @@ test('acceptance installs from the release page with only the download', () => {
   assert.match(job, /api\/v1\/auth\/login/);
   assert.match(job, /if: always\(\)\n[\s\S]*?run: \.\/start\.sh uninstall --purge/);
   assert.match(job, /GAP Windows/);
+});
+
+test('an existing install is upgraded with `start update`, keeping its key', () => {
+  const job = jobs().get('upgrade') ?? '';
+  assert.doesNotMatch(job, /actions\/checkout/, 'upgrade must not see the source tree');
+  assert.match(job, /needs: \[prepare, release\]/);
+  assert.match(job, /--exclude-pre-releases/);
+  assert.match(job, /sha256sum -c SHA256SUMS/);
+  assert.match(job, /\.\/start\.sh update --version "\$NEW_VERSION"/);
+  assert.match(job, /api\/v1\/auth\/login/);
+  assert.match(
+    job,
+    /if: always\(\) && steps\.previous\.outputs\.version != ''\n[\s\S]*?uninstall --purge/,
+  );
 });
