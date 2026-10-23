@@ -75,7 +75,7 @@
     "Q-56": "fixed",
     "X-1": "fixed",
     "X-2": "fixed",
-    "X-3": "debt",
+    "X-3": "fixed",
     "X-4": "fixed",
     "X-5": "fixed",
     "W-1": "fixed",
@@ -226,6 +226,8 @@
     "MNT-135": "fixed",
     "MNT-136": "fixed",
     "MNT-137": "fixed",
-    "MNT-150": "fixed"
+    "MNT-150": "fixed",
+    "BK-2": "debt",
+    "MNT-151": "fixed"
   }
 }

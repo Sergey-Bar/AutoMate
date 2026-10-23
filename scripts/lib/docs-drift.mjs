@@ -871,6 +871,16 @@ function derivePorts(read) {
 }
 
 /**
+ * Add the first capture group of every match of `pattern` in `source` to `target`.
+ *
+ * @param {Set<string>} target
+ * @param {string} source
+ * @param {RegExp} pattern a global pattern with one capture group
+ */
+function addFirstGroups(target, source, pattern) {
+  for (const match of source.matchAll(pattern)) target.add(match[1] ?? '');
+}
+/**
  * Every environment variable name that is real: declared in the config schema, read
  * from `process.env` anywhere in the workspace, or set by the compose file.
  *
@@ -900,6 +910,10 @@ function deriveEnvVars(read, files) {
     for (const match of source.matchAll(/:\s*'([A-Z][A-Z0-9_]*)'/g)) {
       names.add(match[1] ?? '');
     }
+    // A setting read off a config object the entry point passes in — the runner's
+    // `input['RUNNER_K6_SCRIPT_ROOT']` — is as real as one read off `process.env`.
+    addFirstGroups(names, source, /\binput\[['"]([A-Z][A-Z0-9_]*)['"]\]/g);
+
     // And every name the workspace exports. A document citing
     // `MIGRATION_ADVISORY_LOCK_KEY` as evidence for a decision is naming something
     // that exists, which is the opposite of the claim this detector makes, and the

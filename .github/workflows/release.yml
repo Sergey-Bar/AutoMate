@@ -316,3 +316,76 @@ jobs:
             echo '- GAP macOS: hosted runners have no Docker.'
             echo '- GAP arm64: images are built and published natively; not installed here.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  upgrade:
+    name: Upgrade from the previous release
+    needs: [prepare, release]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    # What an existing user does: they have the previous release running, with its own
+    # `.env`, and run `start update`. This installs the previous final release, moves it to
+    # this one, and checks the same sign-in key still works. It is the only place the
+    # migrations are applied to a database an earlier release created.
+    env:
+      NEW_VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      - name: Find the previous final release
+        id: previous
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts \
+            --limit 20 --json tagName --jq '.[].tagName' | grep -vx "$GITHUB_REF_NAME" | head -n 1 || true)"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          [ -n "$tag" ] || echo "No earlier final release: nothing to upgrade from." >> "$GITHUB_STEP_SUMMARY"
+      - name: Install the previous release
+        if: steps.previous.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OLD_VERSION: ${{ steps.previous.outputs.version }}
+          AUTOMATE_NO_BROWSER: '1'
+        run: |
+          set -euo pipefail
+          gh release download "v$OLD_VERSION" -R "$GITHUB_REPOSITORY" -p "automate-$OLD_VERSION.zip" -p SHA256SUMS
+          sha256sum -c SHA256SUMS
+          unzip -q "automate-$OLD_VERSION.zip"
+          cd "automate-$OLD_VERSION"
+          ./start.sh
+      - name: Update it to this release
+        if: steps.previous.outputs.version != ''
+        env:
+          OLD_VERSION: ${{ steps.previous.outputs.version }}
+          AUTOMATE_NO_BROWSER: '1'
+        run: |
+          set -euo pipefail
+          cd "automate-$OLD_VERSION"
+          ./start.sh update --version "$NEW_VERSION"
+      - name: Probe the updated install
+        if: steps.previous.outputs.version != ''
+        env:
+          OLD_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd "automate-$OLD_VERSION"
+          grep -qx "AUTOMATE_VERSION=$NEW_VERSION" .env
+          curl -fsS http://127.0.0.1:8080/api/v1/ready
+          key="$(sed -n 's/^AUTOMATE_INSTALLATION_KEY=//p' .env)"
+          curl -fsS -o /dev/null -X POST -H 'content-type: application/json' \
+            -d "{\"apiKey\":\"$key\"}" http://127.0.0.1:8080/api/v1/auth/login
+          docker compose -p automate --env-file .env -f compose.yml ps --format '{{.Image}}' \
+            | grep -q "automate-api:$NEW_VERSION"
+      - name: Logs, if it failed
+        if: failure() && steps.previous.outputs.version != ''
+        env:
+          OLD_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          cd "automate-$OLD_VERSION"
+          docker compose -p automate --env-file .env -f compose.yml logs --no-color --tail 80
+      - name: Remove it
+        if: always() && steps.previous.outputs.version != ''
+        env:
+          OLD_VERSION: ${{ steps.previous.outputs.version }}
+        run: |
+          cd "automate-$OLD_VERSION"
+          ./start.sh uninstall --purge

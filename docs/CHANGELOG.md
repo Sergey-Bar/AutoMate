@@ -2,6 +2,79 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 3.0.0 — 2026-10-23 — the agent domains run
+
+Browser, API and load runs can now be started through `POST /api/v1/agents/:domain/run`.
+Each queues a real job on the existing run pipeline and answers `202` with a `Location`,
+where before every pair answered `501`. This is a major release because that contract
+changed and because migration `0030` drops three tables. To upgrade an install, run
+`start update`; migrations run on start and data volumes are kept. The release workflow
+now proves that path: it installs the previous release, updates it, and signs in with the
+same key.
+
+### Added
+
+- **Browser, API and load domains** (ledger X-3, BK-1). `browser.run` executes a Playwright
+  project, `api.run` runs a Bruno collection, `load.run` runs a k6 script with bounded VUs
+  and duration. All three go through `packages/tool-sdk` and one shared run-submission
+  service, are bound to the configured workspace, and are claimed by the production runner
+  image, which now carries Bruno and k6. `scan` and `generate` stay `501` with a reason.
+- **`packages/tool-sdk`**: operation declaration, registry dispatch and error
+  classification for agent adapters.
+- **Quality instruments** that found real defects: `pnpm capability:evidence` (a
+  capability row is `unverified` when its evidence is gone), Stryker mutation testing with a
+  score ratchet (all five core packages are above 75%), property tests for the stated
+  invariants, and a generated authorization matrix (`pnpm authz:check`).
+- A test that installs the previous release and updates it to the one being published.
+
+### Fixed
+
+- **MNT-135 to MNT-137, MNT-140, MNT-141** — found by running real `bru` and real `k6`: a
+  passing Bruno request read as unobserved, a breached k6 threshold was never a verdict, and
+  a clean run read as failed.
+- **MNT-150** — the production runner image advertised `k6` but not `api`, so an accepted
+  `api.run` could never be claimed.
+- **MNT-40 to MNT-45** — the terminal sent the copilot question with no body, a test script
+  named `test:unit` was classified as integration, a TOML dependency array ended at the first
+  extras marker, a Python repository with only `requirements.txt` was unrecognised, two
+  frameworks on one manifest line were folded together, and run order was read from random
+  UUIDs.
+- **MNT-100, MNT-101** — a state named after an `Object.prototype` member threw, and retry
+  backoff had no ceiling.
+- **MNT-91** — mutation testing found untested branches in auth, orchestration, runner-sdk
+  and shared-contracts, including the administrator check.
+- **MNT-25** — a runner stopped mid-refresh exited before saving its rotated token (this
+  was also the flaky test).
+- **MNT-50, MNT-51** — three capability-register rows were unreadable by every gate, and
+  two said no k6 or ZAP adapter exists when both did.
+
+### Changed
+
+- **Migration `0030` drops `results`, `blob_shards` and `api_keys`**, which were superseded
+  and had no reader. It refuses to run, naming the table, if one still holds rows unless
+  `automate.allow_drop_nonempty` is set. Anything reading them directly must stop.
+- The runner advertises `playwright`, `chromium`, `api` and `k6` in the image
+  (`RUNNER_CAPABILITIES`), and `playwright,chromium,api` by default elsewhere. Set it
+  explicitly if you run a runner outside the image. `RUNNER_K6_SCRIPT_ROOT` and
+  `RUNNER_API_COLLECTION_ROOT` choose where scripts and collections are read from.
+- Agent `POST` bodies over 64 KB are refused as invalid input.
+- The complexity ceiling moved from 15 to 12 and the Effect bootstrap moved to 4.0.5, with
+  Node 24.22.1 and in-range updates. The documentation site now runs its doctor before
+  deploy.
+- PostgreSQL stays on 16. 18 was rehearsed; an in-place major upgrade needs a dump and
+  restore that is not provided, so the compose image was left alone and the evidence is
+  recorded on DEP-5.
+
+### Known limits
+
+- `security` and `mobile` still answer `501` (ledger BK-2).
+- The nightly mutation job has not yet run on a GitHub runner; its floors were measured on
+  Windows. The Stryker Vitest runner needs a two-line patch on Vitest 5 until upstream fixes
+  it (MNT-90).
+- Complexity is at a ceiling of 12, not the 10 the quality roadmap names, and the
+  loading/empty/error/partial state matrix for every console route is not built. Q-1 and
+  UI-1 stay open with these recorded.
+
 ## 2.5.0 — 2026-10-22 — download and run
 
 Automate can now be installed by downloading one zip from the release page and running
