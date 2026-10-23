@@ -397,6 +397,7 @@ export class RunnerService {
         project,
         playwrightProject: project,
         command,
+        ...(specification['k6'] === undefined ? {} : { k6: specification['k6'] }),
         // The job's own timeout. The lease is *not* a bound on it: every heartbeat
         // renews the lease, so its expiry at claim time says how long the runner may go
         // silent, not how long a suite may run. A cancellation the heartbeat reports

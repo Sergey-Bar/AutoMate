@@ -6,6 +6,7 @@ import { parseRunnerConfig } from './config.js';
 import { PlaywrightExecutionAdapter } from './execution.js';
 import { RoutingExecutionAdapter } from './execution-router.js';
 import { GenericSpawnAdapter } from './generic-spawn.js';
+import { K6ExecutionAdapter } from './k6-execution.js';
 import { HealthServer } from './health-server.js';
 import { RunnerService } from './runner-service.js';
 import { readStoredToken, writeStoredToken } from './token-store.js';
@@ -140,6 +141,14 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
     new PlaywrightExecutionAdapter({
       projectRoot: config.playwrightProjectRoot,
       allowedProjects: config.allowedPlaywrightProjects,
+      allowedTargetUrls: config.allowedTargetUrls,
+      workspaceRoot: config.workspaceRoot,
+      artifactMaxBytes: config.artifactMaxBytes,
+      logMaxBytes: config.logMaxBytes,
+      redactions: config.redactions,
+    }),
+    new K6ExecutionAdapter({
+      scriptRoot: config.k6ScriptRoot,
       allowedTargetUrls: config.allowedTargetUrls,
       workspaceRoot: config.workspaceRoot,
       artifactMaxBytes: config.artifactMaxBytes,

@@ -11,6 +11,7 @@ export * from './durable-realtime.js';
 export * from './reporter-events.js';
 export * from './realtime-events.js';
 export * from './agents.js';
+export * from './load.js';
 export {
   LEGACY_FLAT_V1_CONTRACT_ID,
   RUN_CONTRACT_ID,

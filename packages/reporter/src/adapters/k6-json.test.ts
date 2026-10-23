@@ -140,3 +140,101 @@ describe('attribution survives the parse', () => {
     expect(result.provenance['adapterVersion']).toBe(K6_JSON_ADAPTER_VERSION);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The document `k6 run --summary-export` writes (k6 v2.3.0). This is the only shape a
+// producer in this repository emits, and it differs from the one the adapter was first
+// written against: thresholds are not an `options` block, they sit on the metric they
+// judge as `{ "<expression>": <crossed> }`, where `true` means the bound was BREACHED.
+// ---------------------------------------------------------------------------
+
+/** What k6 v2.3.0 exported for a run that met every bound (trimmed to the judged metrics). */
+const EXPORTED_CLEAN = {
+  metrics: {
+    checks: { passes: 40, fails: 0, thresholds: { 'rate>0.99': false }, value: 1 },
+    http_req_failed: { passes: 0, fails: 40, thresholds: { 'rate<0.01': false }, value: 0 },
+    http_req_duration: { avg: 0.7, 'p(95)': 2.4, thresholds: { 'p(95)<2000': false } },
+    http_reqs: { count: 40, rate: 19.7 },
+  },
+};
+
+/** The same, for a run whose p(95) latency bound was crossed (k6 exited 99). */
+const EXPORTED_BREACHED = {
+  metrics: {
+    checks: { passes: 28, fails: 0, value: 1 },
+    http_req_failed: { passes: 0, fails: 28, thresholds: { 'rate<0.01': false }, value: 0 },
+    http_req_duration: { avg: 43.7, 'p(95)': 53.3, thresholds: { 'p(95)<5': true } },
+  },
+};
+
+describe("the thresholds `k6 run --summary-export` writes are k6's own verdict", () => {
+  it('reads a crossed threshold on a metric with no counters as a failed attempt naming the bound', () => {
+    const result = parse(EXPORTED_BREACHED);
+
+    const crossed = result.attempts.find(
+      (attempt) => attempt.testId === 'threshold:http_req_duration[p(95)<5]',
+    );
+    expect(crossed?.status).toBe('failed');
+    expect(crossed?.error?.message).toContain('p(95)<5');
+    expect(result.status).toBe('failed');
+  });
+
+  it('reads a summary whose every threshold held as passed', () => {
+    const result = parse(EXPORTED_CLEAN);
+
+    expect(result.attempts.map((attempt) => [attempt.testId, attempt.status])).toEqual([
+      ['threshold:checks[rate>0.99]', 'passed'],
+      ['threshold:http_req_failed[rate<0.01]', 'passed'],
+      ['threshold:http_req_duration[p(95)<2000]', 'passed'],
+    ]);
+    expect(result.status).toBe('passed');
+  });
+
+  it('reads http_req_failed by the requests that failed, which k6 counts as `passes`', () => {
+    // `passes` of a Rate is the number of non-zero samples; for `http_req_failed` those are
+    // the failed requests. A run with no failed request has `passes: 0, fails: 40`, and reading
+    // `fails` as the failure count reported 40 failures on a clean run.
+    const clean = parse({ metrics: { http_req_failed: { passes: 0, fails: 40, value: 0 } } });
+    expect(statusOf(clean, 'k6.http_req_failed')).toBe('passed');
+
+    const failing = parse({ metrics: { http_req_failed: { passes: 3, fails: 37, value: 0.075 } } });
+    expect(statusOf(failing, 'k6.http_req_failed')).toBe('failed');
+  });
+
+  it('judges a metric that carries thresholds by them, not by its raw counters', () => {
+    // k6 itself passes a 3% failure rate under `rate>0.95`; failing it on `fails: 3` as well
+    // would overrule the script's own tolerance.
+    const result = parse({
+      metrics: {
+        checks: { passes: 97, fails: 3, thresholds: { 'rate>0.95': false }, value: 0.97 },
+      },
+    });
+
+    expect(result.attempts.map((attempt) => [attempt.testId, attempt.status])).toEqual([
+      ['threshold:checks[rate>0.95]', 'passed'],
+    ]);
+  });
+
+  it('still fails a metric with no thresholds of its own on any failed sample', () => {
+    const result = parse({ metrics: { checks: { passes: 97, fails: 3, value: 0.97 } } });
+    expect(statusOf(result, 'k6.checks')).toBe('failed');
+  });
+
+  it('lists a threshold once when it is both exported on the metric and declared in options', () => {
+    const result = parse({
+      options: { thresholds: { http_req_duration: ['p(95)<5'] } },
+      metrics: { http_req_duration: { 'p(95)': 53.3, thresholds: { 'p(95)<5': true } } },
+    });
+
+    const ids = result.attempts.map((attempt) => attempt.testId);
+    expect(ids.filter((id) => id === 'threshold:http_req_duration[p(95)<5]')).toHaveLength(1);
+    expect(statusOf(result, 'threshold:http_req_duration[p(95)<5]')).toBe('failed');
+  });
+
+  it('reads a verdict that is not a boolean as unknown, never as passed', () => {
+    const result = parse({
+      metrics: { http_req_duration: { 'p(95)': 1, thresholds: { 'p(95)<5': 'maybe' } } },
+    });
+    expect(statusOf(result, 'threshold:http_req_duration[p(95)<5]')).toBe('unknown');
+  });
+});

@@ -206,11 +206,13 @@ test.describe('the full loop', () => {
       const { integrations } = (await listing.json()) as {
         integrations: Array<{ domain: string; status: string; implemented: boolean }>;
       };
-      expect(integrations.find((item) => item.domain === 'browser')).toMatchObject({
-        status: 'configured',
-        implemented: true,
-      });
-      for (const domain of ['api', 'load', 'security', 'mobile']) {
+      for (const domain of ['browser', 'load']) {
+        expect(integrations.find((item) => item.domain === domain)).toMatchObject({
+          status: 'configured',
+          implemented: true,
+        });
+      }
+      for (const domain of ['api', 'security', 'mobile']) {
         expect(integrations.find((item) => item.domain === domain)).toMatchObject({
           status: 'not_configured',
           implemented: false,

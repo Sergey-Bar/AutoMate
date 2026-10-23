@@ -26,8 +26,8 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
     let pairs = 0;
     for (const domain of AGENT_DOMAINS) {
       for (const action of AGENT_ACTIONS) {
-        // The browser pairs are covered by `agents-browser.test.ts` and the test below.
-        if (domain === 'browser') continue;
+        // The browser pairs and load's `scan` / `generate` carry a reason; the test below covers them.
+        if (domain === 'browser' || (domain === 'load' && action !== 'run')) continue;
         pairs += 1;
         const response = await app.request(`/api/v1/agents/${domain}/${action}`, {
           method: 'POST',
@@ -42,13 +42,18 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
         expect(Object.keys(body)).toEqual(Object.keys(problem.body));
       }
     }
-    expect(pairs).toBe(12);
+    expect(pairs).toBe(10);
   });
 
-  it('answers browser.scan and browser.generate with the SDK body plus the reason', async () => {
-    for (const action of ['scan', 'generate']) {
-      const response = await app.request(`/api/v1/agents/browser/${action}`, { method: 'POST' });
-      const dispatched = await registry.dispatch('browser', action, {});
+  it('answers browser and load scan / generate with the SDK body plus the reason', async () => {
+    for (const [domain, action] of [
+      ['browser', 'scan'],
+      ['browser', 'generate'],
+      ['load', 'scan'],
+      ['load', 'generate'],
+    ] as const) {
+      const response = await app.request(`/api/v1/agents/${domain}/${action}`, { method: 'POST' });
+      const dispatched = await registry.dispatch(domain, action, {});
       if (dispatched.ok) throw new Error('dispatched');
       const problem = toAgentProblem(dispatched.failure);
       const { reason, ...rest } = (await response.json()) as Record<string, unknown>;

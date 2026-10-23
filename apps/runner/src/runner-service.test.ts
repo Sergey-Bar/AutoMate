@@ -324,6 +324,38 @@ describe('RunnerService', () => {
     expect(deadlines).toEqual([600_000]);
   });
 
+  it("hands a load job's k6 block to the executor and no Playwright project", async () => {
+    const protocol = new FakeProtocol();
+    const k6 = { script: 'smoke.js', vus: 2, durationSeconds: 5 };
+    protocol.enqueue({
+      ...claim('job-load'),
+      spec: { configuration: { k6, targetUrl: 'https://allowed.test' } },
+    });
+    const seen: Array<Pick<ExecutionContext, 'k6' | 'playwrightProject' | 'targetUrl'>> = [];
+    const executor = new FakeExecutor(async (context) => {
+      seen.push({
+        k6: context.k6,
+        playwrightProject: context.playwrightProject,
+        targetUrl: context.targetUrl,
+      });
+      return {
+        status: 'passed',
+        resultPath: '',
+        workspacePath: '',
+        artifacts: [],
+        stdout: '',
+        stderr: '',
+      };
+    });
+    const runner = service(protocol, executor);
+    const stop = setTimeout(() => runner.stop(), 10);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(seen).toEqual([{ k6, playwrightProject: undefined, targetUrl: 'https://allowed.test' }]);
+  });
+
   it('keeps cancellation and configuration failure distinct from product failure', async () => {
     const cancellationProtocol = new FakeProtocol();
     cancellationProtocol.enqueue(claim('job-cancel'));
