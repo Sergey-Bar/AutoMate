@@ -858,6 +858,30 @@
           "bedrock"
         ]
       },
+      "AgentAcceptedRunSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "const": "accepted" },
+          "domain": { "type": "string", "enum": ["browser", "api", "load", "security", "mobile"] },
+          "action": { "type": "string", "enum": ["generate", "run", "scan"] },
+          "runId": { "type": "string", "minLength": 1 },
+          "jobId": { "type": "string", "minLength": 1 },
+          "phase": { "type": "string", "minLength": 1 },
+          "duplicate": { "type": "boolean" },
+          "links": {
+            "type": "object",
+            "properties": {
+              "run": { "type": "string", "minLength": 1 },
+              "events": { "type": "string", "minLength": 1 },
+              "artifacts": { "type": "string", "minLength": 1 }
+            },
+            "required": ["run", "events", "artifacts"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["status", "domain", "action", "runId", "jobId", "phase", "duplicate", "links"],
+        "additionalProperties": false
+      },
       "AgentArtifactsSchema": {
         "type": "object",
         "properties": {
@@ -1307,6 +1331,22 @@
           }
         },
         "required": ["branch", "runs", "passed", "failed", "passRate"],
+        "additionalProperties": false
+      },
+      "BrowserRunInputSchema": {
+        "type": "object",
+        "properties": {
+          "project": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+          "targetUrl": { "type": "string" },
+          "projectId": { "type": "string", "minLength": 1 },
+          "environmentId": { "type": "string", "minLength": 1 },
+          "releaseId": { "type": "string", "minLength": 1 },
+          "branch": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "minLength": 1 },
+          "timeoutMs": { "type": "integer", "exclusiveMinimum": 0, "maximum": 86400000 },
+          "idempotencyKey": { "type": "string", "minLength": 1 }
+        },
+        "required": ["project", "targetUrl"],
         "additionalProperties": false
       },
       "CanonicalAttemptSchema": {

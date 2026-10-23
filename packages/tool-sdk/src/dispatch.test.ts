@@ -8,6 +8,7 @@ import {
   ToolCancelledError,
   ToolConfigurationError,
   ToolFailureError,
+  ToolInputError,
   ToolRefusedError,
   ToolTransientError,
   createToolRegistry,
@@ -412,6 +413,17 @@ describe('classifying what an adapter throws', () => {
       message: 'k6 is not installed',
     });
     expect(toAgentProblem(failure).httpStatus).toBe(501);
+  });
+
+  it('maps a request the tool itself found wrong to a 400 that keeps its wording', async () => {
+    const failure = await failureOf(new ToolInputError('projectId does not exist'));
+    expect(failure).toMatchObject({
+      kind: 'invalid_input',
+      code: 'AGENT_INVALID_INPUT',
+      message: 'projectId does not exist',
+      attempts: 1,
+    });
+    expect(toAgentProblem(failure).httpStatus).toBe(400);
   });
 
   it('keeps the code a tool failure carries and maps it to 502', async () => {

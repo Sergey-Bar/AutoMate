@@ -10,6 +10,7 @@ export {
   ToolCancelledError,
   ToolConfigurationError,
   ToolFailureError,
+  ToolInputError,
   ToolRefusedError,
   ToolTimeoutError,
   ToolTransientError,

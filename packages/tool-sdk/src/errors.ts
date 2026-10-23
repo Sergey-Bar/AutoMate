@@ -1,4 +1,8 @@
-import { ConnectorHttpError, ConnectorRejectionError } from '@automate/connectors-sdk';
+import {
+  ConnectorHttpError,
+  ConnectorInputError,
+  ConnectorRejectionError,
+} from '@automate/connectors-sdk';
 
 /**
  * What a caller can do about a failure, which is the only reason to classify one.
@@ -22,6 +26,18 @@ export class ToolConfigurationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'ToolConfigurationError';
+  }
+}
+
+/**
+ * The tool found the request wrong in a way only it could see - an id that names nothing, a
+ * target it refuses. Classified `invalid_input`, so the caller gets a `400` with this message
+ * rather than a `502` that blames the tool, and it is not retried.
+ */
+export class ToolInputError extends ConnectorInputError {
+  constructor(message: string) {
+    super('AGENT_INVALID_INPUT', message);
+    this.name = 'ToolInputError';
   }
 }
 

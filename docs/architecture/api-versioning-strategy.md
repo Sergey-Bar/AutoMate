@@ -34,7 +34,7 @@ run time is a version that nothing in the repository records.
 /api/v1/health                       versioned probe, body carries version: '1'
 /api/v1/ready                        versioned readiness
 /api/v1/features                     derived capability catalogue
-/api/v1/agents/:domain/:action       501 NOT_CONFIGURED naming the domain and action
+/api/v1/agents/:domain/:action       dispatches through the tool registry: browser.run -> 202 + Location; every other pair 501 NOT_CONFIGURED naming the domain and action
 /api/v1/runs                         create, list, cancel, retry
 /api/v1/runs/:runId/gate             the gate verdict
 /api/v1/events                       SSE, cursor-based replay

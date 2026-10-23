@@ -1,11 +1,18 @@
 import { Hono, type Context } from 'hono';
 import { sql } from 'drizzle-orm';
 import { createDbResources } from '@automate/db';
-import { AGENT_DOMAINS, agentAvailability } from './agent-registry.js';
+import { AGENT_DOMAINS } from './agent-registry.js';
 import { PROMETHEUS_CONTENT_TYPE, collect, renderExposition } from '../observability/metrics.js';
 
 export interface HealthRouteOptions {
   databaseUrl?: string;
+  /**
+   * Whether this build can execute work in an agent domain - the catalog of the tool registry
+   * the agent routes dispatch through, so `/api/v1/features` and `/api/v1/agents` read one
+   * source. Omitted means no domain has an adapter, which is the honest answer for an app
+   * composed without any.
+   */
+  agentAvailability?: (domain: string) => boolean;
   /**
    * Probe the shared pool. The composition root injects this so a readiness
    * probe does not construct a fresh `pg.Pool` on every call — doing so leaked
@@ -127,11 +134,12 @@ export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
     // contradicted each other and both were wrong. Deriving it means a domain
     // added to `AgentDomainSchema` is advertised the moment the contract changes.
     //
-    // `available` is what a client can act on: no domain has a configured
-    // execution adapter, so every entry is `false`. That is the honest answer and it
-    // is derived from the same registry the dispatch uses, not typed in twice.
+    // `available` is what a client can act on: true only for a domain with a registered
+    // adapter. It is derived from the same registry the dispatch uses, not typed in twice.
     const features: Record<string, boolean> = {};
-    for (const domain of AGENT_DOMAINS) features[`agent.${domain}`] = agentAvailability(domain);
+    for (const domain of AGENT_DOMAINS) {
+      features[`agent.${domain}`] = options.agentAvailability?.(domain) ?? false;
+    }
     return c.json({ features, version: '1' });
   });
 

@@ -1,34 +1,44 @@
-import { Hono } from 'hono';
-import { AgentRequestSchema } from '@automate/shared-contracts';
-import { AGENT_DOMAINS } from './agent-registry.js';
+import { Hono, type Context } from 'hono';
+import { AgentAcceptedRunSchema } from '@automate/shared-contracts';
+import {
+  createToolRegistry,
+  toAgentProblem,
+  type ToolFailure,
+  type ToolRegistry,
+} from '@automate/tool-sdk';
+import { AGENT_DOMAINS, createAgentCatalog, type AgentCatalog } from './agent-registry.js';
 
 /**
- * The registered domains and actions.
+ * The agent routes: a thin HTTP face over the tool-sdk registry.
  *
- * Both are read from the contract that declares them, and the domains come from
- * `agent-registry.ts` so `/api/v1/features` — which used to answer
- * `features: {}` from a literal while this route listed five domains from a
- * hand-written array — cannot report a different set. One process, two
- * endpoints, one answer.
+ * Every pair is dispatched through `registry.dispatch`, which decides — in this order — that
+ * the domain exists, that the action exists, that an adapter is registered for the pair, that
+ * the body is valid for it, and then runs it. The route renders the outcome:
  *
- * They were hand-written arrays in this file beside the `AgentDomainSchema` and
- * `AgentRequestSchema` that declare exactly those values, in a route that served
- * them and imported neither. Adding a domain to the contract would have left this
- * endpoint rejecting it while the contract said it existed, and nothing would
- * have said so, because both files were individually correct. The same defect
- * class the repository has already fixed twice ("the event allowlist is derived").
+ * - an accepted run (an adapter that queued an execution job) -> `202` with `Location`;
+ * - a refusal -> `toAgentProblem`'s status and flat body, which for the unknown-route and
+ *   unconfigured cases is byte for byte what this file used to hand-write.
  *
- * `AgentRequestSchema.shape.action` rather than a second exported constant: the
- * action vocabulary is a property of the request, so reading it from the request
- * is what makes the two impossible to separate.
+ * The domains and actions are read from the contract (`AgentDomainSchema`, and the SDK's
+ * `AGENT_ACTIONS`, which reads `AgentRequestSchema`) so adding one to the contract is served
+ * without a second edit here — the same defect class the repository has fixed twice ("the
+ * event allowlist is derived").
+ *
+ * The registry is injected: `index.ts` composes the one the process runs on, and an app built
+ * with none has no adapters, so every pair answers `501 AGENT_NOT_CONFIGURED`.
  */
-const DOMAINS = new Set<string>(AGENT_DOMAINS);
-const ACTIONS = new Set<string>(
-  (AgentRequestSchema.shape['action'] as { options: string[] }).options,
-);
+export interface AgentRoutesOptions {
+  registry?: ToolRegistry;
+}
 
 /**
- * The one builder for all four agent failure bodies.
+ * Large enough for any agent request - a handful of short fields - and the bound past which a
+ * body is refused as invalid input without being parsed.
+ */
+const MAX_AGENT_BODY_BYTES = 64 * 1024;
+
+/**
+ * The one builder for the agent failure bodies the route itself decides (the `GET` ones).
  *
  * **Not** `domainErrorResponse` from `errors/boundary.ts`. These bodies are flat —
  * no `error` wrapper, no `requestId`, no nesting — so the boundary's shape would change
@@ -36,11 +46,8 @@ const ACTIONS = new Set<string>(
  * `DomainError.toBody` would replace every message with `'internal error'` and drop
  * `details` unless each error were built `callerSafe`.
  *
- * Key order is `status, implemented, code, …` and is **not** alphabetical. Nothing in
- * `apps/web` reads these bodies and `agents.test.ts` asserts only status codes and
- * `integrations.length`, so the order is free — which is exactly why it is pinned by a
- * test rather than left to whatever a builder happens to emit. The shape is preserved
- * deliberately, not tidied.
+ * Key order is `status, implemented, code, …` and is **not** alphabetical. It is pinned by
+ * `health-agents-consolidation.test.ts` rather than left to whatever a builder happens to emit.
  */
 function agentError(
   status: 'not_implemented' | 'not_configured',
@@ -55,69 +62,113 @@ function agentError(
   };
 }
 
-export function createAgentRoutes(): Hono {
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The JSON body, or `undefined` when there is none, it is not JSON or it is oversized — which
+ * the operation's schema then refuses as invalid input, so a garbled body is a `400` and not a
+ * `500`. The `Idempotency-Key` header is the runs API's way of supplying a key and is honoured
+ * here the same way; a key in the body wins.
+ */
+async function readInput(c: Context): Promise<unknown> {
+  const declared = Number(c.req.header('content-length') ?? 0);
+  if (declared > MAX_AGENT_BODY_BYTES) return undefined;
+  const text = await c.req.text().catch(() => '');
+  if (text.length > MAX_AGENT_BODY_BYTES) return undefined;
+  const body = parseJson(text);
+  const key = c.req.header('idempotency-key');
+  if (key === undefined || typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return body;
+  }
+  return { idempotencyKey: key, ...body };
+}
+
+/** Insert `reason` immediately before `message`, keeping the flat body's key order. */
+function withReason(body: Record<string, unknown>, reason: string): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(body).flatMap(([key, value]) =>
+      key === 'message'
+        ? [['reason', reason] as const, [key, value] as const]
+        : [[key, value] as const],
+    ),
+  );
+}
+
+function refusal(c: Context, failure: ToolFailure, catalog: AgentCatalog): Response {
+  const problem = toAgentProblem(failure);
+  const reason =
+    failure.kind === 'configuration'
+      ? catalog.reasonFor(failure.domain, failure.action)
+      : undefined;
+  return c.json(
+    reason === undefined ? problem.body : withReason(problem.body, reason),
+    problem.httpStatus,
+  );
+}
+
+function answer(c: Context, value: unknown): Response {
+  const accepted = AgentAcceptedRunSchema.safeParse(value);
+  if (!accepted.success) return c.json(value);
+  c.header('Location', accepted.data.links.run);
+  return c.json(accepted.data, 202);
+}
+
+function describeDomain(c: Context, domain: string, catalog: AgentCatalog): Response {
+  if (!AGENT_DOMAINS.includes(domain)) {
+    const error = agentError(
+      'not_implemented',
+      404,
+      'AGENT_UNKNOWN',
+      'Agent domain is not registered',
+    );
+    return c.json(error.body, error.httpStatus);
+  }
+  if (catalog.available(domain)) {
+    return c.json({
+      domain,
+      status: 'configured',
+      implemented: true,
+      actions: catalog.actions(domain),
+      unsupported: catalog.unsupportedReasons(domain),
+    });
+  }
+  const error = agentError(
+    'not_configured',
+    501,
+    'AGENT_NOT_CONFIGURED',
+    `${domain} has no configured execution adapter`,
+    { domain },
+  );
+  return c.json(error.body, error.httpStatus);
+}
+
+export function createAgentRoutes(options: AgentRoutesOptions = {}): Hono {
+  const registry = options.registry ?? createToolRegistry();
+  const catalog = createAgentCatalog(registry);
   const app = new Hono();
   app.get('/api/v1/agents', (c) =>
     c.json({
-      integrations: [...DOMAINS].map((domain) => ({
-        domain,
-        status: 'not_configured',
-        implemented: false,
-      })),
+      integrations: AGENT_DOMAINS.map((domain) =>
+        catalog.available(domain)
+          ? { domain, status: 'configured', implemented: true, actions: catalog.actions(domain) }
+          : { domain, status: 'not_configured', implemented: false },
+      ),
     }),
   );
-  app.post('/api/v1/agents/:domain/:action', (c) => {
-    const domain = c.req.param('domain');
-    const action = c.req.param('action');
-    // The two halves are refused separately. One opaque 404 for both meant a caller
-    // could not tell "I do not know this tool" from "that verb does not exist on
-    // any tool" — and the second is a bug in the caller that the first hides.
-    if (!DOMAINS.has(domain)) {
-      const error = agentError(
-        'not_implemented',
-        404,
-        'AGENT_ROUTE_NOT_FOUND',
-        'Agent route is not implemented',
-      );
-      return c.json(error.body, error.httpStatus);
-    }
-    if (!ACTIONS.has(action)) {
-      const error = agentError(
-        'not_implemented',
-        404,
-        'AGENT_ACTION_NOT_FOUND',
-        `Action is not available on any agent. Supported: ${[...ACTIONS].join(', ')}`,
-      );
-      return c.json(error.body, error.httpStatus);
-    }
-    const error = agentError(
-      'not_configured',
-      501,
-      'AGENT_NOT_CONFIGURED',
-      `${domain}.${action} has no configured execution adapter`,
-      { domain, action },
+  app.post('/api/v1/agents/:domain/:action', async (c) => {
+    const result = await registry.dispatch(
+      c.req.param('domain'),
+      c.req.param('action'),
+      await readInput(c),
     );
-    return c.json(error.body, error.httpStatus);
+    return result.ok ? answer(c, result.value) : refusal(c, result.failure, catalog);
   });
-  app.get('/api/v1/agents/:domain', (c) => {
-    const domain = c.req.param('domain');
-    if (!DOMAINS.has(domain)) {
-      const error = agentError(
-        'not_implemented',
-        404,
-        'AGENT_UNKNOWN',
-        'Agent domain is not registered',
-      );
-      return c.json(error.body, error.httpStatus);
-    }
-    const error = agentError(
-      'not_configured',
-      501,
-      'AGENT_NOT_CONFIGURED',
-      `${domain} has no configured execution adapter`,
-      { domain },
-    );
-    return c.json(error.body, error.httpStatus);
-  });
+  app.get('/api/v1/agents/:domain', (c) => describeDomain(c, c.req.param('domain'), catalog));
   return app;
 }

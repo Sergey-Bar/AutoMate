@@ -13,17 +13,21 @@ import { createAgentRoutes } from './agents.js';
  * route sends today for a pair no adapter serves, the SDK's classification of that pair renders
  * to the same status and the same body, key for key.
  *
- * Nothing in `agents.ts` imports the SDK yet. A later change wires adapters through it; until
- * then this is the only thing that would notice the two drifting.
+ * `agents.ts` dispatches through the SDK, so this holds by construction for every pair no
+ * adapter serves. It stays as the pin on the wire: the status and the body, key for key, and
+ * the two intended differences (`browser.run` is served; `browser.scan` and `browser.generate`
+ * add a `reason`).
  */
 describe('agents.ts and @automate/tool-sdk agree', () => {
   const app = createAgentRoutes();
   const registry = createToolRegistry();
 
-  it('answers all 15 registered pairs with the 501 the SDK renders for an unregistered pair', async () => {
+  it('answers every pair no adapter serves with the 501 the SDK renders for it', async () => {
     let pairs = 0;
     for (const domain of AGENT_DOMAINS) {
       for (const action of AGENT_ACTIONS) {
+        // The browser pairs are covered by `agents-browser.test.ts` and the test below.
+        if (domain === 'browser') continue;
         pairs += 1;
         const response = await app.request(`/api/v1/agents/${domain}/${action}`, {
           method: 'POST',
@@ -38,7 +42,20 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
         expect(Object.keys(body)).toEqual(Object.keys(problem.body));
       }
     }
-    expect(pairs).toBe(15);
+    expect(pairs).toBe(12);
+  });
+
+  it('answers browser.scan and browser.generate with the SDK body plus the reason', async () => {
+    for (const action of ['scan', 'generate']) {
+      const response = await app.request(`/api/v1/agents/browser/${action}`, { method: 'POST' });
+      const dispatched = await registry.dispatch('browser', action, {});
+      if (dispatched.ok) throw new Error('dispatched');
+      const problem = toAgentProblem(dispatched.failure);
+      const { reason, ...rest } = (await response.json()) as Record<string, unknown>;
+      expect(response.status).toBe(problem.httpStatus);
+      expect(rest).toEqual(problem.body);
+      expect(typeof reason).toBe('string');
+    }
   });
 
   it('answers an unknown domain and an unknown action with the SDK’s two 404s', async () => {

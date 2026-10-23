@@ -77,6 +77,81 @@ export const AgentResultSchema = z.object({
 export type AgentResult = z.infer<typeof AgentResultSchema>;
 
 // ---------------------------------------------------------------------------
+// browser.run  (BK-1: the first domain with a real adapter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Input of `POST /api/v1/agents/browser/run`.
+ *
+ * Deliberately the subset of the runs API's request (`POST /api/v1/runs`) that the Playwright
+ * runner acts on, not a parallel vocabulary: `projectId`, `environmentId`, `releaseId`,
+ * `branch`, `commit`, `timeoutMs` and `idempotencyKey` mean exactly what they mean there.
+ *
+ * - `project` is a **Playwright project name** (`--project <name>`), allowlisted by the runner
+ *   (`RUNNER_PLAYWRIGHT_PROJECTS`). The pattern forbids a leading `-` so it can never be read
+ *   as a CLI flag.
+ * - `targetUrl` is the base URL the browser is pointed at. Only its shape is checked here
+ *   (http/https, no embedded credentials); the runner enforces `RUNNER_ALLOWED_TARGET_URLS`,
+ *   and a target it refuses becomes a `config_failed` run, visible through the runs API.
+ *
+ * Strict: a spec path, a grep or a test selection is refused rather than dropped, because the
+ * runner does not honour one and a request that silently ran something broader than it asked
+ * for would be a worse answer than a 400.
+ */
+export const BrowserRunInputSchema = z.strictObject({
+  project: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u, 'not a Playwright project name'),
+  targetUrl: z.string().refine(isPlainHttpUrl, 'must be an http(s) URL without credentials'),
+  projectId: z.string().min(1).optional(),
+  environmentId: z.string().min(1).optional(),
+  releaseId: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
+  commit: z.string().min(1).optional(),
+  timeoutMs: z.number().int().positive().max(86_400_000).optional(),
+  idempotencyKey: z.string().min(1).optional(),
+});
+export type BrowserRunInput = z.infer<typeof BrowserRunInputSchema>;
+
+function isPlainHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      url.username === '' &&
+      url.password === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AgentAcceptedRun  (the 202 body of any agent action that queues an execution job)
+// ---------------------------------------------------------------------------
+
+/**
+ * What an agent action that hands work to the execution pipeline answers (HTTP 202).
+ *
+ * The run is not finished: `links.run` is where its status is read, through the same runs API
+ * every other producer uses. `duplicate` is true when an `Idempotency-Key` replayed an earlier
+ * request, in which case `runId` is that earlier run.
+ */
+export const AgentAcceptedRunSchema = z.object({
+  status: z.literal('accepted'),
+  domain: AgentDomainSchema,
+  action: z.enum(['generate', 'run', 'scan']),
+  runId: z.string().min(1),
+  jobId: z.string().min(1),
+  phase: z.string().min(1),
+  duplicate: z.boolean(),
+  links: z.object({
+    run: z.string().min(1),
+    events: z.string().min(1),
+    artifacts: z.string().min(1),
+  }),
+});
+export type AgentAcceptedRun = z.infer<typeof AgentAcceptedRunSchema>;
+
+// ---------------------------------------------------------------------------
 // AgentNotImplemented  (sentinel for unimplemented domain handlers)
 // ---------------------------------------------------------------------------
 
