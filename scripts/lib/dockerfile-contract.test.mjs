@@ -86,3 +86,28 @@ test('every built image has a size budget, and nothing else does', () => {
     assert.equal(typeof entry['maxMegabytes'], 'number', name);
   }
 });
+
+test('the runner image advertises every capability an agent adapter requires (ledger MNT-150)', () => {
+  // Two domains were merged separately, each adding its own capability to a different
+  // place, and the image kept only `k6`: an `api.run` job was accepted with 202 and then
+  // waited forever, because no runner in the production image could claim it.
+  const image = /^ENV RUNNER_CAPABILITIES=(\S+)$/m.exec(read('infra/docker/runner.Dockerfile'));
+  assert.ok(image !== null, 'runner.Dockerfile must set RUNNER_CAPABILITIES');
+  const advertised = new Set((image[1] ?? '').split(','));
+  const required = new Set(
+    ['browser', 'api', 'load'].flatMap((domain) =>
+      [
+        ...read(`apps/api/src/agents/${domain}-adapter.ts`).matchAll(
+          /requiredCapabilities: \[([^\]]*)\]/g,
+        ),
+      ]
+        .flatMap((match) => (match[1] ?? '').split(','))
+        .map((name) => name.trim().replace(/['"]/g, ''))
+        .filter(Boolean),
+    ),
+  );
+  assert.deepEqual([...required].sort(), ['api', 'k6', 'playwright']);
+  for (const capability of required) {
+    assert.ok(advertised.has(capability), `the runner image does not advertise \`${capability}\``);
+  }
+});
