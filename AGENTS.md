@@ -59,7 +59,7 @@ pnpm dev                  # Dev servers: API :3000, Web :5173
 pnpm lint                 # ESLint across all packages
 pnpm typecheck            # tsc --noEmit across all packages
 pnpm test                 # Vitest run across all packages
-pnpm verify               # Full gate: preflight + format + lint + typecheck + test + contract + integration + runner + coverage ratchet + build + db check + security
+pnpm verify               # Full gate: preflight + format + lint + typecheck + test + contract + integration + runner + coverage ratchet + build + authz matrix + db check + security
 pnpm verify:release       # pnpm verify + oci:verify
 pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm unify:preflight      # Pre-unification safety check
@@ -79,6 +79,8 @@ pnpm mutation             # StrykerJS over five packages (needs pnpm build first
 pnpm mutation:ratchet     # Fails on a mutation score below its floor, a lowered floor, or a missing baseline/report. --record adds/raises deliberately
 pnpm findings:check       # The findings ledger has not drifted from the tree
 pnpm findings:baseline    # Rewrites docs/quality/findings-status.json. Deliberate, never automatic
+pnpm authz:check          # Every route the composed API registers has a row in docs/quality/authz-matrix.json, with the access its guards enforce. Needs a build
+pnpm authz:matrix         # Rewrites docs/quality/authz-matrix.json. Deliberate, never in CI
 pnpm security:verify      # audit + secrets + secrets history + config check + semgrep/gitleaks + licence + duplication + complexity + capability register + findings
 pnpm security:static      # semgrep + gitleaks. Exits non-zero as not_configured without them
 pnpm security:secrets     # Dependency-free secret floor, working tree
@@ -465,6 +467,14 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
   - Add or adjust tests for every behavior change.
   - Never delete or skip failing tests.
   - No `.skip` or `.only` in committed code.
+- **Property suites** (`*.property.test.ts`, fast-check) state an invariant over generated input.
+  Fix the seed and `numRuns`, pin regressions as `examples`, keep one test showing the harness
+  refutes a wrong claim, and list the invariant in `docs/quality/property-invariants.json` -
+  `scripts/lib/property-invariants.test.mjs` fails on a suite and a register that disagree.
+- **Who may call a route is read from the route.** A credential check is a middleware wrapped in
+  `guard(...)` from `apps/api/src/http/access.ts`; `docs/quality/authz-matrix.json` is
+  generated from the guards (`pnpm authz:matrix`) and `pnpm authz:check` fails on a route with no
+  row. A new route needs a row, and a new credential check needs a guard, not an inline `if`.
 - A test that cannot fail is worse than no test. If a loop or assertion exists only
   to move a coverage counter, assert the real mapping or quarantine the code with a
   reason in the exclusion register.

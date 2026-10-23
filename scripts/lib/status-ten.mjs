@@ -503,6 +503,18 @@ function mutationClause(mutation) {
 }
 
 /**
+ * The length of the array a parsed document keeps under `key`, or 0 when it is absent.
+ *
+ * @param {unknown} document
+ * @param {string} key
+ * @returns {number}
+ */
+function lengthOf(document, key) {
+  const value = /** @type {Record<string, unknown>} */ (document ?? {})[key];
+  return Array.isArray(value) ? value.length : 0;
+}
+
+/**
  * @param {Context} ctx
  * @returns {Clause[]}
  */
@@ -518,6 +530,8 @@ function pointFive(ctx) {
     .concat(ctx.files('apps'))
     .filter((file) => /\.(test|spec)\.tsx?$/.test(file) && /property|fuzz/i.test(file));
   const authz = ctx.files('docs').filter((file) => /authz/i.test(file));
+  const invariantCount = lengthOf(ctx.json('docs/quality/property-invariants.json'), 'invariants');
+  const matrix = ctx.json('docs/quality/authz-matrix.json');
   const perf = /** @type {{ recorded?: unknown }} */ (
     ctx.json('tests/performance/thresholds.json')
   );
@@ -536,13 +550,21 @@ function pointFive(ctx) {
     unchecked('duplication is at most 3% on changed code', needsRun('pnpm duplication')),
     mutationClause(mutation),
     propertyTests.length > 0
-      ? ok('property or fuzz suites exist', propertyTests.join(', '))
+      ? ok(
+          'property or fuzz suites exist',
+          `${String(invariantCount)} invariants listed in ` +
+            `docs/quality/property-invariants.json across ${propertyTests.join(', ')}`,
+        )
       : broken(
           'property or fuzz suites cover the stated invariants',
           'no property or fuzz suite exists in any package.',
         ),
     authz.length > 0
-      ? ok('an authz matrix is generated from the app', authz.join(', '))
+      ? ok(
+          'an authz matrix is generated from the app',
+          `${authz.join(', ')}: ${String(lengthOf(matrix, 'routes'))} routes ` +
+            `(${JSON.stringify(/** @type {{ summary?: unknown }} */ (matrix ?? {}).summary ?? {})})`,
+        )
       : broken(
           'the authz matrix is generated from the application',
           'no generated authz matrix exists.',
