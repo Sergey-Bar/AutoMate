@@ -69,6 +69,15 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     files: ['index.ts'],
   },
   { family: 'execution routes', files: ['routes/execution.ts'] },
+  // The one function that turns a run request into a queued run in a workspace. Both
+  // `POST /api/v1/runs` and `browser.run` call it; `agents/browser-adapter.test.ts` and
+  // `routes/agents-browser.test.ts` prove a run accepted for one workspace is invisible to
+  // another.
+  { family: 'run submission', files: ['execution/run-submission.ts'] },
+  {
+    family: 'agent execution bridge',
+    files: ['agents/execution-bridge.ts', 'agents/browser-adapter.ts'],
+  },
   { family: 'reporter results', files: ['routes/reporter-results.ts'] },
   { family: 'reporting', files: ['routes/reporting.ts'] },
   { family: 'runner', files: ['routes/runner.ts'] },

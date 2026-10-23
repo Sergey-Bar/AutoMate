@@ -5,6 +5,8 @@ import {
   AgentArtifactsSchema,
   AgentResultSchema,
   AgentNotImplementedSchema,
+  AgentAcceptedRunSchema,
+  BrowserRunInputSchema,
 } from './agents.js';
 
 // ---------------------------------------------------------------------------
@@ -263,5 +265,97 @@ describe('AgentNotImplementedSchema', () => {
     if (!result.success) {
       expect(result.error.issues.map((i) => i.path[0])).toContain('domain');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BrowserRunInputSchema / AgentAcceptedRunSchema (BK-1: browser.run)
+// ---------------------------------------------------------------------------
+
+describe('BrowserRunInputSchema', () => {
+  const valid = { project: 'smoke-pass', targetUrl: 'http://127.0.0.1:3000' };
+
+  it('accepts the minimal request: a Playwright project and a target', () => {
+    expect(BrowserRunInputSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('carries the run request fields the runs API already defines', () => {
+    const parsed = BrowserRunInputSchema.parse({
+      ...valid,
+      projectId: 'p-1',
+      releaseId: 'r-1',
+      environmentId: 'e-1',
+      branch: 'main',
+      commit: 'abc123',
+      timeoutMs: 60_000,
+      idempotencyKey: 'k-1',
+    });
+    expect(parsed.timeoutMs).toBe(60_000);
+  });
+
+  it('requires a project and a target; the runner would otherwise choose them', () => {
+    expect(BrowserRunInputSchema.safeParse({ targetUrl: valid.targetUrl }).success).toBe(false);
+    expect(BrowserRunInputSchema.safeParse({ project: valid.project }).success).toBe(false);
+  });
+
+  it('refuses a project that is not a plain Playwright project name', () => {
+    for (const project of ['', '--ui', 'a b', '../x', 'a;b', 'x'.repeat(65)]) {
+      expect(BrowserRunInputSchema.safeParse({ ...valid, project }).success, project).toBe(false);
+    }
+  });
+
+  it('refuses a target that is not an http(s) URL without credentials', () => {
+    for (const targetUrl of [
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'not a url',
+      'http://user:pw@host.test/',
+      'ftp://host.test/',
+    ]) {
+      expect(BrowserRunInputSchema.safeParse({ ...valid, targetUrl }).success, targetUrl).toBe(
+        false,
+      );
+    }
+  });
+
+  it('refuses fields the runner does not honour instead of dropping them silently', () => {
+    expect(BrowserRunInputSchema.safeParse({ ...valid, grep: 'login' }).success).toBe(false);
+    expect(BrowserRunInputSchema.safeParse({ ...valid, specPath: 'a.spec.ts' }).success).toBe(
+      false,
+    );
+  });
+
+  it('bounds the timeout', () => {
+    expect(BrowserRunInputSchema.safeParse({ ...valid, timeoutMs: 0 }).success).toBe(false);
+    expect(BrowserRunInputSchema.safeParse({ ...valid, timeoutMs: 86_400_001 }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('AgentAcceptedRunSchema', () => {
+  const accepted = {
+    status: 'accepted',
+    domain: 'browser',
+    action: 'run',
+    runId: 'run-1',
+    jobId: 'job-1',
+    phase: 'queued',
+    duplicate: false,
+    links: {
+      run: '/api/v1/runs/run-1',
+      events: '/api/v1/runs/run-1/events',
+      artifacts: '/api/v1/runs/run-1/artifacts',
+    },
+  };
+
+  it('accepts an accepted-run body', () => {
+    expect(AgentAcceptedRunSchema.safeParse(accepted).success).toBe(true);
+  });
+
+  it('rejects a body that is not "accepted" or has no link to the run', () => {
+    expect(AgentAcceptedRunSchema.safeParse({ ...accepted, status: 'passed' }).success).toBe(false);
+    const { links: _links, ...noLinks } = accepted;
+    expect(AgentAcceptedRunSchema.safeParse(noLinks).success).toBe(false);
   });
 });

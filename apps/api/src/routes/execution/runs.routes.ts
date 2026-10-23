@@ -20,7 +20,8 @@ import { Hono } from 'hono';
 import { CreateRunSchema } from './schemas.js';
 import { toCanonicalRun } from '../../execution/canonical.js';
 import { createGateEvaluation } from '../../execution/quality-gate.js';
-import type { CreateRunInput, ExecutionRun } from '../../execution/types.js';
+import { submitRun } from '../../execution/run-submission.js';
+import type { ExecutionRun } from '../../execution/types.js';
 import type { ExecutionRouteContext } from './shared.js';
 import {
   domainStatusesFromRun,
@@ -45,17 +46,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       throw new DomainError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
     if (!key)
       throw new DomainError('IDEMPOTENCY_KEY_REQUIRED', 'Idempotency-Key header is required');
-    const input = {
-      ...parsed,
-      selection: Array.isArray(parsed.selection)
-        ? parsed.selection
-        : [
-            ...(parsed.selection?.paths ?? []),
-            ...(parsed.selection?.testIds ?? []),
-            ...(parsed.selection?.tags ?? []),
-          ],
-    } as CreateRunInput;
-    const result = await options.store.createRun(input, key, ws);
+    const result = await submitRun({ store: options.store, workspaceId: ws }, parsed, key);
     c.header('x-idempotent-replay', String(result.duplicate));
     return c.json(toCanonicalRun(result.run), 202);
   });
