@@ -53,9 +53,9 @@ RUN node node_modules/@playwright/test/cli.js install --with-deps chromium firef
   && chown -R node:node /var/lib/automate /ms-playwright \
   && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
-# This image carries Playwright's browsers and k6, so it advertises both; a runner started
+# This image carries Playwright's browsers, Bruno and k6, so it advertises all of them; a runner started
 # anywhere else keeps the config default and never claims a job whose tool it lacks.
-ENV RUNNER_CAPABILITIES=playwright,chromium,k6
+ENV RUNNER_CAPABILITIES=playwright,chromium,api,k6
 USER node
 EXPOSE 3002
 HEALTHCHECK --interval=10s --timeout=5s --retries=12 CMD node -e "fetch('http://127.0.0.1:3002/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"

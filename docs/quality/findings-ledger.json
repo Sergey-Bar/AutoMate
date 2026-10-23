@@ -5619,6 +5619,29 @@
       "title": "The JUnit adapter ignored the suite-level file attribute, so unrelated tests shared one location",
       "confirmedOn": "2026-10-23",
       "confirmedBy": "Observed in the real Bruno report, where `file=\"health.bru\"` is on the suite; the new `junit.test.ts` case failed first."
+    },
+    {
+      "id": "MNT-150",
+      "title": "The production runner image advertised k6 but not api, so an accepted api.run job could never be claimed",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "summary": "The api and load domains were built in parallel and merged one after the other. The api change set the runner's default capabilities to `playwright,chromium,api`; the load change set the image's `ENV RUNNER_CAPABILITIES` to `playwright,chromium,k6`, and the image environment wins over the default. `POST /api/v1/agents/api/run` answered 202 and the job then waited in `queued` forever, because no runner in the production image advertised `api`. CI did not see it: the product E2E starts a runner outside the image, with the default capabilities.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-23",
+      "confirmedBy": "The new dockerfile-contract test failed against main with `the runner image does not advertise `api``.",
+      "evidence": [
+        {
+          "path": "infra/docker/runner.Dockerfile",
+          "asserts": "The image advertises playwright, chromium, api and k6, the capabilities the browser, api and load adapters require."
+        },
+        {
+          "path": "scripts/lib/dockerfile-contract.test.mjs",
+          "asserts": "The capabilities are read from the three adapters' `requiredCapabilities` and every one must be in the image's `RUNNER_CAPABILITIES`, so a domain added later without the image fails here."
+        }
+      ],
+      "resolution": "The image now lists all four. The test derives the required set from the adapters, so the two cannot drift."
     }
   ]
 }
