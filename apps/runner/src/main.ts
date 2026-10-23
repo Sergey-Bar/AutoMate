@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DurableSpool, readOrCreateSpoolKey } from '@automate/runner-sdk';
+import { ApiExecutionAdapter } from './api-run.js';
 import { RunnerApiClient } from './client.js';
 import { parseRunnerConfig } from './config.js';
 import { PlaywrightExecutionAdapter } from './execution.js';
@@ -145,6 +146,19 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
       artifactMaxBytes: config.artifactMaxBytes,
       logMaxBytes: config.logMaxBytes,
       redactions: config.redactions,
+    }),
+    new ApiExecutionAdapter({
+      // A second generic adapter rooted at the collection root: the collection is the working
+      // directory, so it cannot leave that root, and the deadline and kill are the generic ones.
+      delegate: new GenericSpawnAdapter({
+        repoRoot: config.apiCollectionRoot,
+        workspaceRoot: config.workspaceRoot,
+        artifactMaxBytes: config.artifactMaxBytes,
+        logMaxBytes: config.logMaxBytes,
+        redactions: config.redactions,
+      }),
+      collectionRoot: config.apiCollectionRoot,
+      allowedTargetUrls: config.allowedTargetUrls,
     }),
   );
   const spoolKey =

@@ -47,6 +47,10 @@ export interface ExecutionContext {
   command?: unknown;
   /** The Playwright project, when the job is a browser run. */
   playwrightProject?: string;
+  /** The Bruno collection (relative to the collection root), when the job is an API run. */
+  apiCollection?: string;
+  /** The Bruno environment name, when the API run names one. */
+  apiEnvironment?: string;
   deadlineMs: number;
   signal: AbortSignal;
   onEvent?: (event: z.infer<typeof eventLineSchema>) => Promise<void>;

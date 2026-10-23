@@ -19,6 +19,7 @@
  */
 import { AgentDomainSchema } from '@automate/shared-contracts';
 import { AGENT_ACTIONS, type ToolRegistry } from '@automate/tool-sdk';
+import { API_UNSUPPORTED_REASONS } from '../agents/api-adapter.js';
 import { BROWSER_UNSUPPORTED_REASONS } from '../agents/browser-adapter.js';
 
 /** Every domain the contract declares, in the contract's own order. */
@@ -30,10 +31,10 @@ export const AGENT_DOMAINS: readonly string[] = AgentDomainSchema.options;
  * refusal needs none — "no adapter" is the whole reason.
  */
 const UNSUPPORTED_REASONS: Readonly<Record<string, string>> = Object.fromEntries(
-  Object.entries(BROWSER_UNSUPPORTED_REASONS).map(([action, reason]) => [
-    `browser.${action}`,
-    reason,
-  ]),
+  Object.entries({ browser: BROWSER_UNSUPPORTED_REASONS, api: API_UNSUPPORTED_REASONS }).flatMap(
+    ([domain, reasons]) =>
+      Object.entries(reasons).map(([action, reason]) => [`${domain}.${action}`, reason]),
+  ),
 );
 
 export interface AgentCatalog {

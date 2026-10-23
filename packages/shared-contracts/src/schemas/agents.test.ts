@@ -7,6 +7,7 @@ import {
   AgentNotImplementedSchema,
   AgentAcceptedRunSchema,
   BrowserRunInputSchema,
+  ApiRunInputSchema,
 } from './agents.js';
 
 // ---------------------------------------------------------------------------
@@ -357,5 +358,92 @@ describe('AgentAcceptedRunSchema', () => {
     expect(AgentAcceptedRunSchema.safeParse({ ...accepted, status: 'passed' }).success).toBe(false);
     const { links: _links, ...noLinks } = accepted;
     expect(AgentAcceptedRunSchema.safeParse(noLinks).success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ApiRunInputSchema (X-3: api.run)
+// ---------------------------------------------------------------------------
+
+describe('ApiRunInputSchema', () => {
+  const valid = { collection: 'orders/smoke', targetUrl: 'http://127.0.0.1:3000' };
+
+  it('accepts the minimal request: a collection and a target', () => {
+    expect(ApiRunInputSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('carries an environment name and the run request fields the runs API defines', () => {
+    const parsed = ApiRunInputSchema.parse({
+      ...valid,
+      environment: 'staging',
+      projectId: 'p-1',
+      releaseId: 'r-1',
+      environmentId: 'e-1',
+      branch: 'main',
+      commit: 'abc123',
+      timeoutMs: 60_000,
+      idempotencyKey: 'k-1',
+    });
+    expect(parsed.environment).toBe('staging');
+    expect(parsed.timeoutMs).toBe(60_000);
+  });
+
+  it('requires a collection and a target', () => {
+    expect(ApiRunInputSchema.safeParse({ targetUrl: valid.targetUrl }).success).toBe(false);
+    expect(ApiRunInputSchema.safeParse({ collection: valid.collection }).success).toBe(false);
+  });
+
+  it('accepts a collection path of plain relative segments, and "." for the root', () => {
+    for (const collection of ['.', 'smoke', 'a/b-c/d_e.f', 'v1.2/orders']) {
+      expect(ApiRunInputSchema.safeParse({ ...valid, collection }).success, collection).toBe(true);
+    }
+  });
+
+  it('refuses a collection that is absolute, climbs out, or could be read as a flag', () => {
+    for (const collection of [
+      '',
+      '/etc',
+      'C:\\work',
+      '..',
+      '../x',
+      'a/../b',
+      'a/./b',
+      './a',
+      'a//b',
+      'a/',
+      '-r',
+      '--env',
+      'a b',
+      'a;b',
+      'a\\b',
+      'x'.repeat(201),
+    ]) {
+      expect(ApiRunInputSchema.safeParse({ ...valid, collection }).success, collection).toBe(false);
+    }
+  });
+
+  it('refuses an environment that is a path or a flag', () => {
+    for (const environment of ['', '-x', '../prod', 'a/b', 'a b', 'x'.repeat(65)]) {
+      expect(ApiRunInputSchema.safeParse({ ...valid, environment }).success, environment).toBe(
+        false,
+      );
+    }
+  });
+
+  it('refuses a target that is not an http(s) URL without credentials', () => {
+    for (const targetUrl of ['file:///etc/passwd', 'not a url', 'http://user:pw@host.test/']) {
+      expect(ApiRunInputSchema.safeParse({ ...valid, targetUrl }).success, targetUrl).toBe(false);
+    }
+  });
+
+  it('refuses a command, arguments or an environment variable instead of dropping them', () => {
+    for (const extra of [{ command: 'rm' }, { args: ['--insecure'] }, { envVars: { A: 'b' } }]) {
+      expect(ApiRunInputSchema.safeParse({ ...valid, ...extra }).success).toBe(false);
+    }
+  });
+
+  it('bounds the timeout', () => {
+    expect(ApiRunInputSchema.safeParse({ ...valid, timeoutMs: 0 }).success).toBe(false);
+    expect(ApiRunInputSchema.safeParse({ ...valid, timeoutMs: 86_400_001 }).success).toBe(false);
   });
 });

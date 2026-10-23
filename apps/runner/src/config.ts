@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod/v4';
 
 const defaultProjectRoot = fileURLToPath(new URL('../fixtures/playwright-smoke/', import.meta.url));
+const defaultApiCollectionRoot = fileURLToPath(new URL('../fixtures/api-smoke/', import.meta.url));
 const defaultSpoolRoot = join(tmpdir(), 'automate-runner-spool');
 
 function csv(value: string): string[] {
@@ -42,7 +43,7 @@ const RunnerConfigSchema = z
     version: z.string().min(1).default('1.0.0'),
     registrationSecret: z.string().min(1).optional(),
     credential: z.string().min(1).optional(),
-    capabilities: z.string().default('playwright,chromium').transform(csv),
+    capabilities: z.string().default('playwright,chromium,api').transform(csv),
     labels: z.string().default('').transform(csv),
     slots: z.coerce.number().int().min(1).max(32).default(1),
     maxConcurrentJobs: z.coerce.number().int().min(1).max(32).default(1),
@@ -64,6 +65,11 @@ const RunnerConfigSchema = z
      */
     repoRoot: z.string().min(1).default(defaultProjectRoot),
     playwrightProjectRoot: z.string().min(1).default(defaultProjectRoot),
+    /**
+     * Where Bruno collections live on this host. A job's `apiCollection` is resolved against it
+     * and refused if it leaves it, as `repoRoot` does for a generic command.
+     */
+    apiCollectionRoot: z.string().min(1).default(defaultApiCollectionRoot),
     allowedPlaywrightProjects: z.string().default('smoke-pass,smoke-failure').transform(csv),
     allowedTargetUrls: z.string().default('http://127.0.0.1:3000').transform(origins),
     artifactMaxBytes: z.coerce.number().int().min(1).max(500_000_000).default(50_000_000),
@@ -115,7 +121,7 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     version: input['RUNNER_VERSION'],
     registrationSecret: input['RUNNER_REGISTRATION_SECRET'],
     credential: input['RUNNER_CREDENTIAL'],
-    capabilities: input['RUNNER_CAPABILITIES'] ?? 'playwright,chromium',
+    capabilities: input['RUNNER_CAPABILITIES'] ?? 'playwright,chromium,api',
     labels: input['RUNNER_LABELS'],
     slots: input['RUNNER_SLOTS'],
     maxConcurrentJobs: input['RUNNER_MAX_CONCURRENCY'],
@@ -128,6 +134,7 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     workspaceRoot: input['RUNNER_WORKSPACE_ROOT'],
     repoRoot: input['RUNNER_REPO_ROOT'],
     playwrightProjectRoot: input['RUNNER_PLAYWRIGHT_PROJECT_ROOT'],
+    apiCollectionRoot: input['RUNNER_API_COLLECTION_ROOT'],
     allowedPlaywrightProjects: input['RUNNER_PLAYWRIGHT_PROJECTS'],
     allowedTargetUrls: input['RUNNER_ALLOWED_TARGET_URLS'],
     artifactMaxBytes: input['RUNNER_ARTIFACT_MAX_BYTES'],

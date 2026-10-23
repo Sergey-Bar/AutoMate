@@ -111,6 +111,51 @@ export const BrowserRunInputSchema = z.strictObject({
 });
 export type BrowserRunInput = z.infer<typeof BrowserRunInputSchema>;
 
+// ---------------------------------------------------------------------------
+// api.run  (X-3: the second domain with a real adapter)
+// ---------------------------------------------------------------------------
+
+/** One segment of a collection path: no leading dot or dash, so no `..` and no flag. */
+const COLLECTION_SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/u;
+
+/**
+ * Input of `POST /api/v1/agents/api/run`: run one Bruno collection against a target.
+ *
+ * - `collection` is a directory **relative to the runner's collection root**
+ *   (`RUNNER_API_COLLECTION_ROOT`), made of plain segments. `.` is the root itself. There is no
+ *   `..`, no absolute path, and no segment starting with `-`, so it can be neither a traversal
+ *   nor a CLI flag; the runner re-checks, because a job is read back from a database.
+ * - `environment` names a Bruno environment file in that collection (`environments/<name>.bru`).
+ * - `targetUrl` reaches the collection as the `baseUrl` variable, which requests refer to as
+ *   `{{baseUrl}}`. Only its shape is checked here; the runner enforces
+ *   `RUNNER_ALLOWED_TARGET_URLS`, and a target it refuses becomes a `config_failed` run.
+ *
+ * Strict, and deliberately without a command, arguments or variables: the runner builds the one
+ * `bru run` invocation itself, so a caller cannot choose what is executed, only which collection.
+ */
+export const ApiRunInputSchema = z.strictObject({
+  collection: z
+    .string()
+    .max(200)
+    .refine(
+      (value) => value === '.' || value.split('/').every((part) => COLLECTION_SEGMENT.test(part)),
+      'not a relative collection path',
+    ),
+  environment: z
+    .string()
+    .regex(/^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/u, 'not a Bruno environment name')
+    .optional(),
+  targetUrl: z.string().refine(isPlainHttpUrl, 'must be an http(s) URL without credentials'),
+  projectId: z.string().min(1).optional(),
+  environmentId: z.string().min(1).optional(),
+  releaseId: z.string().min(1).optional(),
+  branch: z.string().min(1).optional(),
+  commit: z.string().min(1).optional(),
+  timeoutMs: z.number().int().positive().max(86_400_000).optional(),
+  idempotencyKey: z.string().min(1).optional(),
+});
+export type ApiRunInput = z.infer<typeof ApiRunInputSchema>;
+
 function isPlainHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);

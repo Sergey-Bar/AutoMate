@@ -37,6 +37,10 @@ pmOnFail: error
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  # `@usebruno/cli` (the API domain's runner) reaches `protobufjs` through its gRPC support. Its
+  # postinstall only checks which protobufjs-cli is installed and prints a warning, so it is
+  # declined rather than run; `strictDepBuilds` otherwise fails the install and the images.
+  protobufjs: false
 
 # **Four pnpm 11 defaults are now in force, and one of them costs something.**
 #

@@ -47,9 +47,12 @@ describe('a producer test status becomes a canonical one', () => {
     ]);
     // JUnit has no status attribute of its own — the outcome children are the evidence — but
     // several tools emit `status="flaky"`, and the canonical adapter already honoured it.
+    // Bruno's CLI writes `pass` / `fail`.
     expect(Object.keys(PRODUCER_TEST_VOCABULARY.junit).sort()).toEqual([
+      'fail',
       'failed',
       'flaky',
+      'pass',
       'passed',
       'skipped',
       'timedOut',

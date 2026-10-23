@@ -291,6 +291,50 @@ describe('RunnerService', () => {
     expect(executor.cleaned).toEqual([workspace]);
   });
 
+  it('hands the executor the API collection and environment the job names', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue({
+      ...claim('job-api'),
+      spec: {
+        configuration: {
+          apiCollection: 'pass',
+          apiEnvironment: 'local',
+          targetUrl: 'https://allowed.test',
+        },
+      },
+    });
+    const seen: Array<Partial<ExecutionContext>> = [];
+    const executor = new FakeExecutor(async (context) => {
+      seen.push({
+        apiCollection: context.apiCollection,
+        apiEnvironment: context.apiEnvironment,
+        playwrightProject: context.playwrightProject,
+        targetUrl: context.targetUrl,
+      });
+      return {
+        status: 'passed',
+        resultPath: '',
+        workspacePath: '',
+        artifacts: [],
+        stdout: '',
+        stderr: '',
+      };
+    });
+    const runner = service(protocol, executor);
+    const stop = setTimeout(() => runner.stop(), 10);
+
+    await runner.run();
+    clearTimeout(stop);
+
+    expect(seen).toEqual([
+      {
+        apiCollection: 'pass',
+        apiEnvironment: 'local',
+        playwrightProject: undefined,
+        targetUrl: 'https://allowed.test',
+      },
+    ]);
+  });
   it("gives the executor the job's own timeout, not the lease left at claim time", async () => {
     // The lease is 30 s by default and every heartbeat renews it, so it says how long
     // the runner may go *silent*, not how long a suite may run. Capping the deadline at

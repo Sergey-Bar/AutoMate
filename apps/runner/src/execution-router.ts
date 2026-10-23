@@ -9,11 +9,12 @@ import {
 /**
  * Chooses the executor for a job, from the shape of the job itself.
  *
- * Two modes, one seam. `PlaywrightExecutionAdapter` drives a browser suite with an
+ * Three modes, one seam. `PlaywrightExecutionAdapter` drives a browser suite with an
  * allowlist of projects and target origins; `GenericSpawnAdapter` runs a declared
- * argv in a registered repository. Which one runs is decided by **which keys the
- * job's `configuration` carries**, and there is no third mode and no fallback: a
- * job with neither key is a configuration failure, not something to guess at.
+ * argv in a registered repository; `ApiExecutionAdapter` runs a named Bruno collection.
+ * Which one runs is decided by **which keys the job's `configuration` carries**, and
+ * there is no fourth mode and no fallback: a job that declares two of them is a
+ * configuration failure, not something to guess at.
  *
  * Guessing would be the dangerous failure. A job that arrived with a malformed
  * command and fell back to "run Playwright" would execute the wrong suite against
@@ -23,10 +24,12 @@ export class RoutingExecutionAdapter implements ExecutionProvider {
   constructor(
     private readonly generic: ExecutionProvider,
     private readonly playwright: ExecutionProvider,
+    private readonly api?: ExecutionProvider,
   ) {}
 
   async execute(context: ExecutionContext): Promise<ExecutionResult> {
     const command = (context as { command?: GenericCommand }).command;
+    if (context.apiCollection !== undefined) return this.executeApi(context, command);
     if (command === undefined) return this.playwright.execute(context);
     if (context.playwrightProject !== undefined) {
       throw new RunnerConfigurationError(
@@ -34,6 +37,18 @@ export class RoutingExecutionAdapter implements ExecutionProvider {
       );
     }
     return this.generic.execute({ ...context, command });
+  }
+
+  private executeApi(context: ExecutionContext, command: unknown): Promise<ExecutionResult> {
+    if (this.api === undefined) {
+      throw new RunnerConfigurationError('This runner does not run API collections');
+    }
+    if (command !== undefined || context.playwrightProject !== undefined) {
+      throw new RunnerConfigurationError(
+        'A job cannot declare an API collection together with a command or a Playwright project',
+      );
+    }
+    return this.api.execute(context);
   }
 
   async cleanup(workspacePath: string): Promise<void> {

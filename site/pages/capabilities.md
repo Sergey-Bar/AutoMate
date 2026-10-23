@@ -9,7 +9,7 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Status       | Count | Meaning                                                                   |
 | ------------ | ----- | ------------------------------------------------------------------------- |
-| **real**     | 17    | implemented and exercised, with the stated qualification.                 |
+| **real**     | 18    | implemented and exercised, with the stated qualification.                 |
 | **mock**     | 14    | a route, response, or UI exists but does not provide the target behavior. |
 | **missing**  | 2     | no usable implementation exists in the target.                            |
 | **deferred** | 8     | intentionally outside the launch scope pending a separate decision.       |
@@ -52,6 +52,7 @@ its source, then run `pnpm site:generate`.
 | AI test generation                                                    | `mock`     |
 | Browser/API/load/security/mobile agents                               | `mock`     |
 | `browser.run` through the execution pipeline                          | `real`     |
+| `api.run` through the execution pipeline                              | `real`     |
 | Dynamic Kilo model catalog and gateway                                | `mock`     |
 | GitHub, Jira, and Slack execution                                     | `mock`     |
 | Version-encrypted vault storage                                       | `mock`     |

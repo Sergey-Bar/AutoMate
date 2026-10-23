@@ -1,0 +1,21 @@
+meta {
+  name: health responds
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+}
+
+tests {
+  test("the service identifies itself", function () {
+    expect(res.body.service).to.equal("automate-api");
+  });
+}

@@ -328,4 +328,54 @@ describe('a JUnit report that is not valid XML', () => {
     expect(result.completeness.state).toBe('complete');
     expect(result.status).toBe('passed');
   });
+
+  it("reads Bruno's pass/fail status attribute: a passing request is passed, not unknown", () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuites><testsuite name="health" file="health.bru">' +
+          '<testcase name="res.status eq 200" status="pass" classname="health" time="0.1"/>' +
+          '<testcase name="has a body" status="fail" classname="health" time="0.1"/>' +
+          '</testsuite></testsuites>',
+      ),
+      context,
+    );
+    expect(result.attempts?.map((attempt) => attempt.status)).toEqual(['passed', 'failed']);
+    expect(result.status).toBe('failed');
+  });
+
+  it('keeps the message attribute of a failure that has no body (Bruno, Surefire summaries)', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuites><testsuite name="s">' +
+          '<testcase name="a" classname="c"><failure message="expected 1 to equal 2"/></testcase>' +
+          '<testcase name="b" classname="c"><error message="socket hang up" type="Error"/></testcase>' +
+          '<testcase name="d" classname="c"><failure message="short">the full body</failure></testcase>' +
+          '</testsuite></testsuites>',
+      ),
+      context,
+    );
+    expect(result.attempts?.map((attempt) => attempt.error?.message)).toEqual([
+      'expected 1 to equal 2',
+      'socket hang up',
+      'the full body',
+    ]);
+  });
+
+  it('takes a test case location from its enclosing suite when it has none of its own', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuites><testsuite name="s" file="orders/list.bru">' +
+          '<testcase name="a" classname="list"/>' +
+          '<testcase name="b" classname="list" file="own.bru"/>' +
+          '</testsuite><testsuite name="t"><testcase name="c" classname="x"/></testsuite>' +
+          '</testsuites>',
+      ),
+      context,
+    );
+    expect(result.attempts?.map((attempt) => attempt.specPath)).toEqual([
+      'orders/list.bru',
+      'own.bru',
+      'unknown.spec.ts',
+    ]);
+  });
 });

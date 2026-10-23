@@ -1119,6 +1119,23 @@
         "required": ["id", "name", "keyHash", "permissions", "createdAt"],
         "additionalProperties": false
       },
+      "ApiRunInputSchema": {
+        "type": "object",
+        "properties": {
+          "collection": { "type": "string", "maxLength": 200 },
+          "environment": { "type": "string", "pattern": "^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$" },
+          "targetUrl": { "type": "string" },
+          "projectId": { "type": "string", "minLength": 1 },
+          "environmentId": { "type": "string", "minLength": 1 },
+          "releaseId": { "type": "string", "minLength": 1 },
+          "branch": { "type": "string", "minLength": 1 },
+          "commit": { "type": "string", "minLength": 1 },
+          "timeoutMs": { "type": "integer", "exclusiveMinimum": 0, "maximum": 86400000 },
+          "idempotencyKey": { "type": "string", "minLength": 1 }
+        },
+        "required": ["collection", "targetUrl"],
+        "additionalProperties": false
+      },
       "ArtifactCreatedEventPayloadSchema": {
         "type": "object",
         "properties": {

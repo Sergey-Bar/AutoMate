@@ -15,8 +15,8 @@ import { createAgentRoutes } from './agents.js';
  *
  * `agents.ts` dispatches through the SDK, so this holds by construction for every pair no
  * adapter serves. It stays as the pin on the wire: the status and the body, key for key, and
- * the two intended differences (`browser.run` is served; `browser.scan` and `browser.generate`
- * add a `reason`).
+ * the intended differences (`browser.run` and `api.run` are served; the unserved browser and api
+ * actions add a `reason`).
  */
 describe('agents.ts and @automate/tool-sdk agree', () => {
   const app = createAgentRoutes();
@@ -26,8 +26,8 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
     let pairs = 0;
     for (const domain of AGENT_DOMAINS) {
       for (const action of AGENT_ACTIONS) {
-        // The browser pairs are covered by `agents-browser.test.ts` and the test below.
-        if (domain === 'browser') continue;
+        // The browser and api pairs are covered by their own route tests and the test below.
+        if (domain === 'browser' || domain === 'api') continue;
         pairs += 1;
         const response = await app.request(`/api/v1/agents/${domain}/${action}`, {
           method: 'POST',
@@ -42,13 +42,18 @@ describe('agents.ts and @automate/tool-sdk agree', () => {
         expect(Object.keys(body)).toEqual(Object.keys(problem.body));
       }
     }
-    expect(pairs).toBe(12);
+    expect(pairs).toBe(9);
   });
 
-  it('answers browser.scan and browser.generate with the SDK body plus the reason', async () => {
-    for (const action of ['scan', 'generate']) {
-      const response = await app.request(`/api/v1/agents/browser/${action}`, { method: 'POST' });
-      const dispatched = await registry.dispatch('browser', action, {});
+  it('answers the unserved browser and api actions with the SDK body plus the reason', async () => {
+    for (const [domain, action] of [
+      ['browser', 'scan'],
+      ['browser', 'generate'],
+      ['api', 'scan'],
+      ['api', 'generate'],
+    ] as const) {
+      const response = await app.request(`/api/v1/agents/${domain}/${action}`, { method: 'POST' });
+      const dispatched = await registry.dispatch(domain, action, {});
       if (dispatched.ok) throw new Error('dispatched');
       const problem = toAgentProblem(dispatched.failure);
       const { reason, ...rest } = (await response.json()) as Record<string, unknown>;
