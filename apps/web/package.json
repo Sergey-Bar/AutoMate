@@ -18,6 +18,7 @@
     "@tanstack/react-router": "^1.170.45",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "uqr": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

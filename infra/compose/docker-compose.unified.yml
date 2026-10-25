@@ -94,6 +94,13 @@ services:
       OBJECT_STORE_ALLOW_INSECURE: 'true'
       # The URL a user opens: the edge proxy below, the stack's one published port.
       PUBLIC_APP_URL: ${AUTOMATE_PUBLIC_URL:-http://localhost:${AUTOMATE_PORT:-8080}}
+      # What the startup policy reads to decide whether this install is reachable from other
+      # machines: the edge's published bind, not this container's own 0.0.0.0. A reachable
+      # install with no login refuses to start; AUTOMATE_LAN_MODE=1 turns sign-in on.
+      AUTOMATE_BIND: ${AUTOMATE_BIND:-127.0.0.1}
+      AUTOMATE_LAN_MODE: ${AUTOMATE_LAN_MODE:-0}
+      ALLOWED_CLIENT_CIDRS: ${ALLOWED_CLIENT_CIDRS:-}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -204,10 +211,11 @@ services:
     security_opt:
       - no-new-privileges:true
 
-  # The front door, and the only published port. `/api/` goes to the API and `/` to the
-  # web UI, so a user opens one URL. Bound to loopback by default: the install has no
-  # login in front of it, so `AUTOMATE_BIND=0.0.0.0` makes it reachable by anyone who can
-  # reach this machine, and the start script says so when it is set.
+  # The front door, and the only published ports: HTTP, and HTTPS once a LAN certificate
+  # exists. `/api/` goes to the API and `/` to the web UI, so a user opens one URL. Bound to
+  # loopback by default. `AUTOMATE_BIND=0.0.0.0` makes it reachable from other machines, and
+  # both the start scripts and the API's startup policy refuse that unless
+  # `AUTOMATE_LAN_MODE=1` turns sign-in on.
   edge:
     build:
       context: ../..
@@ -226,12 +234,34 @@ services:
       - no-new-privileges:true
     ports:
       - '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_PORT:-8080}:8080'
+      - '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_HTTPS_PORT:-8443}:8443'
+    environment:
+      # The port a browser uses for HTTPS, so the plain-HTTP redirect names the right one.
+      AUTOMATE_HTTPS_PORT: ${AUTOMATE_HTTPS_PORT:-8443}
+    # The LAN certificate, issued by `start lan-cert`. Empty until then, and the edge serves
+    # plain HTTP only (infra/nginx/40-automate-tls.sh).
+    volumes:
+      - ${AUTOMATE_CERT_DIR:-./certs}:/etc/automate/certs
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1']
+      # `/edge-health` rather than `/`: with TLS on, every other plain-HTTP path redirects.
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/edge-health || exit 1']
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 10s
+
+  signal:
+    # Optional: `docker compose --profile signal up -d`. The bridge scheduled reports use to
+    # reach Signal, which has no official API. Link it to an account once (see
+    # site/guide/notifications.md), then add a Signal channel with the bridge URL
+    # `http://signal:8080`. Not published: only the API reaches it, inside this network.
+    profiles: ['signal']
+    image: bbernhard/signal-cli-rest-api:0.101
+    environment:
+      MODE: native
+    volumes:
+      - signal_data:/home/.local/share/signal-cli
+    restart: unless-stopped
 
 networks:
   runner_egress:
@@ -244,3 +274,5 @@ volumes:
   # that are evidence, so losing them with the container is the failure mode the
   # production policy exists to prevent.
   objectstore_data:
+  # The Signal bridge's linked account. Optional, with the `signal` profile.
+  signal_data:

@@ -6,7 +6,13 @@ import { createErrorBoundary } from './errors/boundary.js';
 import { withClassifiedErrors } from './errors/db-errors.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createReporterRoutes } from './routes/reporter.js';
-import { createAuthRoutes } from './routes/auth.js';
+import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
+import { isLoopbackBind } from '@automate/config';
+import type { CallerResolver } from './http/roles.js';
+import { applyRouteAccess } from './http/route-access.js';
+import { secureCookiePolicy, type SecureCookies } from './http/secure-cookies.js';
+import { createClientAllowlist } from './middleware/client-allowlist.js';
+import { createOriginCheck } from './middleware/origin-check.js';
 import { hashCredential } from '@automate/auth';
 import { createReporterResultsRoute } from './routes/reporter-results.js';
 import { createReportingRoutes } from './routes/reporting.js';
@@ -56,6 +62,11 @@ import { alertsFor, deliverAlerts } from './services/health-integrations.js';
 import type { ReportEvent } from './services/repo-health-service.js';
 import { githubAdapter } from '@automate/connectors-github';
 import { slackAdapter } from '@automate/connectors-slack';
+import { signalAdapter } from '@automate/connectors-signal';
+import { teamsAdapter } from '@automate/connectors-teams';
+import { telegramAdapter } from '@automate/connectors-telegram';
+import { whatsappAdapter } from '@automate/connectors-whatsapp';
+import { createReportDispatcher } from './services/report-dispatcher.js';
 import { getCookie } from 'hono/cookie';
 import { DEFAULT_IGNORED, fileSystemView } from '@automate/projects';
 import { createRepoScanner } from './services/repo-scan-service.js';
@@ -90,6 +101,7 @@ import { createSentryErrorReporter } from './observability/sentry.js';
 import { createLogger } from './observability/logger.js';
 import {
   assertInMemoryAllowed,
+  checkExposurePolicy,
   checkProductionPolicy,
   resolveAuthSecrets,
 } from './startup-policy.js';
@@ -118,6 +130,7 @@ const sessionRetentionMs = (runtimeConfig.sessionRetentionDays ?? 30) * 24 * 60 
 // Production policy is validated before any composition: no database client, no
 // in-memory fallback, and no secret literal is constructed before this point.
 checkProductionPolicy(runtimeConfig);
+checkExposurePolicy(runtimeConfig);
 const { cookieSecret: authCookieSecret, installationKey: installationKey } =
   resolveAuthSecrets(runtimeConfig);
 
@@ -365,6 +378,25 @@ function mountLegacyProcessLocalRoutes(): void {
 const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
 const retentionSweep = realtimeFeed ? startOutboxRetentionSweep(realtimeFeed) : undefined;
+/**
+ * Sends the scheduled reports the worker queues. Only with a database, because the queue
+ * and the channel credentials both live there; started below with the server, and stopped
+ * before the pool so no send is cut off mid-query.
+ */
+const reportDispatcher = databaseResources
+  ? createReportDispatcher({
+      db: databaseResources.db as never,
+      vaultSecret: runtimeConfig.vaultSecret,
+      adapters: {
+        slack: slackAdapter,
+        teams: teamsAdapter,
+        telegram: telegramAdapter,
+        whatsapp: whatsappAdapter,
+        signal: signalAdapter,
+      },
+      link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
+    })
+  : undefined;
 let realtimeBus: RealtimeBus;
 /** The durable bus, when one was constructed — the readiness probe needs its own view. */
 let durableRealtimeBus: DurableRealtimeBus | undefined;
@@ -417,16 +449,16 @@ const installationKeyHash = databaseResources
     })
   : hashCredential(authCookieSecret, installationKey);
 /**
- * Cookie `secure` is derived from how the request actually arrived, not from
- * a configured public URL. A deployment behind a TLS-terminating proxy that
- * forgets to set `PUBLIC_APP_URL` to an `https://` value would otherwise emit
- * a session cookie without `Secure`. An explicit `COOKIE_SECURE` still wins.
+ * Whether session cookies are `Secure`: fixed by `COOKIE_SECURE` or an https public URL,
+ * otherwise read per request from the edge's `X-Forwarded-Proto`. See `http/secure-cookies.ts`.
  */
-function resolveSecureCookies(): boolean {
-  const explicit = process.env['COOKIE_SECURE']?.trim().toLowerCase();
-  if (explicit === 'true' || explicit === '1' || explicit === 'yes') return true;
-  if (explicit === 'false' || explicit === '0' || explicit === 'no') return false;
-  return (runtimeConfig.publicAppUrl ?? 'http://localhost:5173').startsWith('https://');
+const secureCookies = secureCookiePolicy({
+  explicit: process.env['COOKIE_SECURE'],
+  publicAppUrl: runtimeConfig.publicAppUrl,
+  trustProxy: runtimeConfig.trustProxy,
+});
+function resolveSecureCookies(): SecureCookies {
+  return secureCookies;
 }
 
 const authRoutes = createAuthRoutes({
@@ -480,6 +512,41 @@ function resolveAllowedOrigins(): string[] {
 // that can fail does not have (ledger O-1b).
 app.use(requestContext);
 app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }));
+/**
+ * Who is calling, for every role guard in the process — one resolver, so the projects
+ * routes and the table in `http/route-access.ts` cannot disagree about a credential.
+ * Without a database there are no access tokens, so only an installation session counts.
+ */
+const accessResolver: CallerResolver = {
+  mode: runtimeConfig.accessControl ?? 'open',
+  authenticateToken: async (token) =>
+    databaseResources === undefined
+      ? null
+      : authenticateToken(
+          {
+            db: databaseResources.db as never,
+            workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+          },
+          token,
+        ),
+  hasSession: async (context) => {
+    const session = getCookie(context, 'automate_session');
+    return session !== undefined && (await authRoutes.sessions.validate(session)) !== undefined;
+  },
+};
+// Before any route is mounted: Hono runs matching handlers in registration order.
+app.use(
+  '*',
+  createClientAllowlist({
+    cidrs: runtimeConfig.allowedClientCidrs ?? [],
+    // Only a reachable install filters. On loopback the peer is this machine, and the list
+    // would only stand between an operator and their own dashboard.
+    enabled: !isLoopbackBind(runtimeConfig.exposedBind ?? runtimeConfig.host ?? '127.0.0.1'),
+    clientKey: (context) => defaultClientKey(context, runtimeConfig.trustProxy ?? false),
+  }),
+);
+app.use('*', createOriginCheck({ allowedOrigins: resolveAllowedOrigins() }));
+applyRouteAccess(app, accessResolver);
 
 /**
  * A server-side deadline on every request that is not a long-lived stream.
@@ -724,18 +791,20 @@ if (databaseResources !== undefined) {
       ...registry,
       vaultSecret: runtimeConfig.vaultSecret,
       secureCookies: resolveSecureCookies(),
+      trustProxy: runtimeConfig.trustProxy ?? false,
+      pairing: {
+        pepper: authCookieSecret,
+        publicAppUrl: runtimeConfig.publicAppUrl ?? 'http://localhost:8080',
+      },
+      notifications: {
+        link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
+        ...(reportDispatcher === undefined
+          ? {}
+          : { dispatchNow: () => reportDispatcher.runOnce() }),
+      },
       // The installation key's session is the admin; tokens carry their own role. With
       // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
-      access: {
-        mode: runtimeConfig.accessControl ?? 'open',
-        authenticateToken: (token) => authenticateToken(registry, token),
-        hasSession: async (context) => {
-          const session = getCookie(context, 'automate_session');
-          return (
-            session !== undefined && (await authRoutes.sessions.validate(session)) !== undefined
-          );
-        },
-      },
+      access: accessResolver,
       health: {
         ...healthHooks,
         detailsUrl: dashboardUrl,
@@ -914,6 +983,10 @@ if (runtimeConfig.nodeEnv !== 'test') {
   });
   if (databaseResources) lifecycle.add('database pool', () => databaseResources.close());
   if (retentionSweep) lifecycle.add('outbox retention sweep', () => retentionSweep.stop());
+  if (reportDispatcher) {
+    reportDispatcher.start(Number(process.env['REPORT_DISPATCH_INTERVAL_MS'] ?? 15_000));
+    lifecycle.add('report dispatcher', () => reportDispatcher.stop());
+  }
   lifecycle.add('http server', () => closeHttpServer(server, SHUTDOWN_DRAIN_MS));
   installShutdownHandlers(lifecycle, {
     process,

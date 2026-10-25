@@ -27,7 +27,7 @@
       "file the workflow audit reads, so the classification is checkable rather than",
       "remembered.",
       "",
-      "  pr-blocking   — a red job stops the merge. `verify` may grow from 17 to at most",
+      "  pr-blocking   — a red job stops the merge. `verify` may grow from 13 to at most",
       "                  20 steps; past that, it goes nightly.",
       "  pr-reporting  — runs on every PR, uploads its report, blocks nothing.",
       "  nightly       — too slow, too flaky, or needs a database for a pull request.",

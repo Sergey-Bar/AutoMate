@@ -37,7 +37,10 @@ function mockAuthenticatedApi(): void {
       if (url.endsWith('/api/v1/projects')) {
         return new Response(JSON.stringify({ projects: [] }), { status: 200 });
       }
-      // / lands on the portfolio, which asks who is calling and then lists every project.
+      // / lands on Now, which reads runs, the portfolio and the report history.
+      if (url.endsWith('/api/v1/report-deliveries')) {
+        return new Response(JSON.stringify({ deliveries: [] }), { status: 200 });
+      }
       if (url.endsWith('/api/v1/auth/whoami')) {
         return new Response(JSON.stringify({ actor: 'anonymous', role: 'admin', mode: 'open' }), {
           status: 200,
@@ -111,10 +114,9 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     // The heading, not a sub-state testid: the cockpit has two states — a report and
     // an onboarding screen — and both are named `Dashboard`, so this assertion holds
     // whichever one a bare install is in.
-    await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Portfolio' })).toBeInTheDocument(),
-      { timeout: RENDER_TIMEOUT_MS },
-    );
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Now' })).toBeInTheDocument(), {
+      timeout: RENDER_TIMEOUT_MS,
+    });
   });
 
   it('settles in one navigation rather than looping toward the update bound', async () => {

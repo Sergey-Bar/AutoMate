@@ -23,6 +23,7 @@ import {
 } from '../lib/health-client.js';
 import { ago } from '../lib/health-view.js';
 import { CopyButton, PageFrame, PageHeader, Panel, Quiet } from './kit.js';
+import { ConnectRunnerPanel, PairDevicePanel } from './Pairing.js';
 
 /**
  * Sign-in, and the gate that asks for it.
@@ -52,7 +53,11 @@ export function AccessGate({
   return <>{children(who.value)}</>;
 }
 
-function SignIn({
+/**
+ * One field, for whoever reaches an install that enforces access control with no
+ * credential. Exported for the app-wide gate in `routes/__root.tsx`.
+ */
+export function SignIn({
   health,
   onSignedIn,
 }: {
@@ -165,9 +170,15 @@ function AccessBody({ health, who }: { health: HealthClient; who: WhoAmI }): Rea
       />
       {who.mode === 'open' ? (
         <Quiet data-testid="access-open">
-          Access control is open: every caller is the operator. Set ACCESS_CONTROL=enforced to
-          require these tokens.
+          Access control is open: every caller is the operator. Set AUTOMATE_LAN_MODE=1 (or
+          ACCESS_CONTROL=enforced) to require sign-in.
         </Quiet>
+      ) : null}
+      {who.role === 'admin' ? (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <PairDevicePanel health={health} />
+          <ConnectRunnerPanel origin={window.location.origin} />
+        </div>
       ) : null}
       <Panel title="Issue a token">
         <form

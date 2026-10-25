@@ -14,7 +14,7 @@
  * a link, never from the tab row.
  */
 export const SECTIONS = [
-  { id: 'overview', label: 'Overview', path: '/dashboard/portfolio' },
+  { id: 'overview', label: 'Overview', path: '/dashboard/now' },
   { id: 'runs', label: 'Runs', path: '/dashboard/runs' },
   { id: 'insights', label: 'Insights', path: '/dashboard/insights' },
   { id: 'map', label: 'Map', path: '/dashboard/map' },
@@ -32,6 +32,14 @@ interface ManifestEntry {
 }
 
 export const routeManifest = [
+  {
+    id: 'now',
+    path: '/dashboard/now',
+    label: 'Now',
+    visible: true,
+    section: 'overview',
+    tab: 'Now',
+  },
   {
     id: 'portfolio',
     path: '/dashboard/portfolio',
@@ -161,6 +169,21 @@ export const routeManifest = [
     visible: true,
     section: 'map',
     tab: 'Access',
+  },
+  {
+    id: 'reports',
+    path: '/dashboard/reports',
+    label: 'Reports',
+    visible: true,
+    section: 'map',
+    tab: 'Reports',
+  },
+  {
+    id: 'pair',
+    path: '/dashboard/pair',
+    label: 'Pair this device',
+    visible: false,
+    section: 'map',
   },
 ] as const satisfies readonly ManifestEntry[];
 

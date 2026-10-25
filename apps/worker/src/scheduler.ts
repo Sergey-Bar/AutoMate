@@ -116,3 +116,37 @@ export async function pollSchedules(
   }
   return results;
 }
+
+/**
+ * Due report schedules, each turned into one queued delivery.
+ *
+ * Always `run_once`, never a catch-up: a daily report missed for five days is one report
+ * on the sixth, not five. The idempotency key is the same `schedule:<id>:<dueAt>` a run
+ * uses, and it is unique in `report_deliveries`, so two workers polling one occurrence
+ * queue it once.
+ *
+ * @returns how many deliveries this poll queued
+ */
+export async function pollReportSchedules(
+  store: ExecutionStore,
+  now: Date,
+  limit: number,
+): Promise<number> {
+  if (store.listDueReportSchedules === undefined || store.enqueueScheduledReport === undefined) {
+    return 0;
+  }
+  let queued = 0;
+  for (const schedule of await store.listDueReportSchedules(now, limit)) {
+    assertTimezone(schedule.timezone);
+    const cron = new Cron(schedule.cronExpr, { timezone: schedule.timezone });
+    const following = requireNext(cron, now);
+    const enqueued = await store.enqueueScheduledReport({
+      schedule,
+      scheduledFor: schedule.nextRunAt,
+      nextRunAt: following.toISOString(),
+      idempotencyKey: `schedule:${schedule.id}:${schedule.nextRunAt}`,
+    });
+    if (enqueued) queued += 1;
+  }
+  return queued;
+}

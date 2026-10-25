@@ -1,17 +1,34 @@
 version: 2
+# Minor and patch updates arrive as **one grouped pull request per ecosystem per week**;
+# a major arrives on its own, because a major is a decision and a patch is maintenance.
+#
+# The previous policy ignored every minor and patch on the reasoning that a caret range
+# picks them up. It does not: `pnpm install --frozen-lockfile` installs the lockfile, so a
+# patch reaches this tree only when someone regenerates it — and for the SHA-pinned
+# actions there is no range at all, so a security fix to `actions/checkout` never arrived.
+#
+# `cooldown` keeps Dependabot from proposing a release in its first days. pnpm 11 refuses
+# a package published in the last 24 hours anyway (AGENTS.md), so a same-day PR would
+# only ever fail CI.
 updates:
   - package-ecosystem: 'npm'
     directory: '/'
     schedule:
       interval: 'weekly'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-minor', 'version-update:semver-patch']
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+    groups:
+      npm-minor-and-patch:
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
       interval: 'weekly'
-    ignore:
-      - dependency-name: '*'
-        update-types: ['version-update:semver-minor', 'version-update:semver-patch']
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+    groups:
+      actions-minor-and-patch:
+        update-types: ['minor', 'patch']

@@ -6,8 +6,10 @@ import type {
   JobCompletion,
   LeaseRecovery,
   QueueJob,
+  ReportSchedule,
   ScheduledEnqueue,
   ScheduledEnqueueResult,
+  ScheduledReportEnqueue,
   WorkerSchedule,
 } from './types.js';
 
@@ -117,6 +119,44 @@ export class InMemoryExecutionStore implements ExecutionStore {
 
   addSchedule(schedule: WorkerSchedule): void {
     this.schedules.set(schedule.id, clone(schedule));
+  }
+
+  private readonly reportSchedules = new Map<string, ReportSchedule>();
+  private readonly reportDeliveries = new Map<
+    string,
+    { workspaceId: string; subscriptionId: string; scheduledFor: string; idempotencyKey: string }
+  >();
+
+  addReportSchedule(schedule: ReportSchedule): void {
+    this.reportSchedules.set(schedule.id, clone(schedule));
+  }
+
+  /** The deliveries the scheduler queued, in order. For tests. */
+  listReportDeliveries() {
+    return [...this.reportDeliveries.values()].map((delivery) => clone(delivery));
+  }
+
+  async listDueReportSchedules(now: Date, limit: number): Promise<ReportSchedule[]> {
+    return [...this.reportSchedules.values()]
+      .filter((schedule) => new Date(schedule.nextRunAt).getTime() <= now.getTime())
+      .sort((left, right) => left.nextRunAt.localeCompare(right.nextRunAt))
+      .slice(0, limit)
+      .map((schedule) => clone(schedule));
+  }
+
+  async enqueueScheduledReport(input: ScheduledReportEnqueue): Promise<boolean> {
+    const schedule = this.reportSchedules.get(input.schedule.id);
+    if (!schedule || schedule.nextRunAt !== input.scheduledFor) return false;
+    // The key carries the occurrence, and the occurrence moves on below, so a second call
+    // for the same key fails the compare above: no separate duplicate check is needed.
+    schedule.nextRunAt = input.nextRunAt;
+    this.reportDeliveries.set(input.idempotencyKey, {
+      workspaceId: schedule.workspaceId,
+      subscriptionId: schedule.subscriptionId,
+      scheduledFor: input.scheduledFor,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return true;
   }
 
   requestCancellation(jobId: string): boolean {

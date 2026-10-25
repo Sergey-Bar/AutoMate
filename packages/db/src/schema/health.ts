@@ -206,3 +206,38 @@ export const accessTokens = pgTable(
 );
 
 export type AccessTokenRow = InferSelectModel<typeof accessTokens>;
+
+/**
+ * One-time codes that pair a device: an admin issues one, a phone or laptop on the LAN
+ * types it (or scans its QR) within ten minutes, and receives an access token of the
+ * code's role. Only an HMAC of the six digits is stored, and a code is spent the moment it
+ * is exchanged — `used_at` set and `token_id` naming the device's token, which the Access
+ * page lists and revokes like any other. Added in `0033_pairing_codes.sql`.
+ */
+export const pairingCodes = pgTable(
+  'pairing_codes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    codeHash: text('code_hash').notNull(),
+    role: text('role').notNull(),
+    deviceName: text('device_name').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    tokenId: uuid('token_id').references(() => accessTokens.id, { onDelete: 'set null' }),
+  },
+  (table) => [
+    // Not unique: six digits repeat over time. Only one *live* code may hold a value, which
+    // the service checks when it issues one.
+    index('pairing_codes_hash_idx').on(table.codeHash),
+    index('pairing_codes_workspace_idx').on(table.workspaceId, table.createdAt),
+    // A pairing code never mints an admin: that is the installation key's job.
+    check('pairing_codes_role_check', sql`${table.role} IN ('viewer', 'operator')`),
+  ],
+);
+
+export type PairingCodeRow = InferSelectModel<typeof pairingCodes>;

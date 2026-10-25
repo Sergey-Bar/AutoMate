@@ -54,6 +54,10 @@ export interface HealthClient {
     projectId?: string;
   }): Promise<{ token: string; summary: AccessTokenSummary }>;
   revokeToken(id: string): Promise<AccessTokenSummary>;
+  /** Issues a six-digit code that pairs one device. Admin only. */
+  issuePairingCode(body: { deviceName: string; role: 'viewer' | 'operator' }): Promise<PairingCode>;
+  /** Spends a pairing code: this browser is signed in as the code's role. */
+  pair(code: string): Promise<{ role: 'viewer' | 'operator'; deviceName: string }>;
   getSettings(projectId: string): Promise<HealthSettings>;
   setSchedule(
     projectId: string,
@@ -97,6 +101,16 @@ export const AccessTokenSummarySchema = z.object({
   revokedAt: z.string().nullable(),
 });
 export type AccessTokenSummary = z.infer<typeof AccessTokenSummarySchema>;
+
+export const PairingCodeSchema = z.object({
+  id: z.string(),
+  code: z.string().regex(/^\d{6}$/u),
+  deviceName: z.string(),
+  role: z.enum(['viewer', 'operator']),
+  expiresAt: z.string(),
+  pairUrl: z.string(),
+});
+export type PairingCode = z.infer<typeof PairingCodeSchema>;
 
 function search(query: FindingQuery): string {
   const params = new URLSearchParams();
@@ -201,5 +215,12 @@ export function createHealthClient(baseUrl = '', fetchImpl: typeof fetch = fetch
       });
       return parse(response, AccessTokenSummarySchema, path);
     },
+    issuePairingCode: (body) => post('/api/v1/pairing-codes', body, PairingCodeSchema),
+    pair: (code) =>
+      post(
+        '/api/v1/pair',
+        { code: code.trim() },
+        z.object({ role: z.enum(['viewer', 'operator']), deviceName: z.string() }),
+      ),
   };
 }

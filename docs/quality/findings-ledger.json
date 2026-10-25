@@ -5722,6 +5722,75 @@
         }
       ],
       "resolution": "One more read pattern in the collector. Nothing else about what counts as a real variable changed."
+    },
+    {
+      "id": "LAN-1",
+      "title": "The token sign-in limiter keyed on a client-chosen X-Forwarded-For, so a guesser never ran out of attempts",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "LAN-2026-10",
+      "summary": "`routes/access.ts` consumed its 10-per-minute budget under `token:<x-forwarded-for>` whether or not a proxy was trusted. A client that sent a different header on every request got a fresh bucket each time, so `POST /api/v1/auth/token-login` had no effective limit. The key login beside it had already been fixed (MNT-7) through `defaultClientKey`; this route had not.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-25",
+      "confirmedBy": "The new test sent twelve wrong tokens from one peer with twelve different X-Forwarded-For values and received twelve 401s and no 429 before the change.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/access-service.test.ts",
+          "asserts": "A forged X-Forwarded-For does not buy a fresh token sign-in budget: attempts 11 and 12 are 429."
+        },
+        {
+          "path": "apps/api/src/routes/access.ts",
+          "asserts": "The budget is keyed on defaultClientKey(context, trustProxy)."
+        }
+      ],
+      "resolution": "The route reads the same client key the key login reads: the last hop only when TRUST_PROXY says our proxy wrote it, otherwise the TCP peer."
+    },
+    {
+      "id": "LAN-2",
+      "title": "Cookie Secure was documented as following how the request arrived, and was read once from PUBLIC_APP_URL",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "LAN-2026-10",
+      "summary": "The comment above `resolveSecureCookies` in `apps/api/src/index.ts` said the flag was derived from the request; the code read `PUBLIC_APP_URL` once, at boot. Behind a TLS-terminating edge whose public URL still said http, a browser on https received a session cookie without Secure.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-25",
+      "confirmedBy": "Read against the code; the new policy test asserts the https-forwarded case the old function could not express.",
+      "evidence": [
+        {
+          "path": "apps/api/src/http/secure-cookies.test.ts",
+          "asserts": "With TRUST_PROXY, X-Forwarded-Proto https makes the cookie Secure; an unvouched header does not."
+        }
+      ],
+      "resolution": "`secureCookiePolicy` decides per request: an explicit COOKIE_SECURE, then an https public URL, then the trusted proxy's scheme."
+    },
+    {
+      "id": "LAN-3",
+      "title": "ACCESS_CONTROL=enforced guarded the project routes only, and a reachable install with no login only printed a warning",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "LAN-2026-10",
+      "summary": "With access control enforced, runs, artifacts, the dashboard, events and chat still answered anyone: 56 rows of the authz matrix were open. Separately, `AUTOMATE_BIND=0.0.0.0` made an install with no login reachable from the network, and the start scripts warned and started anyway.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-25",
+      "confirmedBy": "The new authz assertion failed against the committed matrix with 44 open rows outside the probes and the sign-in exchange; the start-script test saw exit 0 on a non-loopback bind.",
+      "evidence": [
+        {
+          "path": "apps/api/src/authz-matrix.test.ts",
+          "asserts": "Open rows are exactly PUBLIC_ROUTES, and every guarded route refuses a caller with no credential under enforced."
+        },
+        {
+          "path": "apps/api/src/startup-policy.test.ts",
+          "asserts": "checkExposurePolicy refuses a reachable install with ACCESS_CONTROL=open, in every environment."
+        },
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "Both start scripts refuse a non-loopback bind without AUTOMATE_LAN_MODE, and start nothing."
+        }
+      ],
+      "resolution": "`apps/api/src/http/route-access.ts` guards every remaining route by method and role; `checkExposurePolicy` refuses the exposure at boot; the start scripts refuse it at the prompt. AUTOMATE_LAN_MODE=1 turns enforcement on."
     }
   ]
 }

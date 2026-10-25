@@ -11,6 +11,7 @@ import {
 } from '@automate/auth';
 import type { AuthSessionBackend } from '../infrastructure/session-backend.js';
 import { createRateLimiter } from '../middleware/rate-limit.js';
+import { isSecureFor, type SecureCookies } from '../http/secure-cookies.js';
 
 const LoginSchema = z.object({ apiKey: z.string().min(1) });
 const SESSION_COOKIE = 'automate_session';
@@ -29,7 +30,8 @@ export interface AuthRouteOptions {
   installationId: string;
   installationKeyHash: string;
   sessionTtlMs: number;
-  secureCookies: boolean;
+  /** Fixed, or decided per request from `X-Forwarded-Proto`. See `http/secure-cookies.ts`. */
+  secureCookies: SecureCookies;
   now?: () => Date;
   sessionBackend?: AuthSessionBackend;
   /**
@@ -156,7 +158,7 @@ export function createAuthRoutes(options: AuthRouteOptions) {
     setCookie(context, SESSION_COOKIE, issued.token, {
       httpOnly: true,
       sameSite: 'Lax',
-      secure: options.secureCookies,
+      secure: isSecureFor(options.secureCookies, context),
       path: '/',
       maxAge: Math.floor(options.sessionTtlMs / 1000),
     });

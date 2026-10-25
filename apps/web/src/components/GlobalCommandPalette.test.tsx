@@ -132,9 +132,9 @@ describe('GlobalCommandPalette keyboard and accessibility', () => {
 
     await user.keyboard('{Control>}k{/Control}');
     await screen.findByRole('combobox');
-    await user.keyboard('{ArrowDown}{Enter}');
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
 
-    // Index 0 is "Go to Portfolio"; ArrowDown moves to index 1, the project overview.
+    // Index 0 is "Go to Now", 1 is "Go to Portfolio"; two ArrowDowns reach the project overview.
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard' });
   });
 

@@ -111,9 +111,28 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'access tokens',
     files: ['services/access-service.ts', 'routes/access.ts', 'http/roles.ts'],
   },
+  // Device pairing mints access tokens in the issuing workspace. `pairing-service.test.ts`
+  // proves a code issued in one workspace does not redeem in another.
+  { family: 'device pairing', files: ['services/pairing-service.ts', 'routes/pairing.ts'] },
   // A project's git token, bound to its row by the vault's AAD; `projects.test.ts` proves it
   // does not open under another secret, and `vault-crypto.test.ts` the binding itself.
   { family: 'git credentials', files: ['services/git-credential-service.ts'] },
+  // The one sealed-secret store behind git credentials and notification channels; every
+  // read filters on the workspace and the envelope's AAD binds it to its row.
+  // `notification-service.test.ts` proves a channel's secret does not open from another
+  // workspace.
+  { family: 'vault secrets', files: ['services/vault-secrets.ts'] },
+  // Scheduled reports: channels, subscriptions, deliveries and the dispatcher that sends them.
+  // `notification-service.test.ts` proves one workspace cannot list, send to, or receive
+  // another's.
+  {
+    family: 'scheduled reports',
+    files: [
+      'services/notification-service.ts',
+      'services/report-dispatcher.ts',
+      'routes/notifications.ts',
+    ],
+  },
   // Below the route layer: the stores and services the families above delegate
   // to. They take a `workspaceId` on every method precisely so the routes cannot
   // forget it, and the second test in this file scans their `where` clauses.

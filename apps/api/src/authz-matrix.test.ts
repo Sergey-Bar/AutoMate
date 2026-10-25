@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Hono } from 'hono';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PUBLIC_ROUTES } from './http/route-access.js';
 import {
   syntheticReporterSecret,
   syntheticRunnerRegistrationSecret,
@@ -69,6 +70,9 @@ beforeAll(async () => {
   // Read at import by the composition root, so they are set before it is imported.
   process.env['REPORTER_SECRET'] = REPORTER_SECRET;
   process.env['RUNNER_REGISTRATION_SECRET'] = REGISTRATION_SECRET;
+  // Enforced, so a role guard is probed for what it does on a shared network. With `open`
+  // every role guard admits the anonymous operator, which is ADR-006 and not a refusal.
+  process.env['ACCESS_CONTROL'] = 'enforced';
   lib = (await import(pathToFileURL(path.join(root, 'scripts/lib/authz-matrix.mjs')).href)) as Lib;
   ({ app } = (await import('./index.js')) as unknown as { app: Hono });
   // The groups `index.ts` mounts only with a database. Constructing one reads no option.
@@ -90,6 +94,7 @@ beforeAll(async () => {
 afterAll(() => {
   delete process.env['REPORTER_SECRET'];
   delete process.env['RUNNER_REGISTRATION_SECRET'];
+  delete process.env['ACCESS_CONTROL'];
 });
 
 const registered = (hono: Hono): RegisteredRoute[] =>
@@ -113,6 +118,16 @@ describe('the committed matrix and the composed application agree', () => {
 
   it('names a test for every guarded route', () => {
     expect(lib.unevidencedGuardedRoutes(committed)).toEqual([]);
+  });
+
+  it('leaves open only the probes and the credential exchange', () => {
+    // Every other route is guarded where it is declared or in `ROUTE_ROLES`. An `open` row
+    // outside `PUBLIC_ROUTES` is a route an install on a shared network would hand to anyone.
+    const open = committed
+      .filter((row) => row.access === 'open')
+      .map((row) => `${row.method} ${row.path}`)
+      .sort();
+    expect(open).toEqual([...PUBLIC_ROUTES].sort());
   });
 
   it('classifies at least the four credentials the API demands, and some open routes', () => {
@@ -281,7 +296,9 @@ describe('every open route answers a caller with no credential', () => {
       if (ANSWERS_ABOUT_THE_CALLERS_OWN_SESSION.has(key)) continue;
       answers.push([key, await statusOf(await probe(row))]);
     }
-    expect(answers.length).toBeGreaterThan(30);
+    // The six probes. Since LAN mode every other always-mounted route carries a guard, and
+    // `leaves open only the probes and the credential exchange` holds the list exactly.
+    expect(answers.length).toBeGreaterThanOrEqual(6);
     expect(answers.filter(([, status]) => REFUSED.includes(status))).toEqual([]);
   });
 

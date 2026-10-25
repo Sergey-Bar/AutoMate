@@ -13,12 +13,22 @@ import { Route as toolboxRoute } from './routes/dashboard/toolbox.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
-import { AccessRoute, PortfolioRoute, RepoHealthRoute } from './routes/dashboard/portfolio.js';
+import {
+  AccessRoute,
+  PairRoute,
+  PortfolioRoute,
+  RepoHealthRoute,
+} from './routes/dashboard/portfolio.js';
+import { Route as reportsRoute } from './routes/dashboard/reports.js';
+import { Route as nowRoute } from './routes/dashboard/now.js';
 
 const dashboardTree = dashboardRoute.addChildren([
+  nowRoute,
   PortfolioRoute,
   RepoHealthRoute,
   AccessRoute,
+  PairRoute,
+  reportsRoute,
   insightsRoute,
   runsListRoute,
   runDetailRoute,

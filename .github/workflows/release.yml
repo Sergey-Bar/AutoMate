@@ -248,6 +248,18 @@ jobs:
           name: release-notes
       - name: Build the bundle
         run: node ./scripts/release-bundle.mjs --version "${{ needs.prepare.outputs.version }}"
+      # A CycloneDX software bill of materials for the source tree the release was built
+      # from: every npm package in `pnpm-lock.yaml`, with versions and licences. The
+      # images already carry buildx's SBOM attestation; this is the one a user who
+      # downloads the bundle, and never pulls an image, can read.
+      - name: Software bill of materials
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/release/automate-${{ needs.prepare.outputs.version }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,7 +267,7 @@ jobs:
           PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
         run: |
           set -euo pipefail
-          assets=("dist/release/automate-${VERSION}.zip" "dist/release/SHA256SUMS")
+          assets=("dist/release/automate-${VERSION}.zip" "dist/release/SHA256SUMS" "dist/release/automate-${VERSION}.cdx.json")
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
             gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md

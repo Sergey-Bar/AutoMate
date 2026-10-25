@@ -58,4 +58,19 @@ describe('the repository-health routes', () => {
     render(<MemoryRouter initialEntries={['/dashboard/repo/p-1']} />);
     expect(await screen.findByTestId('sign-in', {}, { timeout: 10_000 })).toBeInTheDocument();
   });
+
+  it('opens the pairing page with the code from the link, past the sign-in gate', async () => {
+    // A device being paired has no credential: the gate must not stand in front of it.
+    stubApi(null);
+    render(<MemoryRouter initialEntries={['/dashboard/pair?code=04-21-37x']} />);
+    expect(await screen.findByTestId('pair-page', {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect((screen.getByLabelText('Pairing code') as HTMLInputElement).value).toBe('042137');
+  });
+
+  it('opens the pairing page with no code', async () => {
+    stubApi(null);
+    render(<MemoryRouter initialEntries={['/dashboard/pair']} />);
+    expect(await screen.findByTestId('pair-page', {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect((screen.getByLabelText('Pairing code') as HTMLInputElement).value).toBe('');
+  });
 });

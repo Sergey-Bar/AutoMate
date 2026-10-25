@@ -26,6 +26,10 @@ const CONNECTORS = [
   { name: 'slack', module: 'slack', adapter: 'slackAdapter' },
   { name: 'github', module: 'github', adapter: 'githubAdapter' },
   { name: 'jira', module: 'jira', adapter: 'jiraAdapter' },
+  { name: 'teams', module: 'teams', adapter: 'teamsAdapter' },
+  { name: 'telegram', module: 'telegram', adapter: 'telegramAdapter' },
+  { name: 'whatsapp', module: 'whatsapp', adapter: 'whatsappAdapter' },
+  { name: 'signal', module: 'signal', adapter: 'signalAdapter' },
 ] as const;
 
 for (const connector of CONNECTORS) {

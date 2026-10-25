@@ -115,3 +115,7 @@ var/
 # StrykerJS: reports and in-place backup (see .config/stryker.config.mjs)
 **/reports/mutation/
 **/.stryker-tmp/
+
+# LAN certificates issued by `start lan-cert`. The CA key never belongs in git.
+infra/compose/certs/
+certs/

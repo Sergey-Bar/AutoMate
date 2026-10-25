@@ -400,6 +400,58 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/notification-channels": {
+      "get": {
+        "operationId": "getApiV1NotificationChannels",
+        "tags": ["notification-channels"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1NotificationChannels",
+        "tags": ["notification-channels"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/notification-channels/{id}": {
+      "delete": {
+        "operationId": "deleteApiV1NotificationChannelsId",
+        "tags": ["notification-channels"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/notification-channels/{id}/test": {
+      "post": {
+        "operationId": "postApiV1NotificationChannelsIdTest",
+        "tags": ["notification-channels"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/pair": {
+      "post": {
+        "operationId": "postApiV1Pair",
+        "tags": ["pair"],
+        "x-source": "apps/api/src/routes/pairing.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/pairing-codes": {
+      "post": {
+        "operationId": "postApiV1PairingCodes",
+        "tags": ["pairing-codes"],
+        "x-source": "apps/api/src/routes/pairing.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/portfolio": {
       "get": {
         "operationId": "getApiV1Portfolio",
@@ -738,6 +790,47 @@
         "x-source": "apps/api/src/routes/execution/runs.routes.ts",
         "parameters": [
           { "name": "releaseId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/report-deliveries": {
+      "get": {
+        "operationId": "getApiV1ReportDeliveries",
+        "tags": ["report-deliveries"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/report-preview": {
+      "get": {
+        "operationId": "getApiV1ReportPreview",
+        "tags": ["report-preview"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/report-subscriptions": {
+      "get": {
+        "operationId": "getApiV1ReportSubscriptions",
+        "tags": ["report-subscriptions"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1ReportSubscriptions",
+        "tags": ["report-subscriptions"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/report-subscriptions/{id}": {
+      "delete": {
+        "operationId": "deleteApiV1ReportSubscriptionsId",
+        "tags": ["report-subscriptions"],
+        "x-source": "apps/api/src/routes/notifications.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
         ],
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
@@ -3282,6 +3375,26 @@
         "required": ["capability", "covered", "providers", "weight"],
         "additionalProperties": false
       },
+      "ChannelSummarySchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": {
+            "type": "string",
+            "enum": ["inbox", "slack", "teams", "telegram", "whatsapp", "signal"]
+          },
+          "name": { "type": "string" },
+          "settings": {
+            "type": "object",
+            "propertyNames": { "type": "string" },
+            "additionalProperties": {}
+          },
+          "enabled": { "type": "boolean" },
+          "createdAt": { "type": "string" }
+        },
+        "required": ["id", "kind", "name", "settings", "enabled", "createdAt"],
+        "additionalProperties": false
+      },
       "ChatMessageRoleSchema": {
         "type": "string",
         "enum": ["user", "assistant", "system", "tool"]
@@ -3790,6 +3903,117 @@
         ],
         "additionalProperties": false
       },
+      "CreateChannelBodySchema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "inbox" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "default": {},
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            },
+            "required": ["kind", "name", "settings"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "slack" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "channel": { "type": "string", "pattern": "^[#A-Za-z0-9._-]{1,80}$" }
+                },
+                "required": ["channel"],
+                "additionalProperties": false
+              },
+              "secret": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            },
+            "required": ["kind", "name", "settings", "secret"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "teams" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "default": {},
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              },
+              "secret": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            },
+            "required": ["kind", "name", "settings", "secret"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "telegram" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "chatId": { "type": "string", "pattern": "^(-?\\d{1,20}|@[A-Za-z0-9_]{5,32})$" }
+                },
+                "required": ["chatId"],
+                "additionalProperties": false
+              },
+              "secret": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            },
+            "required": ["kind", "name", "settings", "secret"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "whatsapp" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "phoneNumberId": { "type": "string", "pattern": "^\\d{5,20}$" },
+                  "to": { "type": "string", "pattern": "^\\d{7,15}$" },
+                  "template": { "type": "string", "pattern": "^[a-z0-9_]{1,512}$" },
+                  "language": { "type": "string", "pattern": "^([a-z]{2,3}|[a-z]{2,3}_[A-Z]{2})$" }
+                },
+                "required": ["phoneNumberId", "to", "template", "language"],
+                "additionalProperties": false
+              },
+              "secret": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            },
+            "required": ["kind", "name", "settings", "secret"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": { "type": "string", "const": "signal" },
+              "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "number": { "type": "string", "pattern": "^\\+\\d{7,15}$" },
+                  "recipients": { "type": "string", "minLength": 1, "maxLength": 1000 }
+                },
+                "required": ["number", "recipients"],
+                "additionalProperties": false
+              },
+              "secret": { "type": "string", "minLength": 1, "maxLength": 2000 }
+            },
+            "required": ["kind", "name", "settings", "secret"],
+            "additionalProperties": false
+          }
+        ]
+      },
       "CreateRunRequestSchema": {
         "type": "object",
         "properties": {
@@ -3887,6 +4111,63 @@
           "labels",
           "configuration",
           "metadata"
+        ],
+        "additionalProperties": false
+      },
+      "CreateSubscriptionBodySchema": {
+        "type": "object",
+        "properties": {
+          "channelId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "name": {
+            "default": "Quality report",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "cadence": { "type": "string", "enum": ["daily", "weekly", "custom"] },
+          "time": {
+            "default": "09:00",
+            "type": "string",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+          },
+          "weekday": { "default": 1, "type": "integer", "minimum": 0, "maximum": 6 },
+          "cronExpr": { "type": "string", "maxLength": 100 },
+          "timezone": { "default": "UTC", "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "required": ["channelId", "name", "cadence", "time", "weekday", "timezone"],
+        "additionalProperties": false
+      },
+      "DeliverySummarySchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "channelId": { "type": ["string", "null"] },
+          "subscriptionId": { "type": ["string", "null"] },
+          "status": { "type": "string", "enum": ["pending", "sending", "sent", "failed"] },
+          "attempts": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "errorCode": { "type": ["string", "null"] },
+          "scheduledFor": { "type": "string" },
+          "sentAt": { "type": ["string", "null"] },
+          "rendered": { "type": ["string", "null"] }
+        },
+        "required": [
+          "id",
+          "channelId",
+          "subscriptionId",
+          "status",
+          "attempts",
+          "errorCode",
+          "scheduledFor",
+          "sentAt",
+          "rendered"
         ],
         "additionalProperties": false
       },
@@ -8623,6 +8904,15 @@
         "type": "string",
         "enum": ["coverage", "tests", "lint", "security", "performance", "quality"]
       },
+      "ReportPreviewSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string", "enum": ["good", "caution", "bad"] },
+          "text": { "type": "string" }
+        },
+        "required": ["status", "text"],
+        "additionalProperties": false
+      },
       "ReportProducerSchema": {
         "type": "string",
         "enum": ["playwright", "junit", "robot", "k6", "zap", "sarif", "otel", "generic", "legacy"]
@@ -10448,6 +10738,32 @@
           "impact": { "type": "number", "minimum": 0, "maximum": 1 }
         },
         "required": ["kind", "statement", "cells", "impact"],
+        "additionalProperties": false
+      },
+      "SubscriptionSummarySchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "channelId": { "type": "string" },
+          "name": { "type": "string" },
+          "cadence": { "type": "string", "enum": ["daily", "weekly", "custom"] },
+          "cronExpr": { "type": "string" },
+          "timezone": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "describe": { "type": "string" },
+          "nextRunAt": { "type": ["string", "null"] }
+        },
+        "required": [
+          "id",
+          "channelId",
+          "name",
+          "cadence",
+          "cronExpr",
+          "timezone",
+          "enabled",
+          "describe",
+          "nextRunAt"
+        ],
         "additionalProperties": false
       },
       "TerminalCanonicalTestStatusSchema": {
