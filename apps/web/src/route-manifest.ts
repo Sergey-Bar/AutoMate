@@ -14,7 +14,7 @@
  * a link, never from the tab row.
  */
 export const SECTIONS = [
-  { id: 'overview', label: 'Overview', path: '/dashboard' },
+  { id: 'overview', label: 'Overview', path: '/dashboard/portfolio' },
   { id: 'runs', label: 'Runs', path: '/dashboard/runs' },
   { id: 'insights', label: 'Insights', path: '/dashboard/insights' },
   { id: 'map', label: 'Map', path: '/dashboard/map' },
@@ -32,7 +32,29 @@ interface ManifestEntry {
 }
 
 export const routeManifest = [
-  { id: 'dashboard', path: '/dashboard', label: 'Overview', visible: true, section: 'overview' },
+  {
+    id: 'portfolio',
+    path: '/dashboard/portfolio',
+    label: 'Portfolio',
+    visible: true,
+    section: 'overview',
+    tab: 'Portfolio',
+  },
+  {
+    id: 'dashboard',
+    path: '/dashboard',
+    label: 'Overview',
+    visible: true,
+    section: 'overview',
+    tab: 'Project',
+  },
+  {
+    id: 'repo-health',
+    path: '/dashboard/repo/:projectId',
+    label: 'Repository Health',
+    visible: false,
+    section: 'overview',
+  },
   {
     id: 'runs',
     path: '/dashboard/runs',
@@ -132,6 +154,14 @@ export const routeManifest = [
     section: 'map',
     tab: 'Toolbox',
   },
+  {
+    id: 'access',
+    path: '/dashboard/access',
+    label: 'Access',
+    visible: true,
+    section: 'map',
+    tab: 'Access',
+  },
 ] as const satisfies readonly ManifestEntry[];
 
 export type ManifestRoute = (typeof routeManifest)[number];
@@ -189,4 +219,8 @@ export function tabsOf(section: SectionId): TabRoute[] {
 
 export function runDetailPath(runId: string): string {
   return `/dashboard/runs/${encodeURIComponent(runId)}`;
+}
+
+export function repoHealthPath(projectId: string): string {
+  return `/dashboard/repo/${encodeURIComponent(projectId)}`;
 }

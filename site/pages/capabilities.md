@@ -9,7 +9,7 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Status       | Count | Meaning                                                                   |
 | ------------ | ----- | ------------------------------------------------------------------------- |
-| **real**     | 20    | implemented and exercised, with the stated qualification.                 |
+| **real**     | 21    | implemented and exercised, with the stated qualification.                 |
 | **mock**     | 14    | a route, response, or UI exists but does not provide the target behavior. |
 | **missing**  | 1     | no usable implementation exists in the target.                            |
 | **deferred** | 8     | intentionally outside the launch scope pending a separate decision.       |
@@ -46,6 +46,7 @@ its source, then run `pnpm site:generate`.
 | Mobile quality domain                                                 | `deferred` |
 | Accessibility quality domain                                          | `deferred` |
 | Security and SARIF quality domain                                     | `deferred` |
+| Repository health grade, findings, triage and pull-request gate       | `real`     |
 | k6 load execution and threshold adapter                               | `real`     |
 | ZAP finding and SARIF adapter                                         | `missing`  |
 | Provider-backed chat                                                  | `mock`     |
