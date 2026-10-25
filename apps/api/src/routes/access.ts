@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod/v4';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
-import { callerOf, requireRole, SIGN_IN_COOKIE, type CallerResolver } from '../http/roles.js';
+import { callerOf, requireRole, BROWSER_SIGN_IN, type CallerResolver } from '../http/roles.js';
 import { createRateLimiter } from '../middleware/rate-limit.js';
 import {
   CreateAccessTokenBodySchema,
@@ -60,7 +60,7 @@ export function createAccessRoutes(options: AccessRouteOptions): Hono {
     if (caller === null || caller.role === null) {
       throw new DomainError('INVALID_CREDENTIALS', 'Invalid credentials');
     }
-    setCookie(context, SIGN_IN_COOKIE, parsed.data.token, {
+    setCookie(context, BROWSER_SIGN_IN, parsed.data.token, {
       httpOnly: true,
       sameSite: 'Lax',
       secure: options.secureCookies ?? false,
@@ -71,7 +71,7 @@ export function createAccessRoutes(options: AccessRouteOptions): Hono {
   });
 
   app.post('/api/v1/auth/token-logout', (context) => {
-    deleteCookie(context, SIGN_IN_COOKIE, { path: '/' });
+    deleteCookie(context, BROWSER_SIGN_IN, { path: '/' });
     return context.json({ ok: true });
   });
 
