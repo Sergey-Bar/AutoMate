@@ -33,12 +33,12 @@
     "@sentry/node": "catalog:",
     "croner": "catalog:",
     "drizzle-orm": "catalog:",
-    "effect": "^4.0.5",
+    "effect": "^4.0.6",
     "hono": "^4.13.13",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite": "^0.5.11",
     "@eslint/js": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",

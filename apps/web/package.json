@@ -15,7 +15,7 @@
     "@automate/shared-contracts": "workspace:*",
     "@automate/ui": "workspace:*",
     "@sentry/react": "catalog:",
-    "@tanstack/react-router": "^1.170.45",
+    "@tanstack/react-router": "^1.170.46",
     "react": "catalog:",
     "react-dom": "catalog:",
     "uqr": "catalog:",

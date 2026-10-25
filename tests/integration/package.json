@@ -13,7 +13,7 @@
   "dependencies": {
     "@automate/db": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
-    "@electric-sql/pglite": "^0.5.10",
+    "@electric-sql/pglite": "^0.5.11",
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {
