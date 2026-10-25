@@ -49,19 +49,19 @@ function RootComponent() {
           <div className="flex h-dvh flex-col overflow-hidden bg-surface-sunken text-fg">
             <NavBar />
             <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4 sm:px-6 sm:py-6">
-              {/* Secondary chrome: focus mode hides it (index.css). */}
-              <div data-chrome="secondary">
-                <SectionTabs />
-              </div>
+              {/*
+               * Secondary chrome: focus mode hides it (index.css). The attribute is on the
+               * navs themselves, not on a wrapper here — a wrapper rendered on a page with
+               * no tab row was an empty first child of <main>.
+               */}
+              <SectionTabs />
               <div data-page className="flex min-h-0 flex-1 flex-col">
                 <SessionGate health={health} bypass={pathname === '/dashboard/pair'}>
                   <Outlet />
                 </SessionGate>
               </div>
             </main>
-            <div data-chrome="secondary">
-              <BottomTabBar />
-            </div>
+            <BottomTabBar />
           </div>
           <GlobalCommandPalette />
           <Shortcuts />
