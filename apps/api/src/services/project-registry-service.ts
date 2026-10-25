@@ -113,6 +113,52 @@ export async function registerProject(
 }
 
 /**
+ * Registers a repository by its git URL, with nothing on this host to detect.
+ *
+ * The profile is empty — there are no manifests to read until a runner clones it — so the
+ * scanners proposed for it are the ecosystem-free ones. Nothing here touches the network.
+ */
+export async function registerGitProject(
+  options: ProjectRegistryServiceOptions,
+  input: { name: string; slug: string; gitUrl: string; defaultBranch?: string | undefined },
+): Promise<RegisteredProject> {
+  const profile = ProjectProfileSchema.parse({
+    detectorVersion: 1,
+    ecosystem: null,
+    language: null,
+    packageManager: null,
+  });
+  const inserted = await options.db
+    .insert(projects)
+    .values({
+      workspaceId: options.workspaceId,
+      name: input.name,
+      slug: input.slug,
+      repoPath: null,
+      repositoryUrl: input.gitUrl,
+      defaultBranch: input.defaultBranch ?? null,
+      profile: profile as unknown as Record<string, unknown>,
+    })
+    .onConflictDoNothing()
+    .returning({ id: projects.id, createdAt: projects.createdAt });
+  const row = inserted[0];
+  if (row === undefined) {
+    throw new DomainError(ErrorCode.CONFLICT, 'A project with that slug is already registered');
+  }
+  return {
+    id: row.id,
+    workspaceId: options.workspaceId,
+    name: input.name,
+    slug: input.slug,
+    repoPath: null,
+    detectorVersion: 1,
+    profile,
+    evidence: [],
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+/**
  * Reads `automate.config.json`, or `null` when there is none.
  *
  * `null` and `{}` are the same thing here on purpose: an operator who wrote a file

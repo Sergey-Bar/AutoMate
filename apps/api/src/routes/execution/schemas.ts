@@ -24,7 +24,7 @@ import {
 } from '@automate/shared-contracts';
 import type { RunRepository } from '../../repositories/run-repository.js';
 import type { RealtimeBus } from '../../realtime/realtime-bus.js';
-import type { ExecutionStore } from '../../execution/types.js';
+import type { ExecutionRun, ExecutionStore } from '../../execution/types.js';
 
 export const CreateRunSchema = z
   .object({
@@ -314,4 +314,24 @@ export interface ExecutionRoutesOptions {
   bus?: RealtimeBus;
   /** Largest decoded artifact a runner may upload. */
   maxArtifactBytes?: number;
+  /**
+   * Called after a runner's artifact is stored, with the run it belongs to.
+   *
+   * The health scan uses it to ingest a scanner's report the moment it lands, so a scan this
+   * install ran comes through the same ingestion as a CI upload. It must not throw: the
+   * artifact is already stored, and the runner's upload succeeded whatever a consumer does.
+   */
+  onArtifact?: (input: {
+    run: ExecutionRun;
+    name: string;
+    bytes: Uint8Array;
+    metadata: Record<string, unknown>;
+  }) => Promise<void>;
+  /**
+   * The git token for a run that clones a repository, or `null` for a public one.
+   *
+   * Served only to the runner holding the job's lease, at the moment it clones, so the token
+   * never sits in a run's stored configuration.
+   */
+  checkoutToken?: (run: ExecutionRun) => Promise<string | null>;
 }

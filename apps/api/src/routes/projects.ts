@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono';
 import { z, ZodError } from 'zod/v4';
 import {
   CopilotQuestionSchema,
+  GitRepositoryUrlSchema,
   RunStartBodySchema,
   RunStopBodySchema,
 } from '@automate/shared-contracts';
@@ -34,9 +35,16 @@ import {
   listCommands,
   listProjects,
   refreshProject,
+  registerGitProject,
   registerProject,
   type ProjectRegistryServiceOptions,
 } from '../services/project-registry-service.js';
+import { storeGitToken } from '../services/git-credential-service.js';
+import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
+import { createAccessRoutes } from './access.js';
+import { audit, authenticateToken } from '../services/access-service.js';
+import { qaTestsReading } from '../services/repo-health-service.js';
+import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
 /**
  * The project registry and the derived QA score, as one route group.
@@ -59,6 +67,12 @@ import {
  * geometric formula, and the reader has no reason to distrust it.
  */
 export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
+  /** Who is calling. Absent: access is open, and access tokens are read from this database. */
+  access?: CallerResolver;
+  /** Whether the sign-in cookie is Secure. */
+  secureCookies?: boolean;
+  /** Seals a git token on registration. Absent: tokens are refused. */
+  vaultSecret?: string | undefined;
   /**
    * Starts a run. Injected so the routes have no database and no queue in them.
    *
@@ -85,6 +99,8 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
     openQuarantine: () => Promise<number>;
     now?: () => Date;
   };
+  /** The health upload credential: the reporter secret, and whether one is required. */
+  health?: Partial<Omit<RepoHealthRouteOptions, 'db' | 'workspaceId' | 'access'>>;
 }
 
 const DAY_MS = 86_400_000;
@@ -102,20 +118,39 @@ function verdictRate(runs: readonly ExecutionRun[]): number | null {
   return passed + failed === 0 ? null : Math.round((passed / (passed + failed)) * 1000) / 10;
 }
 
-const RegisterProjectBodySchema = z.object({
-  name: z.string().min(1).max(200),
-  slug: z
-    .string()
-    .min(1)
-    .max(64)
-    // A slug becomes a directory name in some installs and a URL segment in others.
-    // Restricting it here means no caller has to sanitise it downstream, and a slug
-    // that could carry `..` or a shell metacharacter is one more thing to defend
-    // against at every use.
-    .regex(/^[a-z0-9][a-z0-9._-]*$/u),
-  /** Absolute path on the runner host. Never a remote URL: the runner spawns in it. */
-  repoPath: z.string().min(1),
-});
+const RegisterProjectBodySchema = z
+  .object({
+    name: z.string().min(1).max(200),
+    slug: z
+      .string()
+      .min(1)
+      .max(64)
+      // A slug becomes a directory name in some installs and a URL segment in others.
+      // Restricting it here means no caller has to sanitise it downstream, and a slug
+      // that could carry `..` or a shell metacharacter is one more thing to defend
+      // against at every use.
+      .regex(/^[a-z0-9][a-z0-9._-]*$/u),
+    /** Absolute path on the runner host. The runner spawns in it. */
+    repoPath: z.string().min(1).optional(),
+    /** Or a repository a runner clones for each scan. Never both. */
+    gitUrl: GitRepositoryUrlSchema.optional(),
+    defaultBranch: z.string().trim().min(1).max(255).optional(),
+    /**
+     * An access token for a private repository. Sealed in the vault on arrival and never
+     * returned, stored on the row, or written into a job.
+     */
+    token: z.string().min(1).max(4000).optional(),
+  })
+  .refine((body) => (body.repoPath === undefined) !== (body.gitUrl === undefined), {
+    message: 'a project is registered by exactly one of repoPath and gitUrl',
+    path: ['repoPath'],
+  })
+  // `'token' in body`, not a comparison: whether a credential was sent is a question about
+  // the key, and nothing about its value is compared here.
+  .refine((body) => !('token' in body) || body.gitUrl !== undefined, {
+    message: 'a token is only accepted with a gitUrl',
+    path: ['token'],
+  });
 
 /**
  * A JSON body, or `null` when it is not one.
@@ -148,8 +183,35 @@ function asRecord(value: unknown): Record<string, unknown> {
 export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   const app = new Hono();
   const scanner = options.scanner ?? createRepoScanner({ viewFor: options.viewFor });
+  const access: CallerResolver = options.access ?? {
+    mode: 'open',
+    authenticateToken: (token) => authenticateToken(options, token),
+    hasSession: async () => false,
+  };
+  const viewer = requireRole('viewer', access);
+  const operator = requireRole('operator', access);
+  app.route(
+    '/',
+    createAccessRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      ...(options.secureCookies === undefined ? {} : { secureCookies: options.secureCookies }),
+    }),
+  );
+  // Repository health is part of the registry: every health route is about a registered project.
+  app.route(
+    '/',
+    createRepoHealthRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      testsReading: (projectId) => qaTestsReading(options, projectId, new Date()),
+      ...options.health,
+    }),
+  );
 
-  app.post('/api/v1/projects', async (context) => {
+  app.post('/api/v1/projects', operator, async (context) => {
     const parsed = RegisterProjectBodySchema.safeParse(await readJson(context));
     if (!parsed.success) {
       return context.json(
@@ -164,17 +226,35 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       );
     }
     await ensureWorkspace(options);
-    const project = await registerProject(options, parsed.data);
+    const { gitUrl, repoPath, token, defaultBranch, name, slug } = parsed.data;
+    if (token !== undefined && options.vaultSecret === undefined) {
+      throw new DomainError(
+        ErrorCode.NOT_CONFIGURED,
+        'A git token can only be stored once VAULT_SECRET is configured.',
+      );
+    }
+    const project =
+      gitUrl === undefined
+        ? await registerProject(options, { name, slug, repoPath: repoPath as string })
+        : await registerGitProject(options, { name, slug, gitUrl, defaultBranch });
+    if (token !== undefined) await storeGitToken(options, project.id, token);
+    await audit(options, {
+      actor: (await callerOf(context, access)).actor,
+      action: 'project.register',
+      resourceType: 'project',
+      resourceId: project.id,
+      details: { slug, source: gitUrl === undefined ? 'local' : 'git', token: token !== undefined },
+    });
     // `201` with a `Location`: the runnable commands come from the same response so
     // a client does not need a second round trip to learn what it just registered.
     return context.json({ project, commands: project.profile.commands }, 201);
   });
 
-  app.get('/api/v1/projects', async (context) => {
+  app.get('/api/v1/projects', viewer, async (context) => {
     return context.json({ projects: await listProjects(options) });
   });
 
-  app.get('/api/v1/projects/:id', async (context) => {
+  app.get('/api/v1/projects/:id', viewer, async (context) => {
     const project = await getProject(options, context.req.param('id'));
     return context.json({ project, commands: await listCommands(options, project.id) });
   });
@@ -188,7 +268,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * stored one back — which is also what makes a changed `package.json` show up
    * without anyone re-registering the project.
    */
-  app.post('/api/v1/projects/:id/detect', async (context) => {
+  app.post('/api/v1/projects/:id/detect', operator, async (context) => {
     // `refreshProject`, not `registerProject`: re-registering with the project's own
     // slug collides with the row it is meant to update, so the endpoint answered 422
     // for every project, always — and this is the button a reader presses after
@@ -197,13 +277,13 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     return context.json(refreshed);
   });
 
-  app.get('/api/v1/projects/:id/commands', async (context) => {
+  app.get('/api/v1/projects/:id/commands', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     return context.json({ commands: await listCommands(options, projectId) });
   });
 
-  app.post('/api/v1/projects/:id/run.start', async (context) => {
+  app.post('/api/v1/projects/:id/run.start', operator, async (context) => {
     const projectId = context.req.param('id');
     const project = await getProject(options, projectId);
     const parsed = RunStartBodySchema.safeParse(await readJson(context));
@@ -232,16 +312,21 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       inProfile ? null : await scanner.scan(projectId, project.repoPath),
     );
     if (project.repoPath !== null) command.repository = project.repoPath;
-    return context.json(
-      await options.startRun({
-        projectId,
-        commandId: command.id,
-        command,
-        idempotencyKey: parsed.data.idempotencyKey,
-        timeoutMs: parsed.data.timeoutMs ?? command.timeoutMs,
-      }),
-      202,
-    );
+    const started = await options.startRun({
+      projectId,
+      commandId: command.id,
+      command,
+      idempotencyKey: parsed.data.idempotencyKey,
+      timeoutMs: parsed.data.timeoutMs ?? command.timeoutMs,
+    });
+    await audit(options, {
+      actor: (await callerOf(context, access)).actor,
+      action: 'project.run.start',
+      resourceType: 'project',
+      resourceId: projectId,
+      details: { commandId: command.id, runId: started.runId },
+    });
+    return context.json(started, 202);
   });
 
   /**
@@ -251,7 +336,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * `?fresh=1` skips the short cache, which is what the "rescan" button sends after an
    * operator has changed a manifest.
    */
-  app.get('/api/v1/projects/:id/scan', async (context) => {
+  app.get('/api/v1/projects/:id/scan', viewer, async (context) => {
     const project = await getProject(options, context.req.param('id'));
     const fresh = context.req.query('fresh') === '1';
     const scan = await scanner.scan(project.id, project.repoPath, { fresh });
@@ -281,7 +366,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * `collectingSince` is the first reading ever taken, so a two-day-old install can say
    * "collecting since Tuesday" instead of drawing a line from one point.
    */
-  app.get('/api/v1/projects/:id/history', async (context) => {
+  app.get('/api/v1/projects/:id/history', viewer, async (context) => {
     const project = await getProject(options, context.req.param('id'));
     const days = windowDays(context.req.query('days'), 30);
     const now = options.reliability?.now?.() ?? new Date();
@@ -300,7 +385,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
      * allowance is the gate policy's own `maxFlakyRate` and the pass-rate threshold is the
      * project's gate row, so the card can never disagree with the gate about a number.
      */
-    app.get('/api/v1/projects/:id/readiness', async (context) => {
+    app.get('/api/v1/projects/:id/readiness', viewer, async (context) => {
       const project = await getProject(options, context.req.param('id'));
       const days = windowDays(context.req.query('days'), 7);
       const now = reliability.now?.() ?? new Date();
@@ -342,7 +427,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     });
   }
 
-  app.post('/api/v1/runs/:runId/stop', async (context) => {
+  app.post('/api/v1/runs/:runId/stop', operator, async (context) => {
     const parsed = RunStopBodySchema.safeParse(await readJson(context));
     if (!parsed.success) {
       return context.json(
@@ -366,7 +451,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     );
   });
 
-  app.get('/api/v1/projects/:id/qa/score', async (context) => {
+  app.get('/api/v1/projects/:id/qa/score', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const at = context.req.query('at') ?? new Date().toISOString();
@@ -381,7 +466,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * do I do next", and a client that has to fetch the whole matrix to render a list
    * will eventually cache the matrix and serve a stale queue.
    */
-  app.get('/api/v1/projects/:id/qa/gaps', async (context) => {
+  app.get('/api/v1/projects/:id/qa/gaps', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const score_ = await qaScore(options, projectId, new Date().toISOString());
@@ -389,7 +474,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   });
 
   /** Hollow tests: green, and contributing nothing. */
-  app.get('/api/v1/projects/:id/qa/hollow', async (context) => {
+  app.get('/api/v1/projects/:id/qa/hollow', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const score_ = await qaScore(options, projectId, new Date().toISOString());
@@ -412,7 +497,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * of commit — weaker evidence, and never enough to quarantine a test on its own,
    * because "this test flips" and "this test is wrong" are different claims.
    */
-  app.get('/api/v1/projects/:id/qa/flaky', async (context) => {
+  app.get('/api/v1/projects/:id/qa/flaky', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const score_ = await qaScore(options, projectId, new Date().toISOString());
@@ -429,7 +514,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   });
 
   /** The structural findings, which are reported and never scored. */
-  app.get('/api/v1/projects/:id/qa/structure', async (context) => {
+  app.get('/api/v1/projects/:id/qa/structure', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const score_ = await qaScore(options, projectId, new Date().toISOString());
@@ -461,7 +546,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * told to pick a different `since`; it does not get a well-formed `ScoreDelta` whose
    * every contribution cites evidence for a change that never happened.
    */
-  app.get('/api/v1/projects/:id/qa/score/diff', async (context) => {
+  app.get('/api/v1/projects/:id/qa/score/diff', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const since = context.req.query('since');
@@ -503,7 +588,7 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
    * from. `CopilotAnswerSchema` refuses a suggestion with no evidence at the boundary,
    * which is the plan's hard rule enforced where it cannot be forgotten.
    */
-  app.post('/api/v1/projects/:id/copilot/answer', async (context) => {
+  app.post('/api/v1/projects/:id/copilot/answer', viewer, async (context) => {
     const projectId = context.req.param('id');
     await getProject(options, projectId);
     const parsed = CopilotQuestionSchema.safeParse({

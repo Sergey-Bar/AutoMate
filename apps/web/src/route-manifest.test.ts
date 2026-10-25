@@ -54,6 +54,7 @@ describe('route manifest', () => {
 
   it('exposes every old destination, now as a tab of a section', () => {
     expect(visibleRoutes.map((route) => route.path)).toEqual([
+      '/dashboard/portfolio',
       '/dashboard',
       '/dashboard/runs',
       '/dashboard/runner',
@@ -63,6 +64,7 @@ describe('route manifest', () => {
       '/dashboard/map',
       '/dashboard/health',
       '/dashboard/toolbox',
+      '/dashboard/access',
     ]);
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
   });
@@ -83,6 +85,8 @@ describe('route manifest', () => {
 
   it.each([
     ['/dashboard', 'overview'],
+    ['/dashboard/portfolio', 'overview'],
+    ['/dashboard/repo/project-1', 'overview'],
     ['/dashboard/runs', 'runs'],
     ['/dashboard/runs/run-1', 'runs'],
     ['/dashboard/runs/run-1/extra', 'runs'],
@@ -104,11 +108,16 @@ describe('route manifest', () => {
     expect(sectionOf('/elsewhere')).toBeNull();
   });
 
-  it('lists each section’s tabs, and the overview has none', () => {
-    expect(tabsOf('overview')).toEqual([]);
+  it('lists each section’s tabs, and the overview leads with the portfolio', () => {
+    expect(tabsOf('overview').map((tab) => tab.tab)).toEqual(['Portfolio', 'Project']);
     expect(tabsOf('runs').map((tab) => tab.tab)).toEqual(['Runs', 'Launch']);
     expect(tabsOf('insights').map((tab) => tab.tab)).toEqual(['Tests', 'Trends', 'Quarantine']);
-    expect(tabsOf('map').map((tab) => tab.tab)).toEqual(['Map', 'Capabilities', 'Toolbox']);
+    expect(tabsOf('map').map((tab) => tab.tab)).toEqual([
+      'Map',
+      'Capabilities',
+      'Toolbox',
+      'Access',
+    ]);
   });
 
   it('registers a path for every manifest entry, so nothing is unreachable', () => {

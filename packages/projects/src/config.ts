@@ -70,6 +70,7 @@ export function mergeConfig(base: ProjectProfile, raw: unknown): ResolvedProfile
   const overriddenKeys = Object.keys(raw as Record<string, unknown>).filter(
     (key) => key !== '$schema' && key !== 'version',
   );
+  const health = config.health ?? base.health;
   return {
     profile: ProjectProfileSchema.parse({
       ...base,
@@ -79,6 +80,8 @@ export function mergeConfig(base: ProjectProfile, raw: unknown): ResolvedProfile
       coverageFormats: config.coverageFormats ?? base.coverageFormats,
       excludedCells: config.excludedCells ?? base.excludedCells,
       targets: mergeTargets(base.targets, config.targets),
+      // Absent stays absent, so a no-op merge still compares equal to the detected profile.
+      ...(health === undefined ? {} : { health }),
     }),
     source: overriddenKeys.length > 0 ? 'override' : 'detected',
     overriddenKeys,

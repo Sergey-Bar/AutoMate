@@ -8,19 +8,46 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "open": 69,
-    "runner-credential": 8,
-    "reporter-secret": 3,
+    "admin": 3,
+    "open": 56,
+    "runner-credential": 9,
+    "viewer": 18,
+    "operator": 8,
+    "reporter-secret": 6,
     "enrollment-token": 1,
     "runner-registration-secret": 1
   },
   "routes": [
     {
       "method": "GET",
+      "path": "/api/v1/access-tokens",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/access-tokens",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/access-tokens/:id",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/agents",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/agents.test.ts",
+      "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
     },
     {
@@ -28,7 +55,7 @@
       "path": "/api/v1/agents/:domain",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/agents.test.ts",
+      "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
     },
     {
@@ -36,7 +63,7 @@
       "path": "/api/v1/agents/:domain/:action",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/agents.test.ts",
+      "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
     },
     {
@@ -70,6 +97,30 @@
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/auth-session-lifecycle.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/token-login",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/token-logout",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": null,
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/whoami",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
     },
     {
       "method": "GET",
@@ -288,6 +339,14 @@
       "composition": "always"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/jobs/:jobId/checkout",
+      "access": "runner-credential",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/execution.test.ts",
+      "composition": "always"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/jobs/:jobId/complete",
       "access": "runner-credential",
@@ -313,8 +372,16 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/portfolio",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -322,7 +389,7 @@
     {
       "method": "POST",
       "path": "/api/v1/projects",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -330,7 +397,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -338,7 +405,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/commands",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -346,7 +413,7 @@
     {
       "method": "POST",
       "path": "/api/v1/projects/:id/copilot/answer",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -354,15 +421,111 @@
     {
       "method": "POST",
       "path": "/api/v1/projects/:id/detect",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
     },
     {
       "method": "GET",
+      "path": "/api/v1/projects/:id/health",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/health/alerts",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/health/codeowners",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/findings",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/findings/:findingId/triage",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/gate",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/gate/report",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/history",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/reports",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/scan",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/health/schedule",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/settings",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects/:id/history",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -370,7 +533,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/flaky",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -378,7 +541,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/gaps",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -386,7 +549,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/hollow",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -394,7 +557,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/score",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -402,7 +565,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/score/diff",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -410,7 +573,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/qa/structure",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -418,7 +581,7 @@
     {
       "method": "POST",
       "path": "/api/v1/projects/:id/run.start",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -426,7 +589,7 @@
     {
       "method": "GET",
       "path": "/api/v1/projects/:id/scan",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -626,7 +789,7 @@
     {
       "method": "POST",
       "path": "/api/v1/runs/:runId/stop",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
       "composition": "database"
@@ -652,7 +815,7 @@
       "path": "/health",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/middleware/security-headers.test.ts",
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
       "composition": "always"
     },
     {

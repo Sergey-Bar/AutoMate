@@ -7,6 +7,7 @@ import { parseRunnerConfig } from './config.js';
 import { PlaywrightExecutionAdapter } from './execution.js';
 import { RoutingExecutionAdapter } from './execution-router.js';
 import { GenericSpawnAdapter } from './generic-spawn.js';
+import { GitCheckout } from './git-checkout.js';
 import { K6ExecutionAdapter } from './k6-execution.js';
 import { HealthServer } from './health-server.js';
 import { RunnerService } from './runner-service.js';
@@ -195,6 +196,7 @@ async function runRunner(env: Record<string, string | undefined>): Promise<void>
     ].filter((value): value is string => Boolean(value)),
     protocol: client,
     executor,
+    checkout: new GitCheckout({ repoRoot: config.repoRoot }),
     spool,
     retryPolicy: {
       maxAttempts: config.spoolRetryMaxAttempts,

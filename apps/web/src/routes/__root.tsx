@@ -21,7 +21,7 @@ export const Route = createRootRoute({
    * the root component mounts, so `/` never paints a redirect at all.
    */
   beforeLoad: ({ location }) => {
-    if (location.pathname === '/') throw redirect({ to: '/dashboard' });
+    if (location.pathname === '/') throw redirect({ to: '/dashboard/portfolio' });
   },
   component: RootComponent,
 });

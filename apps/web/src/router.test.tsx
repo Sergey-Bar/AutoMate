@@ -37,6 +37,15 @@ function mockAuthenticatedApi(): void {
       if (url.endsWith('/api/v1/projects')) {
         return new Response(JSON.stringify({ projects: [] }), { status: 200 });
       }
+      // / lands on the portfolio, which asks who is calling and then lists every project.
+      if (url.endsWith('/api/v1/auth/whoami')) {
+        return new Response(JSON.stringify({ actor: 'anonymous', role: 'admin', mode: 'open' }), {
+          status: 200,
+        });
+      }
+      if (url.endsWith('/api/v1/portfolio')) {
+        return new Response(JSON.stringify({ projects: [] }), { status: 200 });
+      }
       return new Response(JSON.stringify({ error: { message: 'not found' } }), { status: 404 });
     }),
   );
@@ -103,7 +112,7 @@ describe('router', { timeout: TEST_TIMEOUT_MS }, () => {
     // an onboarding screen — and both are named `Dashboard`, so this assertion holds
     // whichever one a bare install is in.
     await waitFor(
-      () => expect(screen.getByRole('heading', { name: 'Overview' })).toBeInTheDocument(),
+      () => expect(screen.getByRole('heading', { name: 'Portfolio' })).toBeInTheDocument(),
       { timeout: RENDER_TIMEOUT_MS },
     );
   });

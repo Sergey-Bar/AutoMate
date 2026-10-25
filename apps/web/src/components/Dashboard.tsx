@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router';
 import { Sparkline, cn } from '@automate/ui';
 import { SCORE_CATEGORIES, SCORE_SURFACES, type ScoreCell } from '@automate/shared-contracts';
 import { useResource, type Resource } from '../hooks/useResource.js';
+import { repoHealthPath } from '../route-manifest.js';
 import type { ApiClient, QuarantineEntry } from '../lib/api.js';
 import {
   compareWindows,
@@ -144,6 +145,13 @@ function DashboardBody({
         }
         actions={
           <>
+            <a
+              href={repoHealthPath(project.id)}
+              data-testid="dashboard-repo-health"
+              className="inline-flex min-h-11 items-center rounded-md border border-border-strong px-3 text-sm text-fg no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              Repository health
+            </a>
             {switcher}
             <Segmented
               label="Comparison window"

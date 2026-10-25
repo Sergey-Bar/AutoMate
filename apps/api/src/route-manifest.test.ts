@@ -204,6 +204,7 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['POST', '/api/v1/jobs/:jobId/events'],
   ['POST', '/api/v1/jobs/:jobId/events/batch'],
   ['POST', '/api/v1/jobs/:jobId/artifacts'],
+  ['GET', '/api/v1/jobs/:jobId/checkout'],
   ['POST', '/api/v1/jobs/:jobId/complete'],
   // Artifacts.
   ['GET', '/api/v1/artifacts/:artifactId'],

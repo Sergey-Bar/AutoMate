@@ -190,6 +190,11 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
         },
         eventSequences,
       );
+      if (options.onArtifact !== undefined) {
+        const run = await options.store.getRun(job.runId, ws);
+        if (run !== null && run !== undefined)
+          await options.onArtifact({ run, name, bytes, metadata: parsed.metadata ?? {} });
+      }
       return c.json(descriptor, 201);
     } catch (failure) {
       // 400 said "your request was wrong". Nothing about the request is wrong
@@ -201,6 +206,30 @@ export function registerJobRoutes(app: Hono, context: ExecutionRouteContext): vo
       if (isDomainError(failure)) throw failure;
       throw new DomainError('ARTIFACT_STORAGE_FAILED', 'Artifact storage is unavailable');
     }
+  });
+
+  /**
+   * Where to clone a job's repository from, and the token to clone it with.
+   *
+   * Lease-checked like every other job write: only the runner that holds the job may read
+   * its credential, and only while it holds it.
+   */
+  app.get('/api/v1/jobs/:jobId/checkout', runnerOnly, async (c) => {
+    const runner = authenticatedRunner(c);
+    const job = await options.store.getJob(c.req.param('jobId'), ws);
+    if (!job) throw new DomainError('JOB_NOT_FOUND', 'Job not found');
+    if (job.leaseOwner !== runner.id || !job.leaseId)
+      throw new DomainError('JOB_LEASE_NOT_OWNED', 'Job lease is not owned by runner');
+    const run = await options.store.getRun(job.runId, ws);
+    const checkout = run?.configuration['checkout'];
+    const url =
+      typeof checkout === 'object' && checkout !== null
+        ? (checkout as Record<string, unknown>)['url']
+        : undefined;
+    if (run === null || run === undefined || typeof url !== 'string')
+      throw new DomainError('NOT_FOUND', 'This job does not clone a repository');
+    const token = (await options.checkoutToken?.(run)) ?? null;
+    return c.json({ url, token });
   });
 
   app.post('/api/v1/jobs/:jobId/complete', runnerOnly, async (c) => {

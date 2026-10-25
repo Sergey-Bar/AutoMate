@@ -13,8 +13,12 @@ import { Route as toolboxRoute } from './routes/dashboard/toolbox.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
+import { AccessRoute, PortfolioRoute, RepoHealthRoute } from './routes/dashboard/portfolio.js';
 
 const dashboardTree = dashboardRoute.addChildren([
+  PortfolioRoute,
+  RepoHealthRoute,
+  AccessRoute,
   insightsRoute,
   runsListRoute,
   runDetailRoute,

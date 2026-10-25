@@ -42,3 +42,10 @@ export {
   type CoverageReport,
 } from './adapters/coverage.js';
 export * from './compatibility/legacy-reporter.js';
+/**
+ * Health reports: SARIF findings, and the handful of tools whose output is a number.
+ * Neither is a run result — a finding is not a test, and a duplication percentage is not
+ * a verdict — so they have their own shapes, as coverage does.
+ */
+export * from './adapters/sarif.js';
+export * from './adapters/health-metrics.js';

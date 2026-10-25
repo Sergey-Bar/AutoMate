@@ -169,7 +169,8 @@ export function createQaClient(baseUrl = '', fetchImpl: typeof fetch = fetch): Q
   };
 }
 
-async function parse<T>(response: Response, schema: Schema<T>, path: string): Promise<T> {
+/** Exported so the health client parses and describes failures the same way, not a second way. */
+export async function parse<T>(response: Response, schema: Schema<T>, path: string): Promise<T> {
   // A response that is not JSON at all — a proxy's HTML error page, a login
   // redirect — must not throw here. `parse` would then raise a `SyntaxError` whose
   // message is about the body rather than about the request, and a screen would

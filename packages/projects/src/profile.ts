@@ -1,3 +1,4 @@
+import { HealthPolicySchema } from '@automate/shared-contracts';
 import { z } from 'zod';
 
 import { SCORE_CATEGORIES, SCORE_SURFACES } from './vocabulary.js';
@@ -84,6 +85,8 @@ export const ProjectProfileSchema = z.object({
   excludedCells: ExcludedCellList.default([]),
   /** Targets the depth component divides by. The project config is the authority. */
   targets: TargetSet.default({ testsPerCell: {}, coverageTarget: {} }),
+  /** Health grade weights, disabled gates and the pull-request policy. Absent: the defaults. */
+  health: HealthPolicySchema.optional(),
 });
 export type ProjectProfile = z.infer<typeof ProjectProfileSchema>;
 
@@ -141,6 +144,8 @@ export const AutomateConfigSchema = z.object({
   env: z.array(z.string().min(1)).default([]),
   /** Milliseconds before a run is declared `timed_out`. */
   timeoutMs: z.number().int().min(1).optional(),
+  /** Reweights the health grade, disables a gate, or sets the pull-request policy. */
+  health: HealthPolicySchema.optional(),
 });
 export type AutomateConfig = z.infer<typeof AutomateConfigSchema>;
 

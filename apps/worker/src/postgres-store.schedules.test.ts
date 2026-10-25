@@ -194,6 +194,32 @@ describe('PostgresExecutionStore.listDueSchedules', () => {
     },
   );
 
+  it('reads a repository-health schedule, which names no release, environment or commit', async () => {
+    const {
+      environmentId: _environment,
+      releaseId: _release,
+      commit: _commit,
+      ...rest
+    } = baseRequest;
+    await schedule('health', { runOptions: { request: { ...rest, testType: 'health' } } });
+    const [due] = await store().listDueSchedules(NOW, 10);
+    expect(due?.request).toMatchObject({
+      environmentId: null,
+      releaseId: null,
+      commit: null,
+      testType: 'health',
+    });
+  });
+
+  it('still refuses a health schedule with no project or branch', async () => {
+    await schedule('health-broken', {
+      runOptions: { request: { workspaceId: WORKSPACE, testType: 'health', branch: 'main' } },
+    });
+    await expect(store().listDueSchedules(NOW, 10)).rejects.toThrow(
+      'Schedule is missing projectId',
+    );
+  });
+
   it('refuses a row with no run_options at all', async () => {
     await schedule('empty', { runOptions: null });
 

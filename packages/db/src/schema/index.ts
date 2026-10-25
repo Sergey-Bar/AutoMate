@@ -4,3 +4,4 @@ export * from './automate.js';
 export * from './vault.js';
 export * from './identity.js';
 export * from './execution.js';
+export * from './health.js';

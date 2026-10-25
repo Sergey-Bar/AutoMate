@@ -71,6 +71,7 @@ export default defineConfig({
           { text: 'Core concepts', link: '/guide/concepts' },
           { text: 'Sending results', link: '/guide/sending-results' },
           { text: 'Quality gates and quarantine', link: '/guide/quality-gates' },
+          { text: 'Repository health', link: '/guide/repository-health' },
           { text: 'How this repository tests itself', link: '/guide/testing-strategy' },
           { text: 'How this project is maintained', link: '/guide/maintenance' },
           { text: 'The design language', link: '/guide/design-language' },

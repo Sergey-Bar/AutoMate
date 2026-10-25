@@ -341,3 +341,82 @@ describe('the reported failure names the status', () => {
     expect(result.error?.retryable).toBe(false);
   });
 });
+
+describe('the pull-request gate operations', () => {
+  it('posts a commit status to the commit, with only the declared body fields', async () => {
+    const calls = stubFetchSequence([{ ok: true, status: 201, body: { id: 1 } }]);
+    const result = await githubAdapter.execute(
+      {
+        operation: 'createCommitStatus',
+        input: {
+          owner: 'o',
+          repo: 'r',
+          sha: 'abc123',
+          state: 'failure',
+          context: 'automate/health',
+          description: 'D',
+        },
+      },
+      'ghp_token',
+    );
+    expect(result.status).toBe('ok');
+    expect(calls[0]?.url).toBe('https://api.github.com/repos/o/r/statuses/abc123');
+    expect(calls[0]?.init?.method).toBe('POST');
+    expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+      state: 'failure',
+      context: 'automate/health',
+      description: 'D',
+    });
+  });
+
+  it('lists, creates and updates a pull request comment by number and id', async () => {
+    const calls = stubFetchSequence([{ ok: true, status: 200, body: [] }]);
+    await githubAdapter.execute(
+      { operation: 'listIssueComments', input: { owner: 'o', repo: 'r', number: '7' } },
+      'ghp_token',
+    );
+    await githubAdapter.execute(
+      {
+        operation: 'createIssueComment',
+        input: { owner: 'o', repo: 'r', number: '7', body: 'hi' },
+      },
+      'ghp_token',
+    );
+    await githubAdapter.execute(
+      {
+        operation: 'updateIssueComment',
+        input: { owner: 'o', repo: 'r', commentId: '99', body: 'again' },
+      },
+      'ghp_token',
+    );
+    expect(calls.map((call) => [call.init?.method, call.url])).toEqual([
+      ['GET', 'https://api.github.com/repos/o/r/issues/7/comments?per_page=100'],
+      ['POST', 'https://api.github.com/repos/o/r/issues/7/comments'],
+      ['PATCH', 'https://api.github.com/repos/o/r/issues/comments/99'],
+    ]);
+    expect(calls[0]?.init?.body).toBeUndefined();
+    expect(JSON.parse(String(calls[2]?.init?.body))).toEqual({ body: 'again' });
+  });
+
+  it('refuses a status without a commit before any request', async () => {
+    const calls = stubFetchSequence([{ ok: true, status: 201, body: {} }]);
+    const result = await githubAdapter.execute(
+      { operation: 'createCommitStatus', input: { owner: 'o', repo: 'r', state: 'success' } },
+      'ghp_token',
+    );
+    expect(result.status).toBe('error');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('encodes a commit that tries to climb the path', async () => {
+    const calls = stubFetchSequence([{ ok: true, status: 201, body: {} }]);
+    await githubAdapter.execute(
+      {
+        operation: 'createCommitStatus',
+        input: { owner: 'o', repo: 'r', sha: '../../x', state: 'success' },
+      },
+      'ghp_token',
+    );
+    expect(calls[0]?.url).toBe('https://api.github.com/repos/o/r/statuses/..%2F..%2Fx');
+  });
+});

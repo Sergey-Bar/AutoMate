@@ -172,6 +172,8 @@ describe('migration graph', () => {
       '0028_workspace_hard_boundaries',
       '0029_workspace_foreign_keys',
       '0030_drop_superseded_tables',
+      '0031_repository_health',
+      '0032_access_tokens',
     ]);
   });
 

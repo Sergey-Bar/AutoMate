@@ -140,6 +140,86 @@ const post = (app: ReturnType<typeof harness>, path: string, body: unknown) =>
     body: JSON.stringify(body),
   });
 
+describe('registering a repository by git URL', () => {
+  it('stores the URL and seals the token in the vault, never on the row', async () => {
+    const { client, db } = await migrated();
+    try {
+      const app = mounted(
+        createProjectsRoutes({
+          db: db as never,
+          workspaceId: 'ws-1',
+          viewFor: () => literalView(NODE_REPO),
+          vaultSecret: 'v'.repeat(40),
+          startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
+        }),
+      );
+      const response = await post(app, '/api/v1/projects', {
+        name: 'Remote',
+        slug: 'remote',
+        gitUrl: 'https://github.com/example/remote.git',
+        defaultBranch: 'trunk',
+        token: 'synthetic-git-token-value',
+      });
+      expect(response.status).toBe(201);
+      expect(JSON.stringify(await response.json())).not.toContain('synthetic-git-token');
+      const [row] = await db
+        .select()
+        .from(schema.projects)
+        .where(eq(schema.projects.slug, 'remote'));
+      expect(row).toMatchObject({
+        repoPath: null,
+        repositoryUrl: 'https://github.com/example/remote.git',
+        defaultBranch: 'trunk',
+      });
+      expect(JSON.stringify(row)).not.toContain('synthetic-git-token');
+      const { readGitToken } = await import('../services/git-credential-service.js');
+      const options = { db: db as never, workspaceId: 'ws-1', vaultSecret: 'v'.repeat(40) };
+      expect(await readGitToken(options, row?.id ?? '')).toBe('synthetic-git-token-value');
+      await expect(
+        readGitToken({ ...options, vaultSecret: 'w'.repeat(40) }, row?.id ?? ''),
+      ).rejects.toThrow();
+    } finally {
+      await client.close();
+    }
+  });
+
+  it.each([
+    [{ gitUrl: 'file:///etc/passwd' }],
+    [{ gitUrl: 'ext::sh -c id' }],
+    [{ gitUrl: 'https://user:pass@github.com/a/b.git' }],
+    [{ gitUrl: 'https://github.com/a/b.git', repoPath: '/repos/x' }],
+    [{}],
+    [{ repoPath: '/repos/x', token: 'only-with-git' }],
+  ])('refuses %j', async (body) => {
+    const { client, db } = await migrated();
+    try {
+      const response = await post(harness(db), '/api/v1/projects', {
+        name: 'X',
+        slug: 'x',
+        ...body,
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it('refuses a token when the install has no vault secret', async () => {
+    const { client, db } = await migrated();
+    try {
+      const response = await post(harness(db), '/api/v1/projects', {
+        name: 'X',
+        slug: 'x',
+        gitUrl: 'https://github.com/a/b.git',
+        token: 'synthetic',
+      });
+      expect(response.status).toBe(503);
+    } finally {
+      await client.close();
+    }
+  });
+});
+
 describe('registering a repository', () => {
   it('detects the ecosystem, the framework and the runnable command', async () => {
     const { client, db } = await migrated();

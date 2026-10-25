@@ -165,6 +165,11 @@ overrides:
   axios@>=1.0.0 <1.20.0: ^1.20.0
   form-data@>=4.0.0 <4.0.6: ^4.0.6
   js-yaml@>=4.0.0 <4.3.2: ^4.3.2
+  # GHSA-xcx6-jx8p-x3h5 (high): MSAL Node's authorization-code flow can disclose parameters to an
+  # attacker-controlled endpoint. Reached only through the runner's Bruno CLI
+  # (`@usebruno/cli > @usebruno/requests > @azure/identity`); the runner never signs in to Azure,
+  # but `pnpm audit --audit-level=high` blocks every pull request until the tree carries 7.1.0.
+  '@azure/msal-node@>=5.0.0-beta.0 <7.1.0': ^7.1.0
   # Removed 2026-10-21: `uuid@<11.1.1: ^11.1.1`, through storybook. Storybook 10 no longer
   # depends on `uuid`, so nothing in the tree resolves it and the override matched nothing.
 

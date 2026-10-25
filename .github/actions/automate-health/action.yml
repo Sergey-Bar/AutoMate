@@ -1,0 +1,120 @@
+name: AutoMate repository health
+description: >-
+  Sends a repository's scanner reports to an AutoMate install, then asks it for the
+  pull-request gate and fails the job when the gate fails.
+
+  This action runs no scanner itself. Run the ones you want earlier in the job, writing
+  SARIF (Semgrep, gitleaks, Trivy, OSV-Scanner, CodeQL, ESLint, Ruff, golangci-lint) or one
+  of the metric formats (jscpd, scorecard, lighthouse, k6, istanbul-summary, lcov,
+  cobertura, jacoco-xml, go-coverprofile), and list the files under `reports`.
+
+  The token is an AutoMate access token with the `uploader` role, pinned to this project,
+  stored as a repository secret. It can send reports to this one project and do nothing
+  else. It is passed to curl through the environment and a header file, never argv.
+
+inputs:
+  url:
+    description: The AutoMate API origin, e.g. https://automate.example.com
+    required: true
+  project-id:
+    description: The project's id, from its page in the dashboard.
+    required: true
+  token:
+    description: An `uploader` access token for this project.
+    required: true
+  reports:
+    description: >-
+      One report per line, as `format:path`, e.g. `sarif:semgrep.sarif`. A line whose file
+      does not exist fails the step: a scanner that wrote nothing is not a clean scan.
+    required: true
+  codeowners:
+    description: Send CODEOWNERS (from .github/, the root or docs/) so findings get owners.
+    required: false
+    default: 'true'
+  gate:
+    description: Ask for the pull-request gate after uploading, and fail the job when it fails.
+    required: false
+    default: 'true'
+
+outputs:
+  verdict:
+    description: '`passed` or `failed`, or empty when the gate was not asked for.'
+    value: ${{ steps.gate.outputs.verdict }}
+
+runs:
+  using: composite
+  steps:
+    - name: Upload reports
+      shell: bash
+      env:
+        AUTOMATE_URL: ${{ inputs.url }}
+        AUTOMATE_PROJECT: ${{ inputs.project-id }}
+        AUTOMATE_TOKEN: ${{ inputs.token }}
+        AUTOMATE_REPORTS: ${{ inputs.reports }}
+        AUTOMATE_CODEOWNERS: ${{ inputs.codeowners }}
+        AUTOMATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        AUTOMATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        AUTOMATE_ROOT: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        headers="$(mktemp)"
+        trap 'rm -f "$headers"' EXIT
+        printf 'Authorization: Bearer %s\n' "$AUTOMATE_TOKEN" > "$headers"
+        base="${AUTOMATE_URL%/}/api/v1/projects/${AUTOMATE_PROJECT}/health"
+        encode() { jq -rn --arg v "$1" '$v|@uri'; }
+        while IFS= read -r line; do
+          line="$(printf '%s' "$line" | tr -d '\r' | xargs)"
+          [ -z "$line" ] && continue
+          format="${line%%:*}"
+          file="${line#*:}"
+          if [ ! -f "$file" ]; then
+            echo "::error::Report $file was not written; the scanner did not produce it."
+            exit 1
+          fi
+          echo "Uploading $file as $format"
+          curl --fail-with-body --silent --show-error -H @"$headers" \
+            --data-binary @"$file" -H 'content-type: application/octet-stream' \
+            "$base/reports?format=$(encode "$format")&branch=$(encode "$AUTOMATE_BRANCH")&commit=$(encode "$AUTOMATE_COMMIT")&sourceRoot=$(encode "$AUTOMATE_ROOT")"
+          echo
+        done <<< "$AUTOMATE_REPORTS"
+        if [ "$AUTOMATE_CODEOWNERS" = "true" ]; then
+          for candidate in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
+            if [ -f "$candidate" ]; then
+              curl --fail-with-body --silent --show-error -X PUT -H @"$headers" \
+                --data-binary @"$candidate" -H 'content-type: text/plain' "$base/codeowners"
+              echo
+              break
+            fi
+          done
+        fi
+
+    - name: Pull-request gate
+      id: gate
+      if: inputs.gate == 'true'
+      shell: bash
+      env:
+        AUTOMATE_URL: ${{ inputs.url }}
+        AUTOMATE_PROJECT: ${{ inputs.project-id }}
+        AUTOMATE_TOKEN: ${{ inputs.token }}
+        AUTOMATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        AUTOMATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        AUTOMATE_PR: ${{ github.event.pull_request.number }}
+      run: |
+        set -euo pipefail
+        headers="$(mktemp)"
+        trap 'rm -f "$headers"' EXIT
+        printf 'Authorization: Bearer %s\n' "$AUTOMATE_TOKEN" > "$headers"
+        body="$(jq -n --arg branch "$AUTOMATE_BRANCH" --arg commit "$AUTOMATE_COMMIT" --arg pr "$AUTOMATE_PR" \
+          '{branch: $branch, commit: $commit} + (if $pr == "" then {} else {pullRequest: ($pr|tonumber)} end)')"
+        result="$(curl --fail-with-body --silent --show-error -H @"$headers" -H 'content-type: application/json' \
+          --data "$body" "${AUTOMATE_URL%/}/api/v1/projects/${AUTOMATE_PROJECT}/health/gate/report")"
+        verdict="$(printf '%s' "$result" | jq -r '.verdict')"
+        echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+        {
+          echo "### Repository health: $(printf '%s' "$result" | jq -r '.grade.letter // "incomplete"')"
+          printf '%s' "$result" | jq -r '.reasons[] | "- " + .'
+        } >> "$GITHUB_STEP_SUMMARY"
+        if [ "$verdict" != "passed" ]; then
+          printf '%s' "$result" | jq -r '.reasons[] | "::error::" + .'
+          exit 1
+        fi

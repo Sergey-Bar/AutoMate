@@ -35,9 +35,9 @@ import {
 const API = 'https://api.github.com';
 
 interface GitHubOperation {
-  /** Path template below `/repos/{owner}/{repo}`, or `null` for a path of its own. */
-  readonly path: (owner: string, repo: string) => string;
-  readonly method: 'GET' | 'POST';
+  /** The path, from the owner, the repository and the validated input. */
+  readonly path: (owner: string, repo: string, input: Record<string, unknown>) => string;
+  readonly method: 'GET' | 'POST' | 'PATCH';
   /** Required input fields beyond `owner` and `repo`. */
   readonly fields: readonly string[];
   /** Fields sent in the body, when there is a body. */
@@ -57,6 +57,35 @@ const OPERATIONS: Record<string, GitHubOperation> = {
     fields: ['title'],
     bodyFields: ['title', 'body', 'labels'],
   },
+  // The pull-request gate's two writes: a commit status, and one comment kept up to date.
+  createCommitStatus: {
+    path: (owner, repo, input) =>
+      `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/statuses/${encodeURIComponent(String(input['sha']))}`,
+    method: 'POST',
+    fields: ['sha', 'state'],
+    bodyFields: ['state', 'target_url', 'description', 'context'],
+  },
+  listIssueComments: {
+    path: (owner, repo, input) =>
+      `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(String(input['number']))}/comments?per_page=100`,
+    method: 'GET',
+    fields: ['number'],
+    bodyFields: [],
+  },
+  createIssueComment: {
+    path: (owner, repo, input) =>
+      `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${encodeURIComponent(String(input['number']))}/comments`,
+    method: 'POST',
+    fields: ['number', 'body'],
+    bodyFields: ['body'],
+  },
+  updateIssueComment: {
+    path: (owner, repo, input) =>
+      `repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${encodeURIComponent(String(input['commentId']))}`,
+    method: 'PATCH',
+    fields: ['commentId', 'body'],
+    bodyFields: ['body'],
+  },
 };
 
 export const githubAdapter: ConnectorAdapter = {
@@ -66,6 +95,11 @@ export const githubAdapter: ConnectorAdapter = {
     operations: {
       getRepository: { sideEffecting: false, idempotent: true, timeoutMs: 10_000 },
       createIssue: { sideEffecting: true, idempotent: false, timeoutMs: 10_000 },
+      // A status for one context on one commit replaces the previous one: repeating it is safe.
+      createCommitStatus: { sideEffecting: true, idempotent: true, timeoutMs: 10_000 },
+      listIssueComments: { sideEffecting: false, idempotent: true, timeoutMs: 10_000 },
+      createIssueComment: { sideEffecting: true, idempotent: false, timeoutMs: 10_000 },
+      updateIssueComment: { sideEffecting: true, idempotent: true, timeoutMs: 10_000 },
     },
   },
 
@@ -81,10 +115,10 @@ export const githubAdapter: ConnectorAdapter = {
       const operation = OPERATIONS[request.operation];
       const owner = requireString(request.input, 'owner');
       const repo = requireString(request.input, 'repo');
-      const path = operation.path(owner, repo);
-
+      // Required fields first: some are path parameters, so the path is built after them.
       const body: Record<string, unknown> = {};
       for (const field of operation.fields) body[field] = requireString(request.input, field);
+      const path = operation.path(owner, repo, request.input as Record<string, unknown>);
       // `requireString` above has already refused anything that is not a non-null
       // object — it throws `input must be an object` otherwise — so by here the
       // container is known. The narrowing is a cast rather than a re-check because a
@@ -99,14 +133,7 @@ export const githubAdapter: ConnectorAdapter = {
       const value = await executeWithRetry(
         async (signal) => {
           const response = await fetch(`${API}/${path}`, {
-            method: operation.method,
-            headers: {
-              accept: 'application/vnd.github+json',
-              authorization: `Bearer ${secret}`,
-              'x-github-api-version': '2022-11-28',
-              ...(operation.method === 'POST' ? { 'content-type': 'application/json' } : {}),
-            },
-            ...(operation.method === 'POST' ? { body: JSON.stringify(body) } : {}),
+            ...requestInit(operation, secret, body),
             signal,
           });
           if (!response.ok) {
@@ -211,4 +238,39 @@ function optionalField(input: Record<string, unknown>, field: string): unknown {
   // field the caller actively set to nothing.
   if (typeof value === 'string' && value.trim() === '') return undefined;
   return value;
+}
+
+/**
+ * The body GitHub reads: only the declared body fields.
+ *
+ * The required fields are collected into `body` for validation, and some of them — `sha`,
+ * `number`, `commentId` — are path parameters. Sending them as body keys is harmless to
+ * GitHub but is a request the operation never declared.
+ */
+function bodyOf(
+  operation: GitHubOperation,
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(body).filter(([key]) => operation.bodyFields.includes(key)),
+  );
+}
+
+/** The request for an operation: a GET carries no body and no content type. */
+function requestInit(
+  operation: GitHubOperation,
+  secret: string,
+  body: Record<string, unknown>,
+): RequestInit {
+  const headers: Record<string, string> = {
+    accept: 'application/vnd.github+json',
+    authorization: `Bearer ${secret}`,
+    'x-github-api-version': '2022-11-28',
+  };
+  if (operation.method === 'GET') return { method: 'GET', headers };
+  return {
+    method: operation.method,
+    headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify(bodyOf(operation, body)),
+  };
 }

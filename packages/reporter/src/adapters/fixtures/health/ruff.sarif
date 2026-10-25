@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "ruff",
+          "informationUri": "https://github.com/astral-sh/ruff",
+          "version": "0.7.3",
+          "rules": [
+            {
+              "id": "F401",
+              "shortDescription": { "text": "`os` imported but unused" },
+              "helpUri": "https://docs.astral.sh/ruff/rules/unused-import",
+              "properties": { "id": "F401", "kind": "Pyflakes", "name": "unused-import" }
+            },
+            {
+              "id": "S105",
+              "shortDescription": { "text": "Possible hardcoded password" },
+              "helpUri": "https://docs.astral.sh/ruff/rules/hardcoded-password-string",
+              "properties": {
+                "id": "S105",
+                "kind": "flake8-bandit",
+                "name": "hardcoded-password-string",
+                "tags": ["security"]
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "level": "error",
+          "message": { "text": "`os` imported but unused" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/main.py" },
+                "region": { "startLine": 1, "startColumn": 8, "endLine": 1, "endColumn": 10 }
+              }
+            }
+          ],
+          "ruleId": "F401"
+        },
+        {
+          "level": "error",
+          "message": { "text": "Possible hardcoded password assigned to: \"password\"" },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "app/settings.py" },
+                "region": { "startLine": 12 }
+              }
+            }
+          ],
+          "ruleId": "S105"
+        }
+      ]
+    }
+  ]
+}
