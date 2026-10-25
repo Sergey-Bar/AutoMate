@@ -24,10 +24,10 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 54,
+    "total": 58,
     "global": 13,
-    "workspaceScoped": 41,
-    "workspaceScopedWithHardBoundary": 41,
+    "workspaceScoped": 45,
+    "workspaceScopedWithHardBoundary": 45,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -303,6 +303,26 @@
       "scope": "workspace",
       "column": "not-null",
       "reason": "Hourly coverage and health readings of a tenant-owned project. Hard-scoped from its first migration (0025), so it never joins the P-20 class; the history read filters on workspace_id first."
+    },
+    "health_reports": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Scanner reports uploaded for a tenant-owned project. Hard-scoped from its first migration (`0031_repository_health.sql`); every read filters on workspace_id first. Isolation: `apps/api/src/services/repo-health-service.test.ts`."
+    },
+    "health_findings": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Findings and their triage for a tenant-owned project. Hard-scoped from its first migration (`0031_repository_health.sql`); the identity index leads with workspace_id, so one tenant's fingerprint can never match another's. Isolation: `apps/api/src/services/repo-health-service.test.ts`."
+    },
+    "health_snapshots": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The health grade's history for a tenant-owned project, read only as past points. Hard-scoped from its first migration (`0031_repository_health.sql`). Isolation: `apps/api/src/services/repo-health-service.test.ts`."
+    },
+    "access_tokens": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Role tokens issued by a tenant's admin. Hard-scoped from its first migration (`0032_access_tokens.sql`); a token authenticates only in the workspace that issued it. Isolation: `apps/api/src/services/access-service.test.ts`."
     }
   }
 }

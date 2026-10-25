@@ -335,6 +335,101 @@ describe('RunnerService', () => {
       },
     ]);
   });
+  it('clones a git-sourced job, runs the command in the clone, redacts the token, and removes the clone', async () => {
+    const protocol = new FakeProtocol();
+    const checkoutCalls: string[] = [];
+    Object.assign(protocol, {
+      checkout: async (jobId: string) => {
+        checkoutCalls.push(jobId);
+        return { url: 'https://github.com/a/b.git', token: 'tok-xyz' };
+      },
+    });
+    protocol.enqueue({
+      ...claim('job-clone'),
+      spec: {
+        configuration: {
+          command: {
+            argv: ['gitleaks', 'dir', '.'],
+            workingDirectory: '.',
+            artifactGlobs: ['out.sarif'],
+            evidence: 'artifact',
+          },
+          checkout: { url: 'https://github.com/a/b.git' },
+          health: { branch: 'main' },
+        },
+      },
+    });
+    const seen: Array<{ repository: unknown; redactions: string[] | undefined }> = [];
+    const executor = new FakeExecutor(async (context) => {
+      seen.push({
+        repository: (context.command as { repository?: unknown }).repository,
+        redactions: context.redactions,
+      });
+      return {
+        status: 'passed',
+        resultPath: '',
+        workspacePath: '',
+        artifacts: [],
+        stdout: '',
+        stderr: '',
+      };
+    });
+    const removed: string[] = [];
+    const runner = new RunnerService({
+      runnerId: 'runner-1',
+      capabilities: ['gitleaks'],
+      labels: [],
+      slots: 1,
+      pollIntervalMs: 1,
+      heartbeatIntervalMs: 60_000,
+      protocol,
+      executor,
+      spool: new MemorySpool(),
+      onError: vi.fn(),
+      checkout: {
+        clone: async (request) => {
+          expect(request).toMatchObject({
+            url: 'https://github.com/a/b.git',
+            token: 'tok-xyz',
+            branch: 'main',
+          });
+          return '/repos/.automate-checkouts/job-clone';
+        },
+        remove: async (path) => {
+          removed.push(path);
+        },
+      },
+    });
+    const stop = setTimeout(() => runner.stop(), 20);
+    await runner.run();
+    clearTimeout(stop);
+    expect(checkoutCalls).toEqual(['job-clone']);
+    expect(seen[0]?.repository).toBe('/repos/.automate-checkouts/job-clone');
+    expect(seen[0]?.redactions).toContain('tok-xyz');
+    expect(removed).toEqual(['/repos/.automate-checkouts/job-clone']);
+  });
+
+  it('fails a clone job on a runner that cannot clone, without running anything', async () => {
+    const protocol = new FakeProtocol();
+    protocol.enqueue({
+      ...claim('job-noclone'),
+      spec: {
+        configuration: {
+          command: { argv: ['gitleaks'], workingDirectory: '.', artifactGlobs: [] },
+          checkout: { url: 'https://github.com/a/b.git' },
+        },
+      },
+    });
+    const executor = new FakeExecutor(async () => {
+      throw new Error('must not run');
+    });
+    const runner = service(protocol, executor);
+    const stop = setTimeout(() => runner.stop(), 20);
+    await runner.run();
+    clearTimeout(stop);
+    expect(protocol.completions[0]?.error?.message).toMatch(/does not clone/u);
+  });
+
   it("gives the executor the job's own timeout, not the lease left at claim time", async () => {
     // The lease is 30 s by default and every heartbeat renews it, so it says how long
     // the runner may go *silent*, not how long a suite may run. Capping the deadline at

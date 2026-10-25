@@ -218,6 +218,20 @@
       "when": 1790400000025,
       "tag": "0030_drop_superseded_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790400000026,
+      "tag": "0031_repository_health",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790400000027,
+      "tag": "0032_access_tokens",
+      "breakpoints": true
     }
   ]
 }

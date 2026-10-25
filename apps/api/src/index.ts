@@ -1,5 +1,6 @@
 import { requestContext, requireRequestId } from './observability/request-context.js';
-import { sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { createErrorBoundary } from './errors/boundary.js';
 import { withClassifiedErrors } from './errors/db-errors.js';
@@ -42,7 +43,20 @@ import type { ExecutionStore } from './execution/types.js';
 // Post-MVP: Remove InMemoryRunRepository fallback entirely (issue #TBD).
 import { InMemoryRunRepository } from './repositories/in-memory-run-repository.js';
 import { DrizzleRunRepository } from './repositories/drizzle-run-repository.js';
-import { createDbResources, DrizzleInstallationKeyStore, DrizzleSessionStore } from '@automate/db';
+import {
+  createDbResources,
+  DrizzleInstallationKeyStore,
+  DrizzleSessionStore,
+  runners,
+} from '@automate/db';
+import { ingestScanArtifact } from './services/repo-health-service.js';
+import { readGitToken } from './services/git-credential-service.js';
+import { authenticateToken } from './services/access-service.js';
+import { alertsFor, deliverAlerts } from './services/health-integrations.js';
+import type { ReportEvent } from './services/repo-health-service.js';
+import { githubAdapter } from '@automate/connectors-github';
+import { slackAdapter } from '@automate/connectors-slack';
+import { getCookie } from 'hono/cookie';
 import { DEFAULT_IGNORED, fileSystemView } from '@automate/projects';
 import { createRepoScanner } from './services/repo-scan-service.js';
 import { createProjectsRoutes } from './routes/projects.js';
@@ -575,6 +589,44 @@ app.route(
     allowQueryToken: false,
   }),
 );
+/**
+ * What every repository-health ingestion shares, whichever door the report came through: a
+ * CI upload, a scan the runner ran, or a scheduled scan the worker enqueued.
+ */
+const healthWorkspace = runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID;
+const dashboardUrl = (projectId: string): string =>
+  `${(runtimeConfig.publicAppUrl ?? 'http://localhost:5173').replace(/\/$/u, '')}/dashboard/repo/${encodeURIComponent(projectId)}`;
+const healthHooks = {
+  readRepositoryFile: async (repoPath: string, path: string) => fileSystemView(repoPath).read(path),
+  onReport: async (event: ReportEvent) => {
+    const alerts = alertsFor({
+      previous: event.previous,
+      current: event.current,
+      added: event.added,
+      onDefaultBranch: event.onDefaultBranch,
+    });
+    if (alerts.length === 0) return;
+    const outcomes = await deliverAlerts(
+      {
+        slack:
+          runtimeConfig.slackBotToken === undefined
+            ? undefined
+            : { adapter: slackAdapter, token: runtimeConfig.slackBotToken },
+        webhookSecret: runtimeConfig.healthWebhookSecret,
+      },
+      event.settings.alerts ?? {},
+      {
+        projectId: event.projectId,
+        project: event.project,
+        branch: event.branch,
+        detailsUrl: dashboardUrl(event.projectId),
+        alerts,
+      },
+    );
+    if (outcomes.length > 0)
+      logger.info('health alerts delivered', { projectId: event.projectId, outcomes });
+  },
+};
 app.route(
   '/',
   createExecutionRoutes({
@@ -583,6 +635,40 @@ app.route(
     workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
     runnerRegistrationSecret: runtimeConfig.runnerRegistrationSecret,
     bus: realtimeBus,
+    // A health scanner's report is ingested the moment the runner uploads it.
+    ...(databaseResources === undefined
+      ? {}
+      : {
+          // A cloned repository's token, read from the vault only for the runner holding the lease.
+          checkoutToken: async (run) =>
+            run.projectId === null
+              ? null
+              : readGitToken(
+                  {
+                    db: databaseResources.db as never,
+                    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+                    vaultSecret: runtimeConfig.vaultSecret,
+                  },
+                  run.projectId,
+                ),
+          onArtifact: async ({ run, name, bytes, metadata }) => {
+            try {
+              await ingestScanArtifact(
+                { db: databaseResources.db as never, workspaceId: healthWorkspace, ...healthHooks },
+                run.configuration,
+                name,
+                bytes,
+                typeof metadata['sourceRoot'] === 'string' ? metadata['sourceRoot'] : undefined,
+              );
+            } catch (error) {
+              logger.error('health report from a scan could not be ingested', {
+                runId: run.id,
+                artifact: name,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          },
+        }),
   }),
 );
 app.route('/', createAgentRoutes({ registry: agentRegistry }));
@@ -636,6 +722,78 @@ if (databaseResources !== undefined) {
     '/',
     createProjectsRoutes({
       ...registry,
+      vaultSecret: runtimeConfig.vaultSecret,
+      secureCookies: resolveSecureCookies(),
+      // The installation key's session is the admin; tokens carry their own role. With
+      // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
+      access: {
+        mode: runtimeConfig.accessControl ?? 'open',
+        authenticateToken: (token) => authenticateToken(registry, token),
+        hasSession: async (context) => {
+          const session = getCookie(context, 'automate_session');
+          return (
+            session !== undefined && (await authRoutes.sessions.validate(session)) !== undefined
+          );
+        },
+      },
+      health: {
+        ...healthHooks,
+        detailsUrl: dashboardUrl,
+        github: {
+          adapter: githubAdapter,
+          tokenFor: (projectId) =>
+            readGitToken({ ...registry, vaultSecret: runtimeConfig.vaultSecret }, projectId).catch(
+              () => null,
+            ),
+        },
+        reporterSecret: runtimeConfig.reporterSecret,
+        requireReporterSecret: runtimeConfig.nodeEnv === 'production',
+        // Scanners a live runner advertises. A runner declares them in RUNNER_CAPABILITIES.
+        scannerCapabilities: async () => {
+          const rows = await databaseResources.db
+            .select({ capabilities: runners.capabilities })
+            .from(runners)
+            .where(
+              and(
+                eq(runners.workspaceId, registry.workspaceId),
+                inArray(runners.health, ['healthy', 'degraded']),
+              ),
+            );
+          return new Set(rows.flatMap((row) => row.capabilities));
+        },
+        // One run per scanner, claimable only by a runner that has the binary.
+        startScanJob: async (job) => {
+          const created = await executionStore.create(
+            {
+              projectId: job.projectId,
+              timeoutMs: 20 * 60_000,
+              source: 'web',
+              framework: 'tool',
+              testType: 'health',
+              suite: `health: ${job.scanner.label}`,
+              requiredCapabilities: [job.scanner.id],
+              configuration: {
+                commandId: `health:${job.scanner.id}`,
+                health: job.health,
+                command: {
+                  argv: [...job.scanner.argv],
+                  workingDirectory: '.',
+                  ...(job.repository === null ? {} : { repository: job.repository }),
+                  artifactGlobs: [job.scanner.output],
+                  env: [],
+                  evidence: 'artifact',
+                },
+                ...(job.gitUrl === null
+                  ? {}
+                  : { checkout: { url: job.gitUrl, projectId: job.projectId } }),
+              },
+            },
+            randomUUID(),
+            registry.workspaceId,
+          );
+          return { runId: created.run.id };
+        },
+      },
       // `.github` and `.husky` are walked for the scan only: they are where CI and the
       // commit gates are declared, and the detector has no use for either.
       scanner: createRepoScanner({

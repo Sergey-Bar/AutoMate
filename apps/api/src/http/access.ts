@@ -22,6 +22,10 @@ export const GUARDED_ACCESS = [
   'runner-registration-secret',
   'runner-credential',
   'enrollment-token',
+  // The repository-health roles, each admitting the roles above it (`http/roles.ts`).
+  'viewer',
+  'operator',
+  'admin',
 ] as const;
 
 export type GuardedAccess = (typeof GUARDED_ACCESS)[number];

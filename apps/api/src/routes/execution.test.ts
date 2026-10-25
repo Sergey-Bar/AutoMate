@@ -138,10 +138,12 @@ interface Harness {
  * new PGlite per test is clean and far too slow; a new workspace is the same
  * isolation for the same reason a real install has one workspace per team.
  */
-function harness(
-  overrides: { requireIdempotencyKey?: boolean } = {},
-  artifactBytes?: ArtifactBytesStore,
-): Harness {
+type HarnessOverrides = {
+  requireIdempotencyKey?: boolean;
+  onArtifact?: Parameters<typeof createExecutionRoutes>[0]['onArtifact'];
+};
+
+function harness(overrides: HarnessOverrides = {}, artifactBytes?: ArtifactBytesStore): Harness {
   counter += 1;
   const workspaceId = `ws-routes-${counter}`;
   const otherWorkspaceId = `${workspaceId}-other`;
@@ -218,7 +220,7 @@ async function createWorkspace(id: string, projectId: string): Promise<void> {
 
 /** A harness with both of its workspaces, their projects, and a release, present. */
 async function workspaceHarness(
-  overrides: { requireIdempotencyKey?: boolean } = {},
+  overrides: HarnessOverrides = {},
   artifactBytes?: ArtifactBytesStore,
 ): Promise<Harness> {
   const h = harness(overrides, artifactBytes);
@@ -1327,6 +1329,48 @@ describe('POST /api/v1/jobs/:jobId/artifacts', () => {
     });
     expect(response.status).toBe(400);
     expect(await errorCode(response)).toBe('INVALID_ARTIFACT');
+  });
+});
+
+describe('GET /api/v1/jobs/:jobId/checkout', () => {
+  it('refuses no credential, and answers 404 for a job that does not clone', async () => {
+    const h = await workspaceHarness();
+    const { jobId, token } = await seed(h);
+    expect((await h.app.request(`/api/v1/jobs/${jobId}/checkout`)).status).toBe(401);
+    const response = await h.app.request(`/api/v1/jobs/${jobId}/checkout`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.status).toBe(404);
+  });
+});
+
+describe('the artifact hook', () => {
+  it('hands each stored artifact, with its run, to onArtifact', async () => {
+    const seen: Array<{ runId: string; name: string; text: string }> = [];
+    const h = await workspaceHarness({
+      onArtifact: async ({ run, name, bytes }) => {
+        seen.push({ runId: run.id, name, text: Buffer.from(bytes).toString('utf8') });
+      },
+    });
+    const { runId, jobId, token, leaseId, fencingToken } = await seed(h);
+    const response = await h.app.request(`/api/v1/jobs/${jobId}/artifacts`, {
+      method: 'POST',
+      headers: { ...JSON_HEADERS, authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        name: 'automate-health-gitleaks.sarif',
+        contentBase64: Buffer.from('{"runs":[]}').toString('base64'),
+        leaseId,
+        fencingToken,
+      }),
+    });
+    expect(response.status).toBe(201);
+    // seed uploads one artifact of its own; the hook saw that one and then this one.
+    expect(seen.at(-1)).toEqual({
+      runId,
+      name: 'automate-health-gitleaks.sarif',
+      text: '{"runs":[]}',
+    });
+    expect(seen.every((entry) => entry.runId === runId)).toBe(true);
   });
 });
 

@@ -67,10 +67,12 @@ export interface JobCompletion {
 export interface ScheduledRunRequest {
   workspaceId: string;
   projectId: string;
-  environmentId: string;
-  releaseId: string;
+  /** 
+ull only for a repository-health scan (	estType: 'health'). */
+  environmentId: string | null;
+  releaseId: string | null;
   branch: string;
-  commit: string;
+  commit: string | null;
   testType?: string;
   framework?: string;
   suite?: string;

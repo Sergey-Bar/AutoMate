@@ -67,6 +67,12 @@ function strings(value: unknown): string[] {
     : [];
 }
 
+/** Required for every schedule except a repository-health scan, which has none of them. */
+function releaseScoped(request: Record<string, unknown>, field: string): string | null {
+  if (request['testType'] === 'health' && request[field] === undefined) return null;
+  return requiredString(request[field], field);
+}
+
 function requiredString(value: unknown, field: string): string {
   if (typeof value !== 'string' || !value) throw new Error(`Schedule is missing ${field}`);
   return value;
@@ -469,10 +475,13 @@ export class PostgresExecutionStore implements ExecutionStore {
         request: {
           workspaceId: row.workspace_id,
           projectId: requiredString(request['projectId'], 'projectId'),
-          environmentId: requiredString(request['environmentId'], 'environmentId'),
-          releaseId: requiredString(request['releaseId'], 'releaseId'),
+          // A repository-health scan is about a branch's current state: it has no release,
+          // no environment, and no commit until the checkout says which one it read. Every
+          // other schedule still names all three.
+          environmentId: releaseScoped(request, 'environmentId'),
+          releaseId: releaseScoped(request, 'releaseId'),
           branch: requiredString(request['branch'], 'branch'),
-          commit: requiredString(request['commit'], 'commit'),
+          commit: releaseScoped(request, 'commit'),
           testType: typeof request['testType'] === 'string' ? request['testType'] : undefined,
           framework: typeof request['framework'] === 'string' ? request['framework'] : undefined,
           suite: typeof request['suite'] === 'string' ? request['suite'] : undefined,

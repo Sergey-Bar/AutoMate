@@ -98,6 +98,22 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },
+  // Repository health: reports, findings, snapshots and settings. Every query filters on
+  // `workspace_id` before the project, and `repo-health-service.test.ts` proves a project in
+  // one workspace is invisible from another — reads, uploads and triage alike.
+  {
+    family: 'repository health',
+    files: ['services/repo-health-service.ts', 'routes/repo-health.ts'],
+  },
+  // Role tokens and the audit trail. `access-service.test.ts` proves a token authenticates
+  // only in the workspace that issued it, and that one workspace cannot list another's.
+  {
+    family: 'access tokens',
+    files: ['services/access-service.ts', 'routes/access.ts', 'http/roles.ts'],
+  },
+  // A project's git token, bound to its row by the vault's AAD; `projects.test.ts` proves it
+  // does not open under another secret, and `vault-crypto.test.ts` the binding itself.
+  { family: 'git credentials', files: ['services/git-credential-service.ts'] },
   // Below the route layer: the stores and services the families above delegate
   // to. They take a `workspaceId` on every method precisely so the routes cannot
   // forget it, and the second test in this file scans their `where` clauses.

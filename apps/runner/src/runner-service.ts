@@ -19,6 +19,7 @@ import {
   type ExecutionProvider,
 } from './execution.js';
 import { readGenericCommand } from './execution-router.js';
+import type { GitCheckout } from './git-checkout.js';
 import {
   ExecutionEventInputSchema,
   type ArtifactDescriptor,
@@ -57,6 +58,8 @@ export interface RunnerProtocol {
     },
   ): Promise<ArtifactDescriptor>;
   complete(jobId: string, completion: JobCompletion): Promise<unknown>;
+  /** Where to clone a job's repository, and with what token. Required only for clone jobs. */
+  checkout?(jobId: string): Promise<{ url: string; token: string | null }>;
 }
 
 export interface RunnerServiceOptions {
@@ -80,6 +83,8 @@ export interface RunnerServiceOptions {
   /** Jitter seam. Injected so the delay bounds can be asserted, not sampled. */
   random?: () => number;
   onError?: (error: unknown) => void;
+  /** Clones a git-sourced repository before a scan. Absent: this runner refuses clone jobs. */
+  checkout?: Pick<GitCheckout, 'clone' | 'remove'>;
 }
 
 interface ActiveJob {
@@ -101,6 +106,21 @@ const TERMINAL_SPOOL_CONFLICTS = new Set<SpoolConflictReason>([
   'event_hash_mismatch',
   'run_not_found',
 ]);
+
+/** The command, pointed at the clone when the job cloned one. */
+function inClone<T extends { repository?: string }>(
+  command: T | undefined,
+  cloned: { path: string } | null,
+): T | undefined {
+  return command === undefined || cloned === null
+    ? command
+    : { ...command, repository: cloned.path };
+}
+
+/** The clone's token as a redaction, so nothing the job prints can carry it. */
+function tokenOf(cloned: { token: string | null } | null): string[] {
+  return cloned?.token == null ? [] : [cloned.token];
+}
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -347,6 +367,7 @@ export class RunnerService {
 
   private async executeClaim(claim: JobClaim, state: ActiveJob): Promise<void> {
     let workspacePath: string | undefined;
+    let checkoutPath: string | undefined;
     let completionAttempted = false;
     const complete = async (completion: JobCompletion): Promise<void> => {
       state.eventChain = state.eventChain
@@ -386,7 +407,9 @@ export class RunnerService {
       // Read before the executor is called, and re-thrown as a configuration
       // failure by `readGenericCommand` itself. A malformed argv must become a
       // `CONFIG_FAILED` run, not a `spawn` of something nobody wrote.
-      const command = readGenericCommand(specification);
+      const cloned = await this.cloneFor(claim, specification, state);
+      checkoutPath = cloned?.path;
+      const command = inClone(readGenericCommand(specification), cloned);
       const project =
         command === undefined ? stringValue(specification['playwrightProject']) : undefined;
       const targetUrl =
@@ -407,7 +430,8 @@ export class RunnerService {
         // completion by its fencing token.
         deadlineMs: claim.timeoutMs,
         signal: state.controller.signal,
-        redactions: [...(this.options.redactions ?? [])],
+        redactions: [...(this.options.redactions ?? []), ...tokenOf(cloned)],
+
         onEvent: async (event) => {
           const draft = this.reporterEvent(claim, event);
           if (draft) await this.event(claim, state, draft);
@@ -416,7 +440,7 @@ export class RunnerService {
       workspacePath = result.workspacePath;
       await state.eventChain;
       await this.transition(claim, state, 'collecting');
-      const artifactIds = await this.uploadArtifacts(claim, state, result.artifacts);
+      const artifactIds = await this.uploadArtifacts(claim, state, result.artifacts, checkoutPath);
 
       const status: TerminalStatus = result.status === 'succeeded' ? 'passed' : result.status;
       const completion = terminal(claim, status, this.now(), result.error);
@@ -439,7 +463,42 @@ export class RunnerService {
       if (workspacePath && this.options.executor.cleanup) {
         await this.options.executor.cleanup(workspacePath).catch(this.onError);
       }
+      // A clone of an untrusted repository is never kept for the next job.
+      await this.removeClone(checkoutPath);
     }
+  }
+
+  private async removeClone(path: string | undefined): Promise<void> {
+    if (path === undefined) return;
+    await this.options.checkout?.remove(path).catch(this.onError);
+  }
+
+  /**
+   * Clones the job's repository when its configuration names one, or `null` when it does not.
+   *
+   * The URL comes from the job and the token from the API's checkout endpoint, which only
+   * answers the runner holding the lease; neither is trusted for more than this one clone.
+   */
+  private async cloneFor(
+    claim: JobClaim,
+    specification: Record<string, unknown>,
+    state: ActiveJob,
+  ): Promise<{ path: string; token: string | null } | null> {
+    if (specification['checkout'] === undefined) return null;
+    const { checkout } = this.options;
+    if (checkout === undefined || this.options.protocol.checkout === undefined) {
+      throw new RunnerConfigurationError('This runner does not clone repositories');
+    }
+    const source = await this.options.protocol.checkout(claim.jobId);
+    const path = await checkout.clone({
+      url: source.url,
+      token: source.token,
+      jobId: claim.jobId,
+      branch: stringValue(record(specification['health'])['branch']),
+      deadlineMs: Math.min(claim.timeoutMs, 10 * 60_000),
+      signal: state.controller.signal,
+    });
+    return { path, token: source.token };
   }
 
   /** Upload each artifact and announce it; returns the ids the server assigned, in order. */
@@ -447,6 +506,7 @@ export class RunnerService {
     claim: JobClaim,
     state: ActiveJob,
     artifacts: ExecutionArtifact[],
+    sourceRoot?: string,
   ): Promise<string[]> {
     const artifactIds: string[] = [];
     for (const artifact of artifacts) {
@@ -460,7 +520,12 @@ export class RunnerService {
         contentType: artifact.contentType,
         bytes,
         checksum: artifact.digest,
-        metadata: { path: artifact.name, sizeBytes: artifact.bytes },
+        // The clone's path, so the API can make a scanner's absolute paths repository-relative.
+        metadata: {
+          path: artifact.name,
+          sizeBytes: artifact.bytes,
+          ...(sourceRoot === undefined ? {} : { sourceRoot }),
+        },
       });
       artifactIds.push(descriptor.id);
       await this.event(claim, state, {

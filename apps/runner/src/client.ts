@@ -157,6 +157,15 @@ export class RunnerApiClient {
     );
   }
 
+  /** The clone source for a job; the token is only ever served to the lease holder. */
+  async checkout(jobId: string): Promise<{ url: string; token: string | null }> {
+    return this.request(
+      `/api/v1/jobs/${encodeURIComponent(jobId)}/checkout`,
+      { method: 'GET' },
+      z.object({ url: z.string().min(1), token: z.string().min(1).nullable() }),
+    );
+  }
+
   private async request<T>(path: string, init: RequestInit, schema: z.ZodType<T>): Promise<T> {
     return this.parseResponse(await this.send(path, init), schema);
   }
