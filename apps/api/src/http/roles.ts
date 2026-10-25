@@ -15,7 +15,7 @@ import { satisfies } from '../services/access-service.js';
  * with none of them is the operator ADR-006 describes, and is admin; with `enforced` they are
  * nobody, and every guard refuses them.
  */
-export const TOKEN_COOKIE = 'automate_token';
+export const SIGN_IN_COOKIE = 'automate_token';
 const CALLER = 'automate.caller';
 
 export interface CallerResolver {
@@ -31,7 +31,7 @@ export async function callerOf(context: Context, resolver: CallerResolver): Prom
   const cached = context.get(CALLER as never) as Caller | undefined;
   if (cached !== undefined) return cached;
   const presented =
-    bearerToken(context.req.header('authorization')) ?? getCookie(context, TOKEN_COOKIE);
+    bearerToken(context.req.header('authorization')) ?? getCookie(context, SIGN_IN_COOKIE);
   let caller: Caller | null = null;
   if (presented !== undefined) caller = await resolver.authenticateToken(presented);
   if (caller === null && (await resolver.hasSession(context))) {

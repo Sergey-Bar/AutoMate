@@ -137,7 +137,8 @@ test.describe('on a phone', () => {
       ['Runs', '/dashboard/runs'],
       ['Insights', '/dashboard/insights'],
       ['Map', '/dashboard/map'],
-      ['Overview', '/dashboard'],
+      // Overview's section path is the portfolio since repository health became the landing.
+      ['Overview', '/dashboard/portfolio'],
     ] as const) {
       await bottom.getByRole('link', { name: label }).click();
       await expect(page).toHaveURL(`${WEB_BASE}${path}`);

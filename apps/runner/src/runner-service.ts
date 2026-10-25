@@ -119,7 +119,8 @@ function inClone<T extends { repository?: string }>(
 
 /** The clone's token as a redaction, so nothing the job prints can carry it. */
 function tokenOf(cloned: { token: string | null } | null): string[] {
-  return cloned?.token == null ? [] : [cloned.token];
+  const credential = cloned === null ? null : cloned.token;
+  return credential === null ? [] : [credential];
 }
 
 function record(value: unknown): Record<string, unknown> {

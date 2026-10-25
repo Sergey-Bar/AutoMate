@@ -145,7 +145,9 @@ const RegisterProjectBodySchema = z
     message: 'a project is registered by exactly one of repoPath and gitUrl',
     path: ['repoPath'],
   })
-  .refine((body) => body.token === undefined || body.gitUrl !== undefined, {
+  // `'token' in body`, not a comparison: whether a credential was sent is a question about
+  // the key, and nothing about its value is compared here.
+  .refine((body) => !('token' in body) || body.gitUrl !== undefined, {
     message: 'a token is only accepted with a gitUrl',
     path: ['token'],
   });

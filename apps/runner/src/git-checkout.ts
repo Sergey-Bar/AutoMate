@@ -151,6 +151,11 @@ function defaultRunGit(
   });
 }
 
+/** git's own error text, with the token cut out wherever it was echoed. */
+function redacted(text: string, secret: string | null): string {
+  return secret === null ? text : text.split(secret).join('[REDACTED]');
+}
+
 export class GitCheckout {
   private readonly root: string;
 
@@ -190,10 +195,7 @@ export class GitCheckout {
       );
       if (result.exitCode !== 0) {
         await rm(destination, { recursive: true, force: true });
-        const said =
-          request.token === null
-            ? result.stderr
-            : result.stderr.split(request.token).join('[REDACTED]');
+        const said = redacted(result.stderr, request.token);
         throw new RunnerInfrastructureError(
           `git clone failed (${String(result.exitCode)}): ${said.trim().slice(0, 500)}`,
         );

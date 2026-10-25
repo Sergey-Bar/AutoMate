@@ -113,6 +113,8 @@ const HISTORY_DAYS = 90;
 const TREND_DAYS = 30;
 const DAY_MS = 86_400_000;
 const INSERT_CHUNK = 500;
+/** More distinct report kinds than any scanner set produces; the grade reads at most these. */
+const MAX_REPORT_KINDS = 200;
 const ScannerRunListSchema = z.array(
   z.object({ tool: HealthToolSchema, dimensions: z.array(z.enum(HEALTH_DIMENSIONS)) }),
 );
@@ -414,7 +416,9 @@ async function computeGrade(
               eq(healthFindings.workspaceId, options.workspaceId),
               eq(healthFindings.projectId, project.id),
               eq(healthFindings.branch, branch),
-              inArray(healthFindings.toolKey, keys),
+              // One key per report kind on the branch; capped so a branch flooded with
+              // distinct tool names cannot grow the statement without bound.
+              inArray(healthFindings.toolKey, keys.slice(0, MAX_REPORT_KINDS)),
               ne(healthFindings.state, 'fixed'),
             ),
           );
