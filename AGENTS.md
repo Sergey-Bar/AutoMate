@@ -59,7 +59,7 @@ pnpm dev                  # Dev servers: API :3000, Web :5173
 pnpm lint                 # ESLint across all packages
 pnpm typecheck            # tsc --noEmit across all packages
 pnpm test                 # Vitest run across all packages
-pnpm verify               # Full gate: preflight + format + lint + typecheck + test + contract + integration + runner + coverage ratchet + build + authz matrix + db check + security
+pnpm verify               # Full gate, 13 steps, each unit of work once: preflight + review rules + format + lint + typecheck + test (every package) + gate meta-tests + coverage ratchet + build + authz matrix + db check + tenancy + security
 pnpm verify:release       # pnpm verify + oci:verify
 pnpm verify:local         # The same chain, on a host with no semgrep/gitleaks. Never in CI
 pnpm unify:preflight      # Pre-unification safety check
@@ -69,9 +69,9 @@ pnpm unify:preflight      # Pre-unification safety check
 check that says so):
 
 ```bash
-pnpm test:contract        # @automate/contract-tests
-pnpm test:integration     # node --test scripts/lib/*.test.mjs + integration + contract
-pnpm test:runner          # runner, runner-sdk, worker
+pnpm test:contract        # @automate/contract-tests only (also inside `pnpm test`)
+pnpm test:integration     # node --test scripts/lib/*.test.mjs — the gate meta-tests. PGlite suites run in `pnpm test`
+pnpm test:runner          # runner, runner-sdk, worker only (also inside `pnpm test`)
 pnpm test:performance     # k6 thresholds. Exits non-zero as not_configured without k6
 pnpm capability:evidence  # Every capability-register row names a command that resolves and cites files/tests that exist and are collected; --run executes the commands
 pnpm coverage:ratchet     # Fails on a coverage regression per package, and on a floor that was lowered
@@ -348,7 +348,7 @@ packages/
   auth/              Installation sessions and credentials
   automation/        AI gateway ports and streaming adapters
   config/            Environment parsing and the startup policy
-  connectors/        github / jira / slack connectors plus their SDK
+  connectors/        github / jira / slack / teams / telegram / whatsapp / signal connectors plus their SDK
   db/                Drizzle schema and migrations (PostgreSQL)
   orchestration/     Job state machines and schedules
   realtime/          Versioned replay and SSE boundaries
@@ -417,12 +417,25 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 - Return structured JSON responses with appropriate HTTP status codes.
 - One error boundary for the app (`src/errors/boundary.ts`); every response carries a
   stable `code`. Do not add a second.
+- **Credentials go through `services/vault-secrets.ts`** (git tokens, notification channels).
+  Do not seal a secret anywhere else. A connector's secret is passed per call to
+  `ConnectorAdapter.execute`; adapters report failures with `connectorFailure` from the SDK.
+- **Scheduled reports**: the worker queues `report_deliveries` (it has no vault); the API's
+  `services/report-dispatcher.ts` sends them. Report content is `composeReport` in
+  `packages/reporting`, rendered per platform with the limits DIGEST-1/2 prove.
 
 ### Client Patterns (React 19)
 
-- **Data fetching**: hand-written fetch wrappers in `src/lib/api.ts`, consumed by custom
+- **Data fetching**: hand-written fetch wrappers in `src/lib/api.ts`, `src/lib/health-client.ts` and
+  `src/lib/notifications-client.ts`, consumed by custom
   hooks in `src/hooks/` (`useRuns`, `useDashboard`, `useCommandActions`). There is **no**
   TanStack Query and **no** `apps/web/src/store/` directory.
+- **Landing page**: `/` redirects to `/dashboard/now`. Attention ranking is the pure
+  `src/lib/attention.ts`; page headers that decide the next step use `StatusLine` (one number,
+  one sentence, one action). Feedback goes through `useToast` (`src/components/Toasts.tsx`).
+- **Quiet modes**: focus, density and motion are `data-*` attributes on `<html>` set by
+  `src/theme/preferences.tsx` and read by `src/index.css`. Mark secondary chrome
+  `data-chrome="secondary"`; page lists that `j`/`k` should walk live under `[data-page]`.
 - **Routing**: TanStack Router with file-based routes in `src/routes/`.
 - **Validation**: Zod schemas parse API responses on the client side.
 - **UI components**: Tailwind CSS 4 + `packages/ui` library.
@@ -486,6 +499,15 @@ scripts/             Gate scripts, all `.mjs`, plus `scripts/lib/` node:test sui
 
 ### Security
 
+- **LAN mode is the only way off loopback.** `checkExposurePolicy` (`apps/api/src/startup-policy.ts`)
+  refuses a non-loopback `AUTOMATE_BIND`/`HOST` with `ACCESS_CONTROL=open`, in every environment,
+  and the start scripts refuse it before anything starts (`scripts/lib/start-scripts.test.mjs`).
+  `AUTOMATE_LAN_MODE=1` turns enforcement on. Every route is guarded where it is declared or in
+  `apps/api/src/http/route-access.ts`; only the probes and the credential exchanges in
+  `PUBLIC_ROUTES` are open, and `authz-matrix.test.ts` fails on any other `open` row. A new route
+  needs a guard or a row there.
+- Never print firewall changes as something the scripts do: they print the command for the
+  operator to run.
 - Never commit tokens/credentials. Use `.env` locally.
 - Do not log sensitive data.
 - `pnpm security:secrets` scans the working tree; `pnpm security:secrets:history` scans

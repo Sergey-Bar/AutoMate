@@ -24,10 +24,10 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 58,
+    "total": 62,
     "global": 13,
-    "workspaceScoped": 45,
-    "workspaceScopedWithHardBoundary": 45,
+    "workspaceScoped": 49,
+    "workspaceScopedWithHardBoundary": 49,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -323,6 +323,26 @@
       "scope": "workspace",
       "column": "not-null",
       "reason": "Role tokens issued by a tenant's admin. Hard-scoped from its first migration (`0032_access_tokens.sql`); a token authenticates only in the workspace that issued it. Isolation: `apps/api/src/services/access-service.test.ts`."
+    },
+    "pairing_codes": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "One-time device pairing codes an admin issues in LAN mode; each mints an access token in the same workspace. Hard-scoped from its first migration (`0033_pairing_codes.sql`); a code is redeemable only in the workspace that issued it. Isolation: `apps/api/src/services/pairing-service.test.ts`."
+    },
+    "notification_channels": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Where a tenant's scheduled reports go. Hard-scoped from its first migration (`0034_notifications.sql`); the credential is a vault entry bound to the same workspace. Isolation: `apps/api/src/services/notification-service.test.ts`."
+    },
+    "report_subscriptions": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's report cadence for one of its channels. Hard-scoped from its first migration (`0034_notifications.sql`). Isolation: `apps/api/src/services/notification-service.test.ts`."
+    },
+    "report_deliveries": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Each attempt to send a tenant's report, and the in-app inbox. Hard-scoped from its first migration (`0034_notifications.sql`). Isolation: `apps/api/src/services/notification-service.test.ts`."
     }
   }
 }

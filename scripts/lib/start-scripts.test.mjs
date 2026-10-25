@@ -281,24 +281,78 @@ for (const [kind, shell] of /** @type {const} */ ([
     },
   );
 
-  test(`${label}: warns when the install is opened beyond this machine`, { skip }, async () => {
-    const where = install();
-    const server = await readyServer();
-    try {
-      const result = await run(kind, where, [], {
-        AUTOMATE_PORT: String(server.port),
-        AUTOMATE_BIND: '0.0.0.0',
-      });
-      assert.equal(result.status, 0, result.output);
-      assert.match(result.output, /WARNING/);
-      assert.match(result.output, /no login/);
-      const quiet = await run(kind, where, [], { AUTOMATE_PORT: String(server.port) });
-      assert.doesNotMatch(quiet.output, /WARNING/);
-    } finally {
-      await server.close();
-      where.cleanup();
-    }
-  });
+  test(
+    `${label}: lan-cert issues the certificate inside the edge image, for this machine's names`,
+    { skip },
+    async () => {
+      const where = install();
+      try {
+        const result = await run(kind, where, ['lan-cert'], {
+          AUTOMATE_TLS_NAMES: 'qa.example.lan',
+        });
+        assert.equal(result.status, 0, result.output);
+        const issued = composeCall(calls(where.log), 'run');
+        assert.ok(issued, `no compose run: ${result.output}`);
+        // As root, because the certificate directory is a host mount nginx cannot write.
+        assert.deepEqual(issued.slice(issued.indexOf('run')), [
+          'run',
+          '--rm',
+          '--no-deps',
+          '--user',
+          '0',
+          '--entrypoint',
+          'automate-lan-cert',
+          'edge',
+          issued.at(-1) ?? '',
+        ]);
+        const names = (issued.at(-1) ?? '').split(',');
+        for (const name of ['automate.local', 'localhost', '127.0.0.1', 'qa.example.lan']) {
+          assert.ok(names.includes(name), `${name} missing from ${names.join(',')}`);
+        }
+        assert.ok(!names.includes(''), 'an empty name would be an empty subjectAltName');
+        assert.match(result.output, /ca\.crt/);
+      } finally {
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: refuses to open the install beyond this machine without LAN mode`,
+    { skip },
+    async () => {
+      // It used to warn and start anyway. A reachable install with no login is refused now,
+      // here before anything is pulled and again by the API's own startup policy.
+      const where = install();
+      const server = await readyServer();
+      try {
+        const refused = await run(kind, where, [], {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_BIND: '0.0.0.0',
+        });
+        assert.notEqual(refused.status, 0, refused.output);
+        assert.match(refused.output, /AUTOMATE_LAN_MODE=1/);
+        assert.equal(composeCall(calls(where.log), 'up'), undefined, 'nothing may start');
+
+        const lan = await run(kind, where, [], {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_BIND: '0.0.0.0',
+          AUTOMATE_LAN_MODE: '1',
+        });
+        assert.equal(lan.status, 0, lan.output);
+        assert.match(lan.output, /LAN mode/);
+        // The firewall is the operator's to change, so the command is printed, never run.
+        assert.match(lan.output, kind === 'ps' ? /New-NetFirewallRule/ : /ufw allow|firewall-cmd/);
+
+        const quiet = await run(kind, where, [], { AUTOMATE_PORT: String(server.port) });
+        assert.equal(quiet.status, 0, quiet.output);
+        assert.doesNotMatch(quiet.output, /LAN mode|AUTOMATE_LAN_MODE/);
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
 
   test(`${label}: uninstall keeps the data unless --purge is given`, { skip }, async () => {
     const where = install();

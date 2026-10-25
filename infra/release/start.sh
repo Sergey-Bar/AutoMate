@@ -9,8 +9,9 @@
 #   ./start.sh uninstall [--purge] remove the containers; --purge also deletes all data
 #
 # Settings, read from the environment or from .env:
-#   AUTOMATE_PORT   the port to open (default 8080)
-#   AUTOMATE_BIND   the address to listen on (default 127.0.0.1, this machine only)
+#   AUTOMATE_PORT      the port to open (default 8080)
+#   AUTOMATE_BIND      the address to listen on (default 127.0.0.1, this machine only)
+#   AUTOMATE_LAN_MODE  1 to serve other machines on your network, with sign-in required
 set -eu
 
 cd "$(dirname "$0")"
@@ -24,7 +25,7 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'automate: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  say "Usage: ./start.sh [stop|status|logs|update [--version X]|uninstall [--purge]]"
+  say "Usage: ./start.sh [stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert]"
 }
 
 # Docker, running, with Compose v2 — each missing piece named, with what to do about it.
@@ -118,24 +119,41 @@ open_browser() {
   fi
 }
 
-warn_if_exposed() {
-  bind="$(setting AUTOMATE_BIND 127.0.0.1)"
-  case "$bind" in
-    127.*|localhost|::1) ;;
-    *)
-      say ""
-      say "WARNING: AUTOMATE_BIND=$bind makes Automate reachable from other machines."
-      say "WARNING: The install has no login, so anyone who can reach this port can use it."
-      say "WARNING: Unset AUTOMATE_BIND to keep it on this machine only."
-      say ""
-      ;;
+is_loopback() {
+  case "$1" in
+    127.*|localhost|::1|'[::1]') return 0 ;;
+    *) return 1 ;;
   esac
+}
+
+lan_mode() {
+  case "$(setting AUTOMATE_LAN_MODE '')" in
+    1|true|yes) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# A reachable install with no login is refused, not warned about. The API refuses the same
+# bind at startup (apps/api/src/startup-policy.ts); saying it here means the operator reads
+# it at the prompt, before anything is downloaded.
+check_exposure() {
+  bind="$(setting AUTOMATE_BIND 127.0.0.1)"
+  is_loopback "$bind" && return 0
+  lan_mode || fail "AUTOMATE_BIND=$bind would make Automate reachable from other machines with no login. Set AUTOMATE_LAN_MODE=1 to serve your network with sign-in and device pairing, or unset AUTOMATE_BIND to keep it on this machine."
+  port="$(setting AUTOMATE_PORT 8080)"
+  say ""
+  say "LAN mode: other machines on your network can reach Automate on port $port, after signing in."
+  say "If they cannot connect, allow the port through this machine's firewall (not done for you):"
+  say "  ufw:       sudo ufw allow $port/tcp"
+  say "  firewalld: sudo firewall-cmd --add-port=$port/tcp --permanent && sudo firewall-cmd --reload"
+  say "  macOS:     System Settings > Network > Firewall > allow incoming connections for Docker"
+  say ""
 }
 
 start() {
   require_docker
   ensure_env
-  warn_if_exposed
+  check_exposure
   port="$(setting AUTOMATE_PORT 8080)"
   base="http://localhost:$port"
   say "Downloading the Automate images (the first run takes a few minutes)..."
@@ -178,6 +196,29 @@ update() {
   start
 }
 
+# Every name and address this machine answers to on the network, comma-separated, for the
+# certificate's subjectAltName. AUTOMATE_TLS_NAMES adds more (a DNS name your router hands
+# out, a second interface).
+lan_names() {
+  host="$(hostname 2>/dev/null || printf 'automate')"
+  ips="$( { hostname -I 2>/dev/null || ipconfig getifaddr en0 2>/dev/null || true; } | tr ' \n' ',,')"
+  printf '%s' "automate.local,$host,$host.local,localhost,127.0.0.1,$ips,$(setting AUTOMATE_TLS_NAMES '')" \
+    | tr -s ',' | sed 's/^,//; s/,$//'
+}
+
+lan_cert() {
+  require_docker
+  ensure_env
+  mkdir -p certs
+  names="$(lan_names)"
+  say "Issuing a LAN certificate for: $names"
+  compose run --rm --no-deps --user 0 --entrypoint automate-lan-cert edge "$names"
+  say ""
+  say "Done. Trust certs/ca.crt once on each device that opens Automate, then restart:"
+  say "  ./start.sh stop && ./start.sh"
+  say "How to trust it on Windows, macOS, Linux, iPhone and Android: docs on LAN mode."
+}
+
 uninstall() {
   require_docker
   [ -f .env ] || : > .env
@@ -200,6 +241,7 @@ case "$command" in
   logs) require_docker; compose logs --tail 200 -f ;;
   update) update "$@" ;;
   uninstall) uninstall "$@" ;;
+  lan-cert) lan_cert ;;
   -h|--help|help) usage ;;
   *) usage; exit 2 ;;
 esac

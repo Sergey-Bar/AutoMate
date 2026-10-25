@@ -278,3 +278,65 @@ function attemptSignal(
     },
   };
 }
+
+/**
+ * The dispatch entry for an operation and the manifest's claim about it, together.
+ *
+ * Each adapter keeps its own `OPERATIONS` table beside its manifest (and
+ * `connector-dispatch.test.ts` holds the two in agreement); this is the lookup they all
+ * did by hand. `operationSpec` refuses an undeclared operation, so a spec that exists is a
+ * key the table has.
+ *
+ * @throws {ConnectorInputError} `unknown_operation`, naming the declared spellings
+ */
+export function dispatchEntry<T>(
+  manifest: ConnectorManifest,
+  table: Readonly<Record<string, T>>,
+  operation: string,
+): { entry: T; idempotent: boolean; timeoutMs: number } {
+  const spec = operationSpec(manifest, operation);
+  return { entry: table[operation] as T, idempotent: spec.idempotent, timeoutMs: spec.timeoutMs };
+}
+
+/**
+ * The `ConnectorResult` for a failed call, from the error alone, for the adapters whose
+ * failures need no platform-specific reading beyond the refusal they already threw.
+ *
+ * Four outcomes, kept apart because a caller acts differently on each:
+ *
+ *  - the request was wrong (`ConnectorInputError`): `<prefix>_<code>`, never retried;
+ *  - the platform refused it (`ConnectorRejectionError`): `<prefix>_rejected_<status>`,
+ *    worth retrying only for a transient status such as 429;
+ *  - the platform answered with an error status (`ConnectorHttpError`): `<prefix>_<status>`;
+ *  - nothing came back: `<prefix>_transport_failed`, not retried by this policy, because
+ *    nothing says the request was refused and a message may already have been delivered.
+ *
+ * The message is the caller's own text for the last three, never the remote body, so a
+ * platform that echoes a token in an error cannot put it in a delivery log.
+ */
+export function connectorFailure(prefix: string, error: unknown, message: string): ConnectorResult {
+  if (error instanceof ConnectorInputError) {
+    return {
+      status: 'error',
+      error: { code: `${prefix}_${error.code}`, retryable: false, message: error.message },
+      attempts: 1,
+    };
+  }
+  if (error instanceof ConnectorHttpError) {
+    const rejected = error instanceof ConnectorRejectionError;
+    return {
+      status: 'error',
+      error: {
+        code: `${prefix}_${rejected ? 'rejected_' : ''}${String(error.status)}`,
+        retryable: isRetryableStatus(error.status),
+        message,
+      },
+      attempts: error.attempts,
+    };
+  }
+  return {
+    status: 'error',
+    error: { code: `${prefix}_transport_failed`, retryable: false, message },
+    attempts: 1,
+  };
+}

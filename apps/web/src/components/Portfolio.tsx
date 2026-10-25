@@ -15,7 +15,8 @@ import { useResource } from '../hooks/useResource.js';
 import type { HealthClient } from '../lib/health-client.js';
 import { ago, dimensionLabel, letterTone } from '../lib/health-view.js';
 import { repoHealthPath } from '../route-manifest.js';
-import { Delta, Kpi, PageFrame, PageHeader, Panel } from './kit.js';
+import { Delta, PageFrame, PageHeader, Panel } from './kit.js';
+import { StatusLine } from './StatusLine.js';
 
 /**
  * Every repository, worst first: the page anyone opening the dashboard lands on.
@@ -64,29 +65,25 @@ export function Portfolio({ health }: { health: HealthClient }): React.ReactElem
         />
       ) : (
         <>
-          <section
-            aria-label="Portfolio figures"
-            className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3"
-          >
-            <Kpi
-              hero
-              data-testid="portfolio-attention"
-              label="Need attention"
-              value={String(attention)}
-              tone={attention > 0 ? 'text-warning' : 'text-success'}
-              footer="graded C or below, or incomplete"
-            />
-            <Kpi
-              data-testid="portfolio-graded"
-              label="Graded"
-              value={`${String(graded)} / ${String(entries.length)}`}
-            />
-            <Kpi
-              data-testid="portfolio-improving"
-              label="Improving over 30 days"
-              value={String(entries.filter((entry) => (entry.trend ?? 0) > 0).length)}
-            />
-          </section>
+          <StatusLine
+            data-testid="portfolio-attention"
+            value={String(attention)}
+            tone={attention > 0 ? 'caution' : 'good'}
+            sentence={
+              attention === 1
+                ? 'repository needs attention: graded C or below, or incomplete.'
+                : 'repositories need attention: graded C or below, or incomplete.'
+            }
+            action={
+              entries[0] !== undefined && attention > 0
+                ? { label: `Open ${entries[0].name}`, href: repoHealthPath(entries[0].projectId) }
+                : undefined
+            }
+          />
+          <p className="text-sm text-fg-muted" data-testid="portfolio-improving">
+            {String(entries.filter((entry) => (entry.trend ?? 0) > 0).length)} improving over 30
+            days
+          </p>
           <Panel title="Repositories" data-testid="portfolio-table">
             <Table aria-label="Repositories">
               <TableHeader>

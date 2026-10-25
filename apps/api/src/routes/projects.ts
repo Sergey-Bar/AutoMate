@@ -41,7 +41,11 @@ import {
 } from '../services/project-registry-service.js';
 import { storeGitToken } from '../services/git-credential-service.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
+import type { SecureCookies } from '../http/secure-cookies.js';
 import { createAccessRoutes } from './access.js';
+import { defaultClientKey } from './auth.js';
+import { createPairingRoutes } from './pairing.js';
+import { createNotificationRoutes } from './notifications.js';
 import { audit, authenticateToken } from '../services/access-service.js';
 import { qaTestsReading } from '../services/repo-health-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
@@ -69,8 +73,14 @@ import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-heal
 export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
   /** Who is calling. Absent: access is open, and access tokens are read from this database. */
   access?: CallerResolver;
-  /** Whether the sign-in cookie is Secure. */
-  secureCookies?: boolean;
+  /** Whether the sign-in cookie is Secure: fixed, or decided per request. */
+  secureCookies?: SecureCookies;
+  /** Whether `X-Forwarded-For` was written by our proxy. See {@link defaultClientKey}. */
+  trustProxy?: boolean;
+  /** Device pairing: the code pepper and where a pairing link points. Absent: refused. */
+  pairing?: { pepper: string; publicAppUrl: string };
+  /** Scheduled reports: the link a report carries, and a send-now for test sends. */
+  notifications?: { link: string | null; dispatchNow?: () => Promise<unknown> };
   /** Seals a git token on registration. Absent: tokens are refused. */
   vaultSecret?: string | undefined;
   /**
@@ -197,6 +207,34 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       workspaceId: options.workspaceId,
       access,
       ...(options.secureCookies === undefined ? {} : { secureCookies: options.secureCookies }),
+      ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
+    }),
+  );
+  // Pairing mints access tokens, so it lives where they do: beside the access routes.
+  app.route(
+    '/',
+    createPairingRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      pepper: options.pairing?.pepper,
+      publicAppUrl: options.pairing?.publicAppUrl ?? 'http://localhost:8080',
+      clientKey: (context) => defaultClientKey(context, options.trustProxy ?? false),
+      ...(options.secureCookies === undefined ? {} : { secureCookies: options.secureCookies }),
+    }),
+  );
+  // Scheduled reports. The channel credentials are vault entries, so this needs the vault.
+  app.route(
+    '/',
+    createNotificationRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      vaultSecret: options.vaultSecret,
+      access,
+      link: options.notifications?.link ?? null,
+      ...(options.notifications?.dispatchNow === undefined
+        ? {}
+        : { dispatchNow: options.notifications.dispatchNow }),
     }),
   );
   // Repository health is part of the registry: every health route is about a registered project.

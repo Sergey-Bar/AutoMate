@@ -1,4 +1,13 @@
 import { z } from 'zod/v4';
+import { DEFAULT_CLIENT_CIDRS, parseCidr } from './network.js';
+
+/** A comma-separated environment value as its trimmed, non-empty entries. */
+function splitList(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
+}
 
 /**
  * The one secret floor in this repository.
@@ -226,10 +235,46 @@ const EnvironmentSchema = z.object({
   // without a proxy the header is client-chosen (ledger MNT-7).
   TRUST_PROXY: z.enum(['true', 'false']).default('false'),
   /**
-   * open keeps ADR-006's single-operator posture: every caller is the operator. enforced`n   * requires a session or an access token on the repository-health and project routes, with
-   * viewer, operator and admin roles.
+   * open keeps ADR-006's single-operator posture: every caller is the operator. enforced
+   * requires a session or an access token on every `/api/v1` route that is not a probe or a
+   * sign-in, with viewer, operator and admin roles.
+   *
+   * **No default in the schema.** Unset, it is `open` — unless `AUTOMATE_LAN_MODE` is on, in
+   * which case it is `enforced`. An explicit `open` beside LAN mode is kept as written so the
+   * startup policy can refuse the contradiction by name instead of silently resolving it.
    */
-  ACCESS_CONTROL: z.enum(['open', 'enforced']).default('open'),
+  ACCESS_CONTROL: z.enum(['open', 'enforced']).optional(),
+  /**
+   * The one switch for serving other machines on the local network: access control on, the
+   * client allowlist applied, and the start scripts allowed to publish beyond loopback.
+   */
+  AUTOMATE_LAN_MODE: z
+    .enum(['1', 'true', 'yes', '0', 'false', 'no'])
+    .optional()
+    .transform((value) => value === '1' || value === 'true' || value === 'yes'),
+  /**
+   * The address the front door is published on. The compose stack passes the edge's own
+   * `AUTOMATE_BIND` through, because the API listens on `0.0.0.0` *inside* the compose
+   * network and that says nothing about whether another machine can reach it.
+   */
+  AUTOMATE_BIND: z.string().min(1).optional(),
+  /** Comma-separated client ranges admitted. Unset: {@link DEFAULT_CLIENT_CIDRS}. */
+  ALLOWED_CLIENT_CIDRS: z
+    .string()
+    .optional()
+    .superRefine((value, context) => {
+      for (const cidr of splitList(value)) {
+        try {
+          parseCidr(cidr);
+        } catch (error) {
+          context.addIssue({
+            code: 'custom',
+            // parseCidr throws only its own Errors, each naming the range.
+            message: `ALLOWED_CLIENT_CIDRS: ${(error as Error).message}`,
+          });
+        }
+      }
+    }),
   /** Signs repository-health webhook alerts. Unset: webhooks are not sent. */
   HEALTH_WEBHOOK_SECRET: z.string().min(32).optional(),
   /** A Slack bot token for repository-health alerts. Unset: Slack alerts are not sent. */
@@ -289,6 +334,12 @@ export type AppConfig = {
   trustProxy: boolean;
   /** `ACCESS_CONTROL`: whether the role guards refuse a caller with no credential. */
   accessControl: 'open' | 'enforced';
+  /** `AUTOMATE_LAN_MODE`: serve other machines on the local network. */
+  lanMode: boolean;
+  /** Where the install is reachable from: `AUTOMATE_BIND` when set, otherwise `HOST`. */
+  exposedBind: string;
+  /** `ALLOWED_CLIENT_CIDRS`, or {@link DEFAULT_CLIENT_CIDRS}. */
+  allowedClientCidrs: string[];
   healthWebhookSecret?: string;
   slackBotToken?: string;
   sessionRetentionDays: number;
@@ -344,7 +395,13 @@ export function parseConfig(
     ollamaBaseUrl: parsed.OLLAMA_BASE_URL,
     sessionTtlHours: parsed.SESSION_TTL_HOURS,
     trustProxy: parsed.TRUST_PROXY === 'true',
-    accessControl: parsed.ACCESS_CONTROL,
+    accessControl: parsed.ACCESS_CONTROL ?? (parsed.AUTOMATE_LAN_MODE ? 'enforced' : 'open'),
+    lanMode: parsed.AUTOMATE_LAN_MODE,
+    exposedBind: parsed.AUTOMATE_BIND ?? parsed.HOST,
+    allowedClientCidrs:
+      parsed.ALLOWED_CLIENT_CIDRS === undefined
+        ? [...DEFAULT_CLIENT_CIDRS]
+        : splitList(parsed.ALLOWED_CLIENT_CIDRS),
     ...(parsed.HEALTH_WEBHOOK_SECRET === undefined
       ? {}
       : { healthWebhookSecret: parsed.HEALTH_WEBHOOK_SECRET }),

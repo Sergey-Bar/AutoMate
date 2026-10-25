@@ -80,14 +80,6 @@ jobs:
         run: pnpm lint
       - name: Typecheck
         run: pnpm typecheck
-      - name: Migration check
-        run: pnpm db:check
-      - name: Documentation drift
-        # A document citing a file that does not exist, or a JSON row declaring a
-        # key twice, is a claim the tree does not back. Both were invisible: the
-        # first because a reviewer's eye is the only thing that reads prose, the
-        # second because `JSON.parse` silently takes the last of a duplicated key.
-        run: pnpm docs:check
       - name: Capability evidence
         # Every register row names a command that resolves, cites files that exist,
         # and cites only tests a runner collects - so deleting a test flips its row to
@@ -95,16 +87,11 @@ jobs:
         # needs no tool, no database and no build. `--run` executes the commands and is
         # deliberately not in this job.
         run: pnpm capability:evidence
-      - name: Dead exports
-        # `packages/runner-sdk/src/client.ts` was a second HTTP client for the
-        # runner protocol, imported by nothing, with its own passing test suite.
-        # Two clients and two suites for one endpoint pair is how a protocol change
-        # lands in one and silently misses the other.
-        run: pnpm docs:dead-exports
-      - name: License check
-        run: pnpm license:check
-      - name: Audit
-        run: pnpm audit --audit-level=high
+      # Not here, because another job already runs them and a check that runs twice
+      # is minutes spent to learn nothing new (`scripts/lib/gate-duplication.mjs`):
+      # `db:check` is the `migration-report` job; `docs:check` and `docs:dead-exports`
+      # are files in the `scripts/lib/*.test.mjs` glob the `integration` job runs; and
+      # the licence check and `pnpm audit` are the first steps of `security:verify`.
 
   compose-boot:
     name: Compose boot
@@ -490,28 +477,6 @@ jobs:
       - name: Rendering budget
         run: pnpm test:render
 
-  contract:
-    name: Contract tests
-    needs: quality
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
-        with:
-          run_install: false
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - name: Install frozen dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Contract suite
-        run: pnpm test:contract
-
   security:
     name: Security and license audit
     needs: quality
@@ -538,14 +503,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Install static-analysis scanners
         uses: ./.github/actions/install-scanners
-      - name: Secret scan (working tree)
-        run: pnpm security:secrets
-      # Proportional to the commit count, so it is a CI step and not a pre-commit
-      # hook. The tree scan above cannot see a value that was committed and then
-      # removed, which is what an ordinary `git rm` or an edit that strips a
-      # credential leaves behind.
-      - name: Secret scan (git history)
-        run: pnpm security:secrets:history
+      # One step, not three. `security:verify` already chains the working-tree and the
+      # git-history secret scans, so the two standalone steps that used to precede it ran
+      # both scans twice per pull request.
       - name: Security and license verification
         run: pnpm security:verify
       - name: Install skillspector
@@ -629,19 +589,11 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      # `pnpm install` does not build, and `pnpm test:integration` runs the PGlite
-      # suites, which import `@automate/shared-contracts` — resolved through
-      # `node_modules` to its `dist`, which does not exist in a fresh checkout. Two
-      # suites failed to load with `Failed to resolve entry for package
-      # "@automate/shared-contracts"` while all 50 tests that did run passed, which is
-      # the shape of a job that reports coverage for the part of the tree it managed to
-      # load.
-      #
-      # `--filter "@automate/integration-tests..."` is pnpm's own answer: the package
-      # *and its dependencies*, from the graph, so this cannot drift when a dependency is
-      # added.
-      - name: Build the packages the integration suites import
-        run: pnpm --filter "@automate/integration-tests..." build
+      # The repository's own gate tests (`scripts/lib/*.test.mjs`), dependency-free and
+      # build-free. The PGlite suites in `@automate/integration-tests` used to be chained
+      # here too, which is why this job built the workspace first; they are a workspace
+      # package, so `pnpm test` in `unit-and-coverage` already runs them, and running them
+      # a second time here measured nothing new (`scripts/lib/gate-duplication.mjs`).
       - name: Local integration checks
         run: pnpm test:integration
 
@@ -696,27 +648,3 @@ jobs:
           path: test-results/evidence
           if-no-files-found: ignore
           retention-days: 14
-
-  runner:
-    name: Runner protocol
-    needs: quality
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - name: Check out source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
-        with:
-          run_install: false
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - name: Install frozen dependencies
-        run: pnpm install --frozen-lockfile
-      - name: Runner tests
-        run: pnpm test:runner
-      - name: Worker tests
-        run: pnpm --filter @automate/worker test

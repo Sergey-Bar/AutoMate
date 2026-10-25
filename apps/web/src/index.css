@@ -73,3 +73,22 @@
     color: inherit;
   }
 }
+
+/*
+ * The three quiet-mode preferences, as attributes `theme/preferences.tsx` sets on `<html>`.
+ * Each reaches a token rather than restyling a component: motion through the one multiplier
+ * `motion.css` already reads, density through the rem every spacing and type step is in.
+ */
+@layer base {
+  html[data-motion='reduced'] {
+    --automate-motion-scale: 0.01;
+  }
+
+  html[data-density='compact'] {
+    font-size: 93.75%;
+  }
+
+  html[data-focus='on'] [data-chrome='secondary'] {
+    display: none;
+  }
+}

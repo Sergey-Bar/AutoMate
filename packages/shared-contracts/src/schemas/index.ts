@@ -57,3 +57,4 @@ export * from './qa-insights.js';
 export * from './copilot.js';
 export * from './tui-commands.js';
 export * from './health.js';
+export * from './notifications.js';

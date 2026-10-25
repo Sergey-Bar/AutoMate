@@ -54,6 +54,7 @@ describe('route manifest', () => {
 
   it('exposes every old destination, now as a tab of a section', () => {
     expect(visibleRoutes.map((route) => route.path)).toEqual([
+      '/dashboard/now',
       '/dashboard/portfolio',
       '/dashboard',
       '/dashboard/runs',
@@ -65,6 +66,7 @@ describe('route manifest', () => {
       '/dashboard/health',
       '/dashboard/toolbox',
       '/dashboard/access',
+      '/dashboard/reports',
     ]);
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
   });
@@ -108,8 +110,8 @@ describe('route manifest', () => {
     expect(sectionOf('/elsewhere')).toBeNull();
   });
 
-  it('lists each section’s tabs, and the overview leads with the portfolio', () => {
-    expect(tabsOf('overview').map((tab) => tab.tab)).toEqual(['Portfolio', 'Project']);
+  it('lists each section’s tabs, and the overview leads with Now', () => {
+    expect(tabsOf('overview').map((tab) => tab.tab)).toEqual(['Now', 'Portfolio', 'Project']);
     expect(tabsOf('runs').map((tab) => tab.tab)).toEqual(['Runs', 'Launch']);
     expect(tabsOf('insights').map((tab) => tab.tab)).toEqual(['Tests', 'Trends', 'Quarantine']);
     expect(tabsOf('map').map((tab) => tab.tab)).toEqual([
@@ -117,6 +119,7 @@ describe('route manifest', () => {
       'Capabilities',
       'Toolbox',
       'Access',
+      'Reports',
     ]);
   });
 

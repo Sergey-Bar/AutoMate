@@ -174,6 +174,8 @@ describe('migration graph', () => {
       '0030_drop_superseded_tables',
       '0031_repository_health',
       '0032_access_tokens',
+      '0033_pairing_codes',
+      '0034_notifications',
     ]);
   });
 

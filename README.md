@@ -24,6 +24,9 @@ dashboard.
 - **Quality gates** that answer `unknown` or `not_configured` instead of quietly passing.
 - **Quarantine** for flaky tests, with a required reason and an audit trail — set aside, never hidden.
 - **Live run updates** over server-sent events, and a runner that executes declared commands outside the API process.
+- **A "Now" page** that answers "what needs me?" in five items or fewer, with focus mode, compact density, reduced motion and keyboard shortcuts (`?` lists them).
+- **Scheduled reports**, daily, weekly or custom, to Slack, Microsoft Teams, Telegram, WhatsApp, Signal or the built-in inbox — see [scheduled reports](site/guide/notifications.md).
+- **One server for your whole network.** `AUTOMATE_LAN_MODE=1` turns on sign-in everywhere, HTTPS with a local certificate, device pairing by QR code, a client allowlist and remote runners — see [LAN mode](site/guide/lan-mode.md).
 
 ## Why it is interesting to an SDET
 

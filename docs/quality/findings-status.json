@@ -5,7 +5,7 @@
     "Regenerate with `pnpm findings:baseline` — deliberately, never as a side",
     "effect of a failing check."
   ],
-  "reviewedOn": "2026-10-23",
+  "reviewedOn": "2026-10-25",
   "statuses": {
     "P-18": "fixed",
     "P-71": "fixed",
@@ -228,6 +228,9 @@
     "MNT-137": "fixed",
     "MNT-150": "fixed",
     "BK-2": "debt",
-    "MNT-151": "fixed"
+    "MNT-151": "fixed",
+    "LAN-1": "fixed",
+    "LAN-2": "fixed",
+    "LAN-3": "fixed"
   }
 }

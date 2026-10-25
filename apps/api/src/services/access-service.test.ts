@@ -290,6 +290,26 @@ describe('the role guards, enforced', () => {
 });
 
 describe('the role guards, open', () => {
+  it('a forged X-Forwarded-For does not buy a fresh token sign-in budget', async () => {
+    // The limiter keyed on the raw header, so a client that changed it on every request
+    // never ran out of attempts. Without TRUST_PROXY the header is the client's choice and
+    // must not decide the bucket; every request below comes from the same peer.
+    const { app } = await setup();
+    const statuses: number[] = [];
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const response = await app.request('/api/v1/auth/token-login', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': `203.0.113.${String(attempt)}`,
+        },
+        body: JSON.stringify({ token: `amt_wrong_${String(attempt)}` }),
+      });
+      statuses.push(response.status);
+    }
+    expect(statuses.slice(0, 10).every((status) => status === 401)).toBe(true);
+    expect(statuses.slice(10)).toEqual([429, 429]);
+  });
   it('admits a caller with no credential, as ADR-006 describes', async () => {
     const { app } = await setup('open');
     expect((await app.request('/api/v1/portfolio')).status).toBe(200);

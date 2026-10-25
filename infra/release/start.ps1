@@ -11,8 +11,9 @@
 # running scripts is disabled; running start.ps1 directly needs scripts to be allowed.
 #
 # Settings, read from the environment or from .env:
-#   AUTOMATE_PORT   the port to open (default 8080)
-#   AUTOMATE_BIND   the address to listen on (default 127.0.0.1, this machine only)
+#   AUTOMATE_PORT      the port to open (default 8080)
+#   AUTOMATE_BIND      the address to listen on (default 127.0.0.1, this machine only)
+#   AUTOMATE_LAN_MODE  1 to serve other machines on your network, with sign-in required
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
@@ -29,7 +30,7 @@ function Fail([string]$Message) {
 }
 
 function Show-Usage {
-  Write-Output 'Usage: .\start.cmd [stop|status|logs|update [--version X]|uninstall [--purge]]'
+  Write-Output 'Usage: .\start.cmd [stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert]'
 }
 
 # Docker, running, with Compose v2 - each missing piece named, with what to do about it.
@@ -105,20 +106,28 @@ function Wait-Ready([string]$Base) {
   Fail "Automate did not become ready in ${ReadyTimeout}s. Run '.\start.cmd logs' to see why."
 }
 
-function Show-ExposureWarning {
+# A reachable install with no login is refused, not warned about. The API refuses the same
+# bind at startup (apps/api/src/startup-policy.ts); saying it here means the operator reads
+# it at the prompt, before anything is downloaded.
+function Assert-Exposure {
   $bind = Get-Setting 'AUTOMATE_BIND' '127.0.0.1'
-  if ($bind -like '127.*' -or $bind -eq 'localhost' -or $bind -eq '::1') { return }
+  if ($bind -like '127.*' -or $bind -eq 'localhost' -or $bind -eq '::1' -or $bind -eq '[::1]') { return }
+  $lan = Get-Setting 'AUTOMATE_LAN_MODE' ''
+  if (@('1', 'true', 'yes') -notcontains $lan) {
+    Fail "AUTOMATE_BIND=$bind would make Automate reachable from other machines with no login. Set AUTOMATE_LAN_MODE=1 to serve your network with sign-in and device pairing, or unset AUTOMATE_BIND to keep it on this machine."
+  }
+  $port = Get-Setting 'AUTOMATE_PORT' '8080'
   Write-Output ''
-  Write-Output "WARNING: AUTOMATE_BIND=$bind makes Automate reachable from other machines."
-  Write-Output 'WARNING: The install has no login, so anyone who can reach this port can use it.'
-  Write-Output 'WARNING: Unset AUTOMATE_BIND to keep it on this machine only.'
+  Write-Output "LAN mode: other machines on your network can reach Automate on port $port, after signing in."
+  Write-Output 'If they cannot connect, allow the port through Windows Firewall from an elevated PowerShell (not done for you):'
+  Write-Output "  New-NetFirewallRule -DisplayName 'Automate' -Direction Inbound -Protocol TCP -LocalPort $port -Action Allow -Profile Private"
   Write-Output ''
 }
 
 function Start-Automate {
   Assert-Docker
   Initialize-EnvFile
-  Show-ExposureWarning
+  Assert-Exposure
   $port = Get-Setting 'AUTOMATE_PORT' '8080'
   $base = "http://localhost:$port"
   Write-Output 'Downloading the Automate images (the first run takes a few minutes)...'
@@ -156,6 +165,39 @@ function Update-Automate([string[]]$Rest) {
   Start-Automate
 }
 
+# Every name and address this machine answers to on the network, for the certificate's
+# subjectAltName. AUTOMATE_TLS_NAMES adds more, comma-separated.
+function Get-LanNames {
+  $hostName = [Environment]::MachineName.ToLowerInvariant()
+  $ips = @()
+  try {
+    $ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+        Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+        ForEach-Object { $_.IPAddress })
+  } catch {
+    # Not Windows (pwsh on Linux or macOS): the resolver's view of this host.
+    $ips = @([System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
+        Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not $_.ToString().StartsWith('127.') } |
+        ForEach-Object { $_.ToString() })
+  }
+  $extra = @((Get-Setting 'AUTOMATE_TLS_NAMES' '') -split ',' | ForEach-Object { $_.Trim() })
+  $all = @('automate.local', $hostName, "$hostName.local", 'localhost', '127.0.0.1') + $ips + $extra
+  return (@($all | Where-Object { $_ -ne '' } | Select-Object -Unique) -join ',')
+}
+
+function New-LanCertificate {
+  Assert-Docker
+  Initialize-EnvFile
+  New-Item -ItemType Directory -Force -Path (Join-Path $PSScriptRoot 'certs') | Out-Null
+  $names = Get-LanNames
+  Write-Output "Issuing a LAN certificate for: $names"
+  Invoke-Compose run --rm --no-deps --user 0 --entrypoint automate-lan-cert edge $names
+  Write-Output ''
+  Write-Output 'Done. Trust certs\ca.crt once on each device that opens Automate, then restart:'
+  Write-Output '  .\start.cmd stop; .\start.cmd'
+  Write-Output 'How to trust it on Windows, macOS, Linux, iPhone and Android: docs on LAN mode.'
+}
+
 function Uninstall-Automate([string[]]$Rest) {
   Assert-Docker
   if (-not (Test-Path -LiteralPath $EnvFile)) { [System.IO.File]::WriteAllText($EnvFile, '') }
@@ -178,6 +220,7 @@ switch ($command) {
   'logs' { Assert-Docker; Invoke-Compose logs --tail 200 -f }
   'update' { Update-Automate $rest }
   'uninstall' { Uninstall-Automate $rest }
+  'lan-cert' { New-LanCertificate }
   { $_ -in 'help', '-h', '--help' } { Show-Usage }
   default { Show-Usage; exit 2 }
 }

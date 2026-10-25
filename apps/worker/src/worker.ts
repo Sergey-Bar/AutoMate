@@ -6,7 +6,7 @@ import type {
   LeaseRecovery,
   ScheduledEnqueueResult,
 } from './types.js';
-import { pollSchedules } from './scheduler.js';
+import { pollReportSchedules, pollSchedules } from './scheduler.js';
 
 export interface ExecutionWorkerOptions {
   store: ExecutionStore;
@@ -56,6 +56,8 @@ export class ExecutionWorker {
       now,
       this.options.scheduleBatchSize ?? 100,
     );
+    // Reports are queued here and sent by the API, which holds the vault this process does not.
+    await pollReportSchedules(this.options.store, now, this.options.scheduleBatchSize ?? 100);
     const claimed: JobClaim[] = [];
     // Claiming is opt-in, and the production composition opts out. Execution belongs
     // to `apps/runner`, which claims over the API and runs the job in the execution

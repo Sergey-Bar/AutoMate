@@ -33,6 +33,20 @@ function origins(value: string): string[] {
   ];
 }
 
+/**
+ * Whether the API address keeps the runner's credentials off an open network: https, this
+ * machine, or a single-label name — a compose service such as `http://api:3000`, which only
+ * resolves inside the container network.
+ */
+function isSafeApiUrl(apiUrl: string): boolean {
+  const url = new URL(apiUrl);
+  if (url.protocol === 'https:') return true;
+  const host = url.hostname.replace(/^\[|\]$/gu, '').toLowerCase();
+  return (
+    host === 'localhost' || host === '::1' || /^127\./u.test(host) || /^[a-z0-9-]+$/u.test(host)
+  );
+}
+
 const RunnerConfigSchema = z
   .object({
     apiUrl: z
@@ -95,8 +109,21 @@ const RunnerConfigSchema = z
     spoolRetryBaseDelayMs: z.coerce.number().int().min(1).max(60_000).default(250),
     spoolRetryMaxDelayMs: z.coerce.number().int().min(1).max(600_000).default(30_000),
     redactions: z.string().default('').transform(csv),
+    allowInsecureApi: z
+      .enum(['1', 'true', 'yes', '0', 'false', 'no'])
+      .optional()
+      .transform((value) => value === '1' || value === 'true' || value === 'yes'),
   })
   .superRefine((value, context) => {
+    if (!value.allowInsecureApi && !isSafeApiUrl(value.apiUrl)) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          `AUTOMATE_API_URL=${value.apiUrl} is plain HTTP to another machine, so the registration ` +
+          'secret and every job token would cross the network in the clear. Use the https:// ' +
+          'address LAN mode serves, or set RUNNER_ALLOW_INSECURE_API=1 on a network you trust.',
+      });
+    }
     if (!value.registrationSecret && !value.credential) {
       context.addIssue({
         code: 'custom',
@@ -156,5 +183,6 @@ export function parseRunnerConfig(input: Record<string, string | undefined>): Ru
     spoolRetryBaseDelayMs: input['RUNNER_SPOOL_RETRY_BASE_DELAY_MS'],
     spoolRetryMaxDelayMs: input['RUNNER_SPOOL_RETRY_MAX_DELAY_MS'],
     redactions: input['RUNNER_REDACT_VALUES'],
+    allowInsecureApi: input['RUNNER_ALLOW_INSECURE_API'] || undefined,
   });
 }

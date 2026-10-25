@@ -1,4 +1,9 @@
-import { SECRET_MIN_LENGTH, isSecretPlaceholder, type SecretVariable } from '@automate/config';
+import {
+  SECRET_MIN_LENGTH,
+  isLoopbackBind,
+  isSecretPlaceholder,
+  type SecretVariable,
+} from '@automate/config';
 import type { AppConfig } from './config.js';
 
 /**
@@ -123,6 +128,36 @@ export function checkProductionPolicy(config: AppConfig): void {
       );
     }
     refuseIfUnusable('RUNNER_REGISTRATION_SECRET', config.runnerRegistrationSecret);
+  }
+}
+
+/**
+ * Who may reach this install, against who it lets in.
+ *
+ * The API had no login in front of it by design (ADR-006), and the only thing between that
+ * and the network was a warning the start scripts printed when `AUTOMATE_BIND` was not
+ * loopback. A warning is advice; a reachable install with no login is a decision someone
+ * should have to make on purpose. So it is refused, in every environment — the network does
+ * not care about `NODE_ENV` — and the refusal names the switch that makes it safe.
+ *
+ * This is the one place the rule lives. The start scripts refuse the same bind before they
+ * start anything, so an operator sees the message at the prompt rather than in a container
+ * log; they repeat it early, they do not decide it.
+ */
+export function checkExposurePolicy(config: AppConfig): void {
+  if (config.lanMode === true && config.accessControl === 'open') {
+    throw new Error(
+      'AUTOMATE_LAN_MODE is on and ACCESS_CONTROL=open is set. LAN mode serves other machines ' +
+        'and needs a login: remove ACCESS_CONTROL (LAN mode turns it on) or set it to enforced.',
+    );
+  }
+  const bind = config.exposedBind ?? config.host ?? '127.0.0.1';
+  if (!isLoopbackBind(bind) && (config.accessControl ?? 'open') === 'open') {
+    throw new Error(
+      `Automate would be reachable from other machines (${bind}) with no login in front of it. ` +
+        'Set AUTOMATE_LAN_MODE=1 to serve your local network with sign-in, device pairing and ' +
+        'a client allowlist, or bind to 127.0.0.1 to keep it on this machine.',
+    );
   }
 }
 

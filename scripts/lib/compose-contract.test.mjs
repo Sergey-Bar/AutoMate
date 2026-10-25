@@ -6,11 +6,13 @@ import {
   FRONT_DOOR,
   REQUIRED_OBJECT_STORE_VARIABLES,
   REQUIRED_PRODUCTION_VARIABLES,
+  SECURE_FRONT_DOOR,
   bootProblems,
   composeProblems,
   environmentKeys,
   environmentMap,
   frontDoorProblems,
+  publishedPorts,
   serviceNames,
   upstreamProblems,
 } from './compose-contract.mjs';
@@ -401,4 +403,21 @@ test('the production stack publishes only the edge proxy, on loopback by default
   const text = readRepo('infra/compose/docker-compose.unified.yml');
   assert.deepEqual(frontDoorProblems('infra/compose/docker-compose.unified.yml', text), []);
   assert.match(FRONT_DOOR, /^\$\{AUTOMATE_BIND:-127\.0\.0\.1\}:/);
+  // The HTTPS door is the same proxy on the same bind, so it widens nothing LAN mode did not.
+  assert.match(SECURE_FRONT_DOOR, /^\$\{AUTOMATE_BIND:-127\.0\.0\.1\}:/);
+  assert.deepEqual(publishedPorts(text, 'edge'), [FRONT_DOOR, SECURE_FRONT_DOOR]);
+});
+
+test('the HTTPS door is the edge only, never a second service', () => {
+  const compose = [
+    'services:',
+    '  api:',
+    '    ports:',
+    `      - '${SECURE_FRONT_DOOR}'`,
+    '  edge:',
+    '    ports:',
+    `      - '${FRONT_DOOR}'`,
+    '',
+  ].join('\n');
+  assert.ok(has(frontDoorProblems('x.yml', compose), /`api` publishes/));
 });

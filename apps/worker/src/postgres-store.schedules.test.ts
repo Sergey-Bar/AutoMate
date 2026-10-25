@@ -404,3 +404,75 @@ describe('PostgresExecutionStore.enqueueScheduledRun', () => {
     expect(await runsByKey('schedule:rollback:1')).toEqual([]);
   });
 });
+
+describe('report schedules against the real graph', () => {
+  async function subscription(): Promise<string> {
+    const channel = await database.query<{ id: string }>(
+      `INSERT INTO notification_channels (workspace_id, kind, name) VALUES ($1, 'inbox', 'Inbox')
+       RETURNING id`,
+      [WORKSPACE],
+    );
+    const sub = await database.query<{ id: string }>(
+      `INSERT INTO report_subscriptions (workspace_id, channel_id, name, cadence, cron_expr, timezone)
+       VALUES ($1, $2::uuid, 'Daily', 'daily', '0 9 * * *', 'UTC') RETURNING id`,
+      [WORKSPACE, channel.rows[0]?.id],
+    );
+    return sub.rows[0]?.id ?? '';
+  }
+
+  it('lists a report schedule only as a report, never as a run', async () => {
+    const subscriptionId = await subscription();
+    await schedule(`report:${subscriptionId}`, {
+      runOptions: { kind: 'report', subscriptionId, timezone: 'UTC', misfirePolicy: 'run_once' },
+    });
+    await schedule('a-run');
+    expect((await store().listDueSchedules(NOW, 10)).map((due) => due.id)).toEqual(['a-run']);
+    expect(await store().listDueReportSchedules(NOW, 10)).toEqual([
+      {
+        id: `report:${subscriptionId}`,
+        workspaceId: WORKSPACE,
+        subscriptionId,
+        cronExpr: '*/5 * * * *',
+        timezone: 'UTC',
+        nextRunAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('queues one delivery per occurrence, atomically with advancing the schedule', async () => {
+    const subscriptionId = await subscription();
+    const id = `report:${subscriptionId}`;
+    await schedule(id, { runOptions: { kind: 'report', subscriptionId } });
+    const [due] = await store().listDueReportSchedules(NOW, 10);
+    const input = {
+      schedule: due as NonNullable<typeof due>,
+      scheduledFor: '2026-01-01T00:00:00.000Z',
+      nextRunAt: '2026-03-01T12:05:00.000Z',
+      idempotencyKey: `schedule:${id}:2026-01-01T00:00:00.000Z`,
+    };
+    // Two workers racing one occurrence: the compare-and-set lets one through.
+    const outcomes = await Promise.all([
+      store().enqueueScheduledReport(input),
+      store().enqueueScheduledReport(input),
+    ]);
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+    const deliveries = await database.query<Record<string, unknown>>(
+      'SELECT workspace_id, subscription_id, status, idempotency_key FROM report_deliveries WHERE subscription_id = $1::uuid',
+      [subscriptionId],
+    );
+    expect(deliveries.rows).toEqual([
+      {
+        workspace_id: WORKSPACE,
+        subscription_id: subscriptionId,
+        status: 'pending',
+        idempotency_key: input.idempotencyKey,
+      },
+    ]);
+    expect(await store().listDueReportSchedules(NOW, 10)).toEqual([]);
+  });
+
+  it('refuses a report schedule that names no subscription', async () => {
+    await schedule('report:broken', { runOptions: { kind: 'report' } });
+    await expect(store().listDueReportSchedules(NOW, 10)).rejects.toThrow(/subscriptionId/u);
+  });
+});

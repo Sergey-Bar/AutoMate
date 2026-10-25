@@ -5,3 +5,4 @@ export * from './vault.js';
 export * from './identity.js';
 export * from './execution.js';
 export * from './health.js';
+export * from './notifications.js';

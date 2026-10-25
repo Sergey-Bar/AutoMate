@@ -232,6 +232,20 @@
       "when": 1790400000027,
       "tag": "0032_access_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790400000028,
+      "tag": "0033_pairing_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1790400000029,
+      "tag": "0034_notifications",
+      "breakpoints": true
     }
   ]
 }

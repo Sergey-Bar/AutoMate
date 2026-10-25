@@ -239,6 +239,53 @@ describe('parseConfig', () => {
   });
 });
 
+describe('LAN mode and the client allowlist', () => {
+  it('is off by default, and access control stays open', () => {
+    const config = parseConfig({});
+    expect(config.lanMode).toBe(false);
+    expect(config.accessControl).toBe('open');
+    expect(config.exposedBind).toBe('127.0.0.1');
+  });
+
+  it('turns access control on when LAN mode is set and ACCESS_CONTROL is not', () => {
+    const config = parseConfig({ AUTOMATE_LAN_MODE: '1' });
+    expect(config.lanMode).toBe(true);
+    expect(config.accessControl).toBe('enforced');
+  });
+
+  it('keeps an explicit ACCESS_CONTROL, so the startup policy can refuse the conflict', () => {
+    expect(parseConfig({ AUTOMATE_LAN_MODE: 'true', ACCESS_CONTROL: 'open' }).accessControl).toBe(
+      'open',
+    );
+  });
+
+  it('reads the published bind ahead of the API listen address', () => {
+    // In compose the API listens on 0.0.0.0 inside its network and the edge is what is
+    // published, so the edge bind is the exposure; without it, HOST is.
+    expect(parseConfig({ HOST: '0.0.0.0', AUTOMATE_BIND: '127.0.0.1' }).exposedBind).toBe(
+      '127.0.0.1',
+    );
+    expect(parseConfig({ HOST: '0.0.0.0' }).exposedBind).toBe('0.0.0.0');
+  });
+
+  it('defaults the allowlist to private, loopback and link-local ranges', () => {
+    const config = parseConfig({});
+    expect(config.allowedClientCidrs).toContain('192.168.0.0/16');
+    expect(config.allowedClientCidrs).toContain('127.0.0.0/8');
+    expect(config.allowedClientCidrs).toContain('fc00::/7');
+  });
+
+  it('parses a configured allowlist and refuses a malformed range', () => {
+    expect(
+      parseConfig({ ALLOWED_CLIENT_CIDRS: '10.1.0.0/16, 192.168.1.20/32' }).allowedClientCidrs,
+    ).toEqual(['10.1.0.0/16', '192.168.1.20/32']);
+    expect(() => parseConfig({ ALLOWED_CLIENT_CIDRS: '10.1.0.0/40' })).toThrow(
+      'ALLOWED_CLIENT_CIDRS',
+    );
+    expect(() => parseConfig({ AUTOMATE_LAN_MODE: 'maybe' })).toThrow();
+  });
+});
+
 /**
  * One floor, and the placeholder check ahead of the length check.
  *

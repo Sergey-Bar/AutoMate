@@ -65,7 +65,31 @@
     "functions": 100,
     "lines": 100
   },
+  "packages/connectors/signal": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  },
   "packages/connectors/slack": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  },
+  "packages/connectors/teams": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  },
+  "packages/connectors/telegram": {
+    "statements": 100,
+    "branches": 100,
+    "functions": 100,
+    "lines": 100
+  },
+  "packages/connectors/whatsapp": {
     "statements": 100,
     "branches": 100,
     "functions": 100,

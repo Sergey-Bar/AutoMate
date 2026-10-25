@@ -8,11 +8,11 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 3,
-    "open": 56,
+    "admin": 9,
+    "viewer": 51,
+    "operator": 23,
+    "open": 13,
     "runner-credential": 9,
-    "viewer": 18,
-    "operator": 8,
     "reporter-secret": 6,
     "enrollment-token": 1,
     "runner-registration-secret": 1
@@ -45,7 +45,7 @@
     {
       "method": "GET",
       "path": "/api/v1/agents",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
@@ -53,7 +53,7 @@
     {
       "method": "GET",
       "path": "/api/v1/agents/:domain",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
@@ -61,7 +61,7 @@
     {
       "method": "POST",
       "path": "/api/v1/agents/:domain/:action",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/agents-browser.test.ts",
       "composition": "always"
@@ -69,7 +69,7 @@
     {
       "method": "GET",
       "path": "/api/v1/artifacts/:artifactId",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution-artifacts.test.ts",
       "composition": "always"
@@ -125,7 +125,7 @@
     {
       "method": "GET",
       "path": "/api/v1/automations",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
@@ -133,7 +133,7 @@
     {
       "method": "POST",
       "path": "/api/v1/automations",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
@@ -141,7 +141,7 @@
     {
       "method": "POST",
       "path": "/api/v1/automations/:id/jobs",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
@@ -149,7 +149,7 @@
     {
       "method": "POST",
       "path": "/api/v1/chat/completions",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/chat.test.ts",
       "composition": "always"
@@ -157,7 +157,7 @@
     {
       "method": "GET",
       "path": "/api/v1/chat/models",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/chat.test.ts",
       "composition": "always"
@@ -165,7 +165,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/analytics/summary",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -173,7 +173,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/analytics/trend",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/execution/trend.test.ts",
       "composition": "always"
@@ -181,7 +181,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/insights",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/execution/insights.test.ts",
       "composition": "always"
@@ -189,7 +189,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/quality-gates",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -197,7 +197,7 @@
     {
       "method": "POST",
       "path": "/api/v1/dashboard/quality-gates",
-      "access": "open",
+      "access": "admin",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -205,7 +205,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/quality-gates/:id",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/quality-gates.test.ts",
       "composition": "always"
@@ -213,7 +213,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/quarantine",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -221,7 +221,7 @@
     {
       "method": "POST",
       "path": "/api/v1/dashboard/quarantine",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -229,7 +229,7 @@
     {
       "method": "DELETE",
       "path": "/api/v1/dashboard/quarantine/:id",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/quarantine.test.ts",
       "composition": "always"
@@ -237,7 +237,7 @@
     {
       "method": "PATCH",
       "path": "/api/v1/dashboard/quarantine/:id",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/quarantine.test.ts",
       "composition": "always"
@@ -245,7 +245,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/runs/:id",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -253,7 +253,7 @@
     {
       "method": "PATCH",
       "path": "/api/v1/dashboard/runs/:id/status",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -261,7 +261,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/runs/:runId/tests",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/dashboard.test.ts",
       "composition": "always"
@@ -269,7 +269,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/suites",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/tests.test.ts",
       "composition": "always"
@@ -277,7 +277,7 @@
     {
       "method": "GET",
       "path": "/api/v1/dashboard/tests",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/tests.test.ts",
       "composition": "always"
@@ -285,7 +285,7 @@
     {
       "method": "GET",
       "path": "/api/v1/events",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/events.test.ts",
       "composition": "always"
@@ -309,7 +309,7 @@
     {
       "method": "GET",
       "path": "/api/v1/integrations/maturity",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -317,7 +317,7 @@
     {
       "method": "GET",
       "path": "/api/v1/jobs",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -325,7 +325,7 @@
     {
       "method": "POST",
       "path": "/api/v1/jobs/:id/cancel",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
@@ -369,6 +369,54 @@
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/reporter-results.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notification-channels",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notification-channels",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/notification-channels/:id",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/notification-channels/:id/test",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pair",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/pairing.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pairing-codes",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/pairing.test.ts",
+      "composition": "database"
     },
     {
       "method": "GET",
@@ -597,7 +645,7 @@
     {
       "method": "GET",
       "path": "/api/v1/quality-policies",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -605,7 +653,7 @@
     {
       "method": "POST",
       "path": "/api/v1/quality-policies",
-      "access": "open",
+      "access": "admin",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -621,10 +669,50 @@
     {
       "method": "GET",
       "path": "/api/v1/releases/:releaseId/readiness",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/report-deliveries",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/report-preview",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/report-subscriptions",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/report-subscriptions",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/report-subscriptions/:id",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/notification-service.test.ts",
+      "composition": "database"
     },
     {
       "method": "POST",
@@ -653,7 +741,7 @@
     {
       "method": "GET",
       "path": "/api/v1/reporting/kpis",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/reporting.test.ts",
       "composition": "always"
@@ -661,7 +749,7 @@
     {
       "method": "GET",
       "path": "/api/v1/reporting/runs/:runId",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/reporting.test.ts",
       "composition": "always"
@@ -717,7 +805,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -725,7 +813,7 @@
     {
       "method": "POST",
       "path": "/api/v1/runs",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -733,7 +821,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs/:runId",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -741,7 +829,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs/:runId/artifacts",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -749,7 +837,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs/:runId/artifacts/:artifactId",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -757,7 +845,7 @@
     {
       "method": "POST",
       "path": "/api/v1/runs/:runId/cancel",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -765,7 +853,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs/:runId/events",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/execution/event-paging-route.test.ts",
       "composition": "always"
@@ -773,7 +861,7 @@
     {
       "method": "GET",
       "path": "/api/v1/runs/:runId/gate",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -781,7 +869,7 @@
     {
       "method": "POST",
       "path": "/api/v1/runs/:runId/retry",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/execution.test.ts",
       "composition": "always"
@@ -797,7 +885,7 @@
     {
       "method": "GET",
       "path": "/api/v1/schedules",
-      "access": "open",
+      "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
@@ -805,7 +893,7 @@
     {
       "method": "POST",
       "path": "/api/v1/schedules",
-      "access": "open",
+      "access": "operator",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"

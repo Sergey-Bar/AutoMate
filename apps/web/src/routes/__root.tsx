@@ -1,8 +1,13 @@
 import React from 'react';
-import { Outlet, createRootRoute, redirect } from '@tanstack/react-router';
+import { Outlet, createRootRoute, redirect, useRouterState } from '@tanstack/react-router';
 import { BottomTabBar, NavBar, SectionTabs } from '../components/NavBar.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 import { GlobalCommandPalette } from '../components/GlobalCommandPalette.js';
+import { SessionGate } from '../components/SessionGate.js';
+import { ToastProvider } from '../components/Toasts.js';
+import { Shortcuts } from '../components/Shortcuts.js';
+import { PreferencesProvider } from '../theme/preferences.js';
+import { createHealthClient } from '../lib/health-client.js';
 
 export const Route = createRootRoute({
   /**
@@ -21,12 +26,14 @@ export const Route = createRootRoute({
    * the root component mounts, so `/` never paints a redirect at all.
    */
   beforeLoad: ({ location }) => {
-    if (location.pathname === '/') throw redirect({ to: '/dashboard/portfolio' });
+    if (location.pathname === '/') throw redirect({ to: '/dashboard/now' });
   },
   component: RootComponent,
 });
 
 function RootComponent() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const health = React.useMemo(() => createHealthClient(), []);
   /*
    * **The viewport is the page.** `h-dvh` and `overflow-hidden` on the frame, and each
    * screen is laid out into what is left — `PageFrame` fills it and panels page their
@@ -37,17 +44,29 @@ function RootComponent() {
    */
   return (
     <ThemeProvider>
-      <div className="flex h-dvh flex-col overflow-hidden bg-surface-sunken text-fg">
-        <NavBar />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4 sm:px-6 sm:py-6">
-          <SectionTabs />
-          <div className="flex min-h-0 flex-1 flex-col">
-            <Outlet />
+      <PreferencesProvider>
+        <ToastProvider>
+          <div className="flex h-dvh flex-col overflow-hidden bg-surface-sunken text-fg">
+            <NavBar />
+            <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto p-4 sm:px-6 sm:py-6">
+              {/*
+               * Secondary chrome: focus mode hides it (index.css). The attribute is on the
+               * navs themselves, not on a wrapper here — a wrapper rendered on a page with
+               * no tab row was an empty first child of <main>.
+               */}
+              <SectionTabs />
+              <div data-page className="flex min-h-0 flex-1 flex-col">
+                <SessionGate health={health} bypass={pathname === '/dashboard/pair'}>
+                  <Outlet />
+                </SessionGate>
+              </div>
+            </main>
+            <BottomTabBar />
           </div>
-        </main>
-        <BottomTabBar />
-      </div>
-      <GlobalCommandPalette />
+          <GlobalCommandPalette />
+          <Shortcuts />
+        </ToastProvider>
+      </PreferencesProvider>
     </ThemeProvider>
   );
 }

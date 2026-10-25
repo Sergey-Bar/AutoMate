@@ -198,3 +198,26 @@ describe('createHealthClient', () => {
     expect((failure as QaApiError).detail).toBe('Sign in, or send an access token');
   });
 });
+
+describe('device pairing', () => {
+  it('issues a code as an admin and pairs a device with it', async () => {
+    const issued = {
+      id: 'p-1',
+      code: '042137',
+      deviceName: 'Phone',
+      role: 'viewer',
+      expiresAt: '2026-10-25T12:10:00.000Z',
+      pairUrl: 'https://automate.local:8443/dashboard/pair?code=042137',
+    };
+    const { client, calls } = server({
+      'POST /api/v1/pairing-codes': issued,
+      'POST /api/v1/pair': { role: 'viewer', deviceName: 'Phone' },
+    });
+    expect(await client.issuePairingCode({ deviceName: 'Phone', role: 'viewer' })).toEqual(issued);
+    expect(await client.pair(' 042137 ')).toEqual({ role: 'viewer', deviceName: 'Phone' });
+    expect(calls.map((call) => [call.url.replace('https://api.test', ''), call.body])).toEqual([
+      ['/api/v1/pairing-codes', { deviceName: 'Phone', role: 'viewer' }],
+      ['/api/v1/pair', { code: '042137' }],
+    ]);
+  });
+});

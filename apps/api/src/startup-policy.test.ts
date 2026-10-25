@@ -3,6 +3,7 @@ import {
   DEVELOPMENT_COOKIE_SECRET,
   DEVELOPMENT_INSTALLATION_KEY,
   assertInMemoryAllowed,
+  checkExposurePolicy,
   checkProductionPolicy,
   isProduction,
   resolveAuthSecrets,
@@ -63,6 +64,50 @@ describe('isProduction', () => {
     expect(isProduction(config())).toBe(true);
     expect(isProduction(config({ nodeEnv: 'development' }))).toBe(false);
     expect(isProduction(config({ nodeEnv: 'test' }))).toBe(false);
+  });
+});
+
+describe('checkExposurePolicy', () => {
+  // A reachable install with no login is the posture `index.ts` describes as wrong for any
+  // interface but loopback. It used to be a warning printed by the start scripts; it is a
+  // refusal now, in every environment, because the network does not care about NODE_ENV.
+  it('passes a loopback install whatever its access control', () => {
+    for (const exposedBind of ['127.0.0.1', '127.0.0.2', 'localhost', '::1']) {
+      expect(() =>
+        checkExposurePolicy(config({ exposedBind, accessControl: 'open', lanMode: false })),
+      ).not.toThrow();
+    }
+  });
+
+  it('refuses a reachable install with no login, and says how to fix it', () => {
+    for (const nodeEnv of ['production', 'development']) {
+      expect(() =>
+        checkExposurePolicy(
+          config({ nodeEnv, exposedBind: '0.0.0.0', accessControl: 'open', lanMode: false }),
+        ),
+      ).toThrow(/AUTOMATE_LAN_MODE=1/);
+    }
+  });
+
+  it('passes a reachable install that enforces access control', () => {
+    expect(() =>
+      checkExposurePolicy(
+        config({ exposedBind: '192.168.1.10', accessControl: 'enforced', lanMode: true }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      checkExposurePolicy(
+        config({ exposedBind: '0.0.0.0', accessControl: 'enforced', lanMode: false }),
+      ),
+    ).not.toThrow();
+  });
+
+  it('refuses LAN mode with access control explicitly opened', () => {
+    expect(() =>
+      checkExposurePolicy(
+        config({ exposedBind: '127.0.0.1', accessControl: 'open', lanMode: true }),
+      ),
+    ).toThrow(/ACCESS_CONTROL=open/);
   });
 });
 

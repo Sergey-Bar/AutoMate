@@ -496,6 +496,12 @@ export function publishedPorts(text, serviceName) {
 export const FRONT_DOOR = '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_PORT:-8080}:8080';
 
 /**
+ * The same proxy over HTTPS, on the same bind. Nothing listens behind it until a LAN
+ * certificate exists (`start lan-cert`), so publishing it widens nothing by itself.
+ */
+export const SECURE_FRONT_DOOR = '${AUTOMATE_BIND:-127.0.0.1}:${AUTOMATE_HTTPS_PORT:-8443}:8443';
+
+/**
  * Every way the production stack publishes something other than its one front door.
  *
  * A user opens one URL. Each extra published port is a second way in that skips the
@@ -513,7 +519,7 @@ export function frontDoorProblems(file, text) {
     publishedPorts(text, service).map((port) => ({ service, port })),
   );
   for (const { service, port } of published) {
-    if (service === 'edge' && port === FRONT_DOOR) continue;
+    if (service === 'edge' && (port === FRONT_DOOR || port === SECURE_FRONT_DOOR)) continue;
     problems.push(
       `${file}: service \`${service}\` publishes \`${port}\`. The production stack publishes ` +
         `exactly one port, the edge proxy's \`${FRONT_DOOR}\`.`,

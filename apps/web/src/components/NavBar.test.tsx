@@ -135,14 +135,14 @@ describe('NavBar', () => {
     );
   });
 
-  it('shows the portfolio and project tabs on the overview, and none on a detail page', async () => {
+  it('shows the now, portfolio and project tabs on the overview, and none on a detail page', async () => {
     const { unmount } = render(<RouterProvider router={makeRouter('/dashboard')} />);
     const tabs = await screen.findByTestId('section-tabs');
     expect(
       within(tabs)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Portfolio', 'Project']);
+    ).toEqual(['Now', 'Portfolio', 'Project']);
     unmount();
     render(<RouterProvider router={makeRouter('/dashboard/runs/run-1')} />);
     await screen.findByTestId('nav-bar');

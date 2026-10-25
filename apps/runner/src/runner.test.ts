@@ -22,6 +22,31 @@ describe('runner configuration', () => {
     ).toThrow();
   });
 
+  it('refuses a plain-HTTP API on another machine, which would carry its secret in the clear', () => {
+    const base = { RUNNER_INSTANCE_ID: 'runner-1', RUNNER_CREDENTIAL: 'token' };
+    expect(() =>
+      parseRunnerConfig({ ...base, AUTOMATE_API_URL: 'http://192.168.1.10:8080' }),
+    ).toThrow(/https/u);
+    // This machine, a compose service name, an https LAN server, or an explicit opt-out.
+    for (const url of [
+      'http://127.0.0.1:3000',
+      'http://localhost:3000',
+      'http://api:3000',
+      'https://192.168.1.10:8443',
+    ]) {
+      expect(parseRunnerConfig({ ...base, AUTOMATE_API_URL: url }).apiUrl).toBe(
+        new URL(url).origin,
+      );
+    }
+    expect(
+      parseRunnerConfig({
+        ...base,
+        AUTOMATE_API_URL: 'http://192.168.1.10:8080',
+        RUNNER_ALLOW_INSECURE_API: '1',
+      }).apiUrl,
+    ).toBe('http://192.168.1.10:8080');
+  });
+
   it('roots API collections in the shipped fixtures unless told otherwise', () => {
     const base = {
       AUTOMATE_API_URL: 'http://localhost:3000',

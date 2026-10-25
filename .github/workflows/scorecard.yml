@@ -1,0 +1,53 @@
+name: OpenSSF Scorecard
+
+# The supply-chain posture, scored by the same tool other projects are scored by:
+# pinned actions, token permissions, branch protection, dangerous workflow patterns,
+# a security policy, and dependency-update tooling. The result is published to the
+# repository's code-scanning tab, so a regression shows up where security findings
+# already live, not in a job log nobody opens.
+#
+# Weekly, and on demand. It reads repository settings through the API, so a pull
+# request run would score the fork rather than this repository.
+on:
+  schedule:
+    - cron: '30 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The minimum the action documents: upload a SARIF, and mint an OIDC token so the
+    # published result is attributable to this workflow.
+    permissions:
+      security-events: write
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Run the analysis
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - name: Keep the SARIF
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: scorecard-sarif
+          path: scorecard.sarif
+          retention-days: 14
+      - name: Publish to code scanning
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: scorecard.sarif

@@ -9,8 +9,10 @@ import type {
   JobCompletion,
   JobResultStatus,
   LeaseRecovery,
+  ReportSchedule,
   ScheduledEnqueue,
   ScheduledEnqueueResult,
+  ScheduledReportEnqueue,
   WorkerSchedule,
 } from './types.js';
 
@@ -427,6 +429,8 @@ export class PostgresExecutionStore implements ExecutionStore {
               COALESCE((run_options->>'nextRunAt')::timestamptz, last_run_at, created_at) AS next_run_at
        FROM schedules
        WHERE enabled = true
+         -- A report schedule fires a delivery, not a run; see listDueReportSchedules.
+         AND (run_options->>'kind') IS DISTINCT FROM 'report'
          AND COALESCE((run_options->>'nextRunAt')::timestamptz, last_run_at, created_at) <= $1::timestamptz
        ORDER BY next_run_at ASC
        LIMIT $2`,
@@ -498,6 +502,58 @@ export class PostgresExecutionStore implements ExecutionStore {
           ? {}
           : { blackoutWindows: options['blackoutWindows'] }),
       } satisfies WorkerSchedule;
+    });
+  }
+
+  async listDueReportSchedules(now: Date, limit: number): Promise<ReportSchedule[]> {
+    const result = await this.pool.query<ScheduleRow>(
+      `SELECT id, workspace_id, cron_expr, run_options, enabled,
+              COALESCE((run_options->>'nextRunAt')::timestamptz, last_run_at, created_at) AS next_run_at
+       FROM schedules
+       WHERE enabled = true
+         AND run_options->>'kind' = 'report'
+         AND COALESCE((run_options->>'nextRunAt')::timestamptz, last_run_at, created_at) <= $1::timestamptz
+       ORDER BY next_run_at ASC
+       LIMIT $2`,
+      [now, limit],
+    );
+    return result.rows.map((row) => {
+      const options = record(row.run_options);
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        subscriptionId: requiredString(options['subscriptionId'], 'subscriptionId'),
+        cronExpr: row.cron_expr,
+        timezone: typeof options['timezone'] === 'string' ? options['timezone'] : 'UTC',
+        nextRunAt: row.next_run_at.toISOString(),
+      };
+    });
+  }
+
+  async enqueueScheduledReport(input: ScheduledReportEnqueue): Promise<boolean> {
+    return this.transaction(async (client) => {
+      const advanced = await this.advanceScheduleWithClient(
+        client,
+        input.schedule.id,
+        input.scheduledFor,
+        input.nextRunAt,
+      );
+      if (!advanced) return false;
+      // The workspace and the subscription come from the schedule row the API wrote. The
+      // channel is resolved by the dispatcher when it sends, so a channel edited between
+      // now and then is the channel the report reaches.
+      const inserted = await client.query(
+        `INSERT INTO report_deliveries (workspace_id, subscription_id, idempotency_key, scheduled_for)
+         VALUES ($1, $2::uuid, $3, $4::timestamptz)
+         ON CONFLICT (idempotency_key) DO NOTHING`,
+        [
+          input.schedule.workspaceId,
+          input.schedule.subscriptionId,
+          input.idempotencyKey,
+          input.scheduledFor,
+        ],
+      );
+      return inserted.rowCount === 1;
     });
   }
 

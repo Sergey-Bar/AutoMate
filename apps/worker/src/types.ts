@@ -109,6 +109,26 @@ export interface ScheduledEnqueueResult {
   duplicate: boolean;
 }
 
+/**
+ * A `schedules` row whose `run_options.kind` is `report`: it fires a scheduled report,
+ * not a run. The API writes it (id `report:<subscriptionId>`) when a subscription is saved.
+ */
+export interface ReportSchedule {
+  id: string;
+  workspaceId: string;
+  subscriptionId: string;
+  cronExpr: string;
+  timezone: string;
+  nextRunAt: string;
+}
+
+export interface ScheduledReportEnqueue {
+  schedule: ReportSchedule;
+  scheduledFor: string;
+  nextRunAt: string;
+  idempotencyKey: string;
+}
+
 export interface ExecutionStore {
   ping(): Promise<boolean>;
   claimJob(
@@ -134,6 +154,13 @@ export interface ExecutionStore {
   listDueSchedules(now: Date, limit: number): Promise<WorkerSchedule[]>;
   advanceSchedule(scheduleId: string, expectedRunAt: string, nextRunAt: string): Promise<boolean>;
   enqueueScheduledRun(input: ScheduledEnqueue): Promise<ScheduledEnqueueResult | null>;
+  /** Report schedules that are due. Absent on a store that cannot hold them. */
+  listDueReportSchedules?(now: Date, limit: number): Promise<ReportSchedule[]>;
+  /**
+   * Advances the schedule and queues one `report_deliveries` row, atomically. `false` when
+   * the occurrence was already taken — by another worker, or by this one a poll ago.
+   */
+  enqueueScheduledReport?(input: ScheduledReportEnqueue): Promise<boolean>;
   close?(): Promise<void>;
 }
 

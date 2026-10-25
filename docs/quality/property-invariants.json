@@ -178,6 +178,22 @@
       "testFile": "packages/projects/src/health/grade.property.test.ts",
       "seed": 20261023,
       "shownToFail": "Disabling the cap in compute() fails the property on its first generated input."
+    },
+    {
+      "id": "DIGEST-1",
+      "statement": "Every rendering of a scheduled report fits its platform limit at any limit from 80 characters up (Telegram, Slack, plain text for WhatsApp and Signal), and a report never shows more than three items, with the rest counted.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/report.property.test.ts",
+      "seed": 20261025,
+      "shownToFail": "Dropping the link-length reservation in renderTelegram fails the limit property on a long link."
+    },
+    {
+      "id": "DIGEST-2",
+      "statement": "Telegram HTML and Slack mrkdwn are always well escaped: with the renderer’s own tags removed no < or > remains and every & begins an entity, including where a line was trimmed to fit.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/report.property.test.ts",
+      "seed": 20261025,
+      "shownToFail": "The harness refutes an unescaped renderer in the suite itself; trimming the escaped text instead of the raw text cuts &amp; and fails the pinned examples."
     }
   ]
 }

@@ -17,7 +17,7 @@
   "dependencies": {
     "@automate/orchestration": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
-    "croner": "10.0.1",
+    "croner": "catalog:",
     "pg": "catalog:",
     "zod": "catalog:"
   },

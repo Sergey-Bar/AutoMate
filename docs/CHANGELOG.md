@@ -2,6 +2,40 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## Unreleased — one server for the whole network, and reports that come to you
+
+### Added
+
+- **LAN mode** (`AUTOMATE_LAN_MODE=1`). One machine serves every laptop, phone and tablet on
+  the network, Linux or Windows Docker Desktop: sign-in on every route, HTTPS from a local
+  certificate authority (`start lan-cert`), device pairing with a six-digit code or QR, a
+  client allowlist (`ALLOWED_CLIENT_CIDRS`), a cross-site request check, and remote runners
+  that refuse plain HTTP to another machine. See `site/guide/lan-mode.md`.
+- **Scheduled reports** to Slack, Microsoft Teams (Workflows), Telegram, WhatsApp (Cloud
+  API templates), Signal (`signal-cli-rest-api`, optional compose profile) and a built-in
+  inbox: daily, weekly or custom cron in any timezone, with preview, test send and
+  delivery history. Four new connector packages. See `site/guide/notifications.md`.
+- **Now**, the new landing page: at most five things that need attention, worst first, each
+  with one action. A one-number status line on Now and Portfolio, toasts, focus mode,
+  compact density, reduced motion, and keyboard shortcuts (`g n`, `g r`, `j`/`k`, `?`).
+- OpenSSF Scorecard (weekly), a CycloneDX SBOM attached to every release, and grouped
+  weekly Dependabot updates for minor and patch versions.
+
+### Changed
+
+- A non-loopback bind with no sign-in **refuses to start**; it used to print a warning. This
+  includes running the API image on its own (`HOST=0.0.0.0`): set `AUTOMATE_BIND` to the
+  address the container is published on, or `AUTOMATE_LAN_MODE=1`.
+- `pnpm verify` runs each check once: 13 steps instead of 17, and about 27% faster on the
+  reference host (474 s to 345 s). `scripts/lib/gate-duplication.mjs` fails if work is
+  repeated again.
+
+### Fixed
+
+- The token sign-in limiter keyed on a client-chosen `X-Forwarded-For` (ledger LAN-1).
+- Session cookies now follow how the request arrived behind a TLS proxy (LAN-2).
+- `ACCESS_CONTROL=enforced` now guards every route, not only the project routes (LAN-3).
+
 ## 3.0.0 — 2026-10-23 — the agent domains run
 
 Browser, API and load runs can now be started through `POST /api/v1/agents/:domain/run`.

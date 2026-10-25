@@ -99,6 +99,7 @@ export function SectionTabs(): React.ReactElement | null {
   return (
     <nav
       data-testid="section-tabs"
+      data-chrome="secondary"
       aria-label={`${label} pages`}
       className="-mx-4 mb-4 overflow-x-auto border-b border-border px-4 sm:-mx-6 sm:mb-6 sm:px-6"
     >
@@ -139,6 +140,7 @@ export function BottomTabBar(): React.ReactElement {
   return (
     <nav
       data-testid="bottom-tab-bar"
+      data-chrome="secondary"
       aria-label="Sections"
       className="shrink-0 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
