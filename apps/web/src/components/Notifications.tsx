@@ -40,7 +40,7 @@ interface KindGuide {
   /** The public settings this kind needs, as form fields. */
   fields: ReadonlyArray<{ key: string; label: string; placeholder: string }>;
   /** What the credential is called on this platform; absent for the inbox. */
-  secret?: string;
+  credentialLabel?: string;
 }
 
 export const KIND_GUIDES: Record<ChannelKind, KindGuide> = {
@@ -53,19 +53,19 @@ export const KIND_GUIDES: Record<ChannelKind, KindGuide> = {
     label: 'Slack',
     help: 'Create a Slack app with the chat:write scope, install it, invite the bot to the channel, then paste the Bot User OAuth Token.',
     fields: [{ key: 'channel', label: 'Channel', placeholder: '#quality' }],
-    secret: 'Bot token (xoxb-…)',
+    credentialLabel: 'Bot token (xoxb-…)',
   },
   teams: {
     label: 'Microsoft Teams',
     help: 'In the channel, open Workflows → "Post to a channel when a webhook request is received", finish the wizard, and paste the URL it gives you.',
     fields: [],
-    secret: 'Workflows webhook URL',
+    credentialLabel: 'Workflows webhook URL',
   },
   telegram: {
     label: 'Telegram',
     help: 'Message @BotFather, send /newbot, and paste the token. Add the bot to your group, send it a message, and use the chat id from getUpdates (groups start with -100).',
     fields: [{ key: 'chatId', label: 'Chat id', placeholder: '-1001234567890' }],
-    secret: 'Bot token',
+    credentialLabel: 'Bot token',
   },
   whatsapp: {
     label: 'WhatsApp',
@@ -76,7 +76,7 @@ export const KIND_GUIDES: Record<ChannelKind, KindGuide> = {
       { key: 'template', label: 'Template name', placeholder: 'automate_report' },
       { key: 'language', label: 'Template language', placeholder: 'en_US' },
     ],
-    secret: 'Access token',
+    credentialLabel: 'Access token',
   },
   signal: {
     label: 'Signal',
@@ -85,7 +85,7 @@ export const KIND_GUIDES: Record<ChannelKind, KindGuide> = {
       { key: 'number', label: 'Bridge account', placeholder: '+15551234567' },
       { key: 'recipients', label: 'Recipients (comma-separated)', placeholder: '+15557654321' },
     ],
-    secret: 'Bridge URL',
+    credentialLabel: 'Bridge URL',
   },
 };
 
@@ -116,7 +116,7 @@ function AddChannel({
       kind,
       name: name.trim() || guide.label,
       settings,
-      ...(guide.secret === undefined ? {} : { secret: secret.trim() }),
+      ...(guide.credentialLabel === undefined ? {} : { secret: secret.trim() }),
     } as CreateChannelBody;
     client
       .createChannel(body)
@@ -168,10 +168,10 @@ function AddChannel({
             }
           />
         ))}
-        {guide.secret === undefined ? null : (
+        {guide.credentialLabel === undefined ? null : (
           <Input
             id={`${id}-secret`}
-            label={guide.secret}
+            label={guide.credentialLabel}
             type="password"
             autoComplete="off"
             value={secret}

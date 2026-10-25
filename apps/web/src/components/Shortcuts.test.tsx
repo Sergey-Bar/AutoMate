@@ -84,8 +84,14 @@ describe('keyboard shortcuts', () => {
     render(<MemoryRouter initialEntries={['/dashboard/reports']} />);
     await screen.findByTestId('notifications-page', {}, { timeout: 10_000 });
     const list = document.createElement('ul');
-    list.innerHTML =
-      '<li><button type="button">one</button></li><li><button type="button">two</button></li>';
+    for (const label of ['one', 'two']) {
+      const item = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      item.appendChild(button);
+      list.appendChild(item);
+    }
     const clicked = vi.fn();
     list.querySelectorAll('button')[1]?.addEventListener('click', clicked);
     document.querySelector('[data-page]')?.appendChild(list);
