@@ -199,6 +199,15 @@ importers:
       '@automate/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@automate/connectors-github':
+        specifier: workspace:*
+        version: link:../../packages/connectors/github
+      '@automate/connectors-sdk':
+        specifier: workspace:*
+        version: link:../../packages/connectors/sdk
+      '@automate/connectors-slack':
+        specifier: workspace:*
+        version: link:../../packages/connectors/slack
       '@automate/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -752,6 +761,9 @@ importers:
       eslint:
         specifier: 'catalog:'
         version: 10.13.0(jiti@2.7.0)(supports-color@8.1.1)
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.10.2
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

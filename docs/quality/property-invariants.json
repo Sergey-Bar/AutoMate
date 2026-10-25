@@ -162,6 +162,22 @@
       "testFile": "packages/db/src/repositories/outbox.property.test.ts",
       "seed": 20261022,
       "shownToFail": "Covered by the harness test."
+    },
+    {
+      "id": "HEALTH-1",
+      "statement": "Adding an open finding never raises the overall health score or any dimension's score.",
+      "package": "packages/projects",
+      "testFile": "packages/projects/src/health/grade.property.test.ts",
+      "seed": 20261023,
+      "shownToFail": "The harness test asserts the opposite claim (an added critical raises the score) and is refuted."
+    },
+    {
+      "id": "HEALTH-2",
+      "statement": "While any enabled hard gate is tripped, the overall score is at or below GATE_CEILING and the letter is D or F.",
+      "package": "packages/projects",
+      "testFile": "packages/projects/src/health/grade.property.test.ts",
+      "seed": 20261023,
+      "shownToFail": "Disabling the cap in compute() fails the property on its first generated input."
     }
   ]
 }

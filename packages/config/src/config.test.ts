@@ -333,3 +333,24 @@ function captureError(env: Record<string, string>): string {
   }
   throw new Error(`expected ${JSON.stringify(env)} to be refused`);
 }
+
+describe('repository-health settings', () => {
+  it('keeps access open by default and enforces it when asked', () => {
+    expect(parseConfig({}).accessControl).toBe('open');
+    expect(parseConfig({ ACCESS_CONTROL: 'enforced' }).accessControl).toBe('enforced');
+    expect(() => parseConfig({ ACCESS_CONTROL: 'sometimes' })).toThrow();
+  });
+
+  it('reads the alert credentials only when they are set, and refuses a short webhook secret', () => {
+    const none = parseConfig({});
+    expect(none.healthWebhookSecret).toBeUndefined();
+    expect(none.slackBotToken).toBeUndefined();
+    const set = parseConfig({
+      HEALTH_WEBHOOK_SECRET: long('w'),
+      SLACK_BOT_TOKEN: 'xoxb-synthetic',
+    });
+    expect(set.healthWebhookSecret).toBe(long('w'));
+    expect(set.slackBotToken).toBe('xoxb-synthetic');
+    expect(() => parseConfig({ HEALTH_WEBHOOK_SECRET: 'short' })).toThrow();
+  });
+});

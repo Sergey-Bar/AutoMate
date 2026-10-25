@@ -68,7 +68,31 @@ export {
   type TestOutcome,
 } from './score/types.js';
 export type { CellComponents, CellInputs } from './score/cell.js';
-export type { GeneralScore, ScoreRow } from './score/geometric.js';
+export {
+  HEALTH_OUTPUT_PREFIX,
+  HEALTH_SCANNERS,
+  healthScannersFor,
+  type HealthScanner,
+  type RepositorySource,
+} from './health/scanners.js';
+export { CODEOWNERS_PATHS, ownerOf, parseCodeowners, type OwnerRule } from './health/codeowners.js';
+export { DEFAULT_MAX_NEW_CRITICAL, evaluateHealthGate, type GateVerdict } from './health/gate.js';
+export type { GeneralScore, ScoreRow, WeightedTerm } from './score/geometric.js';
+export { weightedGeometric } from './score/geometric.js';
+export {
+  DEFAULT_HEALTH_WEIGHTS,
+  FINDINGS_DECAY,
+  GATE_CEILING,
+  LETTER_FLOORS,
+  METRIC_TARGET,
+  SEVERITY_PENALTY,
+  findingsScore,
+  grade,
+  letterFor,
+  type FindingObservation,
+  type FindingToolRun,
+  type HealthInputs,
+} from './health/grade.js';
 export type { HollowReason, HollowVerdict } from './score/hollow.js';
 export type { PyramidVerdict } from './score/pyramid.js';
 export type { StructuralFinding, StructuralKind } from './score/structural.js';

@@ -1,0 +1,101 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "fullName": "Trivy Vulnerability Scanner",
+          "informationUri": "https://github.com/aquasecurity/trivy",
+          "name": "Trivy",
+          "rules": [
+            {
+              "id": "CVE-2024-45296",
+              "name": "LanguageSpecificPackageVulnerability",
+              "shortDescription": {
+                "text": "path-to-regexp: Backtracking regular expressions cause ReDoS"
+              },
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2024-45296",
+              "properties": {
+                "precision": "very-high",
+                "security-severity": "7.5",
+                "tags": ["vulnerability", "security", "HIGH"]
+              }
+            },
+            {
+              "id": "CVE-2021-44906",
+              "name": "LanguageSpecificPackageVulnerability",
+              "shortDescription": { "text": "minimist: prototype pollution" },
+              "helpUri": "https://avd.aquasec.com/nvd/cve-2021-44906",
+              "properties": {
+                "security-severity": "9.8",
+                "tags": ["vulnerability", "security", "CRITICAL"]
+              }
+            },
+            {
+              "id": "DS002",
+              "name": "Misconfiguration",
+              "shortDescription": { "text": "Image user should not be 'root'" },
+              "helpUri": "https://avd.aquasec.com/misconfig/ds002",
+              "properties": {
+                "security-severity": "8.0",
+                "tags": ["misconfiguration", "security", "HIGH"]
+              }
+            }
+          ],
+          "version": "0.56.2"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "CVE-2024-45296",
+          "ruleIndex": 0,
+          "level": "error",
+          "message": {
+            "text": "Package: path-to-regexp\nInstalled Version: 0.1.7\nVulnerability CVE-2024-45296\nSeverity: HIGH\nFixed Version: 1.9.0, 0.1.10\nLink: [CVE-2024-45296](https://avd.aquasec.com/nvd/cve-2024-45296)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "package-lock.json", "uriBaseId": "ROOTPATH" },
+                "region": { "startLine": 1, "startColumn": 1, "endLine": 1, "endColumn": 1 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "CVE-2021-44906",
+          "ruleIndex": 1,
+          "level": "error",
+          "message": {
+            "text": "Package: minimist\nInstalled Version: 1.2.5\nVulnerability CVE-2021-44906\nSeverity: CRITICAL\nFixed Version: 1.2.6\nLink: [CVE-2021-44906](https://avd.aquasec.com/nvd/cve-2021-44906)"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "package-lock.json", "uriBaseId": "ROOTPATH" },
+                "region": { "startLine": 1 }
+              }
+            }
+          ]
+        },
+        {
+          "ruleId": "DS002",
+          "ruleIndex": 2,
+          "level": "error",
+          "message": {
+            "text": "Artifact: Dockerfile\nType: dockerfile\nVulnerability DS002\nSeverity: HIGH\nMessage: Specify at least 1 USER command in Dockerfile with non-root user as argument"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "Dockerfile", "uriBaseId": "ROOTPATH" },
+                "region": { "startLine": 1 }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-23T10:00:00Z",
+  "repo": {
+    "name": "github.com/example/service",
+    "commit": "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+  },
+  "scorecard": { "version": "v5.0.0", "commit": "ea7e27ed41b76ab879c862fa0ca4cc9c61764ee4" },
+  "score": 6.1,
+  "checks": [
+    {
+      "name": "Branch-Protection",
+      "score": 3,
+      "reason": "branch protection is not maximal on development and all release branches",
+      "details": null,
+      "documentation": {
+        "short": "Determines if the default and release branches are protected with GitHub's branch protection settings.",
+        "url": "https://github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection"
+      }
+    },
+    {
+      "name": "Code-Review",
+      "score": 10,
+      "reason": "all changesets reviewed",
+      "details": null,
+      "documentation": {
+        "short": "Determines if the project requires human code review before pull requests are merged.",
+        "url": "https://github.com/ossf/scorecard/blob/main/docs/checks.md#code-review"
+      }
+    },
+    {
+      "name": "Security-Policy",
+      "score": 0,
+      "reason": "security policy file not detected",
+      "details": null,
+      "documentation": {
+        "short": "Determines if the project has published a security policy.",
+        "url": "https://github.com/ossf/scorecard/blob/main/docs/checks.md#security-policy"
+      }
+    },
+    {
+      "name": "Dependency-Update-Tool",
+      "score": 10,
+      "reason": "update tool detected",
+      "details": null,
+      "documentation": {
+        "short": "Determines if the project uses a dependency update tool.",
+        "url": "https://github.com/ossf/scorecard/blob/main/docs/checks.md#dependency-update-tool"
+      }
+    }
+  ]
+}

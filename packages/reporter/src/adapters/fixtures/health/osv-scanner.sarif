@@ -1,0 +1,42 @@
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "osv-scanner",
+          "informationUri": "https://github.com/google/osv-scanner",
+          "version": "1.9.1",
+          "rules": [
+            {
+              "id": "GHSA-9wv6-86v2-598j",
+              "shortDescription": {
+                "text": "GHSA-9wv6-86v2-598j: path-to-regexp outputs backtracking regular expressions"
+              },
+              "helpUri": "https://osv.dev/GHSA-9wv6-86v2-598j",
+              "help": { "text": "Bump path-to-regexp to 0.1.10" }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "GHSA-9wv6-86v2-598j",
+          "ruleIndex": 0,
+          "level": "warning",
+          "message": {
+            "text": "Package 'npm/path-to-regexp@0.1.7' is vulnerable to 'GHSA-9wv6-86v2-598j' (also known as 'CVE-2024-45296')."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": { "uri": "file:///work/repo/package-lock.json" }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

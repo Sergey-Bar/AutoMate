@@ -225,6 +225,15 @@ const EnvironmentSchema = z.object({
   // Whether a reverse proxy in front of the API sets X-Forwarded-For. Off unless said:
   // without a proxy the header is client-chosen (ledger MNT-7).
   TRUST_PROXY: z.enum(['true', 'false']).default('false'),
+  /**
+   * open keeps ADR-006's single-operator posture: every caller is the operator. enforced`n   * requires a session or an access token on the repository-health and project routes, with
+   * viewer, operator and admin roles.
+   */
+  ACCESS_CONTROL: z.enum(['open', 'enforced']).default('open'),
+  /** Signs repository-health webhook alerts. Unset: webhooks are not sent. */
+  HEALTH_WEBHOOK_SECRET: z.string().min(32).optional(),
+  /** A Slack bot token for repository-health alerts. Unset: Slack alerts are not sent. */
+  SLACK_BOT_TOKEN: z.string().min(1).optional(),
   SESSION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   SSE_REPLAY_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
@@ -278,6 +287,10 @@ export type AppConfig = {
   sessionTtlHours: number;
   /** `TRUST_PROXY`: read X-Forwarded-For for the client address. */
   trustProxy: boolean;
+  /** `ACCESS_CONTROL`: whether the role guards refuse a caller with no credential. */
+  accessControl: 'open' | 'enforced';
+  healthWebhookSecret?: string;
+  slackBotToken?: string;
   sessionRetentionDays: number;
   sseReplayRetentionHours: number;
   auditRetentionDays: number;
@@ -331,6 +344,11 @@ export function parseConfig(
     ollamaBaseUrl: parsed.OLLAMA_BASE_URL,
     sessionTtlHours: parsed.SESSION_TTL_HOURS,
     trustProxy: parsed.TRUST_PROXY === 'true',
+    accessControl: parsed.ACCESS_CONTROL,
+    ...(parsed.HEALTH_WEBHOOK_SECRET === undefined
+      ? {}
+      : { healthWebhookSecret: parsed.HEALTH_WEBHOOK_SECRET }),
+    ...(parsed.SLACK_BOT_TOKEN === undefined ? {} : { slackBotToken: parsed.SLACK_BOT_TOKEN }),
     sessionRetentionDays: parsed.SESSION_RETENTION_DAYS,
     sseReplayRetentionHours: parsed.SSE_REPLAY_RETENTION_HOURS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,

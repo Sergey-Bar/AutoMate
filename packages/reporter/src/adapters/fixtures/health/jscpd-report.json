@@ -1,0 +1,35 @@
+{
+  "statistics": {
+    "detectionDate": "2026-10-23T10:00:00.000Z",
+    "formats": {
+      "typescript": {
+        "sources": {},
+        "total": {
+          "lines": 12000,
+          "tokens": 98000,
+          "sources": 140,
+          "clones": 18,
+          "duplicatedLines": 504,
+          "duplicatedTokens": 4100,
+          "percentage": 4.2,
+          "percentageTokens": 4.18,
+          "newDuplicatedLines": 0,
+          "newClones": 0
+        }
+      }
+    },
+    "total": {
+      "lines": 12000,
+      "tokens": 98000,
+      "sources": 140,
+      "clones": 18,
+      "duplicatedLines": 504,
+      "duplicatedTokens": 4100,
+      "percentage": 4.2,
+      "percentageTokens": 4.18,
+      "newDuplicatedLines": 0,
+      "newClones": 0
+    }
+  },
+  "duplicates": []
+}

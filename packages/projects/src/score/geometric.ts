@@ -92,56 +92,77 @@ export function geometricRowWeights(weights: ScoreWeights): Record<ScoreRowId, n
 export function geometricMean(rows: readonly ScoreRow[], weights: ScoreWeights): GeneralScore {
   const rowWeights = geometricRowWeights(weights);
   const scored = rows.filter((row) => row.includedCells > 0);
-  if (scored.length === 0) {
+  const result = weightedGeometric(
+    scored.map((row) => ({ id: row.id, value: row.value, weight: rowWeights[row.id] ?? 0 })),
+  );
+  if (result === null) {
     return { total: 0, cappedBy: PYRAMID_ROW, cappingValue: 0, rows };
   }
+  return { ...result, rows };
+}
 
-  // A zero row short-circuits: `log(0)` is `-Infinity` and the product is `0`, but
-  // summing `-Infinity` is a way to end up with `NaN` if any other row is also
+/** One term of a weighted geometric mean: a value in `[0,1]` and its weight. */
+export interface WeightedTerm<T extends string> {
+  id: T;
+  value: number;
+  weight: number;
+}
+
+/**
+ * `100 · Π vᵢ^(wᵢ/Σw)` and the term that limited it, or `null` for no terms.
+ *
+ * The one implementation of the mean: the QA score's rows and the repository health
+ * grade's dimensions both go through it, so the zero short-circuit and the limiter rule
+ * cannot drift apart between the two numbers a reader sees side by side.
+ */
+export function weightedGeometric<T extends string>(
+  terms: readonly WeightedTerm<T>[],
+): { total: number; cappedBy: T; cappingValue: number } | null {
+  if (terms.length === 0) return null;
+
+  // A zero term short-circuits: `log(0)` is `-Infinity` and the product is `0`, but
+  // summing `-Infinity` is a way to end up with `NaN` if any other term is also
   // degenerate. The short-circuit states the property instead of computing it.
-  const zeroRow = scored.find((row) => row.value <= 0);
-  if (zeroRow !== undefined) {
-    return { total: 0, cappedBy: zeroRow.id, cappingValue: 0, rows };
+  const zero = terms.find((term) => term.value <= 0);
+  if (zero !== undefined) {
+    return { total: 0, cappedBy: zero.id, cappingValue: 0 };
   }
 
-  // Weights are renormalised over the scored rows, so an `n/a` row's weight is
+  // Weights are renormalised over the terms given, so an `n/a` row's weight is
   // redistributed rather than silently reducing every contribution.
-  const weightSum = scored.reduce((total, row) => total + (rowWeights[row.id] ?? 0), 0);
-  const logSum = scored.reduce((total, row) => {
-    const weight = rowWeights[row.id] ?? 0;
-    return total + (weight / weightSum) * Math.log(row.value);
-  }, 0);
+  const weightSum = terms.reduce((total, term) => total + term.weight, 0);
+  const logSum = terms.reduce(
+    (total, term) => total + (term.weight / weightSum) * Math.log(term.value),
+    0,
+  );
 
   return {
     total: clampHundred(Math.exp(logSum) * 100),
-    ...cappedBy(scored, rowWeights, weightSum),
-    rows,
+    ...limiter(terms, weightSum),
   };
 }
 
 /**
- * The row that limited the total.
+ * The term that limited the total.
  *
- * The limiting term of a weighted geometric mean is the row contributing the
+ * The limiting term of a weighted geometric mean is the term contributing the
  * **most negative** weighted log term — the largest relative shortfall, not the
  * smallest raw value. Naming the smallest value instead would point at a row that
  * is fine: a unit row at `0.4` with a tiny weight contributes less than a security
  * row at `0.5` with a large one, and the security row is the one the operator has
  * to fix.
  */
-function cappedBy(
-  scored: readonly ScoreRow[],
-  rowWeights: Readonly<Record<string, number>>,
+function limiter<T extends string>(
+  terms: readonly WeightedTerm<T>[],
   weightSum: number,
-): { cappedBy: ScoreRowId; cappingValue: number } {
-  let worst = scored[0] as ScoreRow;
+): { cappedBy: T; cappingValue: number } {
+  let worst = terms[0] as WeightedTerm<T>;
   let worstContribution = Number.POSITIVE_INFINITY;
-  for (const row of scored) {
-    const weight = rowWeights[row.id] ?? 0;
-    const contribution = (weight / weightSum) * Math.log(row.value);
+  for (const term of terms) {
+    const contribution = (term.weight / weightSum) * Math.log(term.value);
     if (contribution < worstContribution) {
       worstContribution = contribution;
-      worst = row;
+      worst = term;
     }
   }
   return { cappedBy: worst.id, cappingValue: worst.value };

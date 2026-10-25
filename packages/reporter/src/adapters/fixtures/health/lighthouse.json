@@ -1,0 +1,23 @@
+{
+  "lighthouseVersion": "12.2.1",
+  "requestedUrl": "http://localhost:4173/",
+  "finalDisplayedUrl": "http://localhost:4173/",
+  "fetchTime": "2026-10-23T10:00:00.000Z",
+  "categories": {
+    "performance": { "id": "performance", "title": "Performance", "score": 0.91, "auditRefs": [] },
+    "accessibility": {
+      "id": "accessibility",
+      "title": "Accessibility",
+      "score": 0.84,
+      "auditRefs": []
+    },
+    "best-practices": {
+      "id": "best-practices",
+      "title": "Best Practices",
+      "score": 1,
+      "auditRefs": []
+    },
+    "seo": { "id": "seo", "title": "SEO", "score": null, "auditRefs": [] }
+  },
+  "audits": {}
+}
