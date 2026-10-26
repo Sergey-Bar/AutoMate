@@ -119,3 +119,23 @@ describe('Playwright test identity', () => {
     for (const id of ids) expect(id).not.toMatch(/:\d+$/u);
   });
 });
+
+describe('Playwright errors outside tests', () => {
+  /** A report whose one test passed and whose worker teardown threw. */
+  function withTopLevelError(): Uint8Array {
+    const passing = JSON.parse(new TextDecoder().decode(report())) as Record<string, unknown>;
+    return new TextEncoder().encode(
+      JSON.stringify({ ...passing, errors: [{ message: 'Error: teardown failed\n    at x' }] }),
+    );
+  }
+
+  it('records them on the result, and fails the run they belong to', () => {
+    const result = playwrightJsonAdapter.parse(withTopLevelError(), context);
+    expect(result.reportErrors).toEqual([{ message: 'Error: teardown failed\n    at x' }]);
+    expect(result.status).toBe('failed');
+  });
+
+  it('records none for a report without any', () => {
+    expect(playwrightJsonAdapter.parse(report(), context).reportErrors).toBeUndefined();
+  });
+});

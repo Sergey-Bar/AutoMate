@@ -1133,6 +1133,17 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/projects/{id}/tests/reports": {
+      "post": {
+        "operationId": "postApiV1ProjectsIdTestsReports",
+        "tags": ["projects"],
+        "x-source": "apps/api/src/routes/test-reports.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/quality-policies": {
       "get": {
         "operationId": "getApiV1QualityPolicies",
@@ -10588,6 +10599,16 @@
             },
             "required": ["state", "missingShards", "duplicateShards"],
             "additionalProperties": false
+          },
+          "reportErrors": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": { "message": { "type": "string", "minLength": 1, "maxLength": 8192 } },
+              "required": ["message"],
+              "additionalProperties": false
+            }
           },
           "raw": {
             "default": {},
@@ -24397,6 +24418,54 @@
           "status": { "type": "string", "const": "queued" }
         },
         "required": ["testId", "attempt", "status"],
+        "additionalProperties": false
+      },
+      "TestReportQuerySchema": {
+        "type": "object",
+        "properties": {
+          "format": { "type": "string", "enum": ["junit", "playwright-json"] },
+          "branch": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": ["format"],
+        "additionalProperties": false
+      },
+      "TestReportVerdictSchema": {
+        "type": "object",
+        "properties": {
+          "runId": { "type": "string", "minLength": 1 },
+          "ingested": { "type": "string", "enum": ["accepted", "duplicate"] },
+          "status": { "type": "string", "minLength": 1 },
+          "tests": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "passed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "failed": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "flaky": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+              "skipped": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+            },
+            "required": ["total", "passed", "failed", "flaky", "skipped"],
+            "additionalProperties": false
+          },
+          "reportErrors": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+          "quarantine": {
+            "type": "object",
+            "properties": {
+              "excused": { "type": "boolean" },
+              "excusedTests": { "type": "array", "items": { "type": "string" } },
+              "unexcusedFailures": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["excused", "excusedTests", "unexcusedFailures"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["runId", "ingested", "status", "tests", "reportErrors", "quarantine"],
         "additionalProperties": false
       },
       "TestResultSchema": {

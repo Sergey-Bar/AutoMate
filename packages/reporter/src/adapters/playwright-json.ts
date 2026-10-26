@@ -35,6 +35,17 @@ interface PlaywrightSpec {
 }
 interface PlaywrightReport {
   suites?: (PlaywrightSpec | null)[];
+  /** Errors outside any test: global setup, worker teardown, the runner itself. */
+  errors?: ({ message?: string } | null)[];
+}
+
+/** The report's errors outside tests, bounded as the contract bounds them. */
+function reportErrorsOf(report: PlaywrightReport): { message: string }[] {
+  return (report.errors ?? [])
+    .map((error) => (typeof error?.message === 'string' ? error.message.trim() : ''))
+    .filter((message) => message !== '')
+    .slice(0, 100)
+    .map((message) => ({ message: message.slice(0, 8_192) }));
 }
 
 /** One spec, with the suite it was found under — a spec carries no file of its own. */
@@ -265,6 +276,11 @@ export const playwrightJsonAdapter: ProducerAdapter = {
       },
     );
     if (attempts.length === 0) throw new Error('Playwright report contains no test attempts');
+    // An error outside every test failed the run even when each test passed: Playwright
+    // itself exits non-zero for it, and a run status derived from the tests alone would
+    // call that run green.
+    const reportErrors = reportErrorsOf(report);
+    if (reportErrors.length > 0) finalOutcomes.push('failed');
     // The status comes from `finalOutcomes` — one entry per *test* — not from
     // `attempts`, which holds one entry per retry. A test that failed once and then
     // passed contributes a `failed` attempt and a `flaky` outcome; deriving the run
@@ -274,6 +290,7 @@ export const playwrightJsonAdapter: ProducerAdapter = {
       {
         outcomes: outcomesWithDeclaredRunStatus(finalOutcomes, context.declaredRunStatus),
         attempts,
+        reportErrors,
         evidence: attempts.flatMap((attempt) => attempt.evidence),
         producer: 'playwright',
         verifier: 'playwright-adapter',

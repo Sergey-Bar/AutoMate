@@ -386,3 +386,112 @@ describe('an unexpected failure', () => {
     }
   });
 });
+
+describe('automate test', () => {
+  const REPORT =
+    '<testsuite><testcase classname="Checkout" name="pays"><failure/></testcase></testsuite>';
+  /** A command that exits with `code`, run by this very Node. */
+  const exiting = (code: number) => ['--', process.execPath, '-e', `process.exit(${String(code)})`];
+  const verdict = (excused: boolean) => ({
+    status: 200,
+    body: {
+      runId: '6b0c1c4e-1f3a-5b2d-8c4e-1234567890ab',
+      ingested: 'accepted',
+      status: 'failed',
+      tests: { total: 2, passed: 1, failed: 1, flaky: 0, skipped: 0 },
+      reportErrors: 0,
+      quarantine: {
+        excused,
+        excusedTests: excused ? ['tests/pay.spec.ts › Checkout › pays'] : [],
+        unexcusedFailures: excused ? [] : ['tests/pay.spec.ts › Checkout › pays'],
+      },
+    },
+  });
+
+  async function withReport(): Promise<string> {
+    const dir = await tempDir();
+    await writeFile(path.join(dir, 'results.xml'), REPORT);
+    return dir;
+  }
+  const args = ['test', '--format', 'junit', '--report', 'results.xml', '--commit', SHA];
+
+  it('exits 0 when the only failures are quarantined, and says which', async () => {
+    const dir = await withReport();
+    reply = () => verdict(true);
+    const result = await invoke([...args, ...exiting(1)], {}, dir);
+    expect(result.code).toBe(EXIT.ok);
+    expect(result.out).toContain('1 failed test, all quarantined');
+    expect(result.out).toContain('tests/pay.spec.ts › Checkout › pays');
+    const [request] = seen;
+    const url = new URL(request?.url ?? '', origin);
+    expect(url.pathname).toBe(`/api/v1/projects/${PROJECT}/tests/reports`);
+    expect(url.searchParams.get('format')).toBe('junit');
+    expect(url.searchParams.get('commit')).toBe(SHA);
+    expect(url.searchParams.get('startedAt')).toBe('2026-10-26T12:00:00.000Z');
+    expect(request?.body.toString()).toBe(REPORT);
+    expect(request?.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("keeps the command's exit code when a failure is not quarantined", async () => {
+    const dir = await withReport();
+    reply = () => verdict(false);
+    const result = await invoke([...args, ...exiting(7)], {}, dir);
+    expect(result.code).toBe(7);
+    expect(result.out).toContain('not quarantined');
+    expect(result.out).toContain('tests/pay.spec.ts › Checkout › pays');
+  });
+
+  it("keeps the command's exit code when the server cannot be reached", async () => {
+    const dir = await withReport();
+    const result = await invoke(
+      [...args, ...exiting(1)],
+      { AUTOMATE_URL: 'http://127.0.0.1:9' },
+      dir,
+    );
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/keeping exit code 1/u);
+  });
+
+  it("keeps the command's exit code when the server refuses the report", async () => {
+    const dir = await withReport();
+    reply = () => ({
+      status: 400,
+      body: { error: { code: 'INVALID_REPORTER_UPLOAD', message: 'bad' } },
+    });
+    const result = await invoke([...args, ...exiting(1)], {}, dir);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/INVALID_REPORTER_UPLOAD/u);
+  });
+
+  it("keeps the command's exit code when the answer is not a verdict", async () => {
+    const dir = await withReport();
+    reply = () => ({ status: 200, body: { quarantine: { excused: 'yes' } } });
+    expect((await invoke([...args, ...exiting(1)], {}, dir)).code).toBe(1);
+  });
+
+  it("keeps the command's exit code when no report was written", async () => {
+    const dir = await tempDir();
+    const result = await invoke([...args, ...exiting(1)], {}, dir);
+    expect(result.code).toBe(1);
+    expect(result.err).toMatch(/results\.xml was not written/u);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('exits 0 for a passing command, and still records the run', async () => {
+    const dir = await withReport();
+    reply = () => verdict(false);
+    expect((await invoke([...args, ...exiting(0)], {}, dir)).code).toBe(EXIT.ok);
+    expect(seen).toHaveLength(1);
+    // A passing command is never turned red by the upload failing.
+    reply = () => ({ status: 503, body: {} });
+    expect((await invoke([...args, ...exiting(0)], {}, dir)).code).toBe(EXIT.ok);
+  });
+
+  it('refuses a missing command, and reports one that cannot start', async () => {
+    expect((await invoke([...args])).code).toBe(EXIT.usage);
+    const dir = await withReport();
+    const result = await invoke([...args, '--', 'definitely-not-a-command-automate'], {}, dir);
+    expect(result.code).toBe(127);
+    expect(seen).toHaveLength(0);
+  });
+});

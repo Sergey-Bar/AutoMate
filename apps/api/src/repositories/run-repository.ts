@@ -154,6 +154,12 @@ export interface RunRecord {
   durationMs: number | null;
   branch: string | null;
   commitSha: string | null;
+  /**
+   * The project the run is about, when its writer knew it (`runs.project_id`). Optional:
+   * the reporter event door names no project, and a run attributed to none is not
+   * attributed to an invented one.
+   */
+  projectId?: string | null;
   triggeredBy: string;
 }
 
@@ -381,4 +387,10 @@ export interface RunRepository {
    * grouped. An empty `runIds` issues no query at all.
    */
   listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>>;
+
+  /**
+   * The latest run of a project on a commit, by start time, or `null`. What the pull-request
+   * comment reads to say how the commit's tests went.
+   */
+  latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null>;
 }

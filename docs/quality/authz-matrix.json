@@ -13,7 +13,7 @@
     "operator": 30,
     "open": 14,
     "runner-credential": 9,
-    "reporter-secret": 10,
+    "reporter-secret": 11,
     "enrollment-token": 1,
     "runner-registration-secret": 1
   },
@@ -936,6 +936,14 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/scorecards.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/tests/reports",
+      "access": "reporter-secret",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/test-reports.test.ts",
       "composition": "database"
     },
     {

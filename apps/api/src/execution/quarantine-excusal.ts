@@ -90,6 +90,23 @@ export function excuseQuarantined(
 }
 
 /**
+ * Whether the quarantine excuses this run: every failure excused (`excuseQuarantined`), and
+ * at least one test passed. A run whose every test is quarantined has nothing left to pass
+ * on, so it is not excused — the warning is for a run that proved something and carried
+ * known noise. The gate and `POST /api/v1/projects/:id/tests/reports` both ask this, so a
+ * CI job and the recorded gate cannot disagree about the same run.
+ */
+export function excusesRun(
+  run: ExcusableRun,
+  entries: readonly QuarantineMatch[],
+): { excused: boolean; excusal: QuarantineExcusal } {
+  const excusal = excuseQuarantined(run, entries);
+  const passed =
+    run.summary?.passed ?? (run.tests ?? []).filter((test) => test.status === 'passed').length;
+  return { excused: excusal.complete && passed > 0, excusal };
+}
+
+/**
  * A quarantine source for a store bound to one workspace: that workspace's entries, and
  * nothing for any other. The dashboard's quarantine store is bound to the configured
  * workspace, so without this a run in a second workspace would be excused by the first

@@ -98,6 +98,7 @@ import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap
 import { createDashboardModule } from './modules/dashboard/index.js';
 import { InMemoryQuarantineStore, type QuarantineStore } from './modules/dashboard/quarantine.js';
 import { boundQuarantineSource } from './execution/quarantine-excusal.js';
+import { commitTests } from './services/commit-tests.js';
 import {
   DrizzleQuarantineStore,
   DrizzleQualityGateStore,
@@ -965,6 +966,14 @@ if (databaseResources !== undefined) {
         gateway: testProposalGateway,
         provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
       },
+      // The same run repository, canonical store and bus the reporter upload door writes,
+      // and the same quarantine every gate evaluation reads.
+      testReports: {
+        repository: runRepository,
+        canonicalStore: resolveReporterStore(),
+        bus: realtimeBus,
+        quarantined: quarantineFor,
+      },
       delivery: {
         lanMode: runtimeConfig.lanMode === true,
         ...(runtimeConfig.githubWebhookSecret === undefined
@@ -975,6 +984,19 @@ if (databaseResources !== undefined) {
       health: {
         ...healthHooks,
         detailsUrl: dashboardUrl,
+        // The commit's test run, read with the same quarantine and the same rule the gate and
+        // `automate test` use.
+        commitTests: (projectId, commit) =>
+          commitTests(
+            {
+              repository: runRepository,
+              quarantined: () => quarantineFor(registry.workspaceId),
+              reportErrors: async (runId) =>
+                (await resolveReporterStore().get(runId))?.reportErrors?.length ?? 0,
+            },
+            projectId,
+            commit,
+          ),
         github: {
           adapter: githubAdapter,
           tokenFor: (projectId) =>

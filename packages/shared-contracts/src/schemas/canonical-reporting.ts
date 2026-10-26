@@ -260,6 +260,16 @@ const RunResultSchema = z
     retention: RetentionSchema,
     proof: ProofSchema,
     completeness: CompletenessSchema,
+    /**
+     * Errors the producer reported outside any test: a global setup that threw, a worker
+     * teardown, a reporter failure (Playwright's top-level `errors[]`). A run that carries
+     * one failed somewhere no test result describes, so no quarantine entry can excuse it.
+     * Optional and additive: most producers have no such channel.
+     */
+    reportErrors: z
+      .array(z.object({ message: z.string().min(1).max(8_192) }))
+      .max(100)
+      .optional(),
     raw: z.record(z.string(), z.unknown()).default({}),
   })
   .superRefine((result, ctx) => uniqueAttemptIdentity(result.attempts, ctx));

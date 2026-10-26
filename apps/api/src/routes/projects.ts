@@ -68,6 +68,7 @@ import { createDeliveryRoutes } from './delivery.js';
 import { createGitHubWebhookRoutes } from './github-webhook.js';
 import { createIssueTrackingRoutes } from './issue-tracking.js';
 import { createTestProposalRoutes } from './test-proposals.js';
+import { createTestReportRoutes, type TestReportSink } from './test-reports.js';
 import type { IssueAdapters } from '../services/issue-tracker-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
@@ -153,6 +154,11 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * proposal is a GenAI span. `null` when no provider is configured: proposals are refused.
    */
   testProposals?: { gateway: AiGateway | null; provider: string | null };
+  /**
+   * Where a CI job's test report is recorded and what quarantine it is judged against.
+   * Absent: `POST /api/v1/projects/:id/tests/reports` is not mounted.
+   */
+  testReports?: TestReportSink;
 }
 
 const DAY_MS = 86_400_000;
@@ -346,6 +352,28 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   );
   // AI-written code: read-only scorecards over what the delivery sync attributed.
   app.route('/', createAiCodeRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // A CI job's test report and the quarantine verdict `automate test` acts on. Mounted
+  // always, so the authz matrix lists it; without its stores it answers NOT_CONFIGURED.
+  app.route(
+    '/',
+    createTestReportRoutes({
+      sink: options.testReports,
+      workspaceId: options.workspaceId,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      projectExists: async (projectId) =>
+        getProject(options, projectId).then(
+          () => true,
+          (error: unknown) => {
+            if (error instanceof DomainError && error.code === ErrorCode.NOT_FOUND) return false;
+            throw error;
+          },
+        ),
+    }),
+  );
   // Supply chain and test effectiveness, and the heatmap of every project. Read-only.
   app.route(
     '/',

@@ -13,6 +13,7 @@ import {
 import { z } from 'zod/v4';
 import type { AiGovernanceCheck } from './repo-health-service.js';
 import type { EvalGateReading, EvalGateSuite } from './eval-service.js';
+import type { CommitTests } from './commit-tests.js';
 
 /**
  * What the health grade tells the outside world: a pull request's status and comment, and an
@@ -53,6 +54,45 @@ export interface GateReport {
   aiGovernance?: AiGovernanceCheck | null;
   /** Each eval suite against the default branch; an "Evals" section when any was compared. */
   evals?: EvalGateReading | null;
+  /** The commit's test run and the quarantine verdict on it; a "Tests" section when present. */
+  tests?: CommitTests | null;
+}
+
+const COMMENT_TESTS = 10;
+
+/** Up to ten test identities, made safe for one line, and how many more there were. */
+function testList(ids: readonly string[]): string {
+  const shown = ids.slice(0, COMMENT_TESTS).map((id) => `\`${inline(id)}\``);
+  const more = ids.length > COMMENT_TESTS ? ` …and ${String(ids.length - COMMENT_TESTS)} more` : '';
+  return `${shown.join(', ')}${more}`;
+}
+
+/**
+ * The "Tests" section: the commit's run, which failures are quarantined and which are not,
+ * and the flaky tests nobody has quarantined yet. The same verdict `automate test` acted on,
+ * because both read `excusesRun`.
+ */
+export function testsSection(tests: CommitTests): string[] {
+  const lines = [
+    '**Tests**',
+    '',
+    `${String(tests.total)} tests: ${String(tests.passed)} passed, ${String(tests.failed)} failed, ${String(tests.flaky)} flaky.`,
+  ];
+  if (tests.reportErrors > 0) {
+    lines.push(
+      `- ${String(tests.reportErrors)} error(s) outside the tests: nothing in this run is excused`,
+    );
+  }
+  if (tests.failures.length > 0) lines.push(`- Failed: ${testList(tests.failures)}`);
+  if (tests.quarantinedFailures.length > 0) {
+    lines.push(
+      `- Failed, quarantined${tests.excused ? ' (excused)' : ''}: ${testList(tests.quarantinedFailures)}`,
+    );
+  }
+  if (tests.flakyUnquarantined.length > 0) {
+    lines.push(`- Flaky, not quarantined: ${testList(tests.flakyUnquarantined)}`);
+  }
+  return lines;
 }
 
 const EVAL_VERDICTS: Readonly<Record<EvalGateSuite['verdict'], string>> = {
@@ -271,6 +311,9 @@ export function renderGateComment(report: GateReport): string {
   }
   if (report.evals !== null && report.evals !== undefined && report.evals.suites.length > 0) {
     lines.push('', ...evalsSection(report.evals));
+  }
+  if (report.tests !== null && report.tests !== undefined) {
+    lines.push('', ...testsSection(report.tests));
   }
   const dimensions = grade.dimensions
     .filter((entry) => entry.measured)

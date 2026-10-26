@@ -1,5 +1,5 @@
 import { digestOf } from './digest.js';
-import { excuseQuarantined, type QuarantineMatch } from './quarantine-excusal.js';
+import { excusesRun, type QuarantineMatch } from './quarantine-excusal.js';
 import type {
   DomainName,
   DomainStatus,
@@ -321,10 +321,7 @@ export function evaluateQualityGate(input: QualityGateInput): QualityGateResult 
   const run = input.run;
   const policy = input.policy;
   const reported = run.summary ?? EMPTY_GATE_SUMMARY;
-  const excusal = excuseQuarantined(run, input.quarantined ?? []);
-  // A run whose every test is quarantined has nothing left to pass on, so it is not
-  // excused: the warning is for a run that proved something and carried known noise.
-  const excused = excusal.complete && reported.passed > 0;
+  const { excused, excusal } = excusesRun(run, input.quarantined ?? []);
   // The thresholds read the run without its excused tests. The run itself is not changed.
   const summary: GateSummary = excused
     ? {

@@ -47,6 +47,7 @@ import {
   supplyChainPolicyRecord,
 } from '../services/supply-chain-service.js';
 import { diffCoverageStatus } from '../services/diff-coverage-service.js';
+import type { CommitTests } from '../services/commit-tests.js';
 
 /**
  * The repository health API.
@@ -66,6 +67,11 @@ export interface RepoHealthRouteOptions extends HealthScanOptions {
   github?: { adapter: ConnectorAdapter; tokenFor: (projectId: string) => Promise<string | null> };
   /** The dashboard URL for a project, linked from a status, a comment and an alert. */
   detailsUrl?: (projectId: string) => string;
+  /**
+   * The commit's test run and the quarantine verdict on it, for the comment's "Tests"
+   * section. Absent, or no run for the commit: the section is left out.
+   */
+  commitTests?: (projectId: string, commit: string) => Promise<CommitTests | null>;
 }
 
 const UploadQuerySchema = z.object({
@@ -256,6 +262,7 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
     const projectId = context.req.param('id');
     const { branch, commit, pullRequest } = parsed.data;
     const result = await healthGate(options, projectId, branch, commit, pullRequest);
+    const tests = (await options.commitTests?.(projectId, commit)) ?? null;
     if (pullRequest !== undefined) {
       await options.onGateReport?.(projectId, {
         pullRequest,
@@ -286,6 +293,7 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
               delivery: result.delivery,
               aiGovernance: result.aiGovernance,
               evals: result.evals,
+              tests,
             },
           );
     await audit(options, {
@@ -311,6 +319,7 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
       aiGovernance: result.aiGovernance,
       evals: result.evals,
       agentRuntime: result.agentRuntime,
+      tests,
       github,
     });
   });

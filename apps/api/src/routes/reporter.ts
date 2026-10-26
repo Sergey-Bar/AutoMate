@@ -51,6 +51,7 @@ import {
   REPORT_FORMATS,
   type ReportFormat,
   type ReportFormatId,
+  type CanonicalRunResult,
 } from '@automate/shared-contracts';
 import {
   junitXmlAdapter,
@@ -323,6 +324,9 @@ function producerContextFor(document: UploadDocument, workspaceId: string): Prod
   const finishedAt = optionalField(document.fields, 'finishedAt');
   return {
     workspaceId,
+    ...(optionalField(document.fields, 'projectId') === undefined
+      ? {}
+      : { projectId: optionalField(document.fields, 'projectId') }),
     // The caller's run identity, or a name derived from the document rather than invented:
     // `uploaded-run` was the old fallback and a *third* identity for the same run when the
     // body did not carry one. A document with no run id is still identifiable — by its own
@@ -349,10 +353,40 @@ function documentDigest(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-interface UploadDocument {
+export interface UploadDocument {
   bytes: Uint8Array;
   /** Multipart form fields, which carry the cohort and the caller's run identity. */
   fields: Record<string, string>;
+}
+
+/**
+ * A report, parsed by the adapter its declared format (or its shape) names, into the
+ * canonical result. **The one place an uploaded report is read**: `/api/v1/reporter/upload`
+ * and the CLI's `POST /api/v1/projects/:id/tests/reports` both call it, so a report means the
+ * same thing whichever door it arrived at.
+ */
+export function parseUploadDocument(
+  document: UploadDocument,
+  workspaceId: string,
+): CanonicalRunResult {
+  const adapter = pickAdapter(document);
+  assertFormatMatches(adapter, document);
+  try {
+    return adapter.parse(document.bytes, producerContextFor(document, workspaceId));
+  } catch (cause) {
+    // **The adapter's refusal travels, because it is about the caller's own document.**
+    // Every adapter names its refusals — "JUnit report contains no test cases",
+    // "Reporter upload declares no test rows" — and this door used to answer *every*
+    // malformed report with "invalid payload", which gave the person fixing it nothing
+    // to act on and turned a one-line fix into a support ticket. `cause` is never
+    // returned; the message is copied into `details`, and both come from the bytes the
+    // caller just sent, so there is nothing here the caller has not already seen.
+    const message = cause instanceof Error ? cause.message : 'Unreadable reporter upload';
+    throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload', {
+      details: { adapterMessage: message },
+      cause,
+    });
+  }
 }
 
 /**
@@ -633,29 +667,7 @@ export function createReporterRoutes(
     }
 
     const document = await readUploadDocument(c);
-    const adapter = pickAdapter(document);
-    assertFormatMatches(adapter, document);
-
-    let result: ReturnType<ProducerAdapter['parse']>;
-    try {
-      result = adapter.parse(
-        document.bytes,
-        producerContextFor(document, options.workspaceId ?? DEFAULT_WORKSPACE_ID),
-      );
-    } catch (cause) {
-      // **The adapter's refusal travels, because it is about the caller's own document.**
-      // Every adapter names its refusals — "JUnit report contains no test cases",
-      // "Reporter upload declares no test rows" — and this door used to answer *every*
-      // malformed report with "invalid payload", which gave the person fixing it nothing
-      // to act on and turned a one-line fix into a support ticket. `cause` is never
-      // returned; the message is copied into `details`, and both come from the bytes the
-      // caller just sent, so there is nothing here the caller has not already seen.
-      const message = cause instanceof Error ? cause.message : 'Unreadable reporter upload';
-      throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload', {
-        details: { adapterMessage: message },
-        cause,
-      });
-    }
+    const result = parseUploadDocument(document, options.workspaceId ?? DEFAULT_WORKSPACE_ID);
 
     const ingested = await ingestCanonicalResult(result, {
       store: options.canonicalStore,

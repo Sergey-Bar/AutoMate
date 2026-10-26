@@ -1,20 +1,33 @@
 import { agentConfig, deploy, gate, upload, type Io } from './commands.js';
-import { CliError, EXIT, type ExitCode } from './errors.js';
+import { CliError, EXIT } from './errors.js';
+import { test } from './test-command.js';
 
 export const HELP = `automate — send CI evidence to an AutoMate install.
 
 Usage:
   automate upload --format <format> --file <path> [--branch <b>] [--commit <sha>] [--digest sha256:<hex>]
+  automate test --format junit|playwright-json --report <path> [--branch <b>] [--commit <sha>] -- <command…>
   automate gate --branch <b> --commit <sha> [--pr <number>]
   automate deploy --environment <name> --status success|failure [--sha <sha>] [--id <id>] [--url <url>]
   automate agent-config [--branch <b>] [--commit <sha>] [--dir <path>]
 
+\`test\` runs the command, sends its report, and exits with the command's own code, or 0 when
+every failure is an approved quarantined test. The command runs without a shell; on Windows,
+write \`-- cmd /c npx playwright test\`.
+
 Every command takes --project <id>, or reads AUTOMATE_PROJECT.
 Environment: AUTOMATE_URL (https://, or http:// to loopback only), AUTOMATE_TOKEN (amt_…).
-Exit codes: 0 done or gate passed, 1 gate failed, 2 usage, 3 refused or unreachable, 4 credential refused.`;
+Exit codes: 0 done or gate passed, 1 gate failed, 2 usage, 3 refused or unreachable, 4 credential refused.
+\`test\` exits with its command's code instead, and 127 when the command could not start.`;
 
-const COMMANDS: Readonly<Record<string, (argv: readonly string[], io: Io) => Promise<ExitCode>>> = {
+type Command = (
+  argv: readonly string[],
+  io: Io & { err: (line: string) => void },
+) => Promise<number>;
+
+const COMMANDS: Readonly<Record<string, Command>> = {
   upload,
+  test,
   gate,
   deploy,
   'agent-config': agentConfig,
@@ -24,7 +37,7 @@ const COMMANDS: Readonly<Record<string, (argv: readonly string[], io: Io) => Pro
 export async function run(
   argv: readonly string[],
   io: Io & { err: (line: string) => void },
-): Promise<ExitCode> {
+): Promise<number> {
   const [name, ...rest] = argv;
   if (name === undefined || name === 'help' || name === '--help' || name === '-h') {
     io.out(HELP);

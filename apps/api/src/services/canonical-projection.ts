@@ -200,6 +200,9 @@ export function projectCanonicalRun(
       durationMs: result.durationMs ?? null,
       branch: result.provenance.branch ?? null,
       commitSha: result.provenance.commitSha ?? null,
+      // The project the producer's identity names, so a commit's tests can be found per
+      // project. Absent stays absent: `undefined` leaves `runs.project_id` as it was.
+      ...(result.identity.projectId === undefined ? {} : { projectId: result.identity.projectId }),
       triggeredBy: options.triggeredBy ?? 'upload',
     },
     tests: tests.map((test) => ({

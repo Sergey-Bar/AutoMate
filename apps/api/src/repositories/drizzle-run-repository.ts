@@ -4,7 +4,7 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
@@ -144,6 +144,7 @@ export class DrizzleRunRepository implements RunRepository {
         durationMs: run.durationMs ?? null,
         branch: run.branch ?? null,
         commitSha: run.commitSha ?? null,
+        ...(run.projectId === undefined ? {} : { projectId: run.projectId }),
         triggeredBy: run.triggeredBy,
       })
       .onConflictDoUpdate({
@@ -169,6 +170,7 @@ export class DrizzleRunRepository implements RunRepository {
           durationMs: run.durationMs ?? null,
           branch: run.branch ?? null,
           commitSha: run.commitSha ?? null,
+          ...(run.projectId === undefined ? {} : { projectId: run.projectId }),
           triggeredBy: run.triggeredBy,
         },
         setWhere: eq(runs.workspaceId, this.workspaceId),
@@ -391,6 +393,23 @@ export class DrizzleRunRepository implements RunRepository {
     return grouped;
   }
 
+  async latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, this.workspaceId),
+          eq(runs.projectId, projectId),
+          eq(runs.commitSha, commitSha),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(1);
+    const row = rows[0];
+    return row === undefined ? null : this._mapRun(row);
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   /** One run, and only if this workspace owns it. */
@@ -428,6 +447,7 @@ export class DrizzleRunRepository implements RunRepository {
       durationMs: row.durationMs ?? null,
       branch: row.branch ?? null,
       commitSha: row.commitSha ?? null,
+      projectId: row.projectId ?? null,
       triggeredBy: row.triggeredBy ?? 'manual',
     };
   }

@@ -124,6 +124,8 @@ export interface CanonicalRunResultInput {
    * `status`.
    */
   truncated?: boolean;
+  /** Errors the producer reported outside any test; see `RunResultSchema.reportErrors`. */
+  reportErrors?: readonly { message: string }[];
   /** The producer writing the result, e.g. `'playwright'` or `'junit'`. */
   producer: string;
   /** A human-readable name for this adapter, recorded in `proof.verifier`. */
@@ -213,6 +215,9 @@ export function canonicalRunResult(
       missingShards: [],
       duplicateShards: [],
     },
+    ...(input.reportErrors === undefined || input.reportErrors.length === 0
+      ? {}
+      : { reportErrors: input.reportErrors }),
     raw: {},
   });
 }

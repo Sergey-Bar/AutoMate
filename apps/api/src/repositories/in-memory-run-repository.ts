@@ -132,6 +132,17 @@ export class InMemoryRunRepository implements RunRepository {
     return grouped;
   }
 
+  async latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null> {
+    let latest: RunRecord | null = null;
+    for (const run of this._runs.values()) {
+      if (run.projectId !== projectId || run.commitSha !== commitSha) continue;
+      if (latest === null || Date.parse(run.startedAt) > Date.parse(latest.startedAt)) {
+        latest = run;
+      }
+    }
+    return latest === null ? null : { ...latest };
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   private _testKey(testId: string, runId: string): string {

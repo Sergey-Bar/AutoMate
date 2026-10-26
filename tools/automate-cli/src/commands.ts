@@ -19,13 +19,13 @@ const COMMIT = /^[0-9a-f]{7,64}$/iu;
 const DIGEST = /^sha256:[0-9a-f]{64}$/iu;
 
 /** The branch and commit CI is building, from the flags or GitHub Actions' own variables. */
-function branchOf(io: Io, flag: string | undefined): string | undefined {
+export function branchOf(io: Io, flag: string | undefined): string | undefined {
   return (
     flag ?? io.env['AUTOMATE_BRANCH'] ?? (io.env['GITHUB_HEAD_REF'] || io.env['GITHUB_REF_NAME'])
   );
 }
 
-function commitOf(io: Io, flag: string | undefined): string | undefined {
+export function commitOf(io: Io, flag: string | undefined): string | undefined {
   const commit = flag ?? io.env['AUTOMATE_COMMIT'] ?? io.env['GITHUB_SHA'];
   if (commit !== undefined && commit !== '' && !COMMIT.test(commit)) {
     throw usage(`Not a commit sha: ${commit}`);
@@ -33,7 +33,7 @@ function commitOf(io: Io, flag: string | undefined): string | undefined {
   return commit === '' ? undefined : commit;
 }
 
-function target(io: Io, parsed: { values: Map<string, string> }): Target {
+export function target(io: Io, parsed: { values: Map<string, string> }): Target {
   return resolveTarget(io.env, parsed.values.get('project'));
 }
 
