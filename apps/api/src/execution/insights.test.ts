@@ -388,3 +388,57 @@ describe('test identity across Playwright projects', () => {
     expect(insights.flakyLeaderboard[0]?.key).toBe('a.spec.ts › old');
   });
 });
+
+describe('which flake evidence automation may act on', () => {
+  const at = (day: number, hour: number) =>
+    `2026-10-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00.000Z`;
+
+  it('never makes a test that was broken and then fixed on a branch eligible', () => {
+    const history = [
+      ['a1', 'passed'],
+      ['b2', 'failed'],
+      ['b2', 'failed'],
+      ['c3', 'passed'],
+      ['c3', 'passed'],
+      ['c3', 'passed'],
+    ] as const;
+    const insights = buildInsights(
+      history.map(([commit, status], index) =>
+        run(at(15 + index, 8), status === 'passed' ? 'passed' : 'failed', [test('pays', status)], {
+          commit,
+          branch: 'fix/pay',
+        }),
+      ),
+      NOW,
+      7,
+      false,
+    );
+    const [suggestion] = insights.quarantineSuggestions?.suggestions ?? [];
+    // It is still ranked and suggested for a person to read: it did disagree with itself.
+    expect(suggestion?.testKey).toBe('a.spec.ts › pays');
+    expect(suggestion?.autoEligible).toBe(false);
+    expect(suggestion?.evidence).toEqual({ retryPasses: 0, sameCommit: 0, crossCommitFlips: 2 });
+  });
+
+  it('makes a test that passed on a retry eligible', () => {
+    const statuses = ['passed', 'flaky', 'passed', 'flaky', 'passed'] as const;
+    const insights = buildInsights(
+      statuses.map((status, index) =>
+        run(
+          at(15 + index, 8),
+          'passed',
+          [{ ...test('pays', status), attempt: status === 'flaky' ? 2 : 1 }],
+          {
+            commit: 'a1',
+          },
+        ),
+      ),
+      NOW,
+      7,
+      false,
+    );
+    const [suggestion] = insights.quarantineSuggestions?.suggestions ?? [];
+    expect(suggestion?.autoEligible).toBe(true);
+    expect(suggestion?.evidence?.retryPasses).toBe(2);
+  });
+});

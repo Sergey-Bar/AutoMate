@@ -11,6 +11,7 @@ function observe(
     testKey,
     title: testKey,
     runId,
+    commit: null,
     status,
     retries: 0,
     durationMs: 100,
@@ -18,6 +19,66 @@ function observe(
     ...extra,
   };
 }
+
+describe('flake evidence', () => {
+  it('separates a retry pass, a disagreement on one commit, and a flip across commits', () => {
+    const [cost] = flakeCost([
+      observe('t', 'r1', 'passed', { commit: 'a' }),
+      observe('t', 'r2', 'failed', { commit: 'a' }),
+      observe('t', 'r3', 'flaky', { commit: 'b', retries: 1 }),
+      observe('t', 'r4', 'failed', { commit: 'c' }),
+      observe('t', 'r5', 'passed', { commit: 'd' }),
+    ]);
+    // passed@a→failed@a is a same-commit flip; flaky@b is not decisive; failed@c→passed@d is
+    // the one flip across commits.
+    expect(cost?.evidence).toEqual({ retryPasses: 1, sameCommit: 1, crossCommitFlips: 1 });
+    expect(cost).toMatchObject({ flakyResults: 1, flips: 2 });
+  });
+
+  it('never makes a test broken on one commit and fixed on the next eligible to act on', () => {
+    // A test that caught a regression on `b` and passed once it was fixed on `c`. Every
+    // flip is across commits, so a code change explains all of it.
+    const [cost] = flakeCost([
+      observe('t', 'r1', 'passed', { commit: 'a' }),
+      observe('t', 'r2', 'failed', { commit: 'b' }),
+      observe('t', 'r3', 'failed', { commit: 'b' }),
+      observe('t', 'r4', 'passed', { commit: 'c' }),
+      observe('t', 'r5', 'passed', { commit: 'c' }),
+    ]);
+    expect(cost?.flakyScore).toBeGreaterThan(0);
+    expect(cost?.autoEligible).toBe(false);
+  });
+
+  it('makes a retry pass and a same-commit disagreement eligible, while the test is passing', () => {
+    const [retried] = flakeCost([
+      observe('t', 'r1', 'passed', { commit: 'a' }),
+      observe('t', 'r2', 'flaky', { commit: 'a', retries: 1 }),
+    ]);
+    expect(retried?.autoEligible).toBe(true);
+    const [disagreed] = flakeCost([
+      observe('t', 'r1', 'failed', { commit: 'a' }),
+      observe('t', 'r2', 'passed', { commit: 'a' }),
+    ]);
+    expect(disagreed?.autoEligible).toBe(true);
+  });
+
+  it('is never eligible while its latest decisive result is a failure', () => {
+    // Flaky history, then a real regression: acting now would hide it.
+    const [cost] = flakeCost([
+      observe('t', 'r1', 'flaky', { commit: 'a', retries: 1 }),
+      observe('t', 'r2', 'passed', { commit: 'a' }),
+      observe('t', 'r3', 'failed', { commit: 'b' }),
+    ]);
+    expect(cost?.evidence.retryPasses).toBe(1);
+    expect(cost?.autoEligible).toBe(false);
+  });
+
+  it('reads no commit as no same-commit evidence, never as one shared commit', () => {
+    const [cost] = flakeCost([observe('t', 'r1', 'failed'), observe('t', 'r2', 'passed')]);
+    expect(cost?.evidence).toEqual({ retryPasses: 0, sameCommit: 0, crossCommitFlips: 1 });
+    expect(cost?.autoEligible).toBe(false);
+  });
+});
 
 describe('flakeCost', () => {
   it('scores disagreement the way the insights leaderboard does', () => {
@@ -120,6 +181,8 @@ describe('suggestQuarantine', () => {
       testKey: 'flaky',
       title: 'flaky',
       flakyScore: 0.5,
+      autoEligible: false,
+      evidence: { retryPasses: 1, sameCommit: 0, crossCommitFlips: 1 },
       reason: 'Disagreed with itself in 50% of 4 runs; 2 retries cost 2.0 s and it blocked 2 runs.',
     });
     expect(suggestions[0]?.reason).toBe(

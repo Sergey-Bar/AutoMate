@@ -6433,6 +6433,29 @@
         }
       ],
       "resolution": "Every package is MIT; `@automate/cli` is publishable from `.github/workflows/npm-publish.yml`."
+    },
+    {
+      "id": "MKT-3",
+      "title": "A test that caught a regression and passed after the fix scored as flaky",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "`countFlips` in `apps/api/src/execution/insights.ts` and `tallyVerdict` in `packages/reporting/src/flake-cost.ts` counted every change between consecutive decisive results, across commits. A test that passed, failed on the commit that broke it, and passed after the fix flipped twice, scored as flaky, and could be suggested for quarantine: the test doing its job read as the test being noise. The leaderboard also restated the score with a different denominator from `flakeCost`.",
+      "confirmedBy": "Read against both functions; the insights test reproduces the break-and-fix history on a branch.",
+      "evidence": [
+        {
+          "path": "packages/reporting/src/flake-cost.property.test.ts",
+          "asserts": "FLAKE-4: no history whose outcomes the commit decides is eligible for automatic quarantine."
+        },
+        {
+          "path": "apps/api/src/execution/insights.test.ts",
+          "asserts": "A break-and-fix history is suggested for a person but never eligible; a retry pass is eligible."
+        }
+      ],
+      "resolution": "Evidence is classified as a retry pass, a same-commit disagreement, or a cross-commit flip, and only the first two make a test `autoEligible`. The leaderboard reads `flakeCost`."
     }
   ]
 }

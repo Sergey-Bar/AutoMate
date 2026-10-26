@@ -218,6 +218,7 @@ export function flakeObservationsOf(runs: readonly ExecutionRun[]): FlakeObserva
         testKey: testKey(test),
         title: test.title,
         runId: run.id,
+        commit: run.commit,
         status: test.status as FlakeObservation['status'],
         retries: Math.max(0, (test.attempt ?? 1) - 1),
         durationMs: typeof test.durationMs === 'number' ? test.durationMs : null,
@@ -273,36 +274,31 @@ function verdictOf(status: ExecutionTestResult['status']): 'pass' | 'fail' | nul
   return null;
 }
 
-/** How often consecutive decisive results of one test disagree. */
-function countFlips(seen: readonly Appearance[]): number {
-  let flips = 0;
-  let last: 'pass' | 'fail' | null = null;
-  for (const { test } of seen) {
-    const verdict = verdictOf(test.status);
-    if (verdict === null) continue;
-    if (last !== null && verdict !== last) flips += 1;
-    last = verdict;
-  }
-  return flips;
-}
-
+/**
+ * The leaderboard is `flakeCost` read for display: one formula for the score, so the page
+ * and the quarantine suggestions cannot rank one test two ways. It used to restate
+ * `(flaky + flips) / runs` here, dividing by every appearance where `flakeCost` divides by
+ * the observed ones, and nothing asserted the two agreed.
+ */
 function flakyTests(runs: readonly ExecutionRun[]): FlakyTest[] {
-  const ranked: FlakyTest[] = [];
+  const latest = new Map<string, Appearance>();
   for (const [key, seen] of appearances(runs)) {
-    const flaky = seen.filter(({ test }) => test.status === 'flaky').length;
-    const flips = countFlips(seen);
-    const score = Math.min(1, (flaky + flips) / seen.length);
-    const latest = seen.at(-1);
-    if (score === 0 || latest === undefined) continue;
+    const last = seen.at(-1);
+    if (last !== undefined) latest.set(key, last);
+  }
+  const ranked: FlakyTest[] = [];
+  for (const cost of flakeCost(flakeObservationsOf(runs))) {
+    const last = latest.get(cost.testKey);
+    if (cost.flakyScore === 0 || last === undefined) continue;
     ranked.push({
-      key,
-      title: latest.test.title,
-      file: latest.test.file ?? null,
-      runs: seen.length,
-      flaky,
-      flips,
-      score: Math.round(score * 1000) / 1000,
-      lastSeen: latest.run.createdAt,
+      key: cost.testKey,
+      title: last.test.title,
+      file: last.test.file ?? null,
+      runs: cost.observations,
+      flaky: cost.flakyResults,
+      flips: cost.flips,
+      score: cost.flakyScore,
+      lastSeen: last.run.createdAt,
     });
   }
   return ranked

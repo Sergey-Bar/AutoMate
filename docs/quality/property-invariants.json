@@ -284,6 +284,14 @@
       "shownToFail": "Covered by the harness test."
     },
     {
+      "id": "FLAKE-4",
+      "statement": "A deterministic failure is never eligible for automatic quarantine: no history whose outcomes the commit decides is autoEligible, and no test whose latest decisive result is a failure is autoEligible.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flake-cost.property.test.ts",
+      "seed": 20261105,
+      "shownToFail": "Counting every flip as evidence fails the first property; removing the latest-failure guard fails the second. Both mutants were run."
+    },
+    {
       "id": "DORA-1",
       "statement": "Change failure rate and rework rate are always in [0, 1] or null, in the current and the previous window.",
       "package": "packages/reporting",

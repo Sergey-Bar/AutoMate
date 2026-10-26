@@ -108,6 +108,20 @@ export const QuarantineSuggestionSchema = z.object({
   /** Time spent on attempts beyond the first, in milliseconds. */
   wastedMs: z.number().int().min(0),
   blockedRuns: z.number().int().min(0),
+  /**
+   * Whether automation may act on it: retry or same-commit evidence, while the test is
+   * passing (`FlakeCost.autoEligible` in `@automate/reporting`, invariant FLAKE-4). A test
+   * whose only disagreement is across commits is a suggestion for a person, never an action.
+   * Optional so an older server's answer still parses.
+   */
+  autoEligible: z.boolean().optional(),
+  evidence: z
+    .object({
+      retryPasses: z.number().int().min(0),
+      sameCommit: z.number().int().min(0),
+      crossCommitFlips: z.number().int().min(0),
+    })
+    .optional(),
   reason: z.string().min(1),
 });
 export type QuarantineSuggestion = z.infer<typeof QuarantineSuggestionSchema>;
