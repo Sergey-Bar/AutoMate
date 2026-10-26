@@ -2,7 +2,7 @@
   "name": "@automate/worker",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/main.js",
   "types": "./dist/main.d.ts",

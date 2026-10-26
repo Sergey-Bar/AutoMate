@@ -1,6 +1,7 @@
 {
   "name": "automate",
   "version": "3.0.0",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "description": "Automate — AI-Orchestrated QA Platform",

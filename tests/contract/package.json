@@ -2,7 +2,7 @@
   "name": "@automate/contract-tests",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",

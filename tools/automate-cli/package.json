@@ -1,9 +1,23 @@
 {
   "name": "@automate/cli",
   "version": "1.0.0",
-  "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "A dependency-free CLI for CI: upload reports, ask for the gate, push a deployment, send agent-config files.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sergey-Bar/AutoMate.git",
+    "directory": "tools/automate-cli"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "bin": {
     "automate": "./dist/index.js"
   },

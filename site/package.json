@@ -2,7 +2,7 @@
   "name": "@automate/docs",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "description": "The Automate documentation site. A single VitePress shell: one curated home page, and no other pages yet.",
   "scripts": {
