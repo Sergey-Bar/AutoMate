@@ -21,6 +21,12 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: ['minor', 'patch']
+    # `@types/node` describes the runtime, and the runtime is Node 24 (`engines` in the root
+    # package.json). A types major ahead of it types APIs that do not exist at run time, so
+    # its major moves with the `engines` range, by hand, never on its own.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: 'github-actions'
     directory: '/'
