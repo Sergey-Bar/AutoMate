@@ -402,4 +402,14 @@ export interface RunRepository {
     stableId: string,
     page: { since: Date; before?: Date; limit: number },
   ): Promise<Array<{ run: RunRecord; test: TestRecord }>>;
+
+  /**
+   * How long each file's tests took in the project's most recent runs that finished at or
+   * before `asOf`, at most `runs` of them: per file, one sum of its test durations per run,
+   * newest run first. What a shard plan is made from.
+   */
+  fileDurations(
+    projectId: string,
+    window: { asOf: Date; runs: number },
+  ): Promise<{ runs: number; files: Map<string, number[]> }>;
 }

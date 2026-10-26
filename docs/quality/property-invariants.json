@@ -292,6 +292,30 @@
       "shownToFail": "Counting every flip as evidence fails the first property; removing the latest-failure guard fails the second. Both mutants were run."
     },
     {
+      "id": "SHARD-1",
+      "statement": "Every requested file is planned into exactly one shard, a file with no history included, and no file that was not requested is planned.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/shard-plan.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "Planning only the files with history fails it; the mutant was run."
+    },
+    {
+      "id": "SHARD-2",
+      "statement": "The slowest shard's estimate is at most the average shard estimate plus the largest single file estimate.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/shard-plan.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "Assigning by position instead of to the least-loaded shard fails it (mutant run); the harness test refutes the tighter bound for round-robin with fc.check."
+    },
+    {
+      "id": "SHARD-3",
+      "statement": "The plan is a function of the set of requested files, not of the order they were listed in, so shards that call separately agree.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/shard-plan.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "Breaking estimate ties by input position fails it (mutant run); the harness test refutes it for in-order assignment with fc.check."
+    },
+    {
       "id": "DORA-1",
       "statement": "Change failure rate and rework rate are always in [0, 1] or null, in the current and the previous window.",
       "package": "packages/reporting",

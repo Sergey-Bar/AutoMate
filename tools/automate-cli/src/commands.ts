@@ -13,6 +13,8 @@ export interface Io {
   out: (line: string) => void;
   /** The clock, for a deployment's `createdAt`. */
   now: () => Date;
+  /** The checked-out commit's time, for `shard`. Defaults to asking git. */
+  commitTime?: () => Promise<string | undefined>;
 }
 
 const COMMIT = /^[0-9a-f]{7,64}$/iu;

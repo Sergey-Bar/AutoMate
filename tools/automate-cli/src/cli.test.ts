@@ -452,6 +452,22 @@ describe('automate test', () => {
     expect(result.err).toMatch(/keeping exit code 1/u);
   });
 
+  it('refuses a format it does not read, before running anything', async () => {
+    const result = await invoke(['test', '--format', 'tap', '--report', 'r.xml', ...exiting(0)]);
+    expect(result.code).toBe(EXIT.usage);
+    expect(result.err).toMatch(/--format is junit or playwright-json/u);
+    expect(seen).toEqual([]);
+  });
+
+  it('never excuses a report with errors outside its tests, and says so', async () => {
+    const dir = await withReport();
+    const unexcused = verdict(false);
+    reply = () => ({ ...unexcused, body: { ...unexcused.body, reportErrors: 2 } });
+    const result = await invoke([...args, ...exiting(3)], {}, dir);
+    expect(result.code).toBe(3);
+    expect(result.err).toMatch(/2 error\(s\) outside its tests/u);
+  });
+
   it("keeps the command's exit code when the server refuses the report", async () => {
     const dir = await withReport();
     reply = () => ({

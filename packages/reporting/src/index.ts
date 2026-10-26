@@ -9,6 +9,7 @@ export * from './licence.js';
 export * from './diff-coverage.js';
 export * from './failure-clusters.js';
 export * from './flake-cost.js';
+export * from './shard-plan.js';
 export * from './dora.js';
 export * from './flow.js';
 export * from './ai-attribution.js';

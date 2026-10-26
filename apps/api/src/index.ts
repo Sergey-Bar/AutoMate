@@ -991,6 +991,8 @@ if (databaseResources !== undefined) {
         gateway: testProposalGateway,
         provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
       },
+      // The runs `automate test` records are the history a shard plan reads.
+      shardHistory: runRepository,
       // The same run repository, canonical store and bus the reporter upload door writes,
       // and the same quarantine every gate evaluation reads.
       testReports: {

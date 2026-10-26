@@ -69,6 +69,8 @@ import { createGitHubWebhookRoutes } from './github-webhook.js';
 import { createIssueTrackingRoutes } from './issue-tracking.js';
 import { createTestProposalRoutes } from './test-proposals.js';
 import { createTestReportRoutes, type TestReportSink } from './test-reports.js';
+import { createShardPlanRoutes } from './shard-plan.js';
+import type { RunRepository } from '../repositories/run-repository.js';
 import {
   createProjectQuarantineRoutes,
   type ProjectQuarantineSource,
@@ -164,6 +166,11 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * Absent: `POST /api/v1/projects/:id/tests/reports` is not mounted.
    */
   testReports?: TestReportSink;
+  /**
+   * The run history a shard plan reads its durations from. Absent:
+   * `POST /api/v1/projects/:id/shards/plan` answers NOT_CONFIGURED.
+   */
+  shardHistory?: Pick<RunRepository, 'fileDurations'>;
   /**
    * The quarantine store and the run history a project's quarantine view and its
    * auto-quarantine policy read. Absent: the view answers NOT_CONFIGURED.
@@ -267,6 +274,15 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   };
   const viewer = requireRole('viewer', access);
   const operator = requireRole('operator', access);
+  /** Whether the project is registered in this workspace. */
+  const projectExists = async (projectId: string): Promise<boolean> =>
+    getProject(options, projectId).then(
+      () => true,
+      (error: unknown) => {
+        if (error instanceof DomainError && error.code === ErrorCode.NOT_FOUND) return false;
+        throw error;
+      },
+    );
   app.route(
     '/',
     createAccessRoutes({
@@ -395,14 +411,20 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
         reporterSecret: options.health?.reporterSecret,
         requireReporterSecret: options.health?.requireReporterSecret,
       }),
-      projectExists: async (projectId) =>
-        getProject(options, projectId).then(
-          () => true,
-          (error: unknown) => {
-            if (error instanceof DomainError && error.code === ErrorCode.NOT_FOUND) return false;
-            throw error;
-          },
-        ),
+      projectExists,
+    }),
+  );
+  // Which files each CI shard runs: the same CI credential, one step before the report.
+  app.route(
+    '/',
+    createShardPlanRoutes({
+      repository: options.shardHistory,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      projectExists,
     }),
   );
   // Supply chain and test effectiveness, and the heatmap of every project. Read-only.

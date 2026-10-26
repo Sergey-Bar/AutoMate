@@ -4,7 +4,7 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc, desc, gte, lt, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gte, lt, lte, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
@@ -431,6 +431,53 @@ export class DrizzleRunRepository implements RunRepository {
       .orderBy(desc(runs.startedAt))
       .limit(page.limit);
     return rows.map((row) => ({ run: this._mapRun(row.run), test: this._mapTest(row.test) }));
+  }
+
+  async fileDurations(
+    projectId: string,
+    window: { asOf: Date; runs: number },
+  ): Promise<{ runs: number; files: Map<string, number[]> }> {
+    const recent = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, this.workspaceId),
+          eq(runs.projectId, projectId),
+          lte(runs.finishedAt, window.asOf),
+        ),
+      )
+      .orderBy(desc(runs.finishedAt), desc(runs.id))
+      .limit(window.runs);
+    const files = new Map<string, number[]>();
+    if (recent.length === 0) return { runs: 0, files };
+    const order = new Map(recent.map((run, index) => [run.id, index]));
+    const rows = await this.db
+      .select({
+        runId: tests.runId,
+        file: tests.file,
+        total: sql<string>`sum(${tests.durationMs})`,
+      })
+      .from(tests)
+      .where(
+        and(
+          eq(tests.workspaceId, this.workspaceId),
+          inArray(
+            tests.runId,
+            recent.map((run) => run.id),
+          ),
+          sql`${tests.durationMs} is not null`,
+          sql`${tests.file} <> ''`,
+        ),
+      )
+      .groupBy(tests.runId, tests.file);
+    // Newest run first, as the in-memory repository answers: the database's group order is
+    // not an order, and a median does not care but a reader comparing the two does.
+    rows.sort((left, right) => (order.get(left.runId) ?? 0) - (order.get(right.runId) ?? 0));
+    for (const row of rows) {
+      files.set(row.file, [...(files.get(row.file) ?? []), Number(row.total)]);
+    }
+    return { runs: recent.length, files };
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────

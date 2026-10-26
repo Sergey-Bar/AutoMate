@@ -183,3 +183,40 @@ export const TriageLabelSchema = z.object({
   labelledBy: z.string().min(1),
 });
 export type TriageLabel = z.infer<typeof TriageLabelSchema>;
+
+/**
+ * `POST /api/v1/projects/:id/shards/plan` — which files each CI shard runs.
+ *
+ * The caller names every file, so a file with no history is still planned. `asOf` bounds the
+ * history to runs finished by then: every shard of one CI run sends the same `asOf` (the
+ * commit's time, by default in `automate shard`), so a run finishing elsewhere between two
+ * shards' calls cannot hand them two different plans — and a file to neither.
+ */
+export const MAX_SHARDS = 64;
+export const MAX_SHARD_FILES = 10_000;
+
+export const ShardPlanBodySchema = z.object({
+  total: z.number().int().min(1).max(MAX_SHARDS),
+  files: z.array(z.string().trim().min(1).max(1_000)).min(1).max(MAX_SHARD_FILES),
+  asOf: z.iso.datetime({ offset: true }).optional(),
+});
+export type ShardPlanBody = z.infer<typeof ShardPlanBodySchema>;
+
+export const ShardPlanSchema = z.object({
+  total: z.number().int().min(1),
+  /** The history cut-off the plan was made with. */
+  asOf: z.string().min(1),
+  /** How many of the project's runs the durations were read from. */
+  runs: z.number().int().min(0),
+  /** Files planned from their own history, and files estimated without one. */
+  known: z.number().int().min(0),
+  unknown: z.number().int().min(0),
+  shards: z.array(
+    z.object({
+      index: z.number().int().min(1),
+      files: z.array(z.string()),
+      estimatedMs: z.number().min(0),
+    }),
+  ),
+});
+export type ShardPlanResponse = z.infer<typeof ShardPlanSchema>;

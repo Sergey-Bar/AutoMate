@@ -162,6 +162,36 @@ export class InMemoryRunRepository implements RunRepository {
       .slice(0, page.limit);
   }
 
+  async fileDurations(
+    projectId: string,
+    window: { asOf: Date; runs: number },
+  ): Promise<{ runs: number; files: Map<string, number[]> }> {
+    const recent = [...this._runs.values()]
+      .filter(
+        (run) =>
+          run.projectId === projectId &&
+          run.finishedAt !== null &&
+          Date.parse(run.finishedAt) <= window.asOf.getTime(),
+      )
+      .sort(
+        (left, right) =>
+          Date.parse(right.finishedAt ?? '') - Date.parse(left.finishedAt ?? '') ||
+          (left.id < right.id ? 1 : -1),
+      )
+      .slice(0, window.runs);
+    const files = new Map<string, number[]>();
+    for (const run of recent) {
+      const perFile = new Map<string, number>();
+      for (const test of this._tests.values()) {
+        if (test.runId !== run.id || test.file === '') continue;
+        if (test.durationMs === null) continue;
+        perFile.set(test.file, (perFile.get(test.file) ?? 0) + test.durationMs);
+      }
+      for (const [file, total] of perFile) files.set(file, [...(files.get(file) ?? []), total]);
+    }
+    return { runs: recent.length, files };
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   private _testKey(testId: string, runId: string): string {
