@@ -126,6 +126,12 @@ export interface ExecutionTestResult {
   id: string;
   title: string;
   file?: string | null;
+  /**
+   * The test's identity across runs (`testIdentity`): what `tests.stable_id` holds.
+   * Absent on a result built in memory without one; read it through `storedTestIdentity`,
+   * which falls back to the legacy identity the `0045` backfill writes.
+   */
+  stableId?: string | null;
   status: ExecutionTestStatus;
   durationMs?: number | null;
   attempt?: number;

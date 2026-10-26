@@ -174,6 +174,13 @@ export interface TestRecord {
   runId: string;
   title: string;
   file: string;
+  /**
+   * The test's identity across runs (`testIdentity` in `@automate/shared-contracts`), which
+   * `tests.stable_id` holds. Required, so a writer cannot forget it: every writer of a
+   * test row derives it from what the producer said, and the `0045` backfill wrote the
+   * legacy identity for every row before it.
+   */
+  stableId: string;
   status: TestStatus;
   durationMs: number | null;
   /**

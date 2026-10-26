@@ -8,6 +8,7 @@ import { eq, and, sql, asc, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
+import { storedTestIdentity } from '@automate/shared-contracts';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import {
   toPersistedStatus,
@@ -293,6 +294,7 @@ export class DrizzleRunRepository implements RunRepository {
         workspaceId: this.workspaceId,
         title: test.title,
         file: test.file,
+        stableId: test.stableId,
         status: test.status,
         durationMs: test.durationMs ?? null,
         errorCode: test.errorCode,
@@ -303,6 +305,7 @@ export class DrizzleRunRepository implements RunRepository {
         set: {
           title: test.title,
           file: test.file,
+          stableId: test.stableId,
           status: test.status,
           durationMs: test.durationMs ?? null,
           // Cleared on conflict as well as set: a retry reported over the same
@@ -435,6 +438,7 @@ export class DrizzleRunRepository implements RunRepository {
       runId: row.runId,
       title: row.title,
       file: row.file,
+      stableId: storedTestIdentity(row),
       status: row.status as TestStatus,
       durationMs: row.durationMs ?? null,
       errorCode: row.errorCode ?? null,

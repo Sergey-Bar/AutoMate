@@ -432,7 +432,10 @@ export const tests = pgTable(
     file: text('file').notNull(),
     line: integer('line'),
     column: integer('column'),
-    stableId: text('stable_id'),
+    // The test's identity across runs — `testIdentity` in `@automate/shared-contracts`.
+    // NOT NULL since 0045, which backfilled it and fills it on insert for a writer that
+    // does not send it.
+    stableId: text('stable_id').notNull(),
     status: text('status', {
       // `timed_out` and `timedOut` were both accepted here. Nothing writes or
       // reads the camelCase spelling — `testStatus()` maps it to `unknown` on
@@ -487,7 +490,8 @@ export const tests = pgTable(
     primaryKey({ columns: [t.id, t.runId] }),
     index('tests_run_id_idx').on(t.runId),
     index('tests_workspace_run_idx').on(t.workspaceId, t.runId),
-    index('tests_stable_id_idx').on(t.stableId),
+    // Per-test history reads one test in one workspace, so the boundary leads (0045).
+    index('tests_workspace_stable_id_idx').on(t.workspaceId, t.stableId),
     // The enum is compile-time only, so the spellings it permits are not
     // enforced by the database. Without this a second spelling of a state can
     // reappear and split every aggregation.

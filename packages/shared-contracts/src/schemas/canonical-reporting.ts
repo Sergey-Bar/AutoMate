@@ -103,6 +103,14 @@ const AttemptSchema = z.object({
   specPath: RelativePathSchema,
   title: z.string().min(1),
   suite: z.string().min(1).optional(),
+  /**
+   * The enclosing `describe` titles, outermost first, and the runner project (a Playwright
+   * project, a browser, a device). Together with `specPath` and `title` they are the test's
+   * identity across runs — `testIdentity` in `./test-identity.ts`. Optional and additive: a
+   * producer with no describe blocks or projects sends neither.
+   */
+  describePath: z.array(z.string()).optional(),
+  project: z.string().min(1).optional(),
   status: StatusSchema,
   rawStatus: z.string().min(1),
   startedAt: TimestampSchema,

@@ -6379,6 +6379,60 @@
         }
       ],
       "resolution": "The wait is on the change the event makes, not on a text that was already true."
+    },
+    {
+      "id": "MKT-1",
+      "title": "One test in two Playwright projects was one test, and a webkit-only failure scored as flaky",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "Flakiness, failure clusters and quarantine suggestions were keyed on `file › title` (`testKey` in `apps/api/src/execution/insights.ts`). Playwright's `projectName` was declared in the adapter's input type and read by nothing, so one test run in chromium (passing) and webkit (failing) was a single key that flipped on every observation: score 1, top of the leaderboard, and a quarantine suggestion for a deterministic failure. The adapter's `testId` was `${file}:${test.title ?? ordinal}`, and a Playwright test has no `title`, so the id was the test's position in the report. Two `describe` blocks with one title collapsed the same way. `tests.stable_id` existed with an index on it and nothing wrote it.",
+      "confirmedBy": "Read against `packages/reporter/src/adapters/playwright-json.ts` and the Playwright JSON reporter shape; the insights test failed on the old key with the webkit-only failure on the leaderboard.",
+      "evidence": [
+        {
+          "path": "packages/shared-contracts/src/schemas/test-identity.test.ts",
+          "asserts": "Two projects and two describe blocks are distinct identities, and a title cannot forge either."
+        },
+        {
+          "path": "packages/reporter/src/playwright-identity.test.ts",
+          "asserts": "The Playwright adapter emits the shared identity, with the project and describe path on the attempt."
+        },
+        {
+          "path": "apps/api/src/execution/insights.test.ts",
+          "asserts": "A webkit-only failure is broken, not flaky, and is never a quarantine suggestion."
+        },
+        {
+          "path": "tests/integration/src/test-identity.test.ts",
+          "asserts": "0045 backfills `tests.stable_id` with the identity the TypeScript rule computes, fills it on insert, and makes it NOT NULL."
+        }
+      ],
+      "resolution": "`testIdentity` in `@automate/shared-contracts` is the one identity (file, describe path, title, project). Every writer of `tests` sets `stable_id` from it, and every reader keys on it."
+    },
+    {
+      "id": "MKT-2",
+      "title": "Every package declared \"UNLICENSED\" under an MIT root LICENSE",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "The root `LICENSE` is MIT. Twenty-six workspace packages declared `\"license\": \"UNLICENSED\"`, npm's word for proprietary, and the rest declared nothing, so the open-source licence was true of the repository and of no package anyone could install. Every package was also `private`, including the CI CLI.",
+      "confirmedBy": "Read against every tracked package.json.",
+      "evidence": [
+        {
+          "path": "scripts/lib/package-licence.test.mjs",
+          "asserts": "Every package declares the licence the root LICENSE states."
+        },
+        {
+          "path": "scripts/lib/npm-publish-workflow.test.mjs",
+          "asserts": "The CLI is public and every public package can be published with provenance."
+        }
+      ],
+      "resolution": "Every package is MIT; `@automate/cli` is publishable from `.github/workflows/npm-publish.yml`."
     }
   ]
 }

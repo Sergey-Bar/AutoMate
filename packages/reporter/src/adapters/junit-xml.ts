@@ -1,5 +1,5 @@
 import { SaxesParser } from 'saxes';
-import type { CanonicalRunResult } from '@automate/shared-contracts';
+import { testIdentity, type CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
 import { canonicalRunResult, type CanonicalStatus } from '../canonical-run-result.js';
 import { canonicalTestStatusFrom, outcomesWithDeclaredRunStatus } from '../producer-status.js';
@@ -284,7 +284,13 @@ export const junitXmlAdapter: ProducerAdapter = {
     // no retries cannot tell "always 1" from "per test".
     const attemptOrdinal = new Map<string, number>();
     const attempts = testCases.map((testCase) => {
-      const testId = `${testCase.classname ?? 'suite'}:${testCase.name}`;
+      const specPath = testCase.file ?? 'unknown.spec.ts';
+      // The shared identity, with the classname as the describe path: a JUnit `classname`
+      // is the enclosing class or `describe`, which is exactly the level that tells two
+      // same-named tests apart. Repeated `(classname, name)` pairs are still one test's
+      // attempts, because they produce one identity.
+      const describePath = testCase.classname === undefined ? [] : [testCase.classname];
+      const testId = testIdentity({ file: specPath, describePath, title: testCase.name });
       const index = (attemptOrdinal.get(testId) ?? 0) + 1;
       attemptOrdinal.set(testId, index);
       return {
@@ -295,9 +301,10 @@ export const junitXmlAdapter: ProducerAdapter = {
         // attribute put every test under a single suite called after its package, which
         // reads as a location and is not one. `unknown.spec.ts` is honest in a way
         // `suite.pkg` is not, and it is what this adapter has always done.
-        specPath: testCase.file ?? 'unknown.spec.ts',
+        specPath,
         title: testCase.name,
         suite: testCase.classname,
+        describePath,
         status: testCase.status,
         rawStatus: testCase.status,
         startedAt: context.startedAt,

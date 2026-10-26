@@ -95,6 +95,10 @@ export interface CanonicalAttemptInput {
    */
   finishedAt?: string;
   suite?: string;
+  /** The enclosing `describe` titles, outermost first; see `testIdentity`. */
+  describePath?: string[];
+  /** The runner project the attempt ran under, such as a Playwright project. */
+  project?: string;
   durationMs?: number;
   error?: { message: string };
   evidence?: CanonicalAttempt['evidence'];
@@ -150,6 +154,10 @@ export function canonicalRunResult(
     specPath: attempt.specPath,
     title: attempt.title,
     suite: attempt.suite,
+    ...(attempt.describePath === undefined ? {} : { describePath: attempt.describePath }),
+    ...(attempt.project === undefined || attempt.project === ''
+      ? {}
+      : { project: attempt.project }),
     status: attempt.status,
     rawStatus: attempt.rawStatus,
     startedAt: attempt.startedAt,

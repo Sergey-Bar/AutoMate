@@ -199,6 +199,32 @@ describe('run:start', () => {
 // ---------------------------------------------------------------------------
 
 describe('test:begin', () => {
+  it('keeps one test in two projects, and in two describe blocks, as distinct identities', async () => {
+    const repository = new RecordingRunRepository();
+    await started(repository, { total: 2 });
+    for (const [testId, project, describePath] of [
+      ['t-chromium', 'chromium', ['guest']],
+      ['t-webkit', 'webkit', ['member']],
+    ] as const) {
+      await persistReporterEvent(
+        event('test:begin', {
+          testId,
+          title: 'pays',
+          file: 'e2e/pay.spec.ts',
+          project,
+          describePath: [...describePath],
+        }),
+        repository,
+      );
+    }
+    expect((await repository.getTest('t-chromium', RUN_ID))?.stableId).toBe(
+      'e2e/pay.spec.ts › guest › pays [chromium]',
+    );
+    expect((await repository.getTest('t-webkit', RUN_ID))?.stableId).toBe(
+      'e2e/pay.spec.ts › member › pays [webkit]',
+    );
+  });
+
   it('writes a running test and leaves the run alone, reporting no run write', async () => {
     const repository = new RecordingRunRepository();
     await started(repository, { total: 3 });
@@ -226,6 +252,7 @@ describe('test:begin', () => {
       runId: RUN_ID,
       title: 'logs in',
       file: 'e2e/auth/login.spec.ts',
+      stableId: 'e2e/auth/login.spec.ts › logs in',
       status: 'running',
       durationMs: null,
       // A test that has not finished has no reason. Written explicitly rather than

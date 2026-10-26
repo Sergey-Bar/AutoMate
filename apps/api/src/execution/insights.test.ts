@@ -332,3 +332,59 @@ describe('failure clusters and quarantine suggestions', () => {
     ).toEqual([]);
   });
 });
+
+describe('test identity across Playwright projects', () => {
+  /** One test, run in chromium (always passes) and webkit (always fails), on three runs. */
+  function browsers(createdAt: string): ExecutionRun {
+    return run(createdAt, 'failed', [
+      {
+        id: 'pays [chromium]',
+        title: 'pays',
+        file: 'a.spec.ts',
+        status: 'passed',
+        durationMs: 10,
+        stableId: 'a.spec.ts › pays [chromium]',
+      },
+      {
+        id: 'pays [webkit]',
+        title: 'pays',
+        file: 'a.spec.ts',
+        status: 'failed',
+        durationMs: 10,
+        stableId: 'a.spec.ts › pays [webkit]',
+        error: { message: 'Safari only' },
+      },
+    ]);
+  }
+
+  it('reads a webkit-only failure as broken, not flaky', () => {
+    const insights = buildInsights(
+      [
+        browsers('2026-10-18T08:00:00.000Z'),
+        browsers('2026-10-19T08:00:00.000Z'),
+        browsers('2026-10-20T08:00:00.000Z'),
+      ],
+      NOW,
+      7,
+      false,
+    );
+    // Keyed on `file › title`, the two projects were one test that flipped on every
+    // observation: score 1, the top of the leaderboard, and a quarantine suggestion.
+    expect(insights.flakyLeaderboard).toEqual([]);
+    expect(insights.quarantineSuggestions?.suggestions ?? []).toEqual([]);
+    expect(insights.failureClusters?.clusters[0]?.tests).toEqual(['a.spec.ts › pays [webkit]']);
+  });
+
+  it('falls back to the legacy key for a result recorded before the identity existed', () => {
+    const insights = buildInsights(
+      [
+        run('2026-10-18T08:00:00.000Z', 'passed', [test('old', 'flaky')]),
+        run('2026-10-19T08:00:00.000Z', 'passed', [test('old', 'passed')]),
+      ],
+      NOW,
+      7,
+      false,
+    );
+    expect(insights.flakyLeaderboard[0]?.key).toBe('a.spec.ts › old');
+  });
+});

@@ -7,13 +7,14 @@ import {
   type FailureInput,
   type FlakeObservation,
 } from '@automate/reporting';
-import type {
-  BranchPassRate,
-  FlakyTest,
-  HeatmapRow,
-  Mttr,
-  QaInsights,
-  SlowTest,
+import {
+  storedTestIdentity,
+  type BranchPassRate,
+  type FlakyTest,
+  type HeatmapRow,
+  type Mttr,
+  type QaInsights,
+  type SlowTest,
 } from '@automate/shared-contracts';
 import { dayKey, passRate, readSince, startOfDay } from './trend.js';
 import type { ExecutionRun, ExecutionStore, ExecutionTestResult } from './types.js';
@@ -248,9 +249,9 @@ function quarantineSuggestionsOf(
   };
 }
 
-/** `file › title`, so two tests with one title in two files are two tests. */
+/** The shared identity (`testIdentity`): file, describe path, title and project. */
 function testKey(test: ExecutionTestResult): string {
-  return `${test.file ?? ''} › ${test.title}`;
+  return storedTestIdentity(test);
 }
 
 function appearances(runs: readonly ExecutionRun[]): Map<string, Appearance[]> {

@@ -186,6 +186,7 @@ describe('migration graph', () => {
       '0042_test_proposals',
       '0043_vault_key_version',
       '0044_delivery_hardening',
+      '0045_test_identity',
     ]);
   });
 

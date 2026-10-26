@@ -9140,6 +9140,8 @@
           "specPath": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "minLength": 1 },
           "suite": { "type": "string", "minLength": 1 },
+          "describePath": { "type": "array", "items": { "type": "string" } },
+          "project": { "type": "string", "minLength": 1 },
           "status": {
             "type": "string",
             "enum": [
@@ -9417,6 +9419,8 @@
                   "specPath": { "type": "string", "minLength": 1 },
                   "title": { "type": "string", "minLength": 1 },
                   "suite": { "type": "string", "minLength": 1 },
+                  "describePath": { "type": "array", "items": { "type": "string" } },
+                  "project": { "type": "string", "minLength": 1 },
                   "status": {
                     "type": "string",
                     "enum": [
@@ -9518,6 +9522,8 @@
                   "specPath": { "type": "string", "minLength": 1 },
                   "title": { "type": "string", "minLength": 1 },
                   "suite": { "type": "string", "minLength": 1 },
+                  "describePath": { "type": "array", "items": { "type": "string" } },
+                  "project": { "type": "string", "minLength": 1 },
                   "status": {
                     "type": "string",
                     "enum": [
@@ -10381,6 +10387,8 @@
                 "specPath": { "type": "string", "minLength": 1 },
                 "title": { "type": "string", "minLength": 1 },
                 "suite": { "type": "string", "minLength": 1 },
+                "describePath": { "type": "array", "items": { "type": "string" } },
+                "project": { "type": "string", "minLength": 1 },
                 "status": {
                   "type": "string",
                   "enum": [

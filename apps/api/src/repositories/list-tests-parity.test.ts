@@ -91,6 +91,7 @@ const testsFor = (runId: string, titles: string[]) =>
     runId,
     title,
     file: 'tests/checkout.spec.ts',
+    stableId: `tests/checkout.spec.ts › ${title}`,
     status: 'passed' as const,
     durationMs: 5,
     // Required on `TestRecord` since migration 0022; these fixtures are about grouping,
