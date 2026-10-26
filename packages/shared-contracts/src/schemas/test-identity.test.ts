@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { testIdentity, testRowKey } from './test-identity.js';
+import { testIdentity, testRowKey, storedTestIdentity } from './test-identity.js';
+
+describe('storedTestIdentity', () => {
+  it('uses the stored identity when a row has one', () => {
+    expect(
+      storedTestIdentity({ stableId: 'a.spec.ts › d › t [webkit]', file: 'a.spec.ts', title: 't' }),
+    ).toBe('a.spec.ts › d › t [webkit]');
+  });
+
+  it('derives the legacy identity for a row recorded before the identity existed', () => {
+    // The 0045 backfill writes exactly `testIdentity({ file, title })` for these rows, so the
+    // two readings of an old row agree and its history does not split at the migration.
+    for (const stableId of [undefined, null, '']) {
+      expect(storedTestIdentity({ stableId, file: 'a.spec.ts', title: 'logs in' })).toBe(
+        testIdentity({ file: 'a.spec.ts', title: 'logs in' }),
+      );
+    }
+    expect(storedTestIdentity({ file: null, title: 'logs in' })).toBe(' › logs in');
+    expect(storedTestIdentity({ title: 'x [y]' })).toBe(' › x \\[y]');
+  });
+});
 
 describe('testIdentity', () => {
   it('keeps one test in two Playwright projects apart', () => {
