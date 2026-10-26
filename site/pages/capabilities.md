@@ -9,8 +9,8 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Status       | Count | Meaning                                                                   |
 | ------------ | ----- | ------------------------------------------------------------------------- |
-| **real**     | 49    | implemented and exercised, with the stated qualification.                 |
-| **mock**     | 10    | a route, response, or UI exists but does not provide the target behavior. |
+| **real**     | 50    | implemented and exercised, with the stated qualification.                 |
+| **mock**     | 9     | a route, response, or UI exists but does not provide the target behavior. |
 | **missing**  | 1     | no usable implementation exists in the target.                            |
 | **deferred** | 6     | intentionally outside the launch scope pending a separate decision.       |
 | **obsolete** | 2     | retained only as historical residue and not part of the target product.   |
@@ -25,7 +25,7 @@ its source, then run `pnpm site:generate`.
 | Run and test persistence                                                                            | `real`     |
 | Run list, detail, quarantine, and quality gates                                                     | `real`     |
 | Basic dashboard analytics                                                                           | `real`     |
-| Trends, leaderboards, and performance dashboards                                                    | `mock`     |
+| Trends, leaderboards, and performance dashboards                                                    | `real`     |
 | Live run updates over SSE                                                                           | `real`     |
 | Binary artifact storage and retrieval                                                               | `real`     |
 | Revocable installation sessions                                                                     | `real`     |

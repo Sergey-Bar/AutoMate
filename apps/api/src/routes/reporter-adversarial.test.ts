@@ -335,7 +335,7 @@ describe('the upload path is the only one that writes a run', () => {
   });
 });
 describe('the composition is the real one', () => {
-  it('serves exactly the two ingestion routes', () => {
+  it('serves exactly the three ingestion routes', () => {
     const app = withErrorBoundary(
       createReporterRoutes(SECRET, { repository: new InMemoryRunRepository() }),
     );
@@ -344,6 +344,7 @@ describe('the composition is the real one', () => {
       .filter((key) => !key.startsWith('ALL'));
     expect([...served].sort()).toEqual([
       'POST /api/v1/reporter/events',
+      'POST /api/v1/reporter/runs/:runId/artifacts',
       'POST /api/v1/reporter/upload',
     ]);
   });

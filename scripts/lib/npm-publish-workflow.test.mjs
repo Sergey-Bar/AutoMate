@@ -48,6 +48,10 @@ test('the CLI is public, and every public package can be published', () => {
     published.some((pkg) => pkg.name === '@automate/cli'),
     'the CLI is what CI installs; it has to be public',
   );
+  assert.ok(
+    published.some((pkg) => pkg.name === '@automate/playwright-reporter'),
+    'the live reporter is installed from a playwright.config.ts; it has to be public',
+  );
   assert.deepEqual(published.flatMap(publishProblems), []);
 });
 

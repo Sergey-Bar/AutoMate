@@ -793,6 +793,8 @@ app.route(
     workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
     bus: realtimeBus,
     artifactStore: { putAt: (key, bytes) => artifactBytesStore.put(key, bytes) },
+    // The live reporter's traces and screenshots, filed as the run's own artifacts.
+    artifacts: executionStore,
     allowQueryToken: false,
   }),
 );
