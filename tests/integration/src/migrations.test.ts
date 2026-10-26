@@ -188,6 +188,7 @@ describe('migration graph', () => {
       '0044_delivery_hardening',
       '0045_test_identity',
       '0046_quarantine_identity',
+      '0047_quarantine_lifecycle',
     ]);
   });
 

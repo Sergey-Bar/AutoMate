@@ -28,7 +28,9 @@ export interface QuarantineMatch {
   stableId: string | null;
   testTitle: string;
   testFile: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'released';
+  /** The project the entry is about; `null` or absent matches the test in any project. */
+  projectId?: string | null;
 }
 
 export interface QuarantineExcusal {
@@ -44,12 +46,31 @@ export interface QuarantineExcusal {
   tests: string[];
 }
 
-type ExcusableRun = Pick<Partial<ExecutionRun>, 'tests' | 'summary' | 'error'>;
+type ExcusableRun = Pick<Partial<ExecutionRun>, 'tests' | 'summary' | 'error' | 'projectId'>;
 
 const FAILED = new Set<ExecutionTestResult['status']>(['failed', 'timed_out']);
 
-function matches(entry: QuarantineMatch, test: ExecutionTestResult, identity: string): boolean {
-  if (entry.stableId !== null && entry.stableId !== '') return entry.stableId === identity;
+/**
+ * Whether an entry is about this test. An entry naming a project is about that project's
+ * test only; an entry naming none, or a run naming none, is matched on the test alone.
+ */
+export function quarantineMatches(
+  entry: QuarantineMatch,
+  test: Pick<ExecutionTestResult, 'title' | 'file' | 'stableId'>,
+  projectId: string | null | undefined,
+): boolean {
+  if (
+    entry.projectId !== undefined &&
+    entry.projectId !== null &&
+    projectId !== undefined &&
+    projectId !== null &&
+    entry.projectId !== projectId
+  ) {
+    return false;
+  }
+  if (entry.stableId !== null && entry.stableId !== '') {
+    return entry.stableId === storedTestIdentity(test);
+  }
   return entry.testTitle === test.title && entry.testFile === (test.file ?? '');
 }
 
@@ -67,11 +88,10 @@ export function excuseQuarantined(
     const failed = FAILED.has(test.status);
     if (failed) failures += 1;
     if (!failed && test.status !== 'flaky') continue;
-    const identity = storedTestIdentity(test);
-    if (!approved.some((entry) => matches(entry, test, identity))) continue;
+    if (!approved.some((entry) => quarantineMatches(entry, test, run.projectId))) continue;
     if (failed) excusedFailures += 1;
     else excusedFlaky += 1;
-    excusedIds.push(identity);
+    excusedIds.push(storedTestIdentity(test));
   }
   const excused = excusedFailures + excusedFlaky;
   const summaryFailures = run.summary?.failed ?? failures;

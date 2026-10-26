@@ -34,8 +34,16 @@ export interface QuarantineEntry {
    * file in every project, as it did when it was approved.
    */
   stableId: string | null;
+  /** The project whose test this is; `null` matches the test in any project (0047). */
+  projectId: string | null;
+  /** `manual` for a person's entry, `automate` for one the auto-quarantine policy wrote. */
+  quarantinedBy: string;
   reason: string | null;
   quarantinedAt: string; // ISO-8601
+  /** When an approved entry stopped excusing its test; `null` until it is `released`. */
+  releasedAt: string | null;
+  /** How the entry was resolved, when it was (`auto-released` for a policy release). */
+  resolutionType: string | null;
   /**
    * Where the entry stands.
    *
@@ -48,10 +56,11 @@ export interface QuarantineEntry {
 }
 
 /** A quarantine entry as it arrives from a caller: no id, no timestamp, no status. */
-export type NewQuarantineEntry = Omit<
-  QuarantineEntry,
-  'id' | 'quarantinedAt' | 'status' | 'stableId'
-> & { stableId?: string | null };
+export type NewQuarantineEntry = Pick<QuarantineEntry, 'testTitle' | 'testFile' | 'reason'> & {
+  stableId?: string | null;
+  projectId?: string | null;
+  quarantinedBy?: 'manual' | 'automate';
+};
 
 // ---------------------------------------------------------------------------
 // Store interface + in-memory implementation
@@ -93,8 +102,14 @@ export class InMemoryQuarantineStore implements QuarantineStore {
   async add(entry: NewQuarantineEntry, context?: WriteContext): Promise<QuarantineEntry> {
     const id = randomUUID();
     const created: QuarantineEntry = {
-      ...entry,
+      testTitle: entry.testTitle,
+      testFile: entry.testFile,
+      reason: entry.reason,
       stableId: entry.stableId ?? null,
+      projectId: entry.projectId ?? null,
+      quarantinedBy: entry.quarantinedBy ?? 'manual',
+      releasedAt: null,
+      resolutionType: null,
       id,
       quarantinedAt: new Date().toISOString(),
       status: 'pending',
@@ -139,6 +154,8 @@ export class InMemoryQuarantineStore implements QuarantineStore {
     const resolved: QuarantineEntry = {
       ...row,
       status: body.status,
+      resolutionType: body.resolutionType ?? null,
+      releasedAt: body.status === 'released' ? new Date().toISOString() : row.releasedAt,
     };
     this._entries.set(id, resolved);
     await this.audit.record({

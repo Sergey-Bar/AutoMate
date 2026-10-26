@@ -7,6 +7,8 @@ import {
   PortfolioHeatmapSchema,
   PortfolioSchema,
   ProjectHealthSchema,
+  ProjectQuarantineSchema,
+  QuarantinePolicySchema,
   ScorecardSchema,
   type FindingSeverity,
   type FindingState,
@@ -17,6 +19,8 @@ import {
   type HealthScanStarted,
   type Portfolio,
   type ProjectHealth,
+  type ProjectQuarantine,
+  type QuarantinePolicy,
   type TriageFindingBody,
   type PortfolioHeatmap,
   type Scorecard,
@@ -75,6 +79,10 @@ export interface HealthClient {
     projectId: string,
     alerts: { slackChannel?: string | null; webhookUrl?: string | null },
   ): Promise<void>;
+  /** The project's quarantine: its policy, and each entry with owner, cost and streak. */
+  getProjectQuarantine(projectId: string): Promise<ProjectQuarantine>;
+  /** Sets `off`, `suggest` or `auto`. Admin only. */
+  setQuarantinePolicy(projectId: string, policy: QuarantinePolicy): Promise<QuarantinePolicy>;
 }
 
 export const HealthSettingsSchema = z.object({
@@ -218,6 +226,10 @@ export function createHealthClient(baseUrl = '', fetchImpl: typeof fetch = fetch
     setAlerts: async (projectId, alerts) => {
       await put(`${project(projectId)}/health/alerts`, alerts, z.object({}).passthrough());
     },
+    getProjectQuarantine: (projectId) =>
+      get(`${project(projectId)}/quarantine`, ProjectQuarantineSchema),
+    setQuarantinePolicy: (projectId, policy) =>
+      put(`${project(projectId)}/quarantine/policy`, policy, QuarantinePolicySchema),
     revokeToken: async (id) => {
       const path = `/api/v1/access-tokens/${encodeURIComponent(id)}`;
       const response = await fetchImpl(`${baseUrl}${path}`, {

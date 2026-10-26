@@ -137,8 +137,12 @@ function mapEntry(row: typeof quarantine.$inferSelect): QuarantineEntry {
     testTitle: row.testTitle,
     testFile: row.testFile,
     stableId: row.stableId ?? null,
+    projectId: row.projectId ?? null,
+    quarantinedBy: row.quarantinedBy ?? 'manual',
     reason: row.reason ?? null,
     quarantinedAt: row.quarantinedAt.toISOString(),
+    releasedAt: row.releasedAt?.toISOString() ?? null,
+    resolutionType: row.resolutionType ?? null,
     status: row.status,
   };
 }
@@ -182,6 +186,8 @@ export class DrizzleQuarantineStore implements QuarantineStore {
     const id = randomUUID();
     const now = new Date();
     const stableId = entry.stableId ?? null;
+    const projectId = entry.projectId ?? null;
+    const quarantinedBy = entry.quarantinedBy ?? 'manual';
     await this.db.transaction(async (tx) => {
       await tx.insert(quarantine).values({
         id,
@@ -189,6 +195,8 @@ export class DrizzleQuarantineStore implements QuarantineStore {
         testTitle: entry.testTitle,
         testFile: entry.testFile,
         stableId,
+        projectId,
+        quarantinedBy,
         reason: entry.reason ?? null,
         quarantinedAt: now,
         // Explicit rather than relying on the column default, so the value returned
@@ -204,7 +212,13 @@ export class DrizzleQuarantineStore implements QuarantineStore {
             resourceType: 'quarantine_entry',
             resourceId: id,
             ...context,
-            details: { testTitle: entry.testTitle, testFile: entry.testFile, stableId },
+            details: {
+              testTitle: entry.testTitle,
+              testFile: entry.testFile,
+              stableId,
+              projectId,
+              quarantinedBy,
+            },
           },
           this.workspaceId,
           now,
@@ -216,8 +230,12 @@ export class DrizzleQuarantineStore implements QuarantineStore {
       testTitle: entry.testTitle,
       testFile: entry.testFile,
       stableId,
+      projectId,
+      quarantinedBy,
       reason: entry.reason ?? null,
       quarantinedAt: now.toISOString(),
+      releasedAt: null,
+      resolutionType: null,
       status: 'pending',
     };
   }
@@ -289,7 +307,9 @@ export class DrizzleQuarantineStore implements QuarantineStore {
         .set({
           status: body.status,
           resolutionType: body.resolutionType ?? null,
-          resolvedAt: now,
+          // A release keeps the time the entry was decided and records its own; the
+          // CHECK in 0047 ties `released_at` to the `released` status.
+          ...(body.status === 'released' ? { releasedAt: now } : { resolvedAt: now }),
         })
         .where(and(this.own(id), eq(quarantine.status, from)))
         .returning({ id: quarantine.id });
@@ -315,6 +335,14 @@ export class DrizzleQuarantineStore implements QuarantineStore {
       if (current.status === body.status) return { kind: 'resolved', entry: mapEntry(current) };
       return { kind: 'illegal_transition', from: current.status, to: body.status };
     }
-    return { kind: 'resolved', entry: { ...mapEntry(row), status: body.status } };
+    return {
+      kind: 'resolved',
+      entry: {
+        ...mapEntry(row),
+        status: body.status,
+        resolutionType: body.resolutionType ?? null,
+        ...(body.status === 'released' ? { releasedAt: now.toISOString() } : {}),
+      },
+    };
   }
 }

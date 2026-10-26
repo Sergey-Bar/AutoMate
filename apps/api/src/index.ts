@@ -31,7 +31,7 @@ import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
-import { createAnalyticsTrendRoutes } from './execution/trend.js';
+import { createAnalyticsTrendRoutes, readSince } from './execution/trend.js';
 import { createInsightsRoutes } from './execution/insights.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createAgentCatalog } from './routes/agent-registry.js';
@@ -99,6 +99,8 @@ import { createDashboardModule } from './modules/dashboard/index.js';
 import { InMemoryQuarantineStore, type QuarantineStore } from './modules/dashboard/quarantine.js';
 import { boundQuarantineSource } from './execution/quarantine-excusal.js';
 import { commitTests } from './services/commit-tests.js';
+import { applyProjectQuarantinePolicy } from './services/quarantine-policy-service.js';
+import type { ExecutionRun } from './execution/types.js';
 import {
   DrizzleQuarantineStore,
   DrizzleQualityGateStore,
@@ -362,6 +364,16 @@ const dashboardStores = createDashboardStores();
 const quarantineFor = boundQuarantineSource(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID, () =>
   dashboardStores.quarantineStore.list(),
 );
+
+/** The workspace's runs since a moment, oldest first: what the quarantine policy reads. */
+async function workspaceHistory(since: Date): Promise<ExecutionRun[]> {
+  const { runs } = await readSince(
+    executionStore,
+    runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    since.getTime(),
+  );
+  return [...runs].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+}
 
 const executionStore = withClassifiedErrors(createExecutionStore());
 
@@ -973,7 +985,13 @@ if (databaseResources !== undefined) {
         canonicalStore: resolveReporterStore(),
         bus: realtimeBus,
         quarantined: quarantineFor,
+        applyPolicy: (projectId) =>
+          applyProjectQuarantinePolicy(
+            { ...registry, store: dashboardStores.quarantineStore, history: workspaceHistory },
+            projectId,
+          ),
       },
+      quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
       delivery: {
         lanMode: runtimeConfig.lanMode === true,
         ...(runtimeConfig.githubWebhookSecret === undefined

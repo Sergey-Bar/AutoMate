@@ -137,6 +137,37 @@ describe('POST /api/v1/projects/:id/tests/reports', () => {
     expect(verdict.quarantine.excused).toBe(false);
   });
 
+  it('runs the project policy before the verdict, so this run can be excused by it', async () => {
+    const entries: QuarantineMatch[] = [];
+    const repository = new InMemoryRunRepository();
+    const app = withErrorBoundary(
+      new Hono().route(
+        '/',
+        createTestReportRoutes({
+          uploader: pass,
+          workspaceId: WORKSPACE,
+          sink: {
+            repository,
+            canonicalStore: new ReporterIngestionService(WORKSPACE),
+            quarantined: async () => entries,
+            applyPolicy: async () => {
+              entries.push(approved(FLAKY));
+              return { quarantined: [FLAKY], released: [] };
+            },
+          },
+          projectExists: async () => true,
+        }),
+      ),
+    );
+    const response = await app.request(
+      `/api/v1/projects/${PROJECT}/tests/reports?format=junit&commit=${COMMIT}`,
+      { method: 'POST', body: junit(['pays']) },
+    );
+    const verdict = await verdictOf(response);
+    expect(verdict.autoQuarantine).toEqual({ quarantined: [FLAKY], released: [] });
+    expect(verdict.quarantine.excused).toBe(true);
+  });
+
   it("never reads another workspace's quarantine", async () => {
     const { send } = harness([approved(FLAKY)], { entriesFor: 'ws-other' });
     expect((await verdictOf(await send(junit(['pays'])))).quarantine.excused).toBe(false);

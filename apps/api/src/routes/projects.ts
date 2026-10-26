@@ -69,6 +69,10 @@ import { createGitHubWebhookRoutes } from './github-webhook.js';
 import { createIssueTrackingRoutes } from './issue-tracking.js';
 import { createTestProposalRoutes } from './test-proposals.js';
 import { createTestReportRoutes, type TestReportSink } from './test-reports.js';
+import {
+  createProjectQuarantineRoutes,
+  type ProjectQuarantineSource,
+} from './project-quarantine.js';
 import type { IssueAdapters } from '../services/issue-tracker-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
@@ -159,6 +163,11 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * Absent: `POST /api/v1/projects/:id/tests/reports` is not mounted.
    */
   testReports?: TestReportSink;
+  /**
+   * The quarantine store and the run history a project's quarantine view and its
+   * auto-quarantine policy read. Absent: the view answers NOT_CONFIGURED.
+   */
+  quarantine?: ProjectQuarantineSource;
 }
 
 const DAY_MS = 86_400_000;
@@ -354,6 +363,17 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   app.route('/', createAiCodeRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
   // A CI job's test report and the quarantine verdict `automate test` acts on. Mounted
   // always, so the authz matrix lists it; without its stores it answers NOT_CONFIGURED.
+  app.route(
+    '/',
+    createProjectQuarantineRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      viewer,
+      admin: requireRole('admin', access),
+      actorOf: async (context) => (await callerOf(context, access)).actor,
+      source: options.quarantine,
+    }),
+  );
   app.route(
     '/',
     createTestReportRoutes({

@@ -330,6 +330,13 @@
       "when": 1790400000041,
       "tag": "0046_quarantine_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790400000042,
+      "tag": "0047_quarantine_lifecycle",
+      "breakpoints": true
     }
   ]
 }

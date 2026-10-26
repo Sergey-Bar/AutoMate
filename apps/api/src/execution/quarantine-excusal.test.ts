@@ -172,3 +172,27 @@ describe('quarantine at the gate', () => {
     expect(gate.decision).toBe('blocked');
   });
 });
+
+describe('which entries excuse which runs', () => {
+  const PROJECT_A = '11111111-1111-4111-8111-111111111111';
+  const PROJECT_B = '22222222-2222-4222-8222-222222222222';
+
+  it("keeps one project's entry out of another project's run", () => {
+    const entry = approved(WEBKIT, { projectId: PROJECT_A });
+    const run = (projectId: string | null) => ({
+      ...runOf([result(CHROMIUM, 'passed'), result(WEBKIT, 'failed')]),
+      projectId,
+    });
+    expect(excuseQuarantined(run(PROJECT_A), [entry]).complete).toBe(true);
+    expect(excuseQuarantined(run(PROJECT_B), [entry]).complete).toBe(false);
+    // A run that names no project is read the way it was before projects existed.
+    expect(excuseQuarantined(run(null), [entry]).complete).toBe(true);
+    // An entry that names no project matches in any project.
+    expect(excuseQuarantined(run(PROJECT_B), [approved(WEBKIT)]).complete).toBe(true);
+  });
+
+  it('excuses nothing with a released entry', () => {
+    const run = runOf([result(CHROMIUM, 'passed'), result(WEBKIT, 'failed')]);
+    expect(excuseQuarantined(run, [approved(WEBKIT, { status: 'released' })]).complete).toBe(false);
+  });
+});

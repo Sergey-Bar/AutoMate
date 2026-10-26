@@ -7,7 +7,11 @@
  */
 
 import { storedTestIdentity } from '@automate/shared-contracts';
-import { excusesRun, type QuarantineMatch } from '../execution/quarantine-excusal.js';
+import {
+  excusesRun,
+  quarantineMatches,
+  type QuarantineMatch,
+} from '../execution/quarantine-excusal.js';
 import type { ExecutionTestResult } from '../execution/types.js';
 import type { RunRepository } from '../repositories/run-repository.js';
 
@@ -57,6 +61,7 @@ export async function commitTests(
   const { excused, excusal } = excusesRun(
     {
       tests,
+      projectId,
       summary: { ...summaryOf(tests), durationMs: null },
       error:
         reportErrors === 0
@@ -67,10 +72,10 @@ export async function commitTests(
   );
   const excusedIds = new Set(excusal.tests);
   const named = (test: ExecutionTestResult) =>
-    entries.some((entry) =>
-      entry.stableId !== null && entry.stableId !== ''
-        ? entry.stableId === storedTestIdentity(test)
-        : entry.testTitle === test.title && entry.testFile === (test.file ?? ''),
+    entries.some(
+      (entry) =>
+        (entry.status === 'pending' || entry.status === 'approved') &&
+        quarantineMatches(entry, test, projectId),
     );
   return {
     runId: run.id,

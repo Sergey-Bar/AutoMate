@@ -45,7 +45,7 @@ export const QuarantineEntrySchema = z.object({
   // decision endpoint, and a client schema that omitted it would have called every
   // entry indistinguishable — which is how a quarantine list reads as "these are all
   // excluded" when none of them are.
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: z.enum(['pending', 'approved', 'rejected', 'released']),
 });
 
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;

@@ -1302,6 +1302,8 @@ export function makeHealthDouble(
     getSettings: vi.fn(never),
     setSchedule: vi.fn(never),
     setAlerts: vi.fn(never),
+    getProjectQuarantine: vi.fn(never),
+    setQuarantinePolicy: vi.fn(never),
     ...overrides,
   };
 }

@@ -103,6 +103,13 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // against that workspace's quarantine only. `test-reports.test.ts` proves another
   // workspace's approval does not excuse the run.
   { family: 'test reports', files: ['routes/test-reports.ts'] },
+  // A project's quarantine policy and view. Every read and write of `projects.settings`
+  // filters on `workspace_id`, and `quarantine-policy-service.test.ts` proves another
+  // workspace's project can be neither read nor written.
+  {
+    family: 'project quarantine',
+    files: ['services/quarantine-policy-service.ts', 'routes/project-quarantine.ts'],
+  },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

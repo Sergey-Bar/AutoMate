@@ -575,7 +575,7 @@ export const quarantine = pgTable(
     // from the pass rate) until a human resolves it. The previous default,
     // `approved`, meant a test entered the quarantine and was immediately
     // hidden from reporting with nobody deciding that.
-    status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+    status: text('status', { enum: ['pending', 'approved', 'rejected', 'released'] })
       .notNull()
       .default('pending'),
     flakinessCategory: text('flakiness_category'),
@@ -587,8 +587,18 @@ export const quarantine = pgTable(
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     resolutionType: text('resolution_type'),
     ttfMs: integer('ttf_ms'),
+    // 0047. When an approved entry stopped excusing its test; set exactly when `released`.
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    // 0047. The project whose test this is; `null` matches the test in any project.
+    projectId: uuid('project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'cascade',
+    }),
   },
   (table) => [
+    check(
+      'quarantine_released_at_check',
+      sql`(${table.status} = 'released') = (${table.releasedAt} is not null)`,
+    ),
     // A time-to-fix is a claim that the problem was fixed; it cannot exist
     // without a resolution.
     check(
@@ -605,6 +615,7 @@ export const quarantine = pgTable(
     index('quarantine_workspace_quarantined_idx').on(table.workspaceId, table.quarantinedAt),
     // 0046: the gate reads one workspace's entries for the identities a run reported.
     index('quarantine_workspace_stable_id_idx').on(table.workspaceId, table.stableId),
+    index('quarantine_workspace_project_idx').on(table.workspaceId, table.projectId),
   ],
 );
 

@@ -47,6 +47,11 @@ export interface TestReportSink {
   bus?: RealtimeBus;
   /** The workspace's quarantine entries — the source every gate evaluation reads. */
   quarantined: (workspaceId: string) => Promise<readonly QuarantineMatch[]>;
+  /**
+   * The project's auto-quarantine policy, run after the report is recorded and before its
+   * verdict, so a test that passed on a retry in this run can be quarantined by it.
+   */
+  applyPolicy?: (projectId: string) => Promise<{ quarantined: string[]; released: string[] }>;
 }
 
 export interface TestReportRouteOptions {
@@ -139,6 +144,7 @@ export function createTestReportRoutes(options: TestReportRouteOptions): Hono {
         });
       }
       const { run, tests } = ingested.projection;
+      const policy = (await sink.applyPolicy?.(projectId)) ?? { quarantined: [], released: [] };
       const asResults: ExecutionTestResult[] = tests.map((test) => ({
         id: test.id,
         title: test.title,
@@ -153,6 +159,7 @@ export function createTestReportRoutes(options: TestReportRouteOptions): Hono {
       const { excused, excusal } = excusesRun(
         {
           tests: asResults,
+          projectId,
           summary: {
             total: run.total,
             passed: run.passed,
@@ -183,6 +190,7 @@ export function createTestReportRoutes(options: TestReportRouteOptions): Hono {
           skipped: run.skipped,
         },
         reportErrors,
+        autoQuarantine: policy,
         quarantine: {
           excused,
           excusedTests: excusal.tests.slice(0, MAX_LISTED),

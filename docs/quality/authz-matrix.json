@@ -8,8 +8,8 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 12,
-    "viewer": 74,
+    "admin": 13,
+    "viewer": 76,
     "operator": 30,
     "open": 14,
     "runner-credential": 9,
@@ -904,6 +904,30 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/quarantine",
+      "access": "viewer",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/quarantine/policy",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/quarantine/policy",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
       "composition": "database"
     },
     {

@@ -35,6 +35,8 @@ export const TestReportVerdictSchema = z.object({
   }),
   /** Errors the producer reported outside any test. Any one makes the run unexcusable. */
   reportErrors: z.number().int().min(0),
+  /** What the project's auto-quarantine policy did on this report (nothing unless `auto`). */
+  autoQuarantine: z.object({ quarantined: z.array(z.string()), released: z.array(z.string()) }),
   quarantine: z.object({
     /**
      * True only when every failed test is an approved quarantine entry, at least one test
@@ -47,3 +49,64 @@ export const TestReportVerdictSchema = z.object({
   }),
 });
 export type TestReportVerdict = z.infer<typeof TestReportVerdictSchema>;
+
+/**
+ * What a project does with a test the flake model flags.
+ *
+ * - `off` — nothing, not even a suggestion on the pull request.
+ * - `suggest` — the default: the insights page and the comment name it; a person decides.
+ * - `auto` — a test with evidence a code change cannot explain (a retry pass, or two outcomes
+ *   on one commit; FLAKE-4) is quarantined and approved by `automate`, and released after
+ *   `releaseAfter` clean passes in a row.
+ */
+export const QUARANTINE_MODES = ['off', 'suggest', 'auto'] as const;
+export type QuarantineMode = (typeof QUARANTINE_MODES)[number];
+
+/**
+ * Twenty, because a test at the 20% flake threshold passes ten in a row 11% of the time
+ * (0.8^10) and twenty in a row about 1% of the time (0.8^20): ten would release, and then
+ * re-quarantine, a flaky test about one time in nine.
+ */
+export const DEFAULT_RELEASE_AFTER = 20;
+
+export const QuarantinePolicySchema = z.object({
+  mode: z.enum(QUARANTINE_MODES),
+  releaseAfter: z.number().int().min(5).max(200),
+});
+export type QuarantinePolicy = z.infer<typeof QuarantinePolicySchema>;
+
+export const DEFAULT_QUARANTINE_POLICY: QuarantinePolicy = {
+  mode: 'suggest',
+  releaseAfter: DEFAULT_RELEASE_AFTER,
+};
+
+/** One quarantined test of a project, with who owns it and what it has cost. */
+export const ProjectQuarantineEntrySchema = z.object({
+  id: z.string().min(1),
+  testTitle: z.string().min(1),
+  testFile: z.string(),
+  stableId: z.string().nullable(),
+  status: z.enum(['pending', 'approved', 'rejected', 'released']),
+  quarantinedBy: z.string().min(1),
+  reason: z.string().nullable(),
+  quarantinedAt: z.string().min(1),
+  releasedAt: z.string().nullable(),
+  /** From the project's CODEOWNERS; `null` when it has none or no rule matches. */
+  owner: z.string().nullable(),
+  /** Whole days since the entry was created. */
+  daysQuarantined: z.number().int().min(0),
+  /** Over the cost window: retries spent, time they took, and runs the test blocked. */
+  retriesSpent: z.number().int().min(0),
+  wastedMs: z.number().int().min(0),
+  blockedRuns: z.number().int().min(0),
+  /** Clean passes in a row at the end of the window, toward `releaseAfter`. */
+  cleanStreak: z.number().int().min(0),
+});
+export type ProjectQuarantineEntry = z.infer<typeof ProjectQuarantineEntrySchema>;
+
+export const ProjectQuarantineSchema = z.object({
+  policy: QuarantinePolicySchema,
+  windowDays: z.number().int().min(1),
+  entries: z.array(ProjectQuarantineEntrySchema),
+});
+export type ProjectQuarantine = z.infer<typeof ProjectQuarantineSchema>;
