@@ -53,10 +53,11 @@ describe('RunList', () => {
     });
     render(<RunList api={api} />);
     await waitFor(() => expect(screen.getByTestId('run-item-run-1')).toBeInTheDocument());
+    await waitFor(() => expect(subscription).toBeDefined());
     subscription?.onEvent(makePhaseEvent({ phase: 'running' }));
-    await waitFor(() =>
-      expect(screen.getByTestId('run-status-run-1')).toHaveTextContent('PENDING'),
-    );
-    expect(screen.getByTestId('run-item-run-1')).toHaveTextContent('running');
+    // Wait on the change the event makes. `PENDING` held before the event too, so waiting
+    // on it synchronised nothing and the phase was asserted before the update rendered.
+    await waitFor(() => expect(screen.getByTestId('run-item-run-1')).toHaveTextContent('running'));
+    expect(screen.getByTestId('run-status-run-1')).toHaveTextContent('PENDING');
   });
 });

@@ -6360,6 +6360,25 @@
         }
       ],
       "resolution": "Fixtures are assembled at runtime and the replacer is a named function. The pushed commit keeps its four literals; they are exempted by exact fingerprint in `.gitleaksignore`, which cannot exempt the same text in any other commit."
+    },
+    {
+      "id": "W7-28",
+      "title": "The RunList live-event test waited on a text that held before the event",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "`apps/web/src/components/RunList.test.tsx` \"updates canonical phase from a live event\" sent a phase event and then waited for the status to read `PENDING` — true before the event as well — so the wait returned at once and the synchronous `running` assertion raced the update. It failed in CI run 40236386562 (PR #101, a workflow-only change) with the row still `queued`.",
+      "confirmedBy": "Read against the test and the CI log, which shows `project-1run-1queuedPENDING` at the `running` assertion.",
+      "evidence": [
+        {
+          "path": "apps/web/src/components/RunList.test.tsx",
+          "asserts": "The test waits for the subscription, then for the phase the event carries, before asserting the outcome is still pending."
+        }
+      ],
+      "resolution": "The wait is on the change the event makes, not on a text that was already true."
     }
   ]
 }
