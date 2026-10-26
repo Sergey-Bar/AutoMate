@@ -52,7 +52,7 @@ export function createTestHistoryRoutes(options: {
     });
     const counts = new Map<string, { count: number; example: string }>();
     for (const entry of entries) {
-      if (entry.signature === null || entry.error === null) continue;
+      if (typeof entry.signature !== 'string' || typeof entry.error !== 'string') continue;
       const seen = counts.get(entry.signature);
       counts.set(entry.signature, {
         count: (seen?.count ?? 0) + 1,

@@ -284,6 +284,27 @@ function headlineOf(grade: HealthGrade): string {
     : `${grade.letter} · ${String(grade.score ?? 0)} / 100`;
 }
 
+/** The sections a report carries only when it measured them, each after a blank line. */
+function optionalSections(report: GateReport): string[] {
+  const lines: string[] = [];
+  if (report.diffCoverage !== null && report.diffCoverage !== undefined) {
+    lines.push('', diffCoverageLine(report.diffCoverage));
+  }
+  if (report.delivery !== null && report.delivery !== undefined && report.delivery.score !== null) {
+    lines.push('', doraLine(report.delivery));
+  }
+  if (report.aiGovernance !== null && report.aiGovernance !== undefined) {
+    lines.push('', ...aiGovernanceSection(report.aiGovernance));
+  }
+  if (report.evals !== null && report.evals !== undefined && report.evals.suites.length > 0) {
+    lines.push('', ...evalsSection(report.evals));
+  }
+  if (report.tests !== null && report.tests !== undefined) {
+    lines.push('', ...testsSection(report.tests));
+  }
+  return lines;
+}
+
 export function renderGateComment(report: GateReport): string {
   const { grade, verdict } = report;
   const passed = verdict.verdict === 'passed';
@@ -302,22 +323,7 @@ export function renderGateComment(report: GateReport): string {
       '',
     );
   }
-  lines.push(...findingsTable(report));
-  if (report.diffCoverage !== null && report.diffCoverage !== undefined) {
-    lines.push('', diffCoverageLine(report.diffCoverage));
-  }
-  if (report.delivery !== null && report.delivery !== undefined && report.delivery.score !== null) {
-    lines.push('', doraLine(report.delivery));
-  }
-  if (report.aiGovernance !== null && report.aiGovernance !== undefined) {
-    lines.push('', ...aiGovernanceSection(report.aiGovernance));
-  }
-  if (report.evals !== null && report.evals !== undefined && report.evals.suites.length > 0) {
-    lines.push('', ...evalsSection(report.evals));
-  }
-  if (report.tests !== null && report.tests !== undefined) {
-    lines.push('', ...testsSection(report.tests));
-  }
+  lines.push(...findingsTable(report), ...optionalSections(report));
   const dimensions = grade.dimensions
     .filter((entry) => entry.measured)
     .map((entry) => `${HEALTH_DIMENSION_LABELS[entry.dimension]} ${entry.letter ?? '—'}`)

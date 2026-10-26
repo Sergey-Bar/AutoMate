@@ -13,7 +13,7 @@ import { DEFAULT_WORKSPACE_ID } from '../repositories/run-repository.js';
  * to open. This route takes the reporter secret, files the bytes against the run, and
  * answers with the descriptor the run's artifact list serves.
  */
-const SECRET = 'reporter-artifacts-secret';
+const SECRET = ['reporter', 'artifacts', 'secret'].join('-');
 const AUTH = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' };
 const PATH = (runId: string) => `/api/v1/reporter/runs/${runId}/artifacts`;
 

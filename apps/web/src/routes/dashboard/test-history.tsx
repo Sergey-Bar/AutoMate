@@ -61,13 +61,23 @@ function strip(entries: readonly TestHistoryEntry[]): React.ReactElement {
   );
 }
 
-export function TestHistoryPage({
-  testKey,
-  api,
-}: {
-  testKey: string;
-  api: ApiClient;
-}): React.ReactElement {
+/** The distinct failure causes across every loaded page, counted once each. */
+function mergeSignatures(
+  pages: readonly TestHistory[],
+): Map<string, { count: number; example: string }> {
+  const signatures = new Map<string, { count: number; example: string }>();
+  for (const item of pages.flatMap((page) => page.signatures)) {
+    const seen = signatures.get(item.signature);
+    signatures.set(item.signature, {
+      count: (seen?.count ?? 0) + item.count,
+      example: seen?.example ?? item.example,
+    });
+  }
+  return signatures;
+}
+
+/** Loads a test's history a page at a time; `load(before)` appends the next older page. */
+function useTestHistory(testKey: string, api: ApiClient) {
   const [pages, setPages] = React.useState<TestHistory[]>([]);
   const [state, setState] = React.useState<'loading' | 'ready' | 'error'>('loading');
   const [message, setMessage] = React.useState('');
@@ -91,19 +101,70 @@ export function TestHistoryPage({
   React.useEffect(() => {
     if (testKey !== '') load();
   }, [load, testKey]);
+  return { pages, state, message, load };
+}
 
-  if (testKey === '') {
-    return (
-      <PageFrame>
-        <PageHeader title="Test history" />
-        <EmptyState
-          headingLevel={2}
-          title="No test named"
-          description="Open a test from Insights or a run."
-        />
-      </PageFrame>
-    );
-  }
+/** The distinct failure causes, most frequent first. */
+function Causes({
+  signatures,
+}: {
+  signatures: ReadonlyMap<string, { count: number; example: string }>;
+}): React.ReactElement {
+  if (signatures.size === 0) return <Quiet>It has not failed in this window.</Quiet>;
+  return (
+    <ul className="space-y-2">
+      {[...signatures.entries()]
+        .sort((left, right) => right[1].count - left[1].count)
+        .map(([signature, value]) => (
+          <li key={signature} className="text-sm">
+            <span className="font-medium">{`${String(value.count)}×`}</span>{' '}
+            <span className="text-fg-muted">{value.example}</span>
+          </li>
+        ))}
+    </ul>
+  );
+}
+
+/** One run's result of the test: status, when, where, how long, and why it failed. */
+function RunRow({ entry }: { entry: TestHistoryEntry }): React.ReactElement {
+  return (
+    <li className="flex flex-wrap items-baseline gap-3 py-2 text-sm">
+      <Badge variant={TONE[entry.status] ?? 'default'}>{entry.status}</Badge>
+      <span>{formatDate(entry.startedAt, 'not recorded')}</span>
+      <span className="font-mono text-xs text-fg-muted">
+        {`${entry.branch ?? '—'} @ ${entry.commitSha?.slice(0, 12) ?? '—'}`}
+      </span>
+      {entry.durationMs === null ? null : (
+        <span className="text-fg-muted">{`${String(entry.durationMs)} ms`}</span>
+      )}
+      {entry.error === null ? null : <span className="w-full text-danger">{entry.error}</span>}
+    </li>
+  );
+}
+
+function NoTestNamed(): React.ReactElement {
+  return (
+    <PageFrame>
+      <PageHeader title="Test history" />
+      <EmptyState
+        headingLevel={2}
+        title="No test named"
+        description="Open a test from Insights or a run."
+      />
+    </PageFrame>
+  );
+}
+
+export function TestHistoryPage({
+  testKey,
+  api,
+}: {
+  testKey: string;
+  api: ApiClient;
+}): React.ReactElement {
+  const { pages, state, message, load } = useTestHistory(testKey, api);
+
+  if (testKey === '') return <NoTestNamed />;
   const entries = pages.flatMap((page) => page.entries);
   const first = pages[0];
   const last = pages.at(-1);
@@ -111,16 +172,7 @@ export function TestHistoryPage({
     .reverse()
     .map((entry) => entry.durationMs)
     .filter((value): value is number => value !== null);
-  const signatures = new Map<string, { count: number; example: string }>();
-  for (const page of pages) {
-    for (const item of page.signatures) {
-      const seen = signatures.get(item.signature);
-      signatures.set(item.signature, {
-        count: (seen?.count ?? 0) + item.count,
-        example: seen?.example ?? item.example,
-      });
-    }
-  }
+  const signatures = mergeSignatures(pages);
 
   return (
     <PageFrame data-testid="test-history-page" className="h-auto gap-4">
@@ -151,37 +203,12 @@ export function TestHistoryPage({
             ) : null}
           </Panel>
           <Panel title="Why it failed" data-testid="test-signatures">
-            {signatures.size === 0 ? (
-              <Quiet>It has not failed in this window.</Quiet>
-            ) : (
-              <ul className="space-y-2">
-                {[...signatures.entries()]
-                  .sort((left, right) => right[1].count - left[1].count)
-                  .map(([signature, value]) => (
-                    <li key={signature} className="text-sm">
-                      <span className="font-medium">{`${String(value.count)}×`}</span>{' '}
-                      <span className="text-fg-muted">{value.example}</span>
-                    </li>
-                  ))}
-              </ul>
-            )}
+            <Causes signatures={signatures} />
           </Panel>
           <Panel title="Runs">
             <ul className="divide-y divide-border">
               {entries.map((entry) => (
-                <li key={entry.runId} className="flex flex-wrap items-baseline gap-3 py-2 text-sm">
-                  <Badge variant={TONE[entry.status] ?? 'default'}>{entry.status}</Badge>
-                  <span>{formatDate(entry.startedAt, 'not recorded')}</span>
-                  <span className="font-mono text-xs text-fg-muted">
-                    {`${entry.branch ?? '—'} @ ${entry.commitSha?.slice(0, 12) ?? '—'}`}
-                  </span>
-                  {entry.durationMs === null ? null : (
-                    <span className="text-fg-muted">{`${String(entry.durationMs)} ms`}</span>
-                  )}
-                  {entry.error === null ? null : (
-                    <span className="w-full text-danger">{entry.error}</span>
-                  )}
-                </li>
+                <RunRow key={entry.runId} entry={entry} />
               ))}
             </ul>
             {last?.nextBefore ? (

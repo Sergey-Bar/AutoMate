@@ -123,10 +123,16 @@ async function filesOf(
   return files;
 }
 
-export async function shard(
-  argv: readonly string[],
-  io: Io & { err?: (line: string) => void },
-): Promise<number> {
+interface ShardOptions {
+  total: number;
+  index: number;
+  files: string[];
+  asOfFlag: string | undefined;
+  destination: ReturnType<typeof target>;
+}
+
+/** The command line, validated: nothing is sent before every option is known to be sound. */
+async function readOptions(argv: readonly string[], io: Io): Promise<ShardOptions> {
   const split = argv.indexOf('--');
   const parsed = parseOptions(split === -1 ? argv : argv.slice(0, split), {
     values: ['project', 'total', 'index', 'as-of', 'files-from'],
@@ -138,19 +144,33 @@ export async function shard(
     throw usage(`--as-of is an ISO-8601 time: ${asOfFlag}`);
   }
   const files = await filesOf(argv, split, optional(parsed, 'files-from'), io.cwd);
-  const destination = target(io, parsed);
-  const warn = (line: string) => (io.err ?? io.out)(line);
+  return { total, index, files, asOfFlag, destination: target(io, parsed) };
+}
 
+/** The history cut-off every shard of one CI run shares: the flag, else the commit's time. */
+async function cutOffOf(
+  asOfFlag: string | undefined,
+  io: Io & { commitTime?: () => Promise<string | undefined> },
+  warn: (line: string) => void,
+): Promise<string | undefined> {
   const cutOff = asOfFlag ?? (await (io.commitTime ?? (() => gitCommitTime(io.cwd)))());
   if (cutOff === undefined) {
     warn(
       'No commit time to plan from; shards that ask at different moments may disagree. Pass --as-of.',
     );
   }
-  const asOf =
-    cutOff === undefined || Number.isNaN(Date.parse(cutOff))
-      ? undefined
-      : new Date(cutOff).toISOString();
+  return cutOff === undefined || Number.isNaN(Date.parse(cutOff))
+    ? undefined
+    : new Date(cutOff).toISOString();
+}
+
+export async function shard(
+  argv: readonly string[],
+  io: Io & { err?: (line: string) => void },
+): Promise<number> {
+  const { total, index, files, asOfFlag, destination } = await readOptions(argv, io);
+  const warn = (line: string) => (io.err ?? io.out)(line);
+  const asOf = await cutOffOf(asOfFlag, io, warn);
 
   /** Every file, on this shard, and the reason. */
   const everything = (reason: string): number => {

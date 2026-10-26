@@ -77,18 +77,28 @@ function historyFor(
   }
 }
 
-export function planShards(input: ShardPlanInput): ShardPlan {
-  const total = Math.max(1, Math.floor(input.total));
-  const files = [...new Set(input.files)].sort();
+/** Each file's estimate: its own median, or the median of those that have one. */
+function estimateFiles(
+  files: readonly string[],
+  history: ReadonlyMap<string, readonly number[]>,
+): { estimates: Record<string, number>; known: number } {
   const measured = new Map<string, number>();
   for (const file of files) {
-    const durations = historyFor(file, input.history);
+    const durations = historyFor(file, history);
     if (durations !== undefined) measured.set(file, medianMs(durations));
   }
   const fallback = measured.size === 0 ? NO_HISTORY_MS : medianMs([...measured.values()]);
   const estimates: Record<string, number> = {};
   for (const file of files) estimates[file] = measured.get(file) ?? fallback;
+  return { estimates, known: measured.size };
+}
 
+/** Longest first, each file to the least-loaded shard (the lowest index on a tie). */
+function dealFiles(
+  files: readonly string[],
+  estimates: Readonly<Record<string, number>>,
+  total: number,
+): PlannedShard[] {
   const shards: PlannedShard[] = Array.from({ length: total }, (_, index) => ({
     index: index + 1,
     files: [],
@@ -98,15 +108,24 @@ export function planShards(input: ShardPlanInput): ShardPlan {
     (left, right) => (estimates[right] ?? 0) - (estimates[left] ?? 0) || (left < right ? -1 : 1),
   );
   for (const file of order) {
-    // The least-loaded shard, the lowest index on a tie: deterministic.
-    let target = shards[0];
-    for (const shard of shards) {
-      if (target === undefined || shard.estimatedMs < target.estimatedMs) target = shard;
-    }
-    if (target === undefined) break;
+    const target = shards.reduce((least, shard) =>
+      shard.estimatedMs < least.estimatedMs ? shard : least,
+    );
     target.files.push(file);
     target.estimatedMs += estimates[file] ?? 0;
   }
   for (const shard of shards) shard.files.sort();
-  return { shards, estimates, known: measured.size, unknown: files.length - measured.size };
+  return shards;
+}
+
+export function planShards(input: ShardPlanInput): ShardPlan {
+  const total = Math.max(1, Math.floor(input.total));
+  const files = [...new Set(input.files)].sort();
+  const { estimates, known } = estimateFiles(files, input.history);
+  return {
+    shards: dealFiles(files, estimates, total),
+    estimates,
+    known,
+    unknown: files.length - known,
+  };
 }

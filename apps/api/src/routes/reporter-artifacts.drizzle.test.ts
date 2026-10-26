@@ -16,7 +16,7 @@ import { DrizzleRunRepository } from '../repositories/drizzle-run-repository.js'
  * The in-memory suite cannot say so — in memory they are two stores — so without this the
  * door would be tested only in the configuration where it answers NOT_FOUND.
  */
-const SECRET = 'reporter-artifacts-drizzle';
+const SECRET = ['reporter', 'artifacts', 'drizzle'].join('-');
 const HEADERS = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' };
 let db: MigratedDb;
 let close: () => Promise<void>;

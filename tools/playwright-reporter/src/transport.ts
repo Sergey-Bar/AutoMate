@@ -64,14 +64,18 @@ export class Transport {
       if (outcome === 'sent') return;
       if (typeof outcome === 'number') {
         // A refusal is an answer: the same request will be refused again.
-        this.warn(`${request.label} was refused with ${String(outcome)}`);
-        if (request.essential) this.stopped = true;
+        this.giveUp(request, `was refused with ${String(outcome)}`);
         return;
       }
       last = outcome.retry;
       if (attempt < ATTEMPTS) await delay(this.options.retryDelayMs * 2 ** (attempt - 1));
     }
-    this.warn(`${request.label} failed after ${String(ATTEMPTS)} attempts (${last})`);
+    this.giveUp(request, `failed after ${String(ATTEMPTS)} attempts (${last})`);
+  }
+
+  /** Says why a request was abandoned, and stops the queue if everything after it depends on it. */
+  private giveUp(request: Request, why: string): void {
+    this.warn(`${request.label} ${why}`);
     if (request.essential) this.stopped = true;
   }
 
@@ -82,9 +86,7 @@ export class Transport {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          ...(this.options.secret === undefined
-            ? {}
-            : { authorization: `Bearer ${this.options.secret}` }),
+          ...authorization(this.options.secret),
         },
         body,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -104,6 +106,11 @@ export class Transport {
     const line = `AutoMate reporter: ${message}`;
     this.options.log(secret === undefined ? line : line.replaceAll(secret, '[redacted]'));
   }
+}
+
+/** The `authorization` header, or nothing when no credential is configured. */
+function authorization(token: string | undefined): { authorization?: string } {
+  return typeof token === 'string' ? { authorization: `Bearer ${token}` } : {};
 }
 
 function reason(failure: unknown): string {

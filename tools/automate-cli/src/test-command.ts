@@ -85,10 +85,47 @@ function listed(io: Io, identities: readonly string[]): void {
   if (identities.length > LISTED) io.out(`  …and ${String(identities.length - LISTED)} more`);
 }
 
-export async function test(
-  argv: readonly string[],
-  io: Io & { err?: (line: string) => void },
-): Promise<number> {
+/**
+ * What to print and exit with once the server has answered. Order matters: a passing command
+ * is always exit 0; otherwise only a confirmed excuse is.
+ */
+function conclude(
+  verdict: Verdict,
+  code: number,
+  io: Io,
+  keep: (reason: string) => number,
+): number {
+  if (code === 0) {
+    io.out(`Recorded the run: ${String(verdict.failed)} failed test(s).`);
+    return EXIT.ok;
+  }
+  if (verdict.excused) {
+    io.out(
+      `${String(verdict.failed)} failed test${verdict.failed === 1 ? '' : 's'}, all quarantined; exiting 0:`,
+    );
+    listed(io, verdict.excusedTests);
+    return EXIT.ok;
+  }
+  if (verdict.reportErrors > 0) {
+    return keep(`The report has ${String(verdict.reportErrors)} error(s) outside its tests`);
+  }
+  if (verdict.unexcusedFailures.length > 0) {
+    io.out(`${String(verdict.unexcusedFailures.length)} failed test(s) not quarantined:`);
+    listed(io, verdict.unexcusedFailures);
+  }
+  return keep('Not every failure is quarantined');
+}
+
+interface TestOptions {
+  command: string;
+  commandArgs: string[];
+  report: string;
+  destination: ReturnType<typeof target>;
+  url: URL;
+}
+
+/** The command line, validated before anything runs: a bad flag must not cost a test run. */
+function readOptions(argv: readonly string[], io: Io): TestOptions {
   const split = argv.indexOf('--');
   const [command, ...commandArgs] = split === -1 ? [] : argv.slice(split + 1);
   if (command === undefined)
@@ -108,6 +145,14 @@ export async function test(
     commit: commitOf(io, optional(parsed, 'commit')),
     startedAt: io.now().toISOString(),
   });
+  return { command, commandArgs, report, destination, url };
+}
+
+export async function test(
+  argv: readonly string[],
+  io: Io & { err?: (line: string) => void },
+): Promise<number> {
+  const { command, commandArgs, report, destination, url } = readOptions(argv, io);
   const warn = (line: string) => (io.err ?? io.out)(line);
 
   const code = await runCommand(command, commandArgs, io.cwd);
@@ -143,23 +188,5 @@ export async function test(
   }
   const verdict = verdictOf(answer);
   if (verdict === null) return keep('The server answered without a quarantine verdict');
-  if (code === 0) {
-    io.out(`Recorded the run: ${String(verdict.failed)} failed test(s).`);
-    return EXIT.ok;
-  }
-  if (verdict.excused) {
-    io.out(
-      `${String(verdict.failed)} failed test${verdict.failed === 1 ? '' : 's'}, all quarantined; exiting 0:`,
-    );
-    listed(io, verdict.excusedTests);
-    return EXIT.ok;
-  }
-  if (verdict.reportErrors > 0) {
-    return keep(`The report has ${String(verdict.reportErrors)} error(s) outside its tests`);
-  }
-  if (verdict.unexcusedFailures.length > 0) {
-    io.out(`${String(verdict.unexcusedFailures.length)} failed test(s) not quarantined:`);
-    listed(io, verdict.unexcusedFailures);
-  }
-  return keep('Not every failure is quarantined');
+  return conclude(verdict, code, io, keep);
 }
