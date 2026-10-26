@@ -6,6 +6,19 @@
 
 ### Added
 
+- **Test intelligence.** One test identity (`file › describe › title [project]`) across every
+  producer, so one test in two Playwright projects is no longer one flaky test. Quarantine now
+  gates: a quarantined failure excuses itself (`ready_with_warnings`, `quarantine:EXCUSED`)
+  without rewriting the run, and `automate test` exits 0 only when the server confirms it. An
+  optional per-project policy (`off`, `suggest`, `auto`) quarantines on retry-pass or
+  same-commit evidence and releases after 20 clean passes. Per-test history
+  (`GET /api/v1/dashboard/tests/history`, `/dashboard/test`) and triage labels on failure causes.
+- **`@automate/playwright-reporter`** streams a run and uploads failure traces, screenshots and
+  videos (`POST /api/v1/reporter/runs/:runId/artifacts`; artifacts need database mode).
+- **`automate shard`** and `POST /api/v1/projects/:id/shards/plan`: duration-balanced CI shards.
+- **Allure importer**: `format=allure-results` on the upload door.
+- Every workspace package is now MIT; `@automate/cli` and the reporter are publishable
+  (`npm-publish.yml`; the publish step needs an `NPM_TOKEN` secret and has not been run).
 - **LAN mode** (`AUTOMATE_LAN_MODE=1`). One machine serves every laptop, phone and tablet on
   the network, Linux or Windows Docker Desktop: sign-in on every route, HTTPS from a local
   certificate authority (`start lan-cert`), device pairing with a six-digit code or QR, a

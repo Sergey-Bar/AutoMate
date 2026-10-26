@@ -9,7 +9,7 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Status       | Count | Meaning                                                                   |
 | ------------ | ----- | ------------------------------------------------------------------------- |
-| **real**     | 50    | implemented and exercised, with the stated qualification.                 |
+| **real**     | 54    | implemented and exercised, with the stated qualification.                 |
 | **mock**     | 9     | a route, response, or UI exists but does not provide the target behavior. |
 | **missing**  | 1     | no usable implementation exists in the target.                            |
 | **deferred** | 6     | intentionally outside the launch scope pending a separate decision.       |
@@ -68,6 +68,10 @@ its source, then run `pnpm site:generate`.
 | Agent instruction and MCP configuration scan, with the MCP server inventory                         | `real`     |
 | Built-in eval runner over the AI gateway                                                            | `real`     |
 | Failure clusters and quarantine suggestions in the insights                                         | `real`     |
+| Quarantine that gates, automatic quarantine, and per-test history                                   | `real`     |
+| Live Playwright reporter with failure traces                                                        | `real`     |
+| Duration-balanced CI sharding                                                                       | `real`     |
+| Allure results importer                                                                             | `real`     |
 | k6 load execution and threshold adapter                                                             | `real`     |
 | ZAP finding and SARIF adapter                                                                       | `missing`  |
 | Provider-backed chat                                                                                | `mock`     |

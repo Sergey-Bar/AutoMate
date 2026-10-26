@@ -32,14 +32,15 @@ fails_.
 
 This is a **pnpm workspace monorepo** containing the unified Automate platform.
 
-| Directory            | Product                 | Stack                                           |
-| -------------------- | ----------------------- | ----------------------------------------------- |
-| `apps/api`           | Unified API             | Hono v4, Drizzle ORM, PostgreSQL 16             |
-| `apps/web`           | Unified Web             | React 19, Vite, TanStack Router, Tailwind CSS 4 |
-| `apps/runner`        | Execution boundary      | Node, rootless process control                  |
-| `apps/worker`        | Lease and recovery loop | Node, worker resilience                         |
-| `tools/automate-cli` | `automate`, the CI CLI  | Node, no runtime dependencies                   |
-| `site`               | Documentation site      | VitePress                                       |
+| Directory                   | Product                  | Stack                                           |
+| --------------------------- | ------------------------ | ----------------------------------------------- |
+| `apps/api`                  | Unified API              | Hono v4, Drizzle ORM, PostgreSQL 16             |
+| `apps/web`                  | Unified Web              | React 19, Vite, TanStack Router, Tailwind CSS 4 |
+| `apps/runner`               | Execution boundary       | Node, rootless process control                  |
+| `apps/worker`               | Lease and recovery loop  | Node, worker resilience                         |
+| `tools/automate-cli`        | `automate`, the CI CLI   | Node, no runtime dependencies                   |
+| `tools/playwright-reporter` | Live Playwright reporter | Node, no runtime dependencies                   |
+| `site`                      | Documentation site       | VitePress                                       |
 
 The platform uses **pnpm 11**, **Node.js 24+**, **TypeScript 6.0**, and **Vitest 4** for unit tests. ESLint is at **10**, and its major changed which config file it loads: it resolves from each linted file's own directory and uses that directory as the base path for `files` patterns, so a nested `eslint.config.js` — even one that only re-exports the root — silently disables every path-scoped rule beneath it. There are none, and `scripts/lib/eslint-plugin-compatibility.test.mjs` refuses one.
 
@@ -278,6 +279,7 @@ pnpm --filter @automate/api test          # API tests only
 pnpm --filter @automate/unified-web test  # Web client tests only
 pnpm --filter @automate/shared-contracts test # Contracts tests only
 pnpm --filter @automate/cli test          # The `automate` CI CLI only
+pnpm --filter @automate/playwright-reporter test # The live Playwright reporter only
 pnpm --filter @automate/api dev           # API dev only
 pnpm --filter @automate/unified-web dev   # Web dev only
 ```
