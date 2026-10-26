@@ -1,7 +1,9 @@
 # Gitleaks configuration for the Automate monorepo.
 # https://github.com/gitleaks/gitleaks#configuration
 #
-# There is no commit suppression here, and there no longer needs to be.
+# Commit-level suppression here is limited to the two reviewed commits below; single findings in
+# one commit are exempted by exact fingerprint in `.gitleaksignore` at the root, which
+# `scripts/static-analysis-config-check.mjs` holds to that shape.
 #
 # This file once carried a `vault-test-fixture` rule with `regex = [A-Za-z0-9+/]{40,}={0,2}`
 # and `path = .*\.test\.ts$`, which matches essentially any long base64 string and so

@@ -129,6 +129,7 @@ describe('dashboard routes', () => {
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
     expect(screen.getByTestId('launch-run-form')).toBeInTheDocument();
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('UNKNOWN');
+    expect(screen.getByTestId('release-readiness-decision')).toHaveTextContent('UNKNOWN');
     // With no release there is no evaluation, so no per-domain status is drawn — not even
     // a confident "not configured" that no read returned.
     expect(screen.getByTestId('release-readiness-unread')).toHaveTextContent(
@@ -203,6 +204,7 @@ describe('dashboard routes', () => {
     );
     render(<MemoryRouter initialEntries={['/dashboard/runs']} />);
     await waitFor(() => expect(screen.getByTestId('release-readiness')).toHaveTextContent('READY'));
+    expect(screen.getByTestId('release-readiness-decision')).toHaveTextContent('READY');
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('browserPASSED');
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('apiNOT_CONFIGURED');
     expect(screen.getByRole('link', { name: /recent-run/iu })).toHaveAttribute(

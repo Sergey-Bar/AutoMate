@@ -80,6 +80,7 @@ import { z } from 'zod/v4';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import type { ProjectRegistryServiceOptions } from './project-registry-service.js';
 import { qaScore } from './qa-score-service.js';
+import { withinBound } from './bounded-list.js';
 import { AlertSettingsSchema } from './health-integrations.js';
 import {
   branchFor,
@@ -269,6 +270,8 @@ const TREND_DAYS = 30;
 const DAY_MS = 86_400_000;
 /** More distinct report kinds than any scanner set produces; the grade reads at most these. */
 const MAX_REPORT_KINDS = 200;
+/** The report kinds, and the licence policy that may judge the SBOM inventory beside them. */
+const MAX_FINDING_TOOL_KEYS = MAX_REPORT_KINDS + 1;
 const ScannerRunListSchema = z.array(
   z.object({ tool: HealthToolSchema, dimensions: z.array(z.enum(HEALTH_DIMENSIONS)) }),
 );
@@ -747,7 +750,7 @@ async function computeGrade(
               eq(healthFindings.branch, branch),
               // One key per report kind on the branch; capped so a branch flooded with
               // distinct tool names cannot grow the statement without bound.
-              inArray(healthFindings.toolKey, keys),
+              inArray(healthFindings.toolKey, withinBound(keys, MAX_FINDING_TOOL_KEYS)),
               ne(healthFindings.state, 'fixed'),
             ),
           );

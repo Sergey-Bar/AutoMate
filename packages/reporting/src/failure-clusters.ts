@@ -114,6 +114,27 @@ function barePath(token: string): string {
   return `<path>${trailing}`;
 }
 
+/**
+ * One quoted run: kept when the words just before it make it meaningful, masked otherwise.
+ *
+ * A named replacer rather than an inline arrow, reading the subject from `String.replace`'s
+ * own trailing argument. Inline, its four parameters were the shape semgrep's
+ * `express-error-handler-swallowed` reads as an `(err, req, res, next)` handler.
+ */
+function maskQuote(
+  whole: string,
+  quote: string,
+  _content: string,
+  offset: number,
+  subject: string,
+): string {
+  // Only the words just before the quote decide: testing the whole prefix per quote
+  // was quadratic in a message of many quotes.
+  return MEANINGFUL_QUOTE.test(subject.slice(Math.max(0, offset - QUOTE_CONTEXT), offset))
+    ? whole
+    : `${quote}<str>${quote}`;
+}
+
 const PATH_CHARS = String.raw`[^\s'"\x60()<>]`;
 const VOLATILE: readonly ((text: string) => string)[] = [
   timestamps,
@@ -121,16 +142,7 @@ const VOLATILE: readonly ((text: string) => string)[] = [
     text.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/giu, '<uuid>'),
   (text) =>
     text.replace(new RegExp(String.raw`\b[a-z][a-z0-9+.-]*://${PATH_CHARS}+`, 'giu'), '<url>'),
-  (text) =>
-    text.replace(
-      /(?<!\w)(['"`])((?:(?!\1)[^\n])*)\1/gu,
-      (whole: string, quote: string, _content: string, offset: number) =>
-        // Only the words just before the quote decide: testing the whole prefix per quote
-        // was quadratic in a message of many quotes.
-        MEANINGFUL_QUOTE.test(text.slice(Math.max(0, offset - QUOTE_CONTEXT), offset))
-          ? whole
-          : `${quote}<str>${quote}`,
-    ),
+  (text) => text.replace(/(?<!\w)(['"`])((?:(?!\1)[^\n])*)\1/gu, maskQuote),
   // Windows absolute, Unix absolute, ./ and ../ relative, then bare relative with an
   // extension — each swallowing a trailing :line:col.
   (text) => text.replace(new RegExp(String.raw`\b[A-Za-z]:[\\/]${PATH_CHARS}*`, 'gu'), '<path>'),

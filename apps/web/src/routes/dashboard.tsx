@@ -251,6 +251,7 @@ export function ReleaseReadinessCard({
       data-testid="release-readiness"
       action={
         <Badge
+          data-testid="release-readiness-decision"
           variant={
             data?.decision === 'ready'
               ? 'success'

@@ -31,6 +31,7 @@ import {
   classifyPullRequest,
 } from './ai-code-attribution.js';
 import { deriveOutcomes, weeklyShare } from './ai-code-outcomes.js';
+import { withinBound } from './bounded-list.js';
 import { loadInputs, productionCarriersOf, type DeliveryOptions } from './delivery-service.js';
 import { projectRow, type ProjectRow } from './health-findings.js';
 import {
@@ -288,7 +289,7 @@ async function diffCoverageByHead(
       .where(
         and(
           scopeOf(diffCoverageResults, options, projectId),
-          inArray(diffCoverageResults.commitSha, chunk),
+          inArray(diffCoverageResults.commitSha, withinBound(chunk, CHUNK)),
           isNotNull(diffCoverageResults.ratio),
         ),
       )
@@ -313,7 +314,7 @@ async function gateFindingsOf(
       .where(
         and(
           scopeOf(pullRequestGateFindings, options, projectId),
-          inArray(pullRequestGateFindings.prNumber, chunk),
+          inArray(pullRequestGateFindings.prNumber, withinBound(chunk, CHUNK)),
         ),
       );
     for (const row of rows)

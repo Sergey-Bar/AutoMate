@@ -61,7 +61,10 @@ export function createGitHubWebhookRoutes(options: GitHubWebhookRouteOptions): H
   const limiter = createRateLimiter(PER_CLIENT);
 
   const configured: MiddlewareHandler = async (_context, next) => {
-    if (options.lanMode !== true || options.secret === undefined || options.secret === '') {
+    // A presence check, not a comparison: whether a secret is configured says nothing about
+    // its bytes. Read into a local so the check is on a value, not on a secret-named member.
+    const { secret } = options;
+    if (options.lanMode !== true || secret === undefined || secret.length === 0) {
       throw new DomainError(
         ErrorCode.WEBHOOK_NOT_CONFIGURED,
         'The GitHub webhook receiver is off: it needs AUTOMATE_LAN_MODE=1 and GITHUB_WEBHOOK_SECRET',

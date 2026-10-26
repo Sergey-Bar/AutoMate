@@ -11,6 +11,7 @@ import {
 import type { ConnectorAdapter } from '@automate/connectors-sdk';
 import { DeliveryStreamSchema } from '@automate/shared-contracts';
 import { z } from 'zod/v4';
+import { inChunksOf, withinBound } from './bounded-list.js';
 import { readGitToken } from './git-credential-service.js';
 import { projectRow, type ProjectRow } from './health-findings.js';
 import { githubRepository } from './health-integrations.js';
@@ -138,6 +139,16 @@ export const LOOKBACK_MS = 24 * 3_600_000;
 /** Commits kept per project; the oldest go first. */
 export const COMMIT_RETENTION = 5000;
 const MAX_DEPLOYMENTS = 100;
+/**
+ * The most syncs one claim moves to `running`. `batch` is an option, and an option is not a
+ * bound: the claimed ids go into one `inArray`, so the cap is what keeps that statement sized.
+ */
+export const MAX_CLAIM_BATCH = 100;
+
+/** The claim size: the configured `batch` (default 5), never more than {@link MAX_CLAIM_BATCH}. */
+export function claimBatchOf(batch: number | undefined): number {
+  return Math.min(batch ?? 5, MAX_CLAIM_BATCH);
+}
 const BACKOFF_MS = [60_000, 5 * 60_000, 30 * 60_000];
 const DAY_MS = 86_400_000;
 
@@ -500,19 +511,24 @@ async function syncCommits(context: StreamContext, state: StreamState): Promise<
 
 /** The external ids of the listed deployments already stored: their outcome was decided. */
 async function storedDeployments(context: StreamContext, ids: string[]): Promise<Set<string>> {
-  if (ids.length === 0) return new Set();
-  const rows = await context.db
-    .select({ externalId: deployments.externalId })
-    .from(deployments)
-    .where(
-      and(
-        eq(deployments.workspaceId, context.workspaceId),
-        eq(deployments.projectId, context.project.id),
-        eq(deployments.source, 'github'),
-        inArray(deployments.externalId, ids),
-      ),
-    );
-  return new Set(rows.map((row) => row.externalId));
+  const stored = new Set<string>();
+  // One page is at most MAX_DEPLOYMENTS, but the page comes from the adapter: chunked, so a
+  // page longer than asked for costs more statements rather than one unbounded one.
+  for (const chunk of inChunksOf(ids, MAX_DEPLOYMENTS)) {
+    const rows = await context.db
+      .select({ externalId: deployments.externalId })
+      .from(deployments)
+      .where(
+        and(
+          eq(deployments.workspaceId, context.workspaceId),
+          eq(deployments.projectId, context.project.id),
+          eq(deployments.source, 'github'),
+          inArray(deployments.externalId, withinBound(chunk, MAX_DEPLOYMENTS)),
+        ),
+      );
+    for (const row of rows) stored.add(row.externalId);
+  }
+  return stored;
 }
 
 /** One deployment with its latest status; `false` while GitHub has not decided it. */
@@ -698,13 +714,16 @@ export function createDeliverySyncer(options: DeliverySyncerOptions) {
               AND o.status = 'running' AND o.next_attempt_at > ${at}::timestamptz
           )
         ORDER BY d.next_attempt_at
-        LIMIT ${options.batch ?? 5}
+        LIMIT ${claimBatchOf(options.batch)}
         FOR UPDATE OF d SKIP LOCKED
       )
       RETURNING id`);
     const ids = rowsOf(result).map((row) => String(row['id']));
     if (ids.length === 0) return [];
-    return options.db.select().from(deliverySyncs).where(inArray(deliverySyncs.id, ids));
+    return options.db
+      .select()
+      .from(deliverySyncs)
+      .where(inArray(deliverySyncs.id, withinBound(ids, MAX_CLAIM_BATCH)));
   }
 
   /** The predicate every write of a claimed sync carries: it still holds the lease. */

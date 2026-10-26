@@ -6,8 +6,10 @@ import { githubAdapter } from '@automate/connectors-github';
 import { AGENT_SIGNATURES } from '@automate/reporting';
 import { migratedDatabase, type MigratedDb } from '../test-support/migrated-database.js';
 import {
+  claimBatchOf,
   createDeliverySyncer,
   LOOKBACK_MS,
+  MAX_CLAIM_BATCH,
   type DeliverySyncerOptions,
 } from './delivery-syncer.js';
 import { requestDeliverySync } from './delivery-service.js';
@@ -933,5 +935,16 @@ describe('the loop', () => {
     }
     syncer.start(60_000);
     await syncer.stop();
+  });
+});
+
+describe('claimBatchOf', () => {
+  it('defaults to five and keeps a configured batch under the cap', () => {
+    expect(claimBatchOf(undefined)).toBe(5);
+    expect(claimBatchOf(20)).toBe(20);
+  });
+
+  it('caps a configured batch, because the claimed ids go into one inArray', () => {
+    expect(claimBatchOf(10_000)).toBe(MAX_CLAIM_BATCH);
   });
 });

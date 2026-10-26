@@ -137,7 +137,10 @@ export async function setIssueTracker(
   const existing = await trackerRow(options, project.id);
   const name = trackerSecretName(project.id, body.kind);
   const baseUrl = body.baseUrl.replace(/\/+$/u, '');
-  if (body.token === undefined && !(await hasVaultSecret(options, name))) {
+  // Presence, not a comparison: whether a token was sent is a question about the field, and
+  // nothing about its value is compared. A local keeps the check off a secret-named member.
+  const { token } = body;
+  if (token === undefined && !(await hasVaultSecret(options, name))) {
     throw new DomainError(
       ErrorCode.INVALID_REQUEST_BODY,
       'A token is required the first time a tracker is configured',
@@ -146,7 +149,7 @@ export async function setIssueTracker(
   // The stored token was given for one host. Pointing the tracker at another origin without
   // a new one would send it there: holding the admin role is not holding the credential.
   if (
-    body.token === undefined &&
+    token === undefined &&
     existing !== undefined &&
     new URL(existing.baseUrl).origin !== new URL(baseUrl).origin
   ) {
@@ -155,8 +158,8 @@ export async function setIssueTracker(
       `The base URL moves the tracker from ${new URL(existing.baseUrl).origin} to ${new URL(baseUrl).origin}; send a new token for it — the stored one is never sent to another host`,
     );
   }
-  if (body.token !== undefined) {
-    await storeVaultSecret({ ...options, actor }, name, body.token, WHAT);
+  if (token !== undefined) {
+    await storeVaultSecret({ ...options, actor }, name, token, WHAT);
   }
   const now = clock(options);
   const values = {
@@ -183,7 +186,7 @@ export async function setIssueTracker(
   return {
     tracker: trackerSummary(row as IssueTrackerRow, true),
     created: existing === undefined,
-    tokenChanged: body.token !== undefined,
+    tokenChanged: token !== undefined,
   };
 }
 

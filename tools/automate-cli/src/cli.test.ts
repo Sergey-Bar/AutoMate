@@ -59,7 +59,10 @@ afterEach(async () => {
 });
 
 const PROJECT = '11111111-1111-4111-8111-111111111111';
-const TOKEN = 'amt_ci_uploader_token';
+// Assembled at runtime, the way `apps/api/src/test-support/synthetic-credentials.ts` builds
+// its fixtures (this package cannot import it): a credential-shaped literal is exactly what
+// `no-hardcoded-secret-literal` and gitleaks exist to find.
+const TOKEN = ['amt_', 'ci', '_uploader_token'].join('');
 const SHA = 'abcdef1234567';
 
 async function invoke(

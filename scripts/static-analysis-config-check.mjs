@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitleaksIgnoreProblems } from './lib/gitleaks-ignore.mjs';
 import { semgrepDirectories } from './lib/semgrep-scope.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -143,6 +144,14 @@ for (const literal of allowlistLiterals(gitleaksSource)) {
       `allowlist entry ${literal} ignores every test or spec file, which is where a ` +
         'leaked fixture is most likely to live',
     );
+}
+
+// `.gitleaksignore` is read by gitleaks itself, so it is an allowlist too: exact
+// commit-scoped fingerprints only, or it could exempt a line in every commit.
+const ignoreFile = '.gitleaksignore';
+if (existsSync(path.join(root, ignoreFile))) {
+  for (const problem of gitleaksIgnoreProblems(readFileSync(path.join(root, ignoreFile), 'utf8')))
+    fail(ignoreFile, problem);
 }
 
 if (!/useDefault\s*=\s*true/.test(gitleaksSource))

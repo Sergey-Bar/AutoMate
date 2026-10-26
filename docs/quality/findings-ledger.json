@@ -6287,6 +6287,79 @@
         }
       ],
       "resolution": "The read is awaited with `waitFor`, as the page itself is. The router and pages were correct; only the test raced them."
+    },
+    {
+      "id": "W7-25",
+      "title": "Five inArray lists in the health platform carried no bound a reader or the gate could see",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "semgrep `no-unbounded-list-in-query` reported five `inArray` calls on a bare identifier (CI run 40308503215). Two were real: the delivery syncer claimed `LIMIT ${options.batch ?? 5}` with no cap on `batch` and put every claimed id into one `inArray`, and `storedDeployments` sent a whole adapter page in one statement. The `ai-code-service` chunks and the repo-health tool keys were bounded (500, and `MAX_REPORT_KINDS` plus the licence key) but only by a slice several lines away that nothing at the call enforced.",
+      "confirmedBy": "Read against `.config/semgrep.yml` and the call sites, and reproduced with semgrep 1.178.0 on the pre-fix files, which reported the rule; the fixed files report nothing.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/bounded-list.test.ts",
+          "asserts": "`withinBound` throws on a list over its bound rather than truncating it, and `inChunksOf` splits a list completely and in order."
+        },
+        {
+          "path": "apps/api/src/services/delivery-syncer.test.ts",
+          "asserts": "`claimBatchOf` caps a configured claim batch at `MAX_CLAIM_BATCH`."
+        }
+      ],
+      "resolution": "Every list passes through `withinBound(list, NAMED_CAP)` at the `inArray`, so a removed cap throws instead of widening the statement; the claim batch is capped at `MAX_CLAIM_BATCH` and stored deployments are read in `MAX_DEPLOYMENTS` chunks."
+    },
+    {
+      "id": "W7-26",
+      "title": "The release-readiness spec asserted the hard-coded domain table the card no longer draws",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "6781127 removed the per-domain defaults `ReleaseReadinessCard` drew with no release selected (`browser: unknown`, the rest `not_configured` — statuses no read returned) in favour of an empty state. `tests/e2e/product/release-readiness.spec.ts` still required every domain name in the card, so the product E2E failed (CI run 40308503215). Its decision-badge locator, `[data-slot=\"badge\"], span`, had never matched the badge — `Badge` is a `div` with no `data-slot` — and only passed on the domain labels.",
+      "confirmedBy": "Ran the spec against PostgreSQL 16.4 locally: it failed at the badge locator with the card showing UNKNOWN and the empty state, and the API cannot attach a release to a run, so no run on that page names one.",
+      "evidence": [
+        {
+          "path": "tests/e2e/product/release-readiness.spec.ts",
+          "asserts": "The decision badge is found by test id and is not READY; with no release the empty state shows and no per-domain status is drawn; with one, every domain shows the status the readiness endpoint returns."
+        },
+        {
+          "path": "apps/web/src/routes/dashboard.test.tsx",
+          "asserts": "The decision badge carries `release-readiness-decision` with and without a release."
+        }
+      ],
+      "resolution": "The card stays data-driven and gains a test id on its decision badge; the spec asserts what the API answered instead of the removed defaults."
+    },
+    {
+      "id": "W7-27",
+      "title": "Credential-shaped test fixtures were committed as literals in 6781127",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "semgrep `no-hardcoded-secret-literal` reported `TOKEN = 'amt_…'` in `apps/api/src/mcp/stdio.test.ts` and `tools/automate-cli/src/cli.test.ts`; `no-curl-pipe-shell` reported four curl-pipe-shell fixtures in `agent-config-scan.test.ts`; and gitleaks `generic-api-key` reported that file's scanner fixture at lines 413 and 700-702 of commit 6781127. AGENTS.md requires fixtures to be assembled at runtime. `failure-clusters.ts` was reported by `express-error-handler-swallowed` for an inline four-parameter `String.replace` callback, a false positive.",
+      "confirmedBy": "gitleaks 8.30.1 (release checksum verified) over the full history reported exactly those four fingerprints; semgrep 1.178.0 reported the rest on the pre-fix files.",
+      "evidence": [
+        {
+          "path": "apps/api/src/test-support/synthetic-credentials.ts",
+          "asserts": "`syntheticAccessToken` builds the `amt_` fixture at runtime."
+        },
+        {
+          "path": "packages/projects/src/health/agent-config-scan.test.ts",
+          "asserts": "The scanner is fed the same fixture text, assembled at runtime (`GENERIC_SECRET`, `pipeToShell`), and still reports it."
+        },
+        {
+          "path": "scripts/lib/gitleaks-ignore.test.mjs",
+          "asserts": "`.gitleaksignore` holds only exact commit-scoped fingerprints, which the config check enforces."
+        }
+      ],
+      "resolution": "Fixtures are assembled at runtime and the replacer is a named function. The pushed commit keeps its four literals; they are exempted by exact fingerprint in `.gitleaksignore`, which cannot exempt the same text in any other commit."
     }
   ]
 }
