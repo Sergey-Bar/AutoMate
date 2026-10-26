@@ -19,7 +19,7 @@
     "@automate/runner-sdk": "workspace:*",
     "@automate/shared-contracts": "workspace:*",
     "@playwright/test": "catalog:",
-    "@usebruno/cli": "4.2.1",
+    "@usebruno/cli": "4.3.0",
     "zod": "catalog:"
   },
   "devDependencies": {
