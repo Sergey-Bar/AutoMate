@@ -1,4 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { Hono } from 'hono';
+import { eq } from 'drizzle-orm';
+import * as schema from '@automate/db';
+import { createTriageLabelRoutes } from '../routes/triage-labels.js';
+import { withErrorBoundary } from '../test-support/error-boundary-app.js';
 import { migratedDatabase } from '../test-support/migrated-database.js';
 import {
   deleteTriageLabel,
@@ -70,5 +75,64 @@ describe('triage labels', () => {
       null,
     ]);
     expect(labelled.totals.unlabelled).toBe(2);
+  });
+});
+
+describe('the triage label routes', () => {
+  it('reads as a viewer, writes and deletes as an operator, and audits both', async () => {
+    const { db, close } = await migratedDatabase();
+    closers.push(close);
+    const seen: string[] = [];
+    const tag = (name: string) => async (_c: unknown, next: () => Promise<void>) => {
+      seen.push(name);
+      await next();
+    };
+    const app = withErrorBoundary(
+      new Hono().route(
+        '/',
+        createTriageLabelRoutes({
+          db: db as never,
+          workspaceId: 'ws-1',
+          viewer: tag('viewer'),
+          operator: tag('operator'),
+          actorOf: async () => 'user:ana',
+        }),
+      ),
+    );
+    const put = await app.request('/api/v1/triage-labels', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ signature: SIGNATURE, category: 'environment' }),
+    });
+    expect(put.status).toBe(200);
+    const listed = (await (await app.request('/api/v1/triage-labels')).json()) as {
+      labels: unknown[];
+    };
+    expect(listed.labels).toHaveLength(1);
+    const bad = await app.request('/api/v1/triage-labels', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ signature: SIGNATURE, category: 'cosmic-rays' }),
+    });
+    expect(bad.status).toBe(400);
+    const removed = await app.request(
+      `/api/v1/triage-labels?signature=${encodeURIComponent(SIGNATURE)}`,
+      { method: 'DELETE' },
+    );
+    expect(removed.status).toBe(200);
+    const again = await app.request(
+      `/api/v1/triage-labels?signature=${encodeURIComponent(SIGNATURE)}`,
+      { method: 'DELETE' },
+    );
+    expect(again.status).toBe(404);
+    expect(seen).toEqual(['operator', 'viewer', 'operator', 'operator', 'operator']);
+    const audits = await db
+      .select({ action: schema.auditEvents.action })
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.actorId, 'user:ana'));
+    expect(audits.map((row) => row.action).sort()).toEqual([
+      'triage-label.removed',
+      'triage-label.set',
+    ]);
   });
 });

@@ -9,8 +9,8 @@
   ],
   "summary": {
     "admin": 13,
-    "viewer": 77,
-    "operator": 30,
+    "viewer": 78,
+    "operator": 32,
     "open": 14,
     "runner-credential": 9,
     "reporter-secret": 11,
@@ -1233,6 +1233,30 @@
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/triage-labels",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/triage-labels",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/triage-labels",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
     },
     {
       "method": "POST",
