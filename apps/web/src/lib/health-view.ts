@@ -1,5 +1,6 @@
 import {
   HEALTH_DIMENSION_LABELS,
+  isOptInDimension,
   type DimensionScore,
   type FindingSeverity,
   type HealthGrade,
@@ -68,11 +69,27 @@ export function whatIsGood(grade: HealthGrade): string[] {
   return [...dimensions, ...gates];
 }
 
-/** What could not be judged, so a missing scanner reads as missing rather than as clean. */
+/**
+ * What could not be judged, so a missing scanner reads as missing rather than as clean.
+ *
+ * An opt-in dimension nobody weighted is not missing — it was never asked for — so it is
+ * listed only once a policy gives it a weight.
+ */
 export function notMeasured(grade: HealthGrade): string[] {
   return grade.dimensions
-    .filter((entry) => !entry.measured)
+    .filter((entry) => !entry.measured && (!isOptInDimension(entry.dimension) || entry.weight > 0))
     .map((entry) => dimensionLabel(entry.dimension));
+}
+
+/** The seven core dimensions, then the opt-in ones, each kept in contract order. */
+export function splitDimensions(grade: HealthGrade): {
+  core: DimensionScore[];
+  optIn: DimensionScore[];
+} {
+  return {
+    core: grade.dimensions.filter((entry) => !isOptInDimension(entry.dimension)),
+    optIn: grade.dimensions.filter((entry) => isOptInDimension(entry.dimension)),
+  };
 }
 
 /** "3 hours ago" for a timestamp, against `now`. Coarse on purpose. */

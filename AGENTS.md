@@ -32,13 +32,14 @@ fails_.
 
 This is a **pnpm workspace monorepo** containing the unified Automate platform.
 
-| Directory     | Product                 | Stack                                           |
-| ------------- | ----------------------- | ----------------------------------------------- |
-| `apps/api`    | Unified API             | Hono v4, Drizzle ORM, PostgreSQL 16             |
-| `apps/web`    | Unified Web             | React 19, Vite, TanStack Router, Tailwind CSS 4 |
-| `apps/runner` | Execution boundary      | Node, rootless process control                  |
-| `apps/worker` | Lease and recovery loop | Node, worker resilience                         |
-| `site`        | Documentation site      | VitePress                                       |
+| Directory            | Product                 | Stack                                           |
+| -------------------- | ----------------------- | ----------------------------------------------- |
+| `apps/api`           | Unified API             | Hono v4, Drizzle ORM, PostgreSQL 16             |
+| `apps/web`           | Unified Web             | React 19, Vite, TanStack Router, Tailwind CSS 4 |
+| `apps/runner`        | Execution boundary      | Node, rootless process control                  |
+| `apps/worker`        | Lease and recovery loop | Node, worker resilience                         |
+| `tools/automate-cli` | `automate`, the CI CLI  | Node, no runtime dependencies                   |
+| `site`               | Documentation site      | VitePress                                       |
 
 The platform uses **pnpm 11**, **Node.js 24+**, **TypeScript 6.0**, and **Vitest 4** for unit tests. ESLint is at **10**, and its major changed which config file it loads: it resolves from each linted file's own directory and uses that directory as the base path for `files` patterns, so a nested `eslint.config.js` — even one that only re-exports the root — silently disables every path-scoped rule beneath it. There are none, and `scripts/lib/eslint-plugin-compatibility.test.mjs` refuses one.
 
@@ -276,6 +277,7 @@ vanished rows. See `confirmationProblems` in `scripts/lib/findings-ledger.mjs`.
 pnpm --filter @automate/api test          # API tests only
 pnpm --filter @automate/unified-web test  # Web client tests only
 pnpm --filter @automate/shared-contracts test # Contracts tests only
+pnpm --filter @automate/cli test          # The `automate` CI CLI only
 pnpm --filter @automate/api dev           # API dev only
 pnpm --filter @automate/unified-web dev   # Web dev only
 ```
@@ -340,7 +342,8 @@ run rather than on more code:
   command/            Three commands: /gate, /close, /boundary
   plans/              The one planning system; the only one tracked in git
 apps/
-  api/               Hono v4 API (:3000); Effect only in src/bootstrap
+  api/               Hono v4 API (:3000); Effect only in src/bootstrap. src/mcp/ is the read-only
+                     MCP server: POST /api/v1/mcp (viewer), and the stdio proxy dist/mcp/stdio.js
   web/               React 19 + TanStack Router + Tailwind CSS 4 (:5173)
   runner/            Rootless execution boundary
   worker/            Lease, readiness, and recovery loop
@@ -351,14 +354,18 @@ packages/
   connectors/        github / jira / slack / teams / telegram / whatsapp / signal connectors plus their SDK
   db/                Drizzle schema and migrations (PostgreSQL)
   orchestration/     Job state machines and schedules
+  projects/          Project detection, the QA score, and repository-health grading (incl. the agent-config scan)
   realtime/          Versioned replay and SSE boundaries
-  reporter/          Producer adapters (JUnit, Playwright JSON)
-  reporting/         Evidence, KPI, and quality-gate policies
+  reporter/          Producer adapters: test results (JUnit, Playwright JSON) and health reports
+                     (SARIF, coverage, SBOM, VEX, provenance, mutation, axe, evals, OTLP GenAI)
+  reporting/         Evidence, KPI, and quality-gate policies; DORA, flow, flake cost, AI-code,
+                     eval-regression and supply-chain scorecards
   runner-sdk/        Spool, retry policy, and the runner HTTP client
   shared-contracts/  Type-safe API contracts and Zod schemas
   tool-sdk/          Agent operation declaration, dispatch, result normalisation, error classes
   ui/                Shared Tailwind 4 component library
 tools/
+  automate-cli/      `automate`, the dependency-free CI CLI (upload, gate, deploy, agent-config)
   migrate-cli/       Migration utilities
 tests/performance/         k6 scenarios and the recorded thresholds
 infra/runners/             k6 / playwright / zap runner images (manifests only)

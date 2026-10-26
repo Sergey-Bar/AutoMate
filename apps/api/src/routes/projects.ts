@@ -48,6 +48,27 @@ import { createPairingRoutes } from './pairing.js';
 import { createNotificationRoutes } from './notifications.js';
 import { audit, authenticateToken } from '../services/access-service.js';
 import { qaTestsReading } from '../services/repo-health-service.js';
+import { ingestHealthReport, ingestParsedReport } from '../services/repo-health-service.js';
+import type { AiGateway } from '@automate/automation';
+import { agentRuntimeReading } from '../services/genai-span-service.js';
+import { evalGateReading } from '../services/eval-service.js';
+import { scanLocalAgentConfig, type AgentConfigOptions } from '../services/agent-config-service.js';
+import { createAgentQualityRoutes } from './agent-quality.js';
+import { deliveryReading } from '../services/delivery-service.js';
+import {
+  aiCodeReading,
+  aiGovernanceCheck,
+  recordGateFindings,
+} from '../services/ai-code-service.js';
+import { createAiCodeRoutes } from './ai-code.js';
+import { createScorecardRoutes } from './scorecards.js';
+import { createMcpRoutes } from './mcp.js';
+import { uploaderGuard } from '../http/uploader.js';
+import { createDeliveryRoutes } from './delivery.js';
+import { createGitHubWebhookRoutes } from './github-webhook.js';
+import { createIssueTrackingRoutes } from './issue-tracking.js';
+import { createTestProposalRoutes } from './test-proposals.js';
+import type { IssueAdapters } from '../services/issue-tracker-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
 /**
@@ -111,6 +132,27 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
   };
   /** The health upload credential: the reporter secret, and whether one is required. */
   health?: Partial<Omit<RepoHealthRouteOptions, 'db' | 'workspaceId' | 'access'>>;
+  /**
+   * Delivery performance. `lanMode` and `webhookSecret` together turn the GitHub webhook
+   * receiver on; `syncNow` runs queued syncs at once after a request queues one.
+   */
+  delivery?: { lanMode?: boolean; webhookSecret?: string; syncNow?: () => Promise<unknown> };
+  /**
+   * The built-in eval runner's model access: the configured gateway (`null` when no provider
+   * is configured, and runs are refused `NOT_CONFIGURED`) and its provider name.
+   */
+  agents?: {
+    gateway: AiGateway | null;
+    provider: string | null;
+    onRunFailure?: (error: unknown) => void;
+  };
+  /** The connectors an issue from a finding or a failure cluster is created through. */
+  issues?: IssueAdapters;
+  /**
+   * The gateway a test proposal asks: the composition root's **instrumented** one, so each
+   * proposal is a GenAI span. `null` when no provider is configured: proposals are refused.
+   */
+  testProposals?: { gateway: AiGateway | null; provider: string | null };
 }
 
 const DAY_MS = 86_400_000;
@@ -190,6 +232,15 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** The workspace's run history since a moment, or undefined when there is no run store. */
+function historyReader(
+  options: ProjectsRouteOptions,
+): ((since: Date) => Promise<ExecutionRun[]>) | undefined {
+  const store = options.reliability?.store;
+  if (store === undefined) return undefined;
+  return async (since) => (await readSince(store, options.workspaceId, since.getTime())).runs;
+}
+
 export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   const app = new Hono();
   const scanner = options.scanner ?? createRepoScanner({ viewFor: options.viewFor });
@@ -238,14 +289,120 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
     }),
   );
   // Repository health is part of the registry: every health route is about a registered project.
+  const store = { db: options.db, workspaceId: options.workspaceId };
+  // The run history the test-effectiveness card and the MCP tools read; absent without a store.
+  const history = historyReader(options);
+  const ingestParsed: AgentConfigOptions['ingestParsed'] = (input, parsed) =>
+    ingestParsedReport(healthOptions, input, parsed);
+  const healthOptions: RepoHealthRouteOptions = {
+    ...store,
+    access,
+    testsReading: (projectId) => qaTestsReading(options, projectId, new Date()),
+    deliveryReading: (projectId) => deliveryReading(options, projectId),
+    aiCodeReading: (projectId) => aiCodeReading(options, projectId),
+    aiGovernance: (projectId, pullRequest, facts) =>
+      aiGovernanceCheck(options, projectId, pullRequest, facts),
+    onGateReport: (projectId, report) => recordGateFindings(options, projectId, report),
+    agentRuntimeReading: (projectId) => agentRuntimeReading(store, projectId),
+    evalGateReading: (projectId, branch, commit) =>
+      evalGateReading(store, projectId, branch, commit),
+    agentConfigScan: (projectId) => scanLocalAgentConfig({ ...store, ingestParsed }, projectId),
+    ...options.health,
+  };
+  app.route('/', createRepoHealthRoutes(healthOptions));
+  // The read-only MCP server: the same health options, so a tool and a route cannot disagree.
   app.route(
     '/',
-    createRepoHealthRoutes({
+    createMcpRoutes({
+      access,
+      health: healthOptions,
+      history,
+    }),
+  );
+  // Agent quality: evals, OTLP traces, runtime, the MCP inventory and the built-in eval runner.
+  app.route(
+    '/',
+    createAgentQualityRoutes({
+      ...store,
+      access,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      otlpUploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: true,
+      }),
+      ingest: (input) => ingestHealthReport(healthOptions, input),
+      ingestParsed,
+      gateway: options.agents?.gateway ?? null,
+      provider: options.agents?.provider ?? null,
+      ...(options.agents?.onRunFailure === undefined
+        ? {}
+        : { onRunFailure: options.agents.onRunFailure }),
+    }),
+  );
+  // AI-written code: read-only scorecards over what the delivery sync attributed.
+  app.route('/', createAiCodeRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // Supply chain and test effectiveness, and the heatmap of every project. Read-only.
+  app.route(
+    '/',
+    createScorecardRoutes({
       db: options.db,
       workspaceId: options.workspaceId,
       access,
-      testsReading: (projectId) => qaTestsReading(options, projectId, new Date()),
-      ...options.health,
+      history,
+    }),
+  );
+  // Delivery performance: the push door takes the health upload's own guard.
+  app.route(
+    '/',
+    createDeliveryRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      ...(options.delivery?.syncNow === undefined ? {} : { syncNow: options.delivery.syncNow }),
+    }),
+  );
+  // The GitHub webhook: off unless LAN mode and a webhook secret are both configured.
+  app.route(
+    '/',
+    createGitHubWebhookRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      lanMode: options.delivery?.lanMode,
+      secret: options.delivery?.webhookSecret,
+      clientKey: (context) => defaultClientKey(context, options.trustProxy ?? false),
+      ...(options.delivery?.syncNow === undefined ? {} : { syncNow: options.delivery.syncNow }),
+    }),
+  );
+  // Issues from findings and failure clusters: the tracker's token is a vault entry.
+  app.route(
+    '/',
+    createIssueTrackingRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      vaultSecret: options.vaultSecret,
+      access,
+      adapters: options.issues ?? {},
+    }),
+  );
+  // AI test proposals: stored, listed, never applied.
+  app.route(
+    '/',
+    createTestProposalRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      gateway: options.testProposals?.gateway ?? null,
+      provider: options.testProposals?.provider ?? null,
     }),
   );
 

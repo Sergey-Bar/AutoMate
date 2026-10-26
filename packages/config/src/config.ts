@@ -32,7 +32,8 @@ export type SecretVariable =
   | 'AUTOMATE_API_KEY'
   | 'REPORTER_SECRET'
   | 'RUNNER_REGISTRATION_SECRET'
-  | 'KILO_API_KEY';
+  | 'KILO_API_KEY'
+  | 'GITHUB_WEBHOOK_SECRET';
 
 /**
  * Placeholders matched by equality, per variable.
@@ -52,6 +53,7 @@ const EXACT_PLACEHOLDERS: Record<SecretVariable, readonly string[]> = {
   REPORTER_SECRET: ['change-me', 'reporter-secret'],
   RUNNER_REGISTRATION_SECRET: ['change-me', 'runner-registration-secret'],
   KILO_API_KEY: ['change-me', 'automate'],
+  GITHUB_WEBHOOK_SECRET: ['change-me', 'github-webhook-secret'],
 };
 
 /**
@@ -277,12 +279,23 @@ const EnvironmentSchema = z.object({
     }),
   /** Signs repository-health webhook alerts. Unset: webhooks are not sent. */
   HEALTH_WEBHOOK_SECRET: z.string().min(32).optional(),
+  /**
+   * Verifies GitHub's `X-Hub-Signature-256` on `POST /api/v1/webhooks/github`. The receiver
+   * answers only with this set **and** `AUTOMATE_LAN_MODE` on; otherwise it is a 404.
+   */
+  GITHUB_WEBHOOK_SECRET: secretSchema('GITHUB_WEBHOOK_SECRET').optional(),
   /** A Slack bot token for repository-health alerts. Unset: Slack alerts are not sent. */
   SLACK_BOT_TOKEN: z.string().min(1).optional(),
   SESSION_RETENTION_DAYS: z.coerce.number().int().positive().default(30),
   SSE_REPLAY_RETENTION_HOURS: z.coerce.number().int().positive().default(24),
   AUDIT_RETENTION_DAYS: z.coerce.number().int().positive().default(365),
   RETENTION_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(3600),
+  /**
+   * How often the API runs the delivery syncs the worker queued. A whole number of
+   * milliseconds, at least ten seconds: `Number('soon')` is NaN, and a NaN interval makes
+   * `setInterval` fire continuously.
+   */
+  DELIVERY_SYNC_INTERVAL_MS: z.coerce.number().int().min(10_000).default(60_000),
   /**
    * The folder the API registers and re-detects at boot, and **opt-in with no
    * default**.
@@ -341,11 +354,15 @@ export type AppConfig = {
   /** `ALLOWED_CLIENT_CIDRS`, or {@link DEFAULT_CLIENT_CIDRS}. */
   allowedClientCidrs: string[];
   healthWebhookSecret?: string;
+  /** `GITHUB_WEBHOOK_SECRET`: the GitHub webhook receiver's HMAC key. */
+  githubWebhookSecret?: string;
   slackBotToken?: string;
   sessionRetentionDays: number;
   sseReplayRetentionHours: number;
   auditRetentionDays: number;
   retentionSweepIntervalSeconds: number;
+  /** `DELIVERY_SYNC_INTERVAL_MS`: the delivery syncer's interval, 10 s or more. */
+  deliverySyncIntervalMs: number;
   /** `undefined` means discovery is off. There is no working-directory default. */
   projectRoot?: string;
 };
@@ -402,14 +419,31 @@ export function parseConfig(
       parsed.ALLOWED_CLIENT_CIDRS === undefined
         ? [...DEFAULT_CLIENT_CIDRS]
         : splitList(parsed.ALLOWED_CLIENT_CIDRS),
-    ...(parsed.HEALTH_WEBHOOK_SECRET === undefined
-      ? {}
-      : { healthWebhookSecret: parsed.HEALTH_WEBHOOK_SECRET }),
-    ...(parsed.SLACK_BOT_TOKEN === undefined ? {} : { slackBotToken: parsed.SLACK_BOT_TOKEN }),
+    ...optionalIntegrations(parsed),
     sessionRetentionDays: parsed.SESSION_RETENTION_DAYS,
     sseReplayRetentionHours: parsed.SSE_REPLAY_RETENTION_HOURS,
     auditRetentionDays: parsed.AUDIT_RETENTION_DAYS,
     retentionSweepIntervalSeconds: parsed.RETENTION_SWEEP_INTERVAL_SECONDS,
+    deliverySyncIntervalMs: parsed.DELIVERY_SYNC_INTERVAL_MS,
     projectRoot: parsed.AUTOMATE_PROJECT_ROOT,
   };
+}
+
+/**
+ * The integration secrets that are absent rather than empty when unset, so a caller's
+ * `config.x !== undefined` means "configured" and nothing else.
+ */
+function optionalIntegrations(
+  parsed: z.infer<typeof EnvironmentSchema>,
+): Pick<AppConfig, 'healthWebhookSecret' | 'githubWebhookSecret' | 'slackBotToken'> {
+  const optional: Pick<AppConfig, 'healthWebhookSecret' | 'githubWebhookSecret' | 'slackBotToken'> =
+    {};
+  if (parsed.HEALTH_WEBHOOK_SECRET !== undefined) {
+    optional.healthWebhookSecret = parsed.HEALTH_WEBHOOK_SECRET;
+  }
+  if (parsed.GITHUB_WEBHOOK_SECRET !== undefined) {
+    optional.githubWebhookSecret = parsed.GITHUB_WEBHOOK_SECRET;
+  }
+  if (parsed.SLACK_BOT_TOKEN !== undefined) optional.slackBotToken = parsed.SLACK_BOT_TOKEN;
+  return optional;
 }

@@ -55,3 +55,18 @@ export const AnalyticsTrendSchema = z.object({
   truncated: z.boolean(),
 });
 export type AnalyticsTrend = z.infer<typeof AnalyticsTrendSchema>;
+
+/**
+ * `GET /api/v1/dashboard/analytics/summary`: the installation's three all-time numbers.
+ *
+ * `passRate` is 0–100 over **completed** runs (passed and failed), rounded to a whole
+ * percentage, and `null` when no run has completed — an install whose runs are all still
+ * executing has no pass rate, which is a different statement from every run failing.
+ * `avgDurationMs` is `null` when no run recorded a duration, for the same reason.
+ */
+export const DashboardAnalyticsSummarySchema = z.object({
+  totalRuns: z.number().int().min(0),
+  passRate: z.number().min(0).max(100).nullable(),
+  avgDurationMs: z.number().min(0).nullable(),
+});
+export type DashboardAnalyticsSummary = z.infer<typeof DashboardAnalyticsSummarySchema>;

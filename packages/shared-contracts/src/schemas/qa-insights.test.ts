@@ -121,6 +121,66 @@ describe('the insights contract', () => {
     ).toBe(true);
   });
 
+  it('parses failure clusters and quarantine suggestions, and refuses a score over one', () => {
+    const base = {
+      days: 7,
+      from: '2026-10-14T00:00:00.000Z',
+      to: '2026-10-21T00:00:00.000Z',
+      dates: ['2026-10-14'],
+      runs: 2,
+      flakyLeaderboard: [],
+      slowestTests: [],
+      failureHeatmap: [],
+      mttr: {
+        overall: { recoveries: 0, medianMs: null, p90Ms: null, openSince: null },
+        suites: [],
+      },
+      passRateByBranch: [],
+      digest: [],
+      truncated: false,
+      failureClusters: {
+        clusters: [
+          {
+            signature: 'error: connect econnrefused <n>',
+            errorType: 'Error',
+            sampleMessage: 'Error: connect ECONNREFUSED 127.0.0.1:5432',
+            count: 2,
+            tests: ['a.spec.ts › a', 'b.spec.ts › b'],
+            branches: ['main'],
+            runs: 1,
+            firstSeen: '2026-10-14T00:00:00.000Z',
+            lastSeen: '2026-10-14T00:00:00.000Z',
+          },
+        ],
+        totals: { failures: 2, causes: 1 },
+        summary: '2 failures, 1 cause',
+      },
+    };
+    const suggestion = {
+      testKey: 'a.spec.ts › a',
+      title: 'a',
+      flakyScore: 0.5,
+      observations: 6,
+      retriesSpent: 2,
+      wastedMs: 1200,
+      blockedRuns: 1,
+      reason: 'Disagreed with itself in 50% of 6 runs.',
+    };
+    const thresholds = { minScore: 0.2, minObservations: 5 };
+    expect(
+      QaInsightsSchema.safeParse({
+        ...base,
+        quarantineSuggestions: { thresholds, suggestions: [suggestion] },
+      }).success,
+    ).toBe(true);
+    expect(
+      QaInsightsSchema.safeParse({
+        ...base,
+        quarantineSuggestions: { thresholds, suggestions: [{ ...suggestion, flakyScore: 1.5 }] },
+      }).success,
+    ).toBe(false);
+  });
+
   it('allows a history with no points yet, and says since when it has collected', () => {
     expect(
       ProjectHistorySchema.safeParse({

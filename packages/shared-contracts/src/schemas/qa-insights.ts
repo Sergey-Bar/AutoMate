@@ -83,6 +83,35 @@ export const DigestItemSchema = z.object({
 });
 export type DigestItem = z.infer<typeof DigestItemSchema>;
 
+/** One root cause: failures whose normalised message and own stack frames agree. */
+export const FailureClusterSchema = z.object({
+  signature: z.string().min(1),
+  errorType: z.string().nullable(),
+  /** The earliest message in the cluster, verbatim. */
+  sampleMessage: z.string(),
+  count: z.number().int().min(1),
+  tests: z.array(z.string()),
+  branches: z.array(z.string()),
+  runs: z.number().int().min(1),
+  firstSeen: z.string().min(1),
+  lastSeen: z.string().min(1),
+});
+export type FailureCluster = z.infer<typeof FailureClusterSchema>;
+
+export const QuarantineSuggestionSchema = z.object({
+  testKey: z.string().min(1),
+  title: z.string().min(1),
+  /** `(flaky + flips) / observations`, 0–1. */
+  flakyScore: z.number().min(0).max(1),
+  observations: z.number().int().min(1),
+  retriesSpent: z.number().int().min(0),
+  /** Time spent on attempts beyond the first, in milliseconds. */
+  wastedMs: z.number().int().min(0),
+  blockedRuns: z.number().int().min(0),
+  reason: z.string().min(1),
+});
+export type QuarantineSuggestion = z.infer<typeof QuarantineSuggestionSchema>;
+
 export const QaInsightsSchema = z.object({
   days: z.number().int().min(1),
   from: z.string().min(1),
@@ -100,6 +129,34 @@ export const QaInsightsSchema = z.object({
   passRateByBranch: z.array(BranchPassRateSchema),
   digest: z.array(DigestItemSchema),
   truncated: z.boolean(),
+  /**
+   * The window's failed results grouped by root cause (`clusterFailures` in
+   * `@automate/reporting`). Optional so an older server's answer still parses.
+   */
+  failureClusters: z
+    .object({
+      clusters: z.array(FailureClusterSchema),
+      totals: z.object({
+        failures: z.number().int().min(0),
+        causes: z.number().int().min(0),
+      }),
+      /** "N failures, M causes". */
+      summary: z.string().min(1),
+    })
+    .optional(),
+  /**
+   * Tests worth quarantining, with the sentence a reviewer reads before agreeing. Suggestions
+   * only: quarantining stays the operator's `POST /api/v1/dashboard/quarantine`.
+   */
+  quarantineSuggestions: z
+    .object({
+      thresholds: z.object({
+        minScore: z.number().min(0).max(1),
+        minObservations: z.number().int().min(1),
+      }),
+      suggestions: z.array(QuarantineSuggestionSchema),
+    })
+    .optional(),
 });
 export type QaInsights = z.infer<typeof QaInsightsSchema>;
 

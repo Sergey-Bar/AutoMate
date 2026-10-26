@@ -10,12 +10,22 @@ import {
   TableRow,
   cn,
 } from '@automate/ui';
-import type { Portfolio as PortfolioPayload, PortfolioEntry } from '@automate/shared-contracts';
-import { useResource } from '../hooks/useResource.js';
+import type {
+  Portfolio as PortfolioPayload,
+  PortfolioAiCode,
+  PortfolioDelivery,
+  PortfolioEntry,
+  ScorecardStatus,
+} from '@automate/shared-contracts';
+import { useResource, type Resource } from '../hooks/useResource.js';
+import type { AiCodeClient } from '../lib/ai-code-client.js';
+import type { DeliveryClient } from '../lib/delivery-client.js';
 import type { HealthClient } from '../lib/health-client.js';
 import { ago, dimensionLabel, letterTone } from '../lib/health-view.js';
+import { SCORECARD_STATUS_WORD } from '../lib/scorecard-view.js';
 import { repoHealthPath } from '../route-manifest.js';
 import { Delta, PageFrame, PageHeader, Panel } from './kit.js';
+import { PortfolioHeatmap } from './PortfolioHeatmap.js';
 import { StatusLine } from './StatusLine.js';
 
 /**
@@ -25,8 +35,19 @@ import { StatusLine } from './StatusLine.js';
  * Each row is the grade, what limits it, and where it is heading; the detail is one click
  * away on the repository's own page.
  */
-export function Portfolio({ health }: { health: HealthClient }): React.ReactElement {
+export function Portfolio({
+  health,
+  delivery,
+  aiCode,
+}: {
+  health: HealthClient;
+  /** When given, each row also carries its DORA and flow scorecards. */
+  delivery?: DeliveryClient | undefined;
+  /** When given, each row also carries how much of its change an AI wrote. */
+  aiCode?: AiCodeClient | undefined;
+}): React.ReactElement {
   const portfolio = useResource<PortfolioPayload>(() => health.getPortfolio(), [health]);
+  const scorecards = usePortfolioScorecards(delivery, aiCode);
   if (portfolio.status === 'loading') {
     return (
       <PageFrame data-testid="portfolio-loading">
@@ -84,28 +105,48 @@ export function Portfolio({ health }: { health: HealthClient }): React.ReactElem
             {String(entries.filter((entry) => (entry.trend ?? 0) > 0).length)} improving over 30
             days
           </p>
-          <Panel title="Repositories" data-testid="portfolio-table">
-            <Table aria-label="Repositories">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Repository</TableHead>
-                  <TableHead>Grade</TableHead>
-                  <TableHead className="hidden md:table-cell">Limited by</TableHead>
-                  <TableHead className="hidden sm:table-cell">30 days</TableHead>
-                  <TableHead className="hidden lg:table-cell">Weakest</TableHead>
-                  <TableHead className="hidden lg:table-cell">Last report</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {entries.map((entry) => (
-                  <PortfolioRow key={entry.projectId} entry={entry} />
-                ))}
-              </TableBody>
-            </Table>
-          </Panel>
+          <PortfolioTable entries={entries} scorecards={scorecards} />
+          <PortfolioHeatmap health={health} />
         </>
       )}
     </PageFrame>
+  );
+}
+
+function PortfolioTable({
+  entries,
+  scorecards,
+}: {
+  entries: readonly PortfolioEntry[];
+  scorecards: PortfolioScorecards;
+}): React.ReactElement {
+  return (
+    <Panel title="Repositories" data-testid="portfolio-table">
+      <Table aria-label="Repositories">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Repository</TableHead>
+            <TableHead>Grade</TableHead>
+            <TableHead className="hidden md:table-cell">Limited by</TableHead>
+            <TableHead className="hidden sm:table-cell">30 days</TableHead>
+            <TableHead className="hidden lg:table-cell">Weakest</TableHead>
+            <TableHead className="hidden lg:table-cell">Last report</TableHead>
+            {scorecards.shown ? (
+              <>
+                <TableHead className="hidden xl:table-cell">DORA</TableHead>
+                <TableHead className="hidden xl:table-cell">Flow</TableHead>
+                <TableHead className="hidden xl:table-cell">AI share</TableHead>
+              </>
+            ) : null}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {entries.map((entry) => (
+            <PortfolioRow key={entry.projectId} entry={entry} scorecards={scorecards} />
+          ))}
+        </TableBody>
+      </Table>
+    </Panel>
   );
 }
 
@@ -126,7 +167,13 @@ function TrendCell({ trend }: { trend: number | null }): React.ReactElement {
   );
 }
 
-function PortfolioRow({ entry }: { entry: PortfolioEntry }): React.ReactElement {
+function PortfolioRow({
+  entry,
+  scorecards,
+}: {
+  entry: PortfolioEntry;
+  scorecards: PortfolioScorecards;
+}): React.ReactElement {
   return (
     <TableRow data-testid={`portfolio-row-${entry.slug}`}>
       <TableCell>
@@ -158,7 +205,100 @@ function PortfolioRow({ entry }: { entry: PortfolioEntry }): React.ReactElement 
       <TableCell className="hidden text-xs text-fg-muted lg:table-cell">
         {ago(entry.lastReportAt)}
       </TableCell>
+      {scorecards.shown ? (
+        <ScorecardCells projectId={entry.projectId} scorecards={scorecards} />
+      ) : null}
     </TableRow>
+  );
+}
+
+interface PortfolioScorecards {
+  shown: boolean;
+  delivery: Resource<PortfolioDelivery | null>;
+  aiCode: Resource<PortfolioAiCode | null>;
+}
+
+function usePortfolioScorecards(
+  delivery: DeliveryClient | undefined,
+  aiCode: AiCodeClient | undefined,
+): PortfolioScorecards {
+  const deliveryRead = useResource<PortfolioDelivery | null>(
+    () => (delivery === undefined ? Promise.resolve(null) : delivery.getPortfolio(30)),
+    [delivery],
+  );
+  const aiRead = useResource<PortfolioAiCode | null>(
+    () => (aiCode === undefined ? Promise.resolve(null) : aiCode.getPortfolio(90)),
+    [aiCode],
+  );
+  return {
+    shown: delivery !== undefined || aiCode !== undefined,
+    delivery: deliveryRead,
+    aiCode: aiRead,
+  };
+}
+
+const TIER_SHORT = [
+  ['deploymentFrequency', 'Deploys'],
+  ['changeLeadTime', 'Lead time'],
+  ['changeFailureRate', 'Failure rate'],
+  ['recoveryTime', 'Recovery'],
+] as const;
+
+/** A portfolio scorecard cell: the score, or why there is none, in words. */
+export function scorecardCellText(card: { status: ScorecardStatus; score: number | null }): string {
+  if (card.score === null) return SCORECARD_STATUS_WORD[card.status];
+  return `${card.score.toFixed(0)} · ${SCORECARD_STATUS_WORD[card.status]}`;
+}
+
+function readText<T>(resource: Resource<T | null>, render: (value: T) => string): string {
+  if (resource.status === 'loading') return '…';
+  if (resource.status === 'error') return 'unread';
+  return resource.value === null ? '—' : render(resource.value);
+}
+
+function ScorecardCells({
+  projectId,
+  scorecards,
+}: {
+  projectId: string;
+  scorecards: PortfolioScorecards;
+}): React.ReactElement {
+  const deliveryRow = (value: PortfolioDelivery) =>
+    value.projects.find((project) => project.projectId === projectId);
+  const aiRow = (value: PortfolioAiCode) =>
+    value.projects.find((project) => project.projectId === projectId);
+  return (
+    <>
+      <TableCell
+        className="hidden text-xs xl:table-cell"
+        data-testid={`portfolio-dora-${projectId}`}
+      >
+        {readText(scorecards.delivery, (value) => {
+          const row = deliveryRow(value);
+          if (row === undefined) return 'not reported';
+          const tiers = TIER_SHORT.map(([key, label]) => `${label} ${row.dora.tiers[key] ?? '—'}`);
+          return `${scorecardCellText(row.dora)} (${tiers.join(', ')})`;
+        })}
+      </TableCell>
+      <TableCell
+        className="hidden text-xs xl:table-cell"
+        data-testid={`portfolio-flow-${projectId}`}
+      >
+        {readText(scorecards.delivery, (value) => {
+          const row = deliveryRow(value);
+          return row === undefined ? 'not reported' : scorecardCellText(row.flow);
+        })}
+      </TableCell>
+      <TableCell className="hidden text-xs xl:table-cell" data-testid={`portfolio-ai-${projectId}`}>
+        {readText(scorecards.aiCode, (value) => {
+          const row = aiRow(value);
+          if (row === undefined) return 'not reported';
+          return row.aiShare === null
+            ? 'no change merged'
+            : `${row.aiShare.toFixed(0)}% of ${String(row.changes)}`;
+        })}
+      </TableCell>
+    </>
   );
 }
 

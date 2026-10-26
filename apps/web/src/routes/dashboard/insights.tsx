@@ -13,6 +13,10 @@ import {
 } from '../../components/kit.js';
 import { FailureHeatmap } from '../../components/charts/FailureHeatmap.js';
 import { HistoryChart } from '../../components/charts/HistoryChart.js';
+import {
+  FailureClustersPanel,
+  QuarantineSuggestionsPanel,
+} from '../../components/InsightsCauses.js';
 import { ProjectGate } from '../../components/ProjectGate.js';
 import { headline } from '../../components/Readiness.js';
 import { Responsive } from '../../components/responsive.js';
@@ -157,23 +161,35 @@ function InsightsGrid({
       <HistoryBody history={history} failure={historyFailure} />
     </Panel>
   );
+  const causes = <FailureClustersPanel clusters={insights.failureClusters} />;
+  const suggestions = (
+    <QuarantineSuggestionsPanel suggestions={insights.quarantineSuggestions} api={api} />
+  );
   return (
     <>
       <InsightKpis insights={insights} readiness={readiness} />
       <Responsive
         label="Insight sections"
         desktop={
-          <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-2 gap-3">
-            {flaky}
-            <div className="col-span-2 flex min-h-0 flex-col">{heatmap}</div>
-            {slow}
-            {recovery}
-            {trends}
-          </div>
+          <>
+            <div className="grid min-h-0 flex-1 grid-cols-3 grid-rows-2 gap-3">
+              {flaky}
+              <div className="col-span-2 flex min-h-0 flex-col">{heatmap}</div>
+              {slow}
+              {recovery}
+              {trends}
+            </div>
+            <div className="grid h-72 shrink-0 grid-cols-2 gap-3">
+              {causes}
+              {suggestions}
+            </div>
+          </>
         }
         panels={[
           { id: 'flaky', label: 'Flaky', node: flaky },
           { id: 'heatmap', label: 'Failures', node: heatmap },
+          { id: 'causes', label: 'Causes', node: causes },
+          { id: 'suggestions', label: 'Quarantine', node: suggestions },
           { id: 'slow', label: 'Slowest', node: slow },
           { id: 'recovery', label: 'Recovery', node: recovery },
           { id: 'history', label: 'History', node: trends },
@@ -414,12 +430,17 @@ function RecoveryPanel({ insights }: { insights: QaInsights }): React.ReactEleme
                 </div>
                 <span
                   aria-hidden="true"
-                  className="mt-1 block h-1.5 overflow-hidden rounded-full bg-chart-fail/30"
+                  className={cn(
+                    'mt-1 block h-1.5 overflow-hidden rounded-full',
+                    branch.passRate === null ? 'bg-surface-muted' : 'bg-chart-fail/30',
+                  )}
                 >
-                  <span
-                    className="block h-full rounded-full bg-chart-pass"
-                    style={{ width: `${String(branch.passRate ?? 0)}%` }}
-                  />
+                  {branch.passRate === null ? null : (
+                    <span
+                      className="block h-full rounded-full bg-chart-pass"
+                      style={{ width: `${String(branch.passRate)}%` }}
+                    />
+                  )}
                 </span>
               </li>
             ))

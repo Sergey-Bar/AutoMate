@@ -103,7 +103,91 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // one workspace is invisible from another — reads, uploads and triage alike.
   {
     family: 'repository health',
-    files: ['services/repo-health-service.ts', 'routes/repo-health.ts'],
+    files: [
+      'services/repo-health-service.ts',
+      'routes/repo-health.ts',
+      'services/health-findings.ts',
+    ],
+  },
+  // Supply chain and diff coverage: the SBOM inventory, VEX documents, the policy, line maps
+  // and diff coverage. `supply-chain-service.test.ts` and `diff-coverage-service.test.ts` prove
+  // another workspace can neither read nor write any of them, and that the portfolio search
+  // never returns another workspace's project.
+  {
+    family: 'supply chain and diff coverage',
+    files: ['services/supply-chain-service.ts', 'services/diff-coverage-service.ts'],
+  },
+  // Delivery performance: sources, the sync queue and what it writes, the push door and the
+  // GitHub webhook's replay store. `delivery-service.test.ts` proves another workspace can
+  // neither read nor write a project's delivery data, `delivery-syncer.test.ts` that a sync
+  // writes only into its own workspace, and `github-webhook.test.ts` that a webhook queues
+  // nothing for another workspace's project of the same repository.
+  {
+    family: 'delivery performance',
+    files: [
+      'services/delivery-service.ts',
+      'services/delivery-syncer.ts',
+      'services/github-webhook.ts',
+      'routes/delivery.ts',
+      'routes/github-webhook.ts',
+    ],
+  },
+  // AI-written code: the attribution the sync stores, the outcomes and scorecard read from it,
+  // the governance check on one pull request and the gate's per-PR record of new findings.
+  // `ai-code-service.test.ts` proves another workspace can neither read a project's ai-code
+  // data nor record a gate finding on it, and that the portfolio lists only its own projects.
+  {
+    family: 'ai-written code',
+    files: [
+      'services/ai-code-service.ts',
+      'services/ai-code-attribution.ts',
+      'services/ai-code-outcomes.ts',
+      'routes/ai-code.ts',
+    ],
+  },
+  // Agent quality: eval runs and cases, GenAI spans, the MCP inventory and eval datasets — five
+  // tables, each hard-scoped in `0040_agent_quality.sql`. Each service test ends with a
+  // `workspace isolation` case proving another workspace can neither read nor write them:
+  // `eval-service.test.ts`, `genai-span-service.test.ts` (including the installation's own
+  // `self` spans), `agent-config-service.test.ts` and `eval-runner.test.ts`.
+  {
+    family: 'agent quality',
+    files: [
+      'services/eval-service.ts',
+      'services/genai-span-service.ts',
+      'services/agent-config-service.ts',
+      'services/eval-runner.ts',
+      'routes/agent-quality.ts',
+    ],
+  },
+  // Issue trackers and issue links (`0041_issue_tracking.sql`) and AI test proposals
+  // (`0042_test_proposals.sql`), each hard-scoped from its first migration.
+  // `issue-tracker-service.test.ts` and `test-proposal-service.test.ts` each end with a case
+  // proving another workspace can neither read a tracker, a link or a proposal, nor create
+  // one against this workspace's project or finding.
+  {
+    family: 'issues and test proposals',
+    files: [
+      'services/issue-tracker-service.ts',
+      'services/test-proposal-service.ts',
+      'routes/issue-tracking.ts',
+      'routes/test-proposals.ts',
+    ],
+  },
+  // The read-only MCP server's tools and the stdio proxy in front of it. Every tool reads through
+  // the health options the composition root binds to its workspace; `routes/mcp.test.ts` proves a
+  // token from another workspace does not authenticate and another workspace's project is "no
+  // such project", and that a caller pinned to one project reads only that project.
+  {
+    family: 'mcp server',
+    files: ['routes/mcp.ts', 'mcp/tools.ts', 'mcp/server.ts'],
+  },
+  // The supply-chain and test-effectiveness scorecards and the portfolio heatmap. Every read
+  // goes through `projectRow` and filters on `workspace_id`; `routes/scorecards.test.ts` proves
+  // another workspace's project is "no such project" and that the heatmap lists only its own.
+  {
+    family: 'scorecards and heatmap',
+    files: ['services/scorecard-service.ts', 'routes/scorecards.ts'],
   },
   // Role tokens and the audit trail. `access-service.test.ts` proves a token authenticates
   // only in the workspace that issued it, and that one workspace cannot list another's.
@@ -130,6 +214,7 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     files: [
       'services/notification-service.ts',
       'services/report-dispatcher.ts',
+      'services/report-areas.ts',
       'routes/notifications.ts',
     ],
   },

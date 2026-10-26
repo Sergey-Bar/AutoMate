@@ -1,28 +1,29 @@
-import { useEffect, useState } from 'react';
-import type { CanonicalRunResult } from '@automate/shared-contracts';
+import { z } from 'zod/v4';
+import { CanonicalRunResultSchema } from '@automate/shared-contracts';
+import { useResource } from '../../hooks/useResource.js';
+import { createJsonTransport } from '../../lib/json-transport.js';
 
-export function RunExplorer({ runId }: { runId: string }) {
-  const [result, setResult] = useState<CanonicalRunResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    void fetch(`/api/v1/reporting/runs/${encodeURIComponent(runId)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Run not found');
-        return (await response.json()) as { result: CanonicalRunResult };
-      })
-      .then((payload) => {
-        if (active) setResult(payload.result);
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : 'Unable to load run');
-      });
-    return () => {
-      active = false;
-    };
-  }, [runId]);
-  if (error) return <div role="alert">{error}</div>;
-  if (!result) return <div>Loading run…</div>;
+/**
+ * One canonical run: its status, its proof, whether every shard arrived, and every attempt.
+ *
+ * Read through the shared transport, so the response is parsed against the contract and a
+ * failure shows the server's own sentence — not a blanket "Run not found" for a 500, which is
+ * what this used to say for every status that was not 200.
+ */
+const ReportingRunSchema = z.object({ result: CanonicalRunResultSchema });
+
+export function RunExplorer({ runId, fetchImpl }: { runId: string; fetchImpl?: typeof fetch }) {
+  const run = useResource(
+    () =>
+      createJsonTransport('', fetchImpl ?? fetch).get(
+        `/api/v1/reporting/runs/${encodeURIComponent(runId)}`,
+        ReportingRunSchema,
+      ),
+    [runId, fetchImpl],
+  );
+  if (run.status === 'error') return <div role="alert">{run.message}</div>;
+  if (run.status === 'loading') return <div>Loading run…</div>;
+  const result = run.value.result;
   return (
     <section data-testid="run-explorer" aria-label="Run evidence explorer">
       <h2>Run {result.identity.runId}</h2>

@@ -129,6 +129,12 @@ describe('dashboard routes', () => {
     await waitFor(() => expect(screen.getByTestId('runs-list-page')).toBeInTheDocument());
     expect(screen.getByTestId('launch-run-form')).toBeInTheDocument();
     expect(screen.getByTestId('release-readiness')).toHaveTextContent('UNKNOWN');
+    // With no release there is no evaluation, so no per-domain status is drawn — not even
+    // a confident "not configured" that no read returned.
+    expect(screen.getByTestId('release-readiness-unread')).toHaveTextContent(
+      'No readiness has been evaluated',
+    );
+    expect(screen.getByTestId('release-readiness')).not.toHaveTextContent('NOT_CONFIGURED');
     expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
   });
 

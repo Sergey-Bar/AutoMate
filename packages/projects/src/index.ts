@@ -76,7 +76,31 @@ export {
   type RepositorySource,
 } from './health/scanners.js';
 export { CODEOWNERS_PATHS, ownerOf, parseCodeowners, type OwnerRule } from './health/codeowners.js';
-export { DEFAULT_MAX_NEW_CRITICAL, evaluateHealthGate, type GateVerdict } from './health/gate.js';
+export {
+  DEFAULT_MAX_NEW_CRITICAL,
+  evaluateHealthGate,
+  type GateAgents,
+  type GateAiGovernance,
+  type GateDelivery,
+  type GateDiffCoverage,
+  type GateEvalSuite,
+  type GateVerdict,
+} from './health/gate.js';
+export {
+  AGENT_CONFIG_PATHS,
+  AGENT_CONFIG_RULES,
+  AGENT_CONFIG_TOOL,
+  isAgentConfigPath,
+  scanAgentConfig,
+  redactServerUrl,
+  stripJsonc,
+  type AgentConfigFile,
+  type AgentConfigRule,
+  type AgentConfigRuleId,
+  type AgentConfigScan,
+  type McpServerEntry,
+  type McpTransport,
+} from './health/agent-config-scan.js';
 export type { GeneralScore, ScoreRow, WeightedTerm } from './score/geometric.js';
 export { weightedGeometric } from './score/geometric.js';
 export {

@@ -25,6 +25,8 @@ import {
 import {
   FINDING_SEVERITIES,
   HEALTH_DIMENSIONS,
+  isOptInDimension,
+  type DimensionScore,
   type FindingSeverity,
   type FindingState,
   type HealthDimension,
@@ -41,9 +43,11 @@ import {
   letterTone,
   meterVariant,
   notMeasured,
+  splitDimensions,
   whatIsGood,
 } from '../lib/health-view.js';
 import { PageFrame, PageHeader, Panel, Quiet, Segmented } from './kit.js';
+import { repo360Path } from '../route-manifest.js';
 
 /**
  * One repository's health: the grade first, then why, then what to do.
@@ -118,7 +122,18 @@ export function RepoHealth({
               : `latest report ${ago(health.value.reports[0]?.receivedAt ?? null)}`}
           </span>
         }
-        actions={<ScanButton client={client} projectId={projectId} onStarted={scanStarted} />}
+        actions={
+          <>
+            <a
+              href={repo360Path(projectId)}
+              data-testid="repo-health-360"
+              className="inline-flex min-h-11 items-center rounded-md border border-border-strong px-3 text-sm text-fg no-underline hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+            >
+              Every scorecard
+            </a>
+            <ScanButton client={client} projectId={projectId} onStarted={scanStarted} />
+          </>
+        }
       />
       <GradeHero value={health.value} trend={history.status === 'ready' ? history.value : null} />
       <DimensionStrip value={health.value} />
@@ -201,37 +216,63 @@ function GradeHero({
 }
 
 function DimensionStrip({ value }: { value: ProjectHealth }): React.ReactElement {
+  const { core, optIn } = splitDimensions(value.grade);
   return (
-    <section
-      aria-label="Dimensions"
-      className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3 xl:grid-cols-7"
+    <>
+      <section
+        aria-label="Dimensions"
+        data-testid="core-dimensions"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3 xl:grid-cols-7"
+      >
+        {core.map((entry) => (
+          <DimensionTile key={entry.dimension} entry={entry} />
+        ))}
+      </section>
+      <section
+        aria-label="Opt-in dimensions"
+        data-testid="opt-in-dimensions"
+        data-chrome="secondary"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3"
+      >
+        {optIn.map((entry) => (
+          <DimensionTile key={entry.dimension} entry={entry} />
+        ))}
+      </section>
+    </>
+  );
+}
+
+/**
+ * One dimension. An opt-in dimension with no weight says so, because a scorecard that is
+ * not in the grade must not read as one that is.
+ */
+function DimensionTile({ entry }: { entry: DimensionScore }): React.ReactElement {
+  const optIn = isOptInDimension(entry.dimension) && entry.weight === 0;
+  return (
+    <div
+      data-testid={`dimension-${entry.dimension}`}
+      data-measured={entry.measured ? 'true' : 'false'}
+      data-opt-in={optIn ? 'true' : 'false'}
+      className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface px-4 py-3"
     >
-      {value.grade.dimensions.map((entry) => (
-        <div
-          key={entry.dimension}
-          data-testid={`dimension-${entry.dimension}`}
-          data-measured={entry.measured ? 'true' : 'false'}
-          className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface px-4 py-3"
-        >
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="truncate text-xs font-medium uppercase tracking-wider text-fg-muted">
-              {dimensionLabel(entry.dimension)}
-            </span>
-            <span className={cn('text-2xl font-semibold tabular-nums', letterTone(entry.letter))}>
-              {entry.letter ?? '—'}
-            </span>
-          </div>
-          <Meter
-            label={`${dimensionLabel(entry.dimension)} score`}
-            {...(entry.score === null ? { unmeasured: true } : { value: entry.score })}
-            variant={meterVariant(entry.letter)}
-          />
-          <p className="line-clamp-2 text-xs text-fg-muted" title={entry.summary.join(' · ')}>
-            {entry.measured ? (entry.summary[0] ?? '') : 'Not measured'}
-          </p>
-        </div>
-      ))}
-    </section>
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-xs font-medium uppercase tracking-wider text-fg-muted">
+          {dimensionLabel(entry.dimension)}
+        </span>
+        <span className={cn('text-2xl font-semibold tabular-nums', letterTone(entry.letter))}>
+          {entry.letter ?? '—'}
+        </span>
+      </div>
+      <Meter
+        label={`${dimensionLabel(entry.dimension)} score`}
+        {...(entry.score === null ? { unmeasured: true } : { value: entry.score })}
+        variant={meterVariant(entry.letter)}
+      />
+      <p className="line-clamp-2 text-xs text-fg-muted" title={entry.summary.join(' · ')}>
+        {optIn ? 'Opt-in · not in the grade · ' : ''}
+        {entry.measured ? (entry.summary[0] ?? '') : 'Not measured'}
+      </p>
+    </div>
   );
 }
 

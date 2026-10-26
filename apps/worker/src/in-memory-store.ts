@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  DeliverySourceDue,
+  DeliverySyncEnqueue,
   ExecutionStore,
   ExecutionStoreOptions,
   JobClaim,
@@ -154,6 +156,53 @@ export class InMemoryExecutionStore implements ExecutionStore {
       workspaceId: schedule.workspaceId,
       subscriptionId: schedule.subscriptionId,
       scheduledFor: input.scheduledFor,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return true;
+  }
+
+  private readonly deliverySources = new Map<string, DeliverySourceDue>();
+  private readonly deliverySyncs = new Map<
+    string,
+    {
+      workspaceId: string;
+      projectId: string;
+      sourceId: string;
+      requestedBy: 'schedule';
+      idempotencyKey: string;
+    }
+  >();
+
+  /** An enabled delivery source, as the API would have saved it. For tests. */
+  addDeliverySource(source: DeliverySourceDue): void {
+    this.deliverySources.set(source.id, clone(source));
+  }
+
+  /** The syncs the scheduler queued, in order. For tests. */
+  listDeliverySyncs() {
+    return [...this.deliverySyncs.values()].map((sync) => clone(sync));
+  }
+
+  async listDueDeliverySources(now: Date, limit: number): Promise<DeliverySourceDue[]> {
+    return [...this.deliverySources.values()]
+      .filter((source) => new Date(source.nextSyncAt).getTime() <= now.getTime())
+      .sort((left, right) => left.nextSyncAt.localeCompare(right.nextSyncAt))
+      .slice(0, limit)
+      .map((source) => clone(source));
+  }
+
+  async enqueueDeliverySync(input: DeliverySyncEnqueue): Promise<boolean> {
+    const source = this.deliverySources.get(input.source.id);
+    if (!source || new Date(source.nextSyncAt).getTime() > new Date(input.now).getTime()) {
+      return false;
+    }
+    source.nextSyncAt = input.nextSyncAt;
+    if (this.deliverySyncs.has(input.idempotencyKey)) return false;
+    this.deliverySyncs.set(input.idempotencyKey, {
+      workspaceId: source.workspaceId,
+      projectId: source.projectId,
+      sourceId: source.id,
+      requestedBy: 'schedule',
       idempotencyKey: input.idempotencyKey,
     });
     return true;

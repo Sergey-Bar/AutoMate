@@ -5791,6 +5791,502 @@
         }
       ],
       "resolution": "`apps/api/src/http/route-access.ts` guards every remaining route by method and role; `checkExposurePolicy` refuses the exposure at boot; the start scripts refuse it at the prompt. AUTOMATE_LAN_MODE=1 turns enforcement on."
+    },
+    {
+      "id": "W7-1",
+      "title": "The dashboard summary answered passRate 0 while no run had completed, and the page drew it as every run failing",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`aggregateRuns` and the SQL summary in `drizzle-run-repository.ts` returned `passRate: 0` when no run was passed or failed. The web treated 0 as \"not measured\" only while `totalRuns` was 0, so an install whose runs were all still executing showed a measured 0% pass rate.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read against both repositories; the analytics test asserting the all-running case expected 0 and now fails against the old code, and the web test renders three runs in flight as not measured.",
+      "evidence": [
+        {
+          "path": "apps/api/src/modules/dashboard/analytics.test.ts",
+          "asserts": "No completed run is passRate null; every completed run failing is 0."
+        },
+        {
+          "path": "apps/api/src/repositories/analytics-parity.test.ts",
+          "asserts": "The in-memory and SQL summaries agree, null included."
+        },
+        {
+          "path": "apps/web/src/routes/dashboard/analytics.test.tsx",
+          "asserts": "Runs that are all still executing are not drawn as a 0% pass rate."
+        }
+      ],
+      "resolution": "Both repositories answer `null` with no completed run, and the route parses its answer with `DashboardAnalyticsSummarySchema` in shared-contracts, which the web client now reads too."
+    },
+    {
+      "id": "W7-2",
+      "title": "The automate-health composite action sent the uploader token to any URL, plain http included",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`.github/actions/automate-health` wrote the token into a curl header file and posted to whatever `url` it was given, so `http://` to a host on the network sent the bearer token in the clear on every CI run.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read against the action: no step inspected the scheme or the host before the first curl.",
+      "evidence": [
+        {
+          "path": ".github/actions/automate-health/action.yml",
+          "asserts": "The first step refuses any url that is neither https:// nor http:// to localhost, 127.0.0.0/8 or ::1, before the token is written anywhere."
+        },
+        {
+          "path": "tools/automate-cli/src/cli.test.ts",
+          "asserts": "The CLI the action mirrors refuses plain http to a non-loopback host before anything is sent."
+        }
+      ],
+      "resolution": "A `Check the destination` step runs first and fails the job on an insecure origin; the `automate` CLI applies the same rule."
+    },
+    {
+      "id": "W7-3",
+      "title": "The GitHub rate-limit read test was a clock bomb: a fixed reset epoch judged against the real clock",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`packages/connectors/github/src/reads.test.ts` \"reads the primary limit from x-ratelimit-reset\" sent `x-ratelimit-reset: 1793000000` (2026-10-26 07:33:20 UTC) with no frozen clock. The adapter compares the reset with `Date.now()`, so the test passed until that instant and failed on every run after it, with no change to the code under test.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Observed failing on 2026-10-26 after 07:33 UTC with the adapter unchanged; read against the test, which asserted a future retry time computed from a wall clock it did not control.",
+      "evidence": [
+        {
+          "path": "packages/connectors/github/src/reads.test.ts",
+          "asserts": "The primary-limit cases freeze the clock at 2026-10-23T12:00:00Z with `vi.useFakeTimers`, so the fixed reset epoch is always in the future and the asserted `retryAt` is the same on every date."
+        }
+      ],
+      "resolution": "The clock is frozen in each rate-limit case. The adapter was correct; only the test depended on the date it ran."
+    },
+    {
+      "id": "W7-4",
+      "title": "The runner API-run test gave a real Bruno CLI a 60 s job deadline, and a cold start under load timed a passing collection out",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`apps/runner/src/api-run.test.ts` ran a real `bru run` with `deadlineMs: 60_000` under a 120 s test timeout. Under full-workspace load the first, cold `bru` start took 61 s, so the runner correctly reported `timed_out` for a collection that passes, and the suite failed intermittently for a reason that was not the code.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Observed a 61 s cold start in a full `pnpm test` run producing `timed_out`; the same test passes in isolation, and the deadline was half the time the test itself allows.",
+      "evidence": [
+        {
+          "path": "apps/runner/src/api-run.test.ts",
+          "asserts": "The real-Bruno case runs with a 110 s job deadline, inside its 120 s test timeout, so a cold CLI start under load is not reported as a timed-out collection."
+        }
+      ],
+      "resolution": "The job deadline was raised to 110 s, still under the test timeout, so a deadline overrun stays distinguishable from the test hanging. The runner's deadline handling is unchanged."
+    },
+    {
+      "id": "W7-5",
+      "title": "Opted-in eval, runtime and delivery gate inputs passed on missing or insufficient evidence",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`evaluateHealthGate` (`packages/projects/src/health/gate.ts`) failed on delivery, runtime and evals only on an explicit `fail`, and `evalGateReading` (`apps/api/src/services/eval-service.ts`) dropped every suite with no baseline. With `gateOnEvals` a branch that never ran its evals, a suite with no baseline, a default-branch suite missing on the branch and an `insufficient` comparison all passed; `insufficient`/`not_configured` runtime and DORA scorecards passed `gateOnRuntime`/`gateOnDelivery`. The eval gate also read the branch's latest run whatever commit was gated.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the gate and the reading; reproduced with the five cases. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/health/gate.test.ts",
+          "asserts": "A gated eval suite that is insufficient, has no baseline or is missing fails with a specific reason; gated evals with nothing measured fail; insufficient and not_configured runtime and DORA scorecards fail the gate."
+        },
+        {
+          "path": "apps/api/src/services/eval-service.test.ts",
+          "asserts": "Through `healthGate`: a branch with no run of a default-branch suite fails, no-baseline/missing/insufficient suites fail, reports-only evals never fail, and a named commit is judged on its own run or the reading says it fell back."
+        }
+      ],
+      "resolution": "Once an input is gated, only a pass passes: every other verdict adds a reason in the `diffCoverageReason` style. `evalGateReading` returns every branch suite (no-baseline included) and every default-branch suite the branch did not run (`missing`), judges each on the gated commit's run when one exists and records `fellBack` otherwise (shown in the gate comment). The default branch is the baseline and is not compared with itself. Documented in site/guide/agents.md and delivery-performance.md."
+    },
+    {
+      "id": "W7-6",
+      "title": "SLSA level 2/3 was awarded to provenance not bound to the uploaded artifact",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`verifyProvenance` (`packages/reporter/src/adapters/provenance.ts`) awarded L2/L3 whenever `subjectMatches !== false`, and `provenanceTrust` (`apps/api/src/services/supply-chain-service.ts`) sets an expected digest only when the upload names one, so a correctly signed provenance for any other artifact reached L2/L3.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the level formula. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/provenance.test.ts",
+          "asserts": "A verified signature with no expected digest is held at L1 with a reason saying the provenance is not bound to the artifact; L2/L3 need `subjectMatches: true`."
+        },
+        {
+          "path": "apps/api/src/services/supply-chain-service.test.ts",
+          "asserts": "Through the upload door, a verified provenance uploaded with no `digest=` grades SLSA L1."
+        }
+      ],
+      "resolution": "L2 and L3 require `subjectMatches === true`; without an expected digest the level is capped at L1 and the reasons say why. Documented in site/guide/repository-health.md."
+    },
+    {
+      "id": "W7-7",
+      "title": "A certificate chaining to a configured CA root verified provenance whatever identity it was issued to",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`chainVerifies` accepted any leaf that chained to a configured root and its key verified the DSSE signature. With Sigstore's Fulcio root configured, anyone with an OIDC account could produce \"verified\" provenance; the SAN and the OIDC issuer extension were never read.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read `chainVerifies` and `signatureStatus`; reproduced with test certificates carrying SAN and issuer extensions. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/adapters/provenance.test.ts",
+          "asserts": "A root-chained leaf with an untrusted SAN, or the right SAN from another issuer, is `signature: invalid` with \"certificate identity … is not trusted\"; roots with no identity policy make certificate signatures `not_configured` while trusted keys still verify."
+        },
+        {
+          "path": "packages/reporter/src/adapters/certificate-identity.test.ts",
+          "asserts": "The bounded DER reader takes the Fulcio issuer from 1.3.6.1.4.1.57264.1.8 or the legacy .1.1 extension, reads SAN URIs and emails, and returns no issuer for truncated or absurd DER."
+        },
+        {
+          "path": "apps/web/src/components/SupplyChain.test.tsx",
+          "asserts": "The policy form keeps `trustedIdentities` untouched, as it keeps PEMs."
+        }
+      ],
+      "resolution": "`SupplyChainProvenancePolicySchema` gained `trustedIdentities` (`subject` exact SAN URI/email, optional `issuer`). A root-chained certificate counts only when its identity matches one; with roots and no identities, certificate signatures are `not_configured`. Documented in site/guide/repository-health.md."
+    },
+    {
+      "id": "W7-8",
+      "title": "MCP server URLs carrying credentials were stored and served to every viewer",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`serverEntry` (`packages/projects/src/health/agent-config-scan.ts`) kept each MCP server URL verbatim, `replaceInventory` stored it and `listMcpServers` returned it — including the query-string and userinfo credentials the same scan flags. The local-checkout walk also read untracked, secret-bearing files such as `.claude/settings.local.json`.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the scanner, the store and the list route. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/projects/src/health/agent-config-scan.test.ts",
+          "asserts": "Inventory URLs carry no userinfo or fragment and every query value is `REDACTED`, including URLs the WHATWG parser refuses."
+        },
+        {
+          "path": "apps/api/src/services/agent-config-service.test.ts",
+          "asserts": "Stored and served URLs are redacted, a row stored before redaction is redacted on read, and the walk never reads `*.local.json` or `claude_desktop_config.json`."
+        }
+      ],
+      "resolution": "`redactServerUrl` is applied by the scan, on store and on read. The API runs no subprocess (there is no safe exec helper to ask git for tracked files), so the walk skips the conventionally local files by name; committed copies still reach the scan through CI. Documented in site/guide/agents.md."
+    },
+    {
+      "id": "W7-9",
+      "title": "A background eval run could end the API with an unhandled rejection, and the running-slot guard raced",
+      "band": "Blocker",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`createAgentQualityRoutes` scheduled background eval runs with `(task) => void task()`, so any rejection of the task (a throwing failure hook, say) was unhandled and the API installs no handler. Separately, `prepareDatasetRun` checked the per-dataset running set and `execute` only added to it later, with an awaited audit between, so two near-simultaneous runs both started.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the scheduler and `audit`. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/agent-quality.test.ts",
+          "asserts": "The default `backgroundSchedule` routes a rejected task to its failure hook (and logs when the hook itself throws); two concurrent run requests answer 202 and 409; a run whose audit table is gone still finishes (audit never throws)."
+        },
+        {
+          "path": "apps/api/src/services/eval-runner.test.ts",
+          "asserts": "The dataset is claimed at prepare, before execute, and `release` frees it."
+        }
+      ],
+      "resolution": "The default schedule is `backgroundSchedule(onRunFailure ?? log)`, which attaches a catch. `prepareDatasetRun` claims the slot in the same synchronous step as the check and returns `release`; `execute` releases in `finally`. Note: `audit` (`apps/api/src/services/access-service.ts`) already never throws, so the audit-failure path the review described could not itself reject; the missing catch was the defect."
+    },
+    {
+      "id": "W7-10",
+      "title": "The delivery sync lease was neither renewed nor owner-checked, cursors were overwritten whole, and a crashing sync was reclaimed forever",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`delivery-syncer.ts` never extended the lease, and `finish`/`updateSource` matched on the row id only, so a sync outliving ten minutes ran twice and the slower writer's whole-object `cursors` write moved streams backwards. The claim never compared `attempts` with `maxAttempts`, and `queueDeliverySync` (check-then-insert) and the worker enqueue could each add a second queued row for a source.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the claim, finish and updateSource paths. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/delivery-syncer.test.ts",
+          "asserts": "A sync whose lease was taken writes nothing more and ends `abandoned`; the lease is renewed after each stream; a stale writer cannot move a cursor backwards; an exhausted sync is failed, not reclaimed; one queued sync per source however requests race; a requeue beside a queued sibling is closed `superseded`."
+        },
+        {
+          "path": "apps/worker/src/postgres-store.delivery.test.ts",
+          "asserts": "The worker adds no second queued sync when one already waits for the source."
+        },
+        {
+          "path": "packages/db/drizzle/0044_delivery_hardening.sql",
+          "asserts": "Adds `delivery_syncs.lease_id` and the partial unique index `delivery_syncs_one_queued_idx` (closing existing duplicates as `superseded`)."
+        }
+      ],
+      "resolution": "Every claim sets a fresh `lease_id`; every write carries it and a lost lease aborts the sync. The lease is renewed per stream. Cursors are merged per stream in SQL, the later cursor winning. Claims require `attempts < maxAttempts` and exhausted expired syncs are failed. `queueDeliverySync` and the worker insert with `ON CONFLICT DO NOTHING` against the new index. Verified failing against the previous build before the fix. Documented in site/guide/delivery-performance.md."
+    },
+    {
+      "id": "W7-11",
+      "title": "A delivery backfill skipped history beyond the page cap, and a long-pending deployment was lost",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "The syncer read newest-first lists capped at 5 or 3 pages and advanced each cursor to what it had processed, so anything between the old cursor and the oldest item of the capped window was never read. Deployments advanced the cursor past a still-pending deployment, which fell out of the 24 h re-read window.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the list plans and the cursor writes. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/delivery-syncer.test.ts",
+          "asserts": "350 commits (more than three pages) are all stored across two syncs, the stream marked `incomplete` with its next page in between; twelve pull requests with five per sync are all read; a deployment pending for over a day holds the deployments cursor until it is decided and is then stored."
+        }
+      ],
+      "resolution": "`advanceStream` keeps the cursor and records `incomplete: { nextPage, high, floor }` while the bounded read has not reached the cursor; the next sync continues from `nextPage`, and the cursor moves to `high` (held back to the oldest pending deployment) only when the walk completes. Walking a newest-first list forward never skips an item. Commit `since` filters by commit date, which the guide now states."
+    },
+    {
+      "id": "W7-12",
+      "title": "Two concurrent takers of a dead issue-link claim could both create an issue",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "The stale-claim takeover in `issue-tracker-service.ts` deleted any pending claim and inserted a new one, so a second taker deleted the first taker's fresh claim and both called the tracker. An adapter that threw also skipped `release()`, blocking the source for ten minutes.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read `claim` and `createLinkedIssue`. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/issue-tracker-service.test.ts",
+          "asserts": "Of two concurrent takers of a stale claim one creates the issue and the other gets 409, with one tracker call and one link; a throwing adapter releases the claim."
+        }
+      ],
+      "resolution": "The takeover is a compare-and-swap: `UPDATE … WHERE id AND state = pending AND updated_at = prior RETURNING`, with no row meaning `inProgress()`. A throwing adapter releases the claim before rethrowing. Documented in site/guide/issues-and-test-proposals.md."
+    },
+    {
+      "id": "W7-13",
+      "title": "An issue tracker could be repointed at a new host while keeping its stored token",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`setIssueTracker` accepted a new `baseUrl` with `token` omitted, so the stored Jira token was sent to whatever https origin an admin (or a stolen admin session) named.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read `setIssueTracker`. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/issue-tracker-service.test.ts",
+          "asserts": "Changing the base URL to another origin without a token is a 400 naming the move and leaves the tracker unchanged; the same origin keeps the token; a new origin with a token is accepted."
+        }
+      ],
+      "resolution": "An origin change requires a new token. Documented in site/guide/issues-and-test-proposals.md."
+    },
+    {
+      "id": "W7-14",
+      "title": "The composite action admitted http to any host starting with 127, such as 127.evil.example, and the CLI disagreed with the config about loopback",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`.github/actions/automate-health/action.yml` matched `127.*` as a shell glob, so `http://127.evil.example/` passed and the uploader token went out in the clear. `tools/automate-cli/src/target.ts` kept a second definition of loopback that refused `::ffff:127.0.0.1`, which `@automate/config` admits, with no test holding them together.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the action and both functions. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "tools/automate-cli/src/units.test.ts",
+          "asserts": "The action's loopback ERE refuses `127.evil.example` and admits nothing the CLI refuses; the CLI's `isLoopbackHost` equals `isLoopbackBind` on a table of hosts including the IPv4-mapped forms."
+        },
+        {
+          "path": ".github/actions/automate-health/action.yml",
+          "asserts": "The destination check accepts only `localhost`, `::1` and numeric `127.d.d.d` with each part 0-255."
+        }
+      ],
+      "resolution": "The action matches the lower-cased host against an anchored numeric pattern (checked with Git bash as well). The CLI keeps its dependency-free copy, now equal to the config's function, held there by an equality test (`@automate/config` is a dev dependency of the CLI only). Documented in site/guide/cli.md."
+    },
+    {
+      "id": "W7-15",
+      "title": "The GitHub webhook replay store was keyed on the unsigned delivery header, and a failed delivery was lost",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "GitHub signs the body, not `X-GitHub-Delivery`, so a captured body re-sent with a fresh id was accepted. The delivery was also recorded before it was handled, so GitHub's retry after a database error was refused as `WEBHOOK_REPLAYED`.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the route and `recordWebhookDelivery`. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/github-webhook.test.ts",
+          "asserts": "A captured body under a new delivery id is 409; a delivery whose handling failed is forgotten and GitHub's retry of it is accepted; a repeat of either the id or the body is a replay."
+        },
+        {
+          "path": "packages/db/drizzle/0044_delivery_hardening.sql",
+          "asserts": "Adds `webhook_deliveries.body_sha256` with the unique index `webhook_deliveries_body_idx`."
+        }
+      ],
+      "resolution": "The store keys on sha256(raw body) beside the id and refuses either; a delivery whose handling throws is deleted before the error propagates. Documented in site/guide/delivery-performance.md."
+    },
+    {
+      "id": "W7-16",
+      "title": "Failure-cluster normalisation was quadratic on unbounded messages",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`failureSignature` (`packages/reporting/src/failure-clusters.ts`) normalised the full uploaded message and tested `MEANINGFUL_QUOTE` against the whole prefix for every quoted span, so a message of many quotes pinned a CPU on every insights read.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the normaliser; measured the adversarial input. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/reporting/src/failure-clusters.test.ts",
+          "asserts": "A message of 100 000 empty quotes normalises in well under two seconds (5.8 s before) with the expected output; a meaningful quote is still recognised after a long prefix; only the first 16 KB of a stack is read."
+        }
+      ],
+      "resolution": "The message is capped at 4 KB and the stack at 16 KB before normalising, and the quote test reads only the 32 characters before each quote."
+    },
+    {
+      "id": "W7-17",
+      "title": "The secret redactor's private-key pattern was quadratic in headers with no end",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`redactSecrets` (`packages/reporter/src/redact.ts`) used `BEGIN … PRIVATE KEY-----[\\s\\S]*?-----END …`, which rescans to the end of the input for every unmatched header; it runs on up to 8 MiB of OTLP content.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the pattern; measured 4x time per 2x input. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/reporter/src/redact.test.ts",
+          "asserts": "120 000 headers with no end are redacted in linear time (13.4 s before) and left intact; complete blocks are still replaced and a trailing unmatched header stays."
+        }
+      ],
+      "resolution": "Private-key blocks are replaced by one forward pass that searches for the END marker from each header and stops once none is left."
+    },
+    {
+      "id": "W7-18",
+      "title": "Concurrent coverage shards of one commit lost each other's lines",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`storeLineMap` (`apps/api/src/services/diff-coverage-service.ts`) read the commit's line map, merged in memory and upserted, so parallel shard uploads each merged into the same old map and the last writer dropped the others' lines.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the read-merge-upsert. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/diff-coverage-service.test.ts",
+          "asserts": "Three shards of one commit stored at once keep all three files."
+        }
+      ],
+      "resolution": "The merge runs in one transaction: insert-if-absent, `SELECT … FOR UPDATE`, merge, update. PGlite serialises transactions, so the test shows the interleaving no longer loses lines; on PostgreSQL the row lock makes a concurrent shard wait and merge into what the first wrote."
+    },
+    {
+      "id": "W7-19",
+      "title": "MCP tool failures inside the server were rendered INTERNAL without ever being logged",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`apps/api/src/mcp/server.ts` turned every non-domain error into `INTERNAL: internal error` with no log, so a 5xx inside a tool reached neither the logger nor the error boundary.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read `call`. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/mcp.test.ts",
+          "asserts": "A tool that throws a non-domain error is logged with its tool and message before the caller sees INTERNAL; a 4xx is not logged."
+        }
+      ],
+      "resolution": "Server faults (non-domain errors and 5xx DomainErrors) are logged through an injectable `McpLog`, `console.error` by default."
+    },
+    {
+      "id": "W7-20",
+      "title": "The gate paths disagreed on AI governance",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "AI governance was evaluated only on `POST …/health/gate/report`; `GET …/health/gate` and the MCP `get_gate` tool never evaluated it, so they could answer differently for the same pull request.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the three paths. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/projects-flows.test.ts",
+          "asserts": "`GET …/health/gate?pullRequest=` fails an agent-authored pull request the rules fail, as the gate report does."
+        },
+        {
+          "path": "apps/api/src/routes/mcp.test.ts",
+          "asserts": "`get_gate` with `pullRequest` evaluates the rules; without one it does not."
+        }
+      ],
+      "resolution": "Both read paths accept a pull-request number and pass it to `healthGate`. The commit-matching half of the nit is in W7-5."
+    },
+    {
+      "id": "W7-21",
+      "title": "DELIVERY_SYNC_INTERVAL_MS was read with Number() and could hand NaN to setInterval",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`apps/api/src/index.ts` started the delivery syncer with `Number(process.env.DELIVERY_SYNC_INTERVAL_MS ?? 60_000)`, so a non-numeric value became NaN, which `setInterval` treats as a 1 ms interval.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Read the start call. Reported in semantic-review/2026-10-26-100553-pr-local.md; the named test was written first and failed against the unfixed code for the reason stated.",
+      "evidence": [
+        {
+          "path": "packages/config/src/config.test.ts",
+          "asserts": "The interval defaults to 60 000 ms, parses a whole number, and refuses a non-number, a fraction, Infinity or anything below 10 000 ms."
+        }
+      ],
+      "resolution": "The variable is parsed by the `@automate/config` environment schema (integer, at least 10 000) and read from the config."
+    },
+    {
+      "id": "W7-22",
+      "title": "Pooled eval attempts overstate the significance of the overall comparison",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "W7-2026-10",
+      "summary": "The overall eval comparison treats repeats of one case as independent trials, which overstates significance when a case's repeats agree. Reported as a likely nit in semantic-review/2026-10-26-100553-pr-local.md.",
+      "owner": "The agent-quality owner (`packages/reporting/src/eval-regression.ts`).",
+      "removalCondition": "When an eval suite in use has repeats > 1 and a regression verdict is disputed, or when per-case rates replace the pooled overall test; the limitation is stated in site/guide/agents.md until then."
+    },
+    {
+      "id": "W7-23",
+      "title": "Boot-time vault rotation re-seals the installation workspace only",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "W7-2026-10",
+      "summary": "`rotateVaultSecrets` re-seals the entries of `runtimeConfig.workspaceId` only; on a database several installations share under one `VAULT_SECRET`, the others' entries stay under the previous secret, and during a rolling restart an instance on the old secret cannot open re-sealed entries. Reported as possible in semantic-review/2026-10-26-100553-pr-local.md.",
+      "owner": "The vault owner (`apps/api/src/services/vault-secrets.ts`).",
+      "removalCondition": "When a shared-database, shared-secret deployment is declared supported, at which point rotation must cover every workspace; until then the limitation and the rolling-restart procedure are stated in site/guide/issues-and-test-proposals.md."
+    },
+    {
+      "id": "W7-24",
+      "title": "The scorecard-route test asserted a page read the instant the page rendered",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "W7-2026-10",
+      "summary": "`apps/web/src/routes/dashboard/scorecards.test.tsx` \"opens /dashboard/supply-chain for the project its link names\" checked synchronously, right after the page's test id appeared, that the page had already requested its findings. Under full-workspace load the page rendered before its first read was sent, so the suite failed intermittently with the page and the router correct.",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "confirmedBy": "Observed failing in a full `pnpm verify:local` run on 2026-10-26 and passing in isolation; read against the test, which waited for the render but not for the request it then asserted.",
+      "evidence": [
+        {
+          "path": "apps/web/src/routes/dashboard/scorecards.test.tsx",
+          "asserts": "Each scorecard route is opened for the linked project, and the test waits (up to 10 s) for the project-scoped read before asserting it was made."
+        }
+      ],
+      "resolution": "The read is awaited with `waitFor`, as the page itself is. The router and pages were correct; only the test raced them."
     }
   ]
 }

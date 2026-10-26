@@ -101,6 +101,8 @@ export const ErrorCode = {
   CLIENT_NOT_ALLOWED: 'CLIENT_NOT_ALLOWED',
   /** A state-changing request a browser sent on behalf of another site. */
   CROSS_SITE_REQUEST: 'CROSS_SITE_REQUEST',
+  /** A GitHub webhook whose `X-Hub-Signature-256` is missing or does not verify. */
+  INVALID_WEBHOOK_SIGNATURE: 'INVALID_WEBHOOK_SIGNATURE',
 
   // 404 — addressed something that does not exist, or must not be visible.
   NOT_FOUND: 'NOT_FOUND',
@@ -113,6 +115,11 @@ export const ErrorCode = {
   AUTOMATION_NOT_FOUND: 'AUTOMATION_NOT_FOUND',
   QUALITY_GATE_NOT_FOUND: 'QUALITY_GATE_NOT_FOUND',
   QUARANTINE_ENTRY_NOT_FOUND: 'QUARANTINE_ENTRY_NOT_FOUND',
+  /**
+   * The GitHub webhook receiver is off: it answers only in LAN mode with a webhook secret.
+   * 404 rather than 503, so an install that never opted in looks like one with no receiver.
+   */
+  WEBHOOK_NOT_CONFIGURED: 'WEBHOOK_NOT_CONFIGURED',
 
   // 409 — the request is well-formed but conflicts with current state.
   CONFLICT: 'CONFLICT',
@@ -163,9 +170,19 @@ export const ErrorCode = {
    * states it could have asked for; `details` now says so in fields.
    */
   RUN_STATUS_TERMINAL: 'RUN_STATUS_TERMINAL',
+  /** A signed webhook delivery id seen before: a captured request sent again. */
+  WEBHOOK_REPLAYED: 'WEBHOOK_REPLAYED',
 
   // 413 — too large.
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
+
+  // 415 — a body in an encoding the route does not read.
+  /**
+   * The OTLP trace receiver reads OTLP/HTTP **JSON** only. A protobuf export is refused with
+   * this code rather than a generic 400, so an operator reads "switch the exporter to
+   * http/json" rather than "the body is malformed", which it is not.
+   */
+  UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
 
   // 422 — well-formed, but violates a domain invariant the database enforces.
   VALIDATION_FAILED: 'VALIDATION_FAILED',
@@ -176,9 +193,17 @@ export const ErrorCode = {
   // *this server* is unwell and invites a retry elsewhere, while a rate limit says the
   // caller's own rate is the problem and that retrying sooner makes it worse.
   LOGIN_RATE_LIMITED: 'LOGIN_RATE_LIMITED',
+  /** Any other per-client budget: the GitHub webhook receiver's. */
+  RATE_LIMITED: 'RATE_LIMITED',
 
   // 503 — a dependency is unavailable.
   DEPENDENCY_UNAVAILABLE: 'DEPENDENCY_UNAVAILABLE',
+  /**
+   * A model answered, and the answer is not what was asked for — a test proposal with no
+   * fenced code block. 502: the dependency responded and its response is unusable, which is
+   * neither the caller's fault (a 4xx) nor the dependency being down (a 503).
+   */
+  MODEL_OUTPUT_UNUSABLE: 'MODEL_OUTPUT_UNUSABLE',
   NOT_CONFIGURED: 'NOT_CONFIGURED',
   /**
    * The request exceeded the server-side deadline. Distinct from
@@ -265,6 +290,7 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
   FORBIDDEN: 403,
   CLIENT_NOT_ALLOWED: 403,
   CROSS_SITE_REQUEST: 403,
+  INVALID_WEBHOOK_SIGNATURE: 401,
   RUNNER_ROTATION_UNAUTHORIZED: 403,
   INVALID_REPORTER_TOKEN: 403,
   NOT_FOUND: 404,
@@ -277,6 +303,7 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
   AUTOMATION_NOT_FOUND: 404,
   QUALITY_GATE_NOT_FOUND: 404,
   QUARANTINE_ENTRY_NOT_FOUND: 404,
+  WEBHOOK_NOT_CONFIGURED: 404,
   CONFLICT: 409,
   RUN_ALREADY_EXISTS: 409,
   IDEMPOTENCY_KEY_REUSED: 409,
@@ -296,13 +323,17 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
   RUNNER_ID_TAKEN: 409,
   RUN_VANISHED: 409,
   RUN_STATUS_TERMINAL: 409,
+  WEBHOOK_REPLAYED: 409,
   PAYLOAD_TOO_LARGE: 413,
   ARTIFACT_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415,
   VALIDATION_FAILED: 422,
   EVIDENCE_INCOMPLETE: 422,
   CHECK_CONSTRAINT_VIOLATED: 422,
   LOGIN_RATE_LIMITED: 429,
+  RATE_LIMITED: 429,
   DEPENDENCY_UNAVAILABLE: 503,
+  MODEL_OUTPUT_UNUSABLE: 502,
   NOT_CONFIGURED: 503,
   REQUEST_TIMEOUT: 503,
   ARTIFACT_STORAGE_FAILED: 503,

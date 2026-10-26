@@ -150,3 +150,57 @@ export async function pollReportSchedules(
   }
   return queued;
 }
+
+/**
+ * The UTC hour (`2026-10-23T11`) or day (`2026-10-23`) a moment falls in, and the instant the
+ * next one starts. The slot is the sync's idempotency key, so a source is synced at most once
+ * per slot however many workers poll it.
+ */
+export function deliverySlot(
+  cadence: 'hourly' | 'daily',
+  now: Date,
+): { slot: string; next: string } {
+  const iso = now.toISOString();
+  if (cadence === 'hourly') {
+    const start = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+      now.getUTCHours(),
+    );
+    return { slot: iso.slice(0, 13), next: new Date(start + 3_600_000).toISOString() };
+  }
+  const start = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return { slot: iso.slice(0, 10), next: new Date(start + 86_400_000).toISOString() };
+}
+
+/**
+ * Due delivery sources, each turned into one queued sync.
+ *
+ * Like a report, never a catch-up: a source missed for five days is synced once on the sixth,
+ * and its cursors make that one sync read everything the five would have. The key is
+ * `delivery:<sourceId>:<slot>` and is unique in `delivery_syncs`.
+ *
+ * @returns how many syncs this poll queued
+ */
+export async function pollDeliverySyncs(
+  store: ExecutionStore,
+  now: Date,
+  limit: number,
+): Promise<number> {
+  if (store.listDueDeliverySources === undefined || store.enqueueDeliverySync === undefined) {
+    return 0;
+  }
+  let queued = 0;
+  for (const source of await store.listDueDeliverySources(now, limit)) {
+    const { slot, next } = deliverySlot(source.cadence, now);
+    const enqueued = await store.enqueueDeliverySync({
+      source,
+      now: now.toISOString(),
+      nextSyncAt: next,
+      idempotencyKey: `delivery:${source.id}:${slot}`,
+    });
+    if (enqueued) queued += 1;
+  }
+  return queued;
+}

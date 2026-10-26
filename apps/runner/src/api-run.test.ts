@@ -74,7 +74,10 @@ function contextFor(
     targetUrl: origin,
     apiCollection: 'pass',
     apiEnvironment: 'local',
-    deadlineMs: 60_000,
+    // Under the suite's 120 s test timeout, never over it: the first `bru run` cold-starts the
+    // real CLI, which took 61 s on a host running the whole workspace's tests, and a 60 s job
+    // deadline turned that cold start into a `timed_out` run of a passing collection.
+    deadlineMs: 110_000,
     signal: new AbortController().signal,
     onEvent: (event) => {
       events.push({

@@ -6,6 +6,8 @@ import type {
   HealthDimension,
   HealthTool,
 } from '@automate/shared-contracts';
+import { type Json, record, list, text } from './json-fields.js';
+import { severityFromCvss } from './cvss.js';
 
 /**
  * SARIF 2.1.0 → canonical findings.
@@ -76,22 +78,6 @@ function familyDimensions(tool: string): HealthDimension[] {
   return ['code-quality'];
 }
 
-type Json = Record<string, unknown>;
-
-function record(value: unknown): Json | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Json)
-    : null;
-}
-
-function list(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function text(value: unknown): string | null {
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
-
 function decode(input: Uint8Array): Json {
   if (input.byteLength > MAX_HEALTH_REPORT_BYTES) {
     throw new HealthReportError(
@@ -131,14 +117,6 @@ function securitySeverity(...sources: (Json | null)[]): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
   }
   return null;
-}
-
-function severityFromCvss(score: number): FindingSeverity {
-  if (score >= 9) return 'critical';
-  if (score >= 7) return 'high';
-  if (score >= 4) return 'medium';
-  if (score > 0) return 'low';
-  return 'info';
 }
 
 const LEVEL_SEVERITY: Readonly<Record<string, FindingSeverity>> = {

@@ -1,9 +1,10 @@
 import {
-  HEALTH_REPORT_FORMATS,
+  HEALTH_METRIC_FORMATS,
   type DimensionMetric,
-  type HealthReportFormat,
+  type HealthMetricFormat,
 } from '@automate/shared-contracts';
 import { HealthReportError, MAX_HEALTH_REPORT_BYTES } from './sarif.js';
+import { type Json, record, finite } from './json-fields.js';
 import { parseCoverage, type CoverageFormat } from './coverage.js';
 import { parseK6Summary } from './k6-json.js';
 
@@ -22,23 +23,14 @@ import { parseK6Summary } from './k6-json.js';
  * | `istanbul-summary`  | `total.lines.pct`                     | as is                     |
  * | a coverage format   | covered / total lines                 | `× 100`                   |
  */
-/** Every health format except SARIF, derived so the upload door and this module cannot disagree. */
-export type MetricFormat = Exclude<HealthReportFormat, 'sarif'>;
-export const METRIC_FORMATS: readonly MetricFormat[] = HEALTH_REPORT_FORMATS.filter(
-  (format): format is MetricFormat => format !== 'sarif',
-);
-
-type Json = Record<string, unknown>;
-
-function record(value: unknown): Json | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Json)
-    : null;
-}
-
-function finite(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
+/**
+ * The formats whose whole report is numbers, taken from the contract so the upload door and
+ * this module cannot disagree. SARIF and the evidence formats (an SBOM, a mutation run, an axe
+ * run, …) carry findings or inventory and are read by their own adapters, never forced
+ * through this one.
+ */
+export type MetricFormat = HealthMetricFormat;
+export const METRIC_FORMATS: readonly MetricFormat[] = HEALTH_METRIC_FORMATS;
 
 function clamp(value: number): number {
   return Math.min(100, Math.max(0, value));

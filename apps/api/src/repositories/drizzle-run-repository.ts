@@ -268,7 +268,7 @@ export class DrizzleRunRepository implements RunRepository {
     const durationTotal = Number(row?.durationTotal ?? 0);
     return {
       totalRuns,
-      passRate: completed === 0 ? 0 : Math.round((passed / completed) * 100),
+      passRate: completed === 0 ? null : Math.round((passed / completed) * 100),
       avgDurationMs: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
     };
   }

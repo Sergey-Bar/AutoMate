@@ -22,6 +22,7 @@ import type {
 import { buildDigest, type ReportInput } from '@automate/reporting';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { isAllowedWebhook } from './health-integrations.js';
+import { loadReportAreas } from './report-areas.js';
 import {
   deleteVaultSecret,
   readVaultSecret,
@@ -444,5 +445,7 @@ export async function loadReport(
     })),
     digest,
     link: input.link,
+    // DORA, AI code and agent quality across the projects, and the top actions' inputs.
+    ...(await loadReportAreas(options)),
   };
 }

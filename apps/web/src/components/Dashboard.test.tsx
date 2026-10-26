@@ -214,7 +214,13 @@ describe('the dashboard', () => {
     // 4 s → 3 s is faster, which is better even though the number went down.
     expect(screen.getByTestId('kpi-duration')).toHaveTextContent('3.0 s');
     expect(screen.getByTestId('kpi-duration')).toHaveTextContent('(better)');
-    expect(screen.getByTestId('kpi-flaky')).toHaveTextContent('0 quarantined');
+    // The window's flaky count is compared with the window before, never with the quarantine
+    // list, which is install-wide and not windowed.
+    expect(screen.getByTestId('kpi-flaky')).toHaveTextContent('vs previous window');
+    expect(screen.getByTestId('kpi-flaky')).not.toHaveTextContent('quarantined');
+    // The run history is not split by project, and the labels say so.
+    expect(screen.getByTestId('kpi-pass-rate')).toHaveTextContent('Pass rate · all projects');
+    expect(screen.getByTestId('kpi-runs')).toHaveTextContent('Runs · all projects');
     expect(screen.getByTestId('kpi-maturity')).toHaveTextContent('50%');
     expect(screen.getByTestId('kpi-maturity')).toHaveTextContent('1 of 3 capabilities');
   });
@@ -485,6 +491,8 @@ describe('the dashboard helpers', () => {
           status: 'bad',
         },
       ]),
-    ).toEqual({ coverage: 45, coverageReports: 2, tests: 0, failing: 0, findings: 3 });
+    ).toEqual({ coverage: 90, coverageReports: 1, tests: 0, failing: 0, findings: 3 });
+    // A coverage report with no `lines` figure measured nothing, so it is not averaged in at
+    // 0% — which would have reported 45% for a repository whose one reading is 90%.
   });
 });

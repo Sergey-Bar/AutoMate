@@ -200,6 +200,19 @@ describe('the documented quick start', () => {
   });
 });
 
+describe('the delivery sync interval', () => {
+  it('defaults to a minute, and parses a whole number of milliseconds', () => {
+    expect(parseConfig({}).deliverySyncIntervalMs).toBe(60_000);
+    expect(parseConfig({ DELIVERY_SYNC_INTERVAL_MS: '30000' }).deliverySyncIntervalMs).toBe(30_000);
+  });
+
+  it('refuses a value that is not a number, or below ten seconds, so NaN never reaches a timer', () => {
+    for (const value of ['soon', '1e', '9999', '-5', '1.5', 'Infinity']) {
+      expect(() => parseConfig({ DELIVERY_SYNC_INTERVAL_MS: value }), value).toThrow();
+    }
+  });
+});
+
 describe('parseConfig', () => {
   it('uses COOKIE_SECRET before the compatibility alias', () => {
     const config = parseConfig({
@@ -399,5 +412,14 @@ describe('repository-health settings', () => {
     expect(set.healthWebhookSecret).toBe(long('w'));
     expect(set.slackBotToken).toBe('xoxb-synthetic');
     expect(() => parseConfig({ HEALTH_WEBHOOK_SECRET: 'short' })).toThrow();
+  });
+
+  it('reads the GitHub webhook secret only when set, under the one secret floor', () => {
+    expect(parseConfig({}).githubWebhookSecret).toBeUndefined();
+    expect(parseConfig({ GITHUB_WEBHOOK_SECRET: long('g') }).githubWebhookSecret).toBe(long('g'));
+    // A short one, or the placeholder a quickstart would copy, is refused at boot.
+    expect(() => parseConfig({ GITHUB_WEBHOOK_SECRET: 'short' })).toThrow();
+    expect(() => parseConfig({ GITHUB_WEBHOOK_SECRET: 'change-me' })).toThrow(/placeholder/u);
+    expect(isSecretPlaceholder('GITHUB_WEBHOOK_SECRET', 'github-webhook-secret')).toBe(true);
   });
 });

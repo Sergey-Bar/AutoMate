@@ -1,5 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
-import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { Hono, type MiddlewareHandler } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import {
@@ -7,6 +6,8 @@ import {
   FINDING_STATES,
   HEALTH_DIMENSIONS,
   HealthReportFormatSchema,
+  isUploadReportFormat,
+  SupplyChainPolicySchema,
   TriageFindingBodySchema,
 } from '@automate/shared-contracts';
 import { MAX_HEALTH_REPORT_BYTES } from '@automate/reporter';
@@ -19,9 +20,9 @@ import {
 } from '../services/health-integrations.js';
 import { domainErrorResponse } from '../errors/boundary.js';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
-import { guard } from '../http/access.js';
-import { bearerToken } from '../http/bearer-token.js';
+import { invalidRequest } from '../http/invalid-request.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
+import { uploaderActor, uploaderGuard } from '../http/uploader.js';
 import { audit, authenticateToken } from '../services/access-service.js';
 import {
   healthHistory,
@@ -36,9 +37,16 @@ import {
   setCodeowners,
   setHealthSchedule,
   startHealthScan,
+  setSupplyChainPolicy,
   triageFinding,
   type HealthScanOptions,
 } from '../services/repo-health-service.js';
+import {
+  listComponents,
+  searchPortfolioComponents,
+  supplyChainPolicyRecord,
+} from '../services/supply-chain-service.js';
+import { diffCoverageStatus } from '../services/diff-coverage-service.js';
 
 /**
  * The repository health API.
@@ -61,14 +69,48 @@ export interface RepoHealthRouteOptions extends HealthScanOptions {
 }
 
 const UploadQuerySchema = z.object({
-  format: HealthReportFormatSchema,
+  // Every format but the built-in scanners' own, which only this product writes.
+  format: HealthReportFormatSchema.refine(isUploadReportFormat, {
+    message: 'This format is written by a built-in scanner and is not accepted as an upload',
+  }),
   branch: z.string().trim().min(1).max(255).optional(),
   commit: z
     .string()
     .regex(/^[0-9a-f]{7,64}$/iu)
     .optional(),
   sourceRoot: z.string().min(1).max(1000).optional(),
+  /** The artifact a slsa-provenance upload must describe. */
+  digest: z
+    .string()
+    .regex(/^sha256:[0-9a-f]{64}$/iu)
+    .optional(),
 });
+
+const Commit = z.string().regex(/^[0-9a-f]{7,64}$/iu);
+
+const GateQuerySchema = z.object({
+  branch: z.string().trim().min(1).max(255),
+  commit: Commit.optional(),
+  /** Names the pull request, so the AI-governance rules are read here as on the gate report. */
+  pullRequest: z.coerce.number().int().min(1).optional(),
+});
+
+const ComponentsQuerySchema = z.object({
+  branch: z.string().trim().min(1).max(255).optional(),
+  type: z.string().trim().min(1).max(100).optional(),
+  licence: z.string().trim().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const PortfolioComponentsQuerySchema = z.object({
+  // pkg: and at least a type: a shorter prefix is every component in the workspace.
+  purl: z.string().trim().min(5).max(500).startsWith('pkg:'),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const DiffCoverageQuerySchema = z.object({ commit: Commit });
 
 const GateReportBodySchema = z.object({
   branch: z.string().trim().min(1).max(255),
@@ -94,17 +136,6 @@ const HistoryQuerySchema = z.object({
   days: z.coerce.number().int().min(1).max(365).default(90),
 });
 
-function sameSecret(presented: string, expected: string): boolean {
-  // Hashed first so the comparison is constant-time over equal-length buffers.
-  const left = createHash('sha256').update(presented).digest();
-  const right = createHash('sha256').update(expected).digest();
-  return timingSafeEqual(left, right);
-}
-
-function invalid(context: Context, message: string, details: unknown) {
-  return context.json({ error: { code: ErrorCode.INVALID_REQUEST, message, details } }, 400);
-}
-
 export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
   const app = new Hono();
 
@@ -115,48 +146,17 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
   };
   const viewer = requireRole('viewer', access);
   const operator = requireRole('operator', access);
+  const admin = requireRole('admin', access);
 
   /**
    * An upload is accepted with the reporter secret, or with an access token: an uploader
-   * token pinned to this project, or an operator's. With no reporter secret configured outside
-   * production, an upload is admitted openly, as the reporter routes admit one.
+   * token pinned to this project, or an operator's. The guard is shared with the delivery
+   * push door (`http/uploader.ts`).
    */
-  const uploader: MiddlewareHandler = guard('reporter-secret', async (context, next) => {
-    const presented = bearerToken(context.req.header('authorization'));
-    if (presented !== undefined && presented.startsWith('amt_')) {
-      const caller = await callerOf(context, access);
-      const project = context.req.param('id');
-      if (caller.uploaderFor === project || caller.role === 'operator' || caller.role === 'admin') {
-        await next();
-        return;
-      }
-      throw new DomainError(ErrorCode.FORBIDDEN, 'This token cannot upload to this project');
-    }
-    const secret = options.reporterSecret;
-    if (secret === undefined || secret === '') {
-      if (options.requireReporterSecret === true) {
-        throw new DomainError(
-          ErrorCode.NOT_CONFIGURED,
-          'Health uploads are unavailable until REPORTER_SECRET is configured',
-        );
-      }
-      await next();
-      return;
-    }
-    const token = bearerToken(context.req.header('authorization'));
-    if (token === undefined) {
-      throw new DomainError(
-        ErrorCode.MISSING_REPORTER_TOKEN,
-        'Missing reporter authentication token',
-      );
-    }
-    if (!sameSecret(token, secret)) {
-      throw new DomainError(
-        ErrorCode.INVALID_REPORTER_TOKEN,
-        'Invalid reporter authentication token',
-      );
-    }
-    await next();
+  const uploader: MiddlewareHandler = uploaderGuard({
+    access,
+    reporterSecret: options.reporterSecret,
+    requireReporterSecret: options.requireReporterSecret,
   });
 
   app.get('/api/v1/portfolio', viewer, async (context) => context.json(await portfolio(options)));
@@ -169,13 +169,15 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
 
   app.get('/api/v1/projects/:id/health/findings', viewer, async (context) => {
     const parsed = FindingsQuerySchema.safeParse(context.req.query());
-    if (!parsed.success) return invalid(context, 'Invalid findings query', parsed.error.issues);
+    if (!parsed.success)
+      return invalidRequest(context, 'Invalid findings query', parsed.error.issues);
     return context.json(await listFindings(options, context.req.param('id'), parsed.data));
   });
 
   app.get('/api/v1/projects/:id/health/history', viewer, async (context) => {
     const parsed = HistoryQuerySchema.safeParse(context.req.query());
-    if (!parsed.success) return invalid(context, 'Invalid history query', parsed.error.issues);
+    if (!parsed.success)
+      return invalidRequest(context, 'Invalid history query', parsed.error.issues);
     return context.json(
       await healthHistory(options, context.req.param('id'), parsed.data.branch, parsed.data.days),
     );
@@ -194,7 +196,8 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
     }),
     async (context) => {
       const parsed = UploadQuerySchema.safeParse(context.req.query());
-      if (!parsed.success) return invalid(context, 'Invalid upload query', parsed.error.issues);
+      if (!parsed.success)
+        return invalidRequest(context, 'Invalid upload query', parsed.error.issues);
       const bytes = new Uint8Array(await context.req.arrayBuffer());
       if (bytes.byteLength === 0) {
         throw new DomainError(ErrorCode.INVALID_REQUEST_BODY, 'The report body is empty');
@@ -206,13 +209,11 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
         branch: parsed.data.branch,
         commitSha: parsed.data.commit,
         sourceRoot: parsed.data.sourceRoot,
+        digest: parsed.data.digest,
         source: 'ci',
       });
       await audit(options, {
-        actor:
-          bearerToken(context.req.header('authorization'))?.startsWith('amt_') === true
-            ? (await callerOf(context, access)).actor
-            : 'reporter',
+        actor: await uploaderActor(context, access),
         action: 'health.report.upload',
         resourceType: 'health_report',
         resourceId: result.reportId,
@@ -223,18 +224,24 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
   );
 
   app.get('/api/v1/projects/:id/health/gate', viewer, async (context) => {
-    const branch = context.req.query('branch');
-    if (branch === undefined || branch.trim() === '') {
-      return invalid(context, 'Name the branch to gate', [
-        { path: ['branch'], message: 'required' },
-      ]);
+    const parsed = GateQuerySchema.safeParse(context.req.query());
+    if (!parsed.success) {
+      return invalidRequest(context, 'Name the branch to gate', parsed.error.issues);
     }
-    const result = await healthGate(options, context.req.param('id'), branch);
+    const result = await healthGate(
+      options,
+      context.req.param('id'),
+      parsed.data.branch,
+      parsed.data.commit,
+      parsed.data.pullRequest,
+    );
     return context.json({
       branch: result.branch,
       ...result.verdict,
       grade: result.grade,
       added: result.added,
+      diffCoverage: result.diffCoverage,
+      aiGovernance: result.aiGovernance,
     });
   });
 
@@ -245,9 +252,18 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
    */
   app.post('/api/v1/projects/:id/health/gate/report', uploader, async (context) => {
     const parsed = GateReportBodySchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return invalid(context, 'Invalid gate report', parsed.error.issues);
+    if (!parsed.success) return invalidRequest(context, 'Invalid gate report', parsed.error.issues);
     const projectId = context.req.param('id');
-    const result = await healthGate(options, projectId, parsed.data.branch);
+    const { branch, commit, pullRequest } = parsed.data;
+    const result = await healthGate(options, projectId, branch, commit, pullRequest);
+    if (pullRequest !== undefined) {
+      await options.onGateReport?.(projectId, {
+        pullRequest,
+        commit,
+        newHigh: result.verdict.newFindings.high,
+        newCritical: result.verdict.newFindings.critical,
+      });
+    }
     const detailsUrl = options.detailsUrl?.(projectId) ?? null;
     const source = await projectSource(options, projectId);
     const repository = githubRepository(source.repositoryUrl);
@@ -259,31 +275,106 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
         : await reportToGitHub(
             options.github.adapter,
             token,
-            { ...repository, sha: parsed.data.commit, pullRequest: parsed.data.pullRequest },
+            { ...repository, sha: commit, pullRequest },
             {
               verdict: result.verdict,
               grade: result.grade,
               added: result.added,
               branch: result.branch,
               detailsUrl,
+              diffCoverage: result.diffCoverage,
+              delivery: result.delivery,
+              aiGovernance: result.aiGovernance,
+              evals: result.evals,
             },
           );
     await audit(options, {
-      actor:
-        bearerToken(context.req.header('authorization'))?.startsWith('amt_') === true
-          ? (await callerOf(context, access)).actor
-          : 'reporter',
+      actor: await uploaderActor(context, access),
       action: 'health.gate.report',
       resourceType: 'project',
       resourceId: projectId,
       details: {
         branch: result.branch,
-        commit: parsed.data.commit,
+        commit,
+        pullRequest: pullRequest ?? null,
         verdict: result.verdict.verdict,
+        aiGovernance: result.aiGovernance?.verdict.verdict ?? null,
+        evals: result.evals?.suites.length ?? 0,
         github,
       },
     });
-    return context.json({ branch: result.branch, ...result.verdict, grade: result.grade, github });
+    return context.json({
+      branch: result.branch,
+      ...result.verdict,
+      grade: result.grade,
+      diffCoverage: result.diffCoverage,
+      aiGovernance: result.aiGovernance,
+      evals: result.evals,
+      agentRuntime: result.agentRuntime,
+      github,
+    });
+  });
+
+  // ─── Supply chain and diff coverage ────────────────────────────────────────
+
+  app.get('/api/v1/projects/:id/health/supply-chain-policy', viewer, async (context) =>
+    context.json(await supplyChainPolicyRecord(options, context.req.param('id'))),
+  );
+
+  /** Changing what the licence gate allows and which signatures are trusted is configuration. */
+  app.put('/api/v1/projects/:id/health/supply-chain-policy', admin, async (context) => {
+    const parsed = SupplyChainPolicySchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) {
+      return invalidRequest(context, 'Invalid supply-chain policy', parsed.error.issues);
+    }
+    const actor = (await callerOf(context, access)).actor;
+    const saved = await setSupplyChainPolicy(options, context.req.param('id'), parsed.data, actor);
+    await audit(options, {
+      actor,
+      action: 'health.supply-chain-policy.set',
+      resourceType: 'project',
+      resourceId: saved.record.projectId,
+      details: {
+        allow: parsed.data.licences.allow?.length ?? null,
+        deny: parsed.data.licences.deny?.length ?? 0,
+        failOnUnknown: parsed.data.licences.failOnUnknown,
+        // Counts, never the PEM material itself.
+        trustedKeys: parsed.data.provenance.trustedKeysPem.length,
+        trustedRoots: parsed.data.provenance.trustedRootsPem.length,
+        allowedBuilders: parsed.data.provenance.allowedBuilders?.length ?? null,
+        branches: saved.branches,
+        findingsChanged: saved.changed,
+      },
+    });
+    return context.json(saved.record);
+  });
+
+  app.get('/api/v1/projects/:id/health/components', viewer, async (context) => {
+    const parsed = ComponentsQuerySchema.safeParse(context.req.query());
+    if (!parsed.success)
+      return invalidRequest(context, 'Invalid components query', parsed.error.issues);
+    return context.json(await listComponents(options, context.req.param('id'), parsed.data));
+  });
+
+  app.get('/api/v1/portfolio/components', viewer, async (context) => {
+    const parsed = PortfolioComponentsQuerySchema.safeParse(context.req.query());
+    if (!parsed.success) {
+      return invalidRequest(context, 'Name a purl prefix to search for', parsed.error.issues);
+    }
+    return context.json(
+      await searchPortfolioComponents(options, parsed.data.purl, {
+        offset: parsed.data.offset,
+        limit: parsed.data.limit,
+      }),
+    );
+  });
+
+  app.get('/api/v1/projects/:id/health/diff-coverage', viewer, async (context) => {
+    const parsed = DiffCoverageQuerySchema.safeParse(context.req.query());
+    if (!parsed.success) return invalidRequest(context, 'Name the commit', parsed.error.issues);
+    return context.json(
+      await diffCoverageStatus(options, context.req.param('id'), parsed.data.commit.toLowerCase()),
+    );
   });
 
   /** CODEOWNERS for a project with no checkout here, sent by its CI as plain text. */
@@ -310,9 +401,10 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
 
   app.put('/api/v1/projects/:id/health/alerts', operator, async (context) => {
     const parsed = AlertSettingsSchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return invalid(context, 'Invalid alert settings', parsed.error.issues);
+    if (!parsed.success)
+      return invalidRequest(context, 'Invalid alert settings', parsed.error.issues);
     if (parsed.data.webhookUrl != null && !isAllowedWebhook(parsed.data.webhookUrl)) {
-      return invalid(
+      return invalidRequest(
         context,
         'A webhook must be an https URL that is not a loopback or private address',
         [{ path: ['webhookUrl'], message: 'not allowed' }],
@@ -334,7 +426,7 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
 
   app.put('/api/v1/projects/:id/health/schedule', operator, async (context) => {
     const parsed = ScheduleBodySchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return invalid(context, 'Invalid schedule', parsed.error.issues);
+    if (!parsed.success) return invalidRequest(context, 'Invalid schedule', parsed.error.issues);
     const result = await setHealthSchedule(options, context.req.param('id'), parsed.data.cadence);
     await audit(options, {
       actor: (await callerOf(context, access)).actor,
@@ -361,7 +453,8 @@ export function createRepoHealthRoutes(options: RepoHealthRouteOptions): Hono {
 
   app.post('/api/v1/projects/:id/health/findings/:findingId/triage', operator, async (context) => {
     const parsed = TriageFindingBodySchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return invalid(context, 'Invalid triage decision', parsed.error.issues);
+    if (!parsed.success)
+      return invalidRequest(context, 'Invalid triage decision', parsed.error.issues);
     const actor = (await callerOf(context, access)).actor;
     const finding = await triageFinding(
       options,

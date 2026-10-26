@@ -243,8 +243,8 @@ export interface RunPatch {
  */
 export interface RunAnalyticsSummary {
   totalRuns: number;
-  /** Percentage, 0–100, over completed runs only. */
-  passRate: number;
+  /** Percentage, 0–100, over completed runs only; `null` when no run has completed. */
+  passRate: number | null;
   /** Mean of the runs that recorded a duration; null when none did. */
   avgDurationMs: number | null;
 }
@@ -280,7 +280,7 @@ export function aggregateRuns(runs: Iterable<RunRecord>): RunAnalyticsSummary {
   }
   return {
     totalRuns,
-    passRate: completed === 0 ? 0 : Math.round((passed / completed) * 100),
+    passRate: completed === 0 ? null : Math.round((passed / completed) * 100),
     avgDurationMs: durationCount === 0 ? null : Math.round(durationTotal / durationCount),
   };
 }

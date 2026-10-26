@@ -252,3 +252,83 @@ describe('GET /api/v1/dashboard/insights', () => {
     expect(fallback.days).toBe(14);
   });
 });
+
+describe('failure clusters and quarantine suggestions', () => {
+  const failing = (title: string, message: string): ExecutionTestResult => ({
+    ...test(title, 'failed'),
+    error: { message },
+  });
+
+  it('groups failures by root cause and says how many causes there are', () => {
+    const insights = buildInsights(
+      [
+        run('2026-10-18T08:00:00.000Z', 'failed', [
+          failing('a', 'Error: connect ECONNREFUSED 127.0.0.1:5432'),
+          failing('b', 'Error: connect ECONNREFUSED 127.0.0.1:6543'),
+          failing('c', "TypeError: Cannot read properties of undefined (reading 'id')"),
+          test('d', 'passed'),
+        ]),
+        run('2026-10-19T08:00:00.000Z', 'failed', [
+          failing('a', 'Error: connect ECONNREFUSED 10.0.0.1:5432'),
+          { ...test('e', 'timed_out'), error: null },
+        ]),
+      ],
+      NOW,
+      7,
+      false,
+    );
+    expect(QaInsightsSchema.parse(insights)).toEqual(insights);
+    expect(insights.failureClusters?.totals).toEqual({ failures: 5, causes: 3 });
+    expect(insights.failureClusters?.summary).toBe('5 failures, 3 causes');
+    expect(insights.failureClusters?.clusters[0]).toMatchObject({
+      count: 3,
+      runs: 2,
+      tests: ['a.spec.ts › a', 'a.spec.ts › b'],
+      sampleMessage: 'Error: connect ECONNREFUSED 127.0.0.1:5432',
+    });
+  });
+
+  it('suggests quarantining a test that flips, never one that only fails, with the default thresholds', () => {
+    const statuses: ExecutionTestResult['status'][] = [
+      'passed',
+      'failed',
+      'passed',
+      'flaky',
+      'passed',
+      'failed',
+    ];
+    const runs = statuses.map((status, index) =>
+      run(
+        `2026-10-${String(14 + index)}T08:00:00.000Z`,
+        status === 'failed' ? 'failed' : 'passed',
+        [
+          { ...test('wobbly', status, 1000), attempt: status === 'flaky' ? 2 : 1 },
+          test('broken', 'failed'),
+          test('steady', 'passed'),
+        ],
+        status === 'failed'
+          ? ({ policyEvaluation: { status: 'failed' } } as Partial<ExecutionRun>)
+          : {},
+      ),
+    );
+    const insights = buildInsights(runs, NOW, 7, false);
+    expect(QaInsightsSchema.parse(insights)).toEqual(insights);
+    expect(insights.quarantineSuggestions?.thresholds).toEqual({
+      minScore: 0.2,
+      minObservations: 5,
+    });
+    expect(insights.quarantineSuggestions?.suggestions).toEqual([
+      expect.objectContaining({
+        testKey: 'a.spec.ts › wobbly',
+        observations: 6,
+        retriesSpent: 1,
+        wastedMs: 500,
+        blockedRuns: 2,
+      }),
+    ]);
+    // Fewer runs than the minimum: nothing is suggested.
+    expect(
+      buildInsights(runs.slice(0, 4), NOW, 7, false).quarantineSuggestions?.suggestions,
+    ).toEqual([]);
+  });
+});

@@ -64,6 +64,13 @@ export const routeManifest = [
     section: 'overview',
   },
   {
+    id: 'repo-360',
+    path: '/dashboard/repo/:projectId/overview',
+    label: 'Repository 360',
+    visible: false,
+    section: 'overview',
+  },
+  {
     id: 'runs',
     path: '/dashboard/runs',
     label: 'Runs',
@@ -111,6 +118,30 @@ export const routeManifest = [
     tab: 'Quarantine',
   },
   {
+    id: 'delivery',
+    path: '/dashboard/delivery',
+    label: 'Delivery',
+    visible: true,
+    section: 'insights',
+    tab: 'Delivery',
+  },
+  {
+    id: 'ai-code',
+    path: '/dashboard/ai-code',
+    label: 'AI code',
+    visible: true,
+    section: 'insights',
+    tab: 'AI code',
+  },
+  {
+    id: 'agents',
+    path: '/dashboard/agents',
+    label: 'Agents',
+    visible: true,
+    section: 'insights',
+    tab: 'Agents',
+  },
+  {
     id: 'score',
     path: '/dashboard/score/:projectId',
     label: 'Health Score',
@@ -153,6 +184,14 @@ export const routeManifest = [
     visible: true,
     section: 'map',
     tab: 'Capabilities',
+  },
+  {
+    id: 'supply-chain',
+    path: '/dashboard/supply-chain',
+    label: 'Supply chain',
+    visible: true,
+    section: 'map',
+    tab: 'Supply chain',
   },
   {
     id: 'toolbox',
@@ -246,4 +285,8 @@ export function runDetailPath(runId: string): string {
 
 export function repoHealthPath(projectId: string): string {
   return `/dashboard/repo/${encodeURIComponent(projectId)}`;
+}
+
+export function repo360Path(projectId: string): string {
+  return `${repoHealthPath(projectId)}/overview`;
 }

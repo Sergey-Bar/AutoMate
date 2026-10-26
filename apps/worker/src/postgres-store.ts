@@ -3,6 +3,8 @@ import pg, { type PoolClient, type QueryResultRow } from 'pg';
 import { deriveRunState, type DerivedRunState } from '@automate/orchestration';
 import type { RunPhase } from '@automate/shared-contracts';
 import type {
+  DeliverySourceDue,
+  DeliverySyncEnqueue,
   ExecutionStore,
   ExecutionStoreOptions,
   JobClaim,
@@ -551,6 +553,59 @@ export class PostgresExecutionStore implements ExecutionStore {
           input.schedule.subscriptionId,
           input.idempotencyKey,
           input.scheduledFor,
+        ],
+      );
+      return inserted.rowCount === 1;
+    });
+  }
+
+  async listDueDeliverySources(now: Date, limit: number): Promise<DeliverySourceDue[]> {
+    const result = await this.pool.query<{
+      id: string;
+      workspace_id: string;
+      project_id: string;
+      cadence: string;
+      next_sync_at: Date;
+    }>(
+      `SELECT id, workspace_id, project_id, cadence, next_sync_at
+       FROM delivery_sources
+       WHERE enabled = true AND next_sync_at <= $1::timestamptz
+       ORDER BY next_sync_at ASC
+       LIMIT $2`,
+      [now, limit],
+    );
+    return result.rows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      projectId: row.project_id,
+      cadence: row.cadence === 'hourly' ? 'hourly' : 'daily',
+      nextSyncAt: new Date(row.next_sync_at).toISOString(),
+    }));
+  }
+
+  async enqueueDeliverySync(input: DeliverySyncEnqueue): Promise<boolean> {
+    return this.transaction(async (client) => {
+      // Still enabled and still due: the row lock makes a second worker re-read the moved
+      // pointer and match nothing, and the slot's unique key is the second guard.
+      const advanced = await client.query(
+        `UPDATE delivery_sources SET next_sync_at = $3::timestamptz
+         WHERE id = $1::uuid AND workspace_id = $2 AND enabled = true
+           AND next_sync_at <= $4::timestamptz`,
+        [input.source.id, input.source.workspaceId, input.nextSyncAt, input.now],
+      );
+      if (advanced.rowCount !== 1) return false;
+      const inserted = await client.query(
+        `INSERT INTO delivery_syncs
+           (workspace_id, project_id, source_id, requested_by, idempotency_key, next_attempt_at)
+         VALUES ($1, $2::uuid, $3::uuid, 'schedule', $4, $5::timestamptz)
+         -- Either key: the slot's idempotency key, or the source's one queued sync (0044).
+         ON CONFLICT DO NOTHING`,
+        [
+          input.source.workspaceId,
+          input.source.projectId,
+          input.source.id,
+          input.idempotencyKey,
+          input.now,
         ],
       );
       return inserted.rowCount === 1;

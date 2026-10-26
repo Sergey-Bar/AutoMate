@@ -176,6 +176,16 @@ describe('migration graph', () => {
       '0032_access_tokens',
       '0033_pairing_codes',
       '0034_notifications',
+      '0035_supply_chain',
+      '0036_diff_coverage',
+      '0037_delivery',
+      '0038_github_webhooks',
+      '0039_ai_code_governance',
+      '0040_agent_quality',
+      '0041_issue_tracking',
+      '0042_test_proposals',
+      '0043_vault_key_version',
+      '0044_delivery_hardening',
     ]);
   });
 

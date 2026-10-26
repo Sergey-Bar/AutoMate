@@ -57,16 +57,19 @@ import {
 } from '@automate/db';
 import { ingestScanArtifact } from './services/repo-health-service.js';
 import { readGitToken } from './services/git-credential-service.js';
+import { rotateVaultSecrets } from './services/vault-secrets.js';
 import { authenticateToken } from './services/access-service.js';
 import { alertsFor, deliverAlerts } from './services/health-integrations.js';
 import type { ReportEvent } from './services/repo-health-service.js';
 import { githubAdapter } from '@automate/connectors-github';
+import { jiraAdapter } from '@automate/connectors-jira';
 import { slackAdapter } from '@automate/connectors-slack';
 import { signalAdapter } from '@automate/connectors-signal';
 import { teamsAdapter } from '@automate/connectors-teams';
 import { telegramAdapter } from '@automate/connectors-telegram';
 import { whatsappAdapter } from '@automate/connectors-whatsapp';
 import { createReportDispatcher } from './services/report-dispatcher.js';
+import { createDeliverySyncer } from './services/delivery-syncer.js';
 import { getCookie } from 'hono/cookie';
 import { DEFAULT_IGNORED, fileSystemView } from '@automate/projects';
 import { createRepoScanner } from './services/repo-scan-service.js';
@@ -84,6 +87,12 @@ import type { RealtimeBus } from './realtime/realtime-bus.js';
 import { DurableRealtimeBus } from './realtime/durable-realtime-bus.js';
 import { DrizzleRealtimeFeed } from './infrastructure/drizzle-realtime-feed.js';
 import { startOutboxRetentionSweep } from './infrastructure/outbox-retention.js';
+import { instrumentedGateway } from '@automate/automation';
+import {
+  pruneExpiredSpans,
+  recordSelfSpan,
+  TEST_PROPOSAL_AGENT_NAME,
+} from './services/genai-span-service.js';
 import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap/lifecycle.js';
 // T18: dashboard module — runs detail, tests listing, analytics, quarantine, quality gates
 import { createDashboardModule } from './modules/dashboard/index.js';
@@ -205,6 +214,61 @@ if (gatewayResolution.kind === 'none') {
 } else {
   logger.info('chat provider selected', { provider: gatewayResolution.kind });
 }
+
+/**
+ * Self-instrumentation: with a database and a provider, every chat completion is recorded as
+ * one GenAI `chat` span — model, tokens, duration, outcome; never content — under the
+ * installation's workspace with no project (`source = 'self'`, agent `automate-chat`), read by
+ * `GET /api/v1/chat/runtime`. The adapters are unchanged: the decorator wraps whichever one
+ * was chosen. Unconfigured chat refuses every request, so there is nothing to measure.
+ */
+const chatGateway =
+  databaseResources === undefined || gatewayResolution.kind === 'none'
+    ? aiGateway
+    : instrumentedGateway(
+        aiGateway,
+        {
+          record: (span) =>
+            recordSelfSpan(
+              {
+                db: databaseResources.db as never,
+                workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+              },
+              span,
+            ).catch((error: unknown) =>
+              logger.warn('chat span could not be recorded', { error: String(error) }),
+            ),
+        },
+        { provider: gatewayResolution.kind },
+      );
+
+/**
+ * The gateway a test proposal asks: the same provider, instrumented the same way, but its
+ * spans carry the agent name `automate-test-proposals` so the runtime page tells them from
+ * chat. `null` when no provider is configured — the route answers `NOT_CONFIGURED`.
+ */
+const testProposalGateway =
+  gatewayResolution.kind === 'none'
+    ? null
+    : databaseResources === undefined
+      ? aiGateway
+      : instrumentedGateway(
+          aiGateway,
+          {
+            record: (span) =>
+              recordSelfSpan(
+                {
+                  db: databaseResources.db as never,
+                  workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+                },
+                span,
+                TEST_PROPOSAL_AGENT_NAME,
+              ).catch((error: unknown) =>
+                logger.warn('test proposal span could not be recorded', { error: String(error) }),
+              ),
+          },
+          { provider: gatewayResolution.kind },
+        );
 
 /**
  * One error boundary for the whole app.
@@ -379,6 +443,26 @@ const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
 const retentionSweep = realtimeFeed ? startOutboxRetentionSweep(realtimeFeed) : undefined;
 /**
+ * GenAI span retention, hourly, through the same sweep the outbox uses. Spans are also pruned
+ * on every OTLP write; this is what removes a project's last window after it stops exporting.
+ */
+const spanRetentionSweep = databaseResources
+  ? startOutboxRetentionSweep(
+      {
+        purgeExpired: (now) =>
+          pruneExpiredSpans(
+            {
+              db: databaseResources.db as never,
+              workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+            },
+            now,
+          ),
+      },
+      3_600_000,
+      (error) => logger.warn('genai span retention sweep failed', { error: String(error) }),
+    )
+  : undefined;
+/**
  * Sends the scheduled reports the worker queues. Only with a database, because the queue
  * and the channel credentials both live there; started below with the server, and stopped
  * before the pool so no send is cut off mid-query.
@@ -395,6 +479,19 @@ const reportDispatcher = databaseResources
         signal: signalAdapter,
       },
       link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
+    })
+  : undefined;
+/**
+ * Runs the delivery syncs the worker, an operator or a webhook queues: GitHub reads with the
+ * project's vault-held token, which is why this lives here and not in the worker. Started and
+ * stopped beside the report dispatcher.
+ */
+const deliverySyncer = databaseResources
+  ? createDeliverySyncer({
+      db: databaseResources.db as never,
+      vaultSecret: runtimeConfig.vaultSecret,
+      adapter: githubAdapter,
+      log: (message, details) => logger.info(message, details),
     })
   : undefined;
 let realtimeBus: RealtimeBus;
@@ -430,6 +527,20 @@ if (databaseResources) {
   // createAuthRoutes falls back to a process-local session store without this.
   assertInMemoryAllowed(runtimeConfig, 'in-memory auth sessions');
 }
+/**
+ * Session retention, hourly: deletes the rows issued before `SESSION_RETENTION_DAYS`. The
+ * backend's `sweep` existed and nothing scheduled it, so `sessions` grew with every sign-in
+ * for the life of the installation. Any instance may run it: the cutoff is a pure function of
+ * the clock, so two instances sweeping the same database remove the same rows.
+ */
+const sessionRetentionSweep = ((backend) =>
+  backend === undefined
+    ? undefined
+    : startOutboxRetentionSweep(
+        { purgeExpired: async () => (await backend.sweep()).removed },
+        3_600_000,
+        (error) => logger.warn('session retention sweep failed', { error: String(error) }),
+      ))(sessionBackend);
 // Production never derives one. See `mayDeriveInstallationKey` for why the two
 // readings of P-72 were separate rows: renaming the label on a bootstrapped key was
 // cosmetic, deriving that key in production is not.
@@ -753,7 +864,7 @@ app.route(
     workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
   }),
 );
-app.route('/', createChatRoutes({ gateway: aiGateway }));
+app.route('/', createChatRoutes({ gateway: chatGateway }));
 
 /**
  * The project registry and the derived QA score.
@@ -785,11 +896,40 @@ if (databaseResources !== undefined) {
    * cannot register its own workspace cannot write anything, and should say so at boot.
    */
   await ensureWorkspace(registry);
+  /**
+   * Vault key rotation, at boot: with `VAULT_SECRET_PREVIOUS` set beside a new `VAULT_SECRET`,
+   * every entry of the workspace is re-sealed under the new secret in one transaction and its
+   * `key_version` raised. Run again with both still set, it changes nothing. An entry that
+   * opens under neither stops the boot: an API that cannot open its own vault would fail
+   * every credential read, and saying so here is shorter than that diagnosis.
+   */
+  const previousVaultSecret = process.env['VAULT_SECRET_PREVIOUS']?.trim();
+  if (
+    previousVaultSecret !== undefined &&
+    previousVaultSecret !== '' &&
+    runtimeConfig.vaultSecret !== undefined
+  ) {
+    const rotation = await rotateVaultSecrets(
+      { ...registry, actor: 'system:boot' },
+      previousVaultSecret,
+      runtimeConfig.vaultSecret,
+    );
+    logger.info('vault rotation checked', { ...rotation });
+  }
   app.route(
     '/',
     createProjectsRoutes({
       ...registry,
       vaultSecret: runtimeConfig.vaultSecret,
+      // The built-in eval runner uses the raw gateway: its runs are eval runs, not chat.
+      agents: {
+        gateway: gatewayResolution.kind === 'none' ? null : aiGateway,
+        provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+        onRunFailure: (error) =>
+          logger.warn('an eval dataset run failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      },
       secureCookies: resolveSecureCookies(),
       trustProxy: runtimeConfig.trustProxy ?? false,
       pairing: {
@@ -805,6 +945,18 @@ if (databaseResources !== undefined) {
       // The installation key's session is the admin; tokens carry their own role. With
       // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
       access: accessResolver,
+      issues: { jira: jiraAdapter, github: githubAdapter, detailsUrl: dashboardUrl },
+      testProposals: {
+        gateway: testProposalGateway,
+        provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+      },
+      delivery: {
+        lanMode: runtimeConfig.lanMode === true,
+        ...(runtimeConfig.githubWebhookSecret === undefined
+          ? {}
+          : { webhookSecret: runtimeConfig.githubWebhookSecret }),
+        ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
+      },
       health: {
         ...healthHooks,
         detailsUrl: dashboardUrl,
@@ -983,9 +1135,21 @@ if (runtimeConfig.nodeEnv !== 'test') {
   });
   if (databaseResources) lifecycle.add('database pool', () => databaseResources.close());
   if (retentionSweep) lifecycle.add('outbox retention sweep', () => retentionSweep.stop());
+  if (spanRetentionSweep) {
+    lifecycle.add('genai span retention sweep', () => spanRetentionSweep.stop());
+  }
+  if (sessionRetentionSweep) {
+    lifecycle.add('session retention sweep', () => sessionRetentionSweep.stop());
+  }
   if (reportDispatcher) {
     reportDispatcher.start(Number(process.env['REPORT_DISPATCH_INTERVAL_MS'] ?? 15_000));
     lifecycle.add('report dispatcher', () => reportDispatcher.stop());
+  }
+  if (deliverySyncer) {
+    // Parsed and bounded (a whole number, 10 s or more) by `@automate/config`, so NaN cannot
+    // reach the timer; `getConfig` always sets it, the `??` only satisfies the partial type.
+    deliverySyncer.start(runtimeConfig.deliverySyncIntervalMs ?? 60_000);
+    lifecycle.add('delivery syncer', () => deliverySyncer.stop());
   }
   lifecycle.add('http server', () => closeHttpServer(server, SHUTDOWN_DRAIN_MS));
   installShutdownHandlers(lifecycle, {

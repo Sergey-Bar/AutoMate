@@ -64,6 +64,12 @@ export const DEFAULT_HEALTH_WEIGHTS: Readonly<Record<HealthDimension, number>> =
   coverage: 10,
   'supply-chain': 10,
   runtime: 5,
+  // Opt-in: shown as scorecards, counted only when a project's policy gives a weight.
+  delivery: 0,
+  'ai-governance': 0,
+  'test-effectiveness': 0,
+  'agent-quality': 0,
+  accessibility: 0,
 };
 
 /**

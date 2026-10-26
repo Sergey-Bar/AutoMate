@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { Route, AnalyticsPage } from './analytics.js';
+import { Route, AnalyticsPage, allTimePassRate } from './analytics.js';
 import type { ApiClient, AnalyticsSummary } from '../../lib/api.js';
 import { makeQa } from '../../test-utils.js';
 
@@ -52,7 +52,40 @@ describe('AnalyticsPage', () => {
 
     expect(screen.getByTestId('stat-total-runs')).toHaveTextContent('150');
     expect(screen.getByTestId('stat-pass-rate')).toHaveTextContent('95%');
+    expect(screen.getByTestId('stat-pass-rate')).toHaveTextContent('reporter-uploaded runs');
     expect(screen.getByTestId('stat-avg-duration')).toHaveTextContent('1.2 s');
+  });
+
+  it('does not call an empty history a 0% pass rate', async () => {
+    // The summary answers `passRate: 0` when no run completed; drawn as 0% that claims every
+    // run failed. With no run, there is no rate.
+    const mockApi = {
+      getAnalyticsSummary: vi.fn(async () => ({ totalRuns: 0, passRate: 0, avgDurationMs: null })),
+    } as unknown as ApiClient;
+    render(<AnalyticsPage api={mockApi} />);
+    const passRate = await screen.findByTestId('stat-pass-rate');
+    expect(passRate).toHaveTextContent('not measured');
+    expect(passRate).not.toHaveTextContent('%');
+  });
+
+  it('reads a null pass rate from a newer server as not measured', () => {
+    expect(allTimePassRate({ totalRuns: 4, passRate: null })).toBe('not measured');
+    expect(allTimePassRate({ totalRuns: 4, passRate: 50 })).toBe('50');
+  });
+
+  it('does not call runs that are all still executing a 0% pass rate', async () => {
+    // The server used to answer `passRate: 0` here, and with `totalRuns` above zero the
+    // page drew it as "0": every run failed. It now answers `null`.
+    const mockApi = {
+      getAnalyticsSummary: vi.fn(async () => ({
+        totalRuns: 3,
+        passRate: null,
+        avgDurationMs: null,
+      })),
+    } as unknown as ApiClient;
+    render(<AnalyticsPage api={mockApi} />);
+    const passRate = await screen.findByTestId('stat-pass-rate');
+    expect(passRate).toHaveTextContent('not measured');
   });
 
   it('reads the chosen window from the trend, day by day, and refetches on a new window', async () => {

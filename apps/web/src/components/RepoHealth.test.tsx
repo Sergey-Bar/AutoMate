@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
   HEALTH_DIMENSIONS,
+  isOptInDimension,
   type DimensionScore,
   type HealthFinding,
   type HealthGrade,
@@ -25,7 +26,7 @@ function dimension(
     measured: false,
     score: null,
     letter: null,
-    weight: 10,
+    weight: isOptInDimension(overrides.dimension) ? 0 : 10,
     tools: [],
     openFindings: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
     summary: [],
@@ -145,6 +146,8 @@ function health(value: Partial<ProjectHealth> = {}): ProjectHealth {
 function client(overrides: Partial<HealthClient> = {}): HealthClient {
   return {
     getPortfolio: vi.fn(async () => ({ projects: [] })),
+    getHeatmap: vi.fn(async () => Promise.reject(new Error('not stubbed'))),
+    getTestEffectiveness: vi.fn(async () => Promise.reject(new Error('not stubbed'))),
     getHealth: vi.fn(async () => health()),
     getFindings: vi.fn(async () => ({ findings: [FINDING], total: 1, offset: 0, limit: 25 })),
     getHistory: vi.fn(async () => ({ projectId: PROJECT, branch: 'main', points: [] })),
@@ -215,6 +218,10 @@ describe('RepoHealth', () => {
     render(<RepoHealth health={client()} projectId={PROJECT} />);
     await screen.findByTestId('repo-health');
     expect(screen.getByRole('heading', { level: 1, name: 'Service' })).toBeInTheDocument();
+    expect(screen.getByTestId('repo-health-360')).toHaveAttribute(
+      'href',
+      `/dashboard/repo/${PROJECT}/overview`,
+    );
     expect(screen.getByTestId('health-letter')).toHaveTextContent('D');
     expect(screen.getByTestId('health-score')).toHaveTextContent('69 / 100');
     expect(screen.getByTestId('health-limiter')).toHaveTextContent(
@@ -231,6 +238,13 @@ describe('RepoHealth', () => {
     expect(screen.getByTestId('dimension-coverage')).toHaveTextContent('Not measured');
     expect(screen.getByTestId('not-measured')).toHaveTextContent(
       'Tests, Dependencies, Coverage, Supply chain, Runtime',
+    );
+    // The opt-in dimensions are a row of their own, and an unweighted one is not "missing".
+    expect(screen.getByTestId('not-measured')).not.toHaveTextContent('Delivery');
+    const optIn = screen.getByTestId('opt-in-dimensions');
+    expect(within(optIn).getByTestId('dimension-delivery')).toHaveTextContent('Opt-in');
+    expect(screen.getByTestId('core-dimensions')).not.toContainElement(
+      screen.getByTestId('dimension-delivery'),
     );
     expect(
       within(screen.getByTestId('fix-next')).getByRole('link', {

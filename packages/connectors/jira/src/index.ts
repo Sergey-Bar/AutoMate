@@ -71,11 +71,30 @@ const OPERATIONS: Record<string, JiraOperation> = {
         summary: f['summary'],
         ...(optionalString(f, 'description') === undefined
           ? {}
-          : { description: optionalString(f, 'description') }),
+          : { description: documentOf(optionalString(f, 'description') as string) }),
       },
     }),
   },
 };
+
+/**
+ * Plain text as an Atlassian Document, one paragraph per line.
+ *
+ * REST v3 refuses a string `description` with a 400 — the field is a document, not text — so
+ * a create that sent one could never succeed against a real tenant, and a stubbed test that
+ * asserted the string passed regardless. An empty line is an empty paragraph, because a
+ * `text` node with an empty string is itself refused.
+ */
+function documentOf(text: string): unknown {
+  return {
+    type: 'doc',
+    version: 1,
+    content: text.split(/\r?\n/u).map((line) => ({
+      type: 'paragraph',
+      content: line === '' ? [] : [{ type: 'text', text: line }],
+    })),
+  };
+}
 
 /** A field from an already-validated set. */
 function optionalString(fields: Record<string, string>, field: string): string | undefined {
