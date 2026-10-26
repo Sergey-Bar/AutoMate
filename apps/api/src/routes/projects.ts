@@ -73,6 +73,7 @@ import {
   createProjectQuarantineRoutes,
   type ProjectQuarantineSource,
 } from './project-quarantine.js';
+import { createTriageLabelRoutes } from './triage-labels.js';
 import type { IssueAdapters } from '../services/issue-tracker-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
@@ -372,6 +373,16 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       admin: requireRole('admin', access),
       actorOf: async (context) => (await callerOf(context, access)).actor,
       source: options.quarantine,
+    }),
+  );
+  app.route(
+    '/',
+    createTriageLabelRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      viewer,
+      operator,
+      actorOf: async (context) => (await callerOf(context, access)).actor,
     }),
   );
   app.route(

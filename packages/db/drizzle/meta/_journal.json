@@ -337,6 +337,13 @@
       "when": 1790400000042,
       "tag": "0047_quarantine_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790400000043,
+      "tag": "0048_triage_labels",
+      "breakpoints": true
     }
   ]
 }

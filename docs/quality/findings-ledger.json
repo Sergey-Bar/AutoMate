@@ -6479,6 +6479,33 @@
         }
       ],
       "resolution": "Every gate evaluation reads the workspace quarantine through `ExecutionStore.quarantined`. `excuseQuarantined` decides whether a run is completely explained by approved entries; the gate then passes it with `quarantine:EXCUSED` as a warning. Entries carry `stable_id` (0046)."
+    },
+    {
+      "id": "MKT-5",
+      "title": "fingerprint_categories was global and had no writer, so a failure cause could not be labelled",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "`fingerprint_categories` mapped a failure fingerprint to a `defect_categories` row, was classified `global` in the tenancy register, and nothing in `apps/` or `packages/` read or wrote it. A label on a cause is a team decision about its own failures, so a global table would have let one workspace label another's causes, and an unwritten one meant the insights page could group failures by cause but never say what a cause was.",
+      "confirmedBy": "Read against every reference to the table; the tenancy register named it global with column `absent`.",
+      "evidence": [
+        {
+          "path": "tests/integration/src/triage-labels.test.ts",
+          "asserts": "0048 scopes labels to a workspace with a hard boundary and refuses to guess a workspace for an existing row."
+        },
+        {
+          "path": "apps/api/src/services/triage-label-service.test.ts",
+          "asserts": "A label is set, replaced and removed in one workspace and never read or changed from another."
+        },
+        {
+          "path": "apps/api/src/execution/insights.test.ts",
+          "asserts": "Every recurrence of a labelled cause carries the label, and unlabelled failures are counted."
+        }
+      ],
+      "resolution": "Migration 0048 scopes the table to the workspace and seeds four categories; `PUT /api/v1/triage-labels` writes a label keyed on `failureSignature`, which insights and the pull-request comment read."
     }
   ]
 }

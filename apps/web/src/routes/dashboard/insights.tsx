@@ -162,7 +162,7 @@ function InsightsGrid({
       <HistoryBody history={history} failure={historyFailure} />
     </Panel>
   );
-  const causes = <FailureClustersPanel clusters={insights.failureClusters} />;
+  const causes = <FailureClustersPanel clusters={insights.failureClusters} api={api} />;
   const suggestions = (
     <QuarantineSuggestionsPanel suggestions={insights.quarantineSuggestions} api={api} />
   );

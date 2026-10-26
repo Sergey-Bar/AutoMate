@@ -154,3 +154,32 @@ export const TestHistorySchema = z.object({
   ),
 });
 export type TestHistory = z.infer<typeof TestHistorySchema>;
+
+/**
+ * What a recurring failure is, decided once by a person and applied to every recurrence.
+ * Keyed on `failureSignature` from `@automate/reporting`, the key insights clusters on.
+ */
+export const TRIAGE_CATEGORIES = ['product', 'test', 'environment', 'known-issue'] as const;
+export type TriageCategory = (typeof TRIAGE_CATEGORIES)[number];
+
+export const TriageLabelBodySchema = z
+  .object({
+    signature: z.string().min(1).max(4_000),
+    category: z.enum(TRIAGE_CATEGORIES),
+    issueUrl: z
+      .url({ protocol: /^https?$/u })
+      .max(2_000)
+      .nullable()
+      .optional(),
+  })
+  .strict();
+export type TriageLabelBody = z.infer<typeof TriageLabelBodySchema>;
+
+export const TriageLabelSchema = z.object({
+  signature: z.string().min(1),
+  category: z.enum(TRIAGE_CATEGORIES),
+  issueUrl: z.string().nullable(),
+  labelledAt: z.string().min(1),
+  labelledBy: z.string().min(1),
+});
+export type TriageLabel = z.infer<typeof TriageLabelSchema>;

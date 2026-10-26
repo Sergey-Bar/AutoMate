@@ -17,6 +17,9 @@ import {
   RUN_UPDATED_EVENT_TYPE,
   TestHistorySchema,
   type TestHistory,
+  TriageLabelSchema,
+  type TriageLabel,
+  type TriageLabelBody,
 } from '@automate/shared-contracts';
 
 export const RunSchema = NormalizedRunSchema;
@@ -281,6 +284,8 @@ export interface ApiClient {
     page?: { days?: number; before?: string },
     options?: RequestOptions,
   ): Promise<TestHistory>;
+  /** Labels a failure cause for the workspace; every recurrence carries the label. */
+  setTriageLabel(body: TriageLabelBody, options?: RequestOptions): Promise<TriageLabel>;
 }
 
 async function responseError(response: Response): Promise<ApiError> {
@@ -666,6 +671,27 @@ export const defaultApiClient: ApiClient = {
     getJson('/api/v1/dashboard/analytics/summary', AnalyticsSummarySchema, options),
   getQuarantine: (options) =>
     getJson('/api/v1/dashboard/quarantine', z.array(QuarantineEntrySchema), options),
+  setTriageLabel: async (body, options) => {
+    const path = '/api/v1/triage-labels';
+    return parse(
+      await request(
+        await fetch(
+          path,
+          withSignal(
+            {
+              method: 'PUT',
+              credentials: 'include',
+              headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+            options?.signal,
+          ),
+        ),
+      ),
+      TriageLabelSchema,
+      path,
+    );
+  },
   addQuarantine: async (entry, options) => {
     const path = '/api/v1/dashboard/quarantine';
     return parse(

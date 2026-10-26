@@ -738,15 +738,26 @@ export const defectCategories = pgTable('defect_categories', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
 
-// Source: fingerprint_categories table — maps error fingerprint to category
-export const fingerprintCategories = pgTable('fingerprint_categories', {
-  fingerprint: text('fingerprint').primaryKey(),
-  categoryId: text('category_id')
-    .notNull()
-    .references(() => defectCategories.id, { onDelete: 'cascade' }),
-  // SQLite: text('assigned_at').notNull()
-  assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull(),
-});
+// Source: fingerprint_categories table — a workspace's triage label for a failure signature.
+// Workspace-scoped since 0048: a label is a team's decision about its own failures.
+export const fingerprintCategories = pgTable(
+  'fingerprint_categories',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    /** `failureSignature` from `@automate/reporting`. */
+    fingerprint: text('fingerprint').notNull(),
+    categoryId: text('category_id')
+      .notNull()
+      .references(() => defectCategories.id, { onDelete: 'cascade' }),
+    // SQLite: text('assigned_at').notNull()
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull(),
+    issueUrl: text('issue_url'),
+    labelledBy: text('labelled_by').notNull().default('manual'),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.fingerprint] })],
+);
 
 // ─── NL query history ────────────────────────────────────────────────────
 // Source: nl_query_history table — NL→SQL query history

@@ -7,6 +7,7 @@
  */
 
 import { storedTestIdentity } from '@automate/shared-contracts';
+import { failureSignature } from '@automate/reporting';
 import {
   excusesRun,
   quarantineMatches,
@@ -31,6 +32,8 @@ export interface CommitTests {
   failures: string[];
   /** Tests that passed only on a retry and that no entry, approved or pending, names. */
   flakyUnquarantined: string[];
+  /** Failures nothing excuses whose cause has no triage label. */
+  unlabelledFailures: number;
 }
 
 export async function commitTests(
@@ -39,6 +42,8 @@ export async function commitTests(
     quarantined: () => Promise<readonly QuarantineMatch[]>;
     /** Errors outside any test in the run's canonical result (`reportErrors`). */
     reportErrors: (runId: string) => Promise<number>;
+    /** The workspace's labelled failure signatures; absent, none are labelled. */
+    labelledSignatures?: () => Promise<ReadonlySet<string>>;
   },
   projectId: string,
   commit: string,
@@ -71,6 +76,15 @@ export async function commitTests(
     entries,
   );
   const excusedIds = new Set(excusal.tests);
+  const labelled = (await deps.labelledSignatures?.()) ?? new Set<string>();
+  const unlabelledFailures = records.filter(
+    (record) =>
+      (record.status === 'failed' || record.status === 'timed_out') &&
+      !excusedIds.has(record.stableId) &&
+      !labelled.has(
+        failureSignature(record.errorMessage ?? `${record.status} with no message`).signature,
+      ),
+  ).length;
   const named = (test: ExecutionTestResult) =>
     entries.some(
       (entry) =>
@@ -97,6 +111,7 @@ export async function commitTests(
       .filter((test) => test.status === 'flaky' && !named(test))
       .map(storedTestIdentity)
       .sort(),
+    unlabelledFailures,
   };
 }
 

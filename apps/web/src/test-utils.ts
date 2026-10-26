@@ -230,6 +230,9 @@ export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
     getTestHistory: vi.fn(async () => {
       throw new Error('not stubbed');
     }),
+    setTriageLabel: vi.fn(async () => {
+      throw new Error('not stubbed');
+    }),
   };
   return { ...base, ...overrides };
 }

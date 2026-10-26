@@ -95,6 +95,14 @@ export const FailureClusterSchema = z.object({
   runs: z.number().int().min(1),
   firstSeen: z.string().min(1),
   lastSeen: z.string().min(1),
+  /** The workspace's triage label for this signature, when someone has given it one. */
+  label: z
+    .object({
+      category: z.enum(['product', 'test', 'environment', 'known-issue']),
+      issueUrl: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 export type FailureCluster = z.infer<typeof FailureClusterSchema>;
 
@@ -153,6 +161,8 @@ export const QaInsightsSchema = z.object({
       totals: z.object({
         failures: z.number().int().min(0),
         causes: z.number().int().min(0),
+        /** Failures in the window whose cause nobody has labelled. Optional for old servers. */
+        unlabelled: z.number().int().min(0).optional(),
       }),
       /** "N failures, M causes". */
       summary: z.string().min(1),

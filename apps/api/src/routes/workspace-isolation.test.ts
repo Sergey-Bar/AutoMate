@@ -110,6 +110,9 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'project quarantine',
     files: ['services/quarantine-policy-service.ts', 'routes/project-quarantine.ts'],
   },
+  // Triage labels: every statement filters `fingerprint_categories` on `workspace_id`, and
+  // `triage-label-service.test.ts` proves another workspace can neither read nor change one.
+  { family: 'triage labels', files: ['services/triage-label-service.ts'] },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

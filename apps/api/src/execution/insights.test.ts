@@ -442,3 +442,50 @@ describe('which flake evidence automation may act on', () => {
     expect(suggestion?.evidence?.retryPasses).toBe(2);
   });
 });
+
+describe('triage labels on failure causes', () => {
+  it('labels every recurrence of a labelled cause and counts the failures nobody labelled', async () => {
+    const store = new InMemoryExecutionStore();
+    const failing = (message: string): ExecutionTestResult => ({
+      ...test(message.slice(0, 8), 'failed'),
+      error: { message },
+    });
+    store.listRuns = async () => ({
+      runs: [
+        run('2026-10-19T08:00:00.000Z', 'failed', [
+          failing('Timeout 5000ms exceeded'),
+          failing('expected 1 to be 2'),
+        ]),
+        // A new failure with the same cause, after the label was given.
+        run('2026-10-20T08:00:00.000Z', 'failed', [failing('Timeout 7000ms exceeded')]),
+      ],
+      hasMore: false,
+    });
+    const app = createInsightsRoutes({
+      store,
+      workspaceId: 'w',
+      now: () => NOW,
+      labels: async () => [
+        {
+          signature: 'timeout <n>ms exceeded',
+          category: 'environment',
+          issueUrl: 'https://tracker.example/OPS-1',
+          labelledAt: '2026-10-19T09:00:00.000Z',
+          labelledBy: 'user:ana',
+        },
+      ],
+    });
+    const insights = QaInsightsSchema.parse(
+      await (await app.request('/api/v1/dashboard/insights?days=7')).json(),
+    );
+    const timeout = insights.failureClusters?.clusters.find((cluster) =>
+      cluster.signature.startsWith('timeout'),
+    );
+    expect(timeout?.count).toBe(2);
+    expect(timeout?.label).toEqual({
+      category: 'environment',
+      issueUrl: 'https://tracker.example/OPS-1',
+    });
+    expect(insights.failureClusters?.totals.unlabelled).toBe(1);
+  });
+});

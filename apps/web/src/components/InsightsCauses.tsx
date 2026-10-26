@@ -16,26 +16,97 @@ import { useToast } from './Toasts.js';
  * "not reported" rather than drawing an empty list that reads as "nothing failed".
  */
 type Clusters = NonNullable<QaInsights['failureClusters']>;
+type Cluster = Clusters['clusters'][number];
 type Suggestions = NonNullable<QaInsights['quarantineSuggestions']>;
 type Suggestion = Suggestions['suggestions'][number];
+type Category = NonNullable<NonNullable<Cluster['label']>['category']>;
+
+const CATEGORY_LABEL: Record<Category, string> = {
+  product: 'Product bug',
+  test: 'Test bug',
+  environment: 'Environment',
+  'known-issue': 'Known issue',
+};
 
 export function FailureClustersPanel({
   clusters,
+  api,
 }: {
   clusters: QaInsights['failureClusters'];
+  /** Absent: labels are shown and cannot be changed here. */
+  api?: Pick<ApiClient, 'setTriageLabel'>;
 }): React.ReactElement {
   return (
     <Panel title="Failures by root cause" data-testid="failure-clusters" className="flex-1">
       {clusters === undefined ? (
         <Quiet data-testid="clusters-unreported">This API does not group failures by cause.</Quiet>
       ) : (
-        <ClusterList clusters={clusters} />
+        <ClusterList clusters={clusters} api={api} />
       )}
     </Panel>
   );
 }
 
-function ClusterList({ clusters }: { clusters: Clusters }): React.ReactElement {
+/**
+ * The label of one cause: what the team decided it is. Changing it labels every recurrence,
+ * because the server keys it on the cause's signature, not on this list.
+ */
+function CauseLabel({
+  cluster,
+  api,
+}: {
+  cluster: Cluster;
+  api: Pick<ApiClient, 'setTriageLabel'> | undefined;
+}): React.ReactElement | null {
+  const toast = useToast();
+  const [category, setCategory] = React.useState<Category | ''>(cluster.label?.category ?? '');
+  if (api === undefined) {
+    return category === '' ? null : (
+      <span className="text-xs text-fg-muted">{CATEGORY_LABEL[category]}</span>
+    );
+  }
+  const choose = (next: Category) => {
+    const previous = category;
+    setCategory(next);
+    api
+      .setTriageLabel({ signature: cluster.signature, category: next })
+      .then(() => toast({ tone: 'success', title: `Labelled ${CATEGORY_LABEL[next]}` }))
+      .catch((error: unknown) => {
+        setCategory(previous);
+        toast({
+          tone: 'danger',
+          title: 'Could not label the cause',
+          description: failureText(error, 'the label was not saved'),
+        });
+      });
+  };
+  return (
+    <select
+      aria-label="Label this cause"
+      data-testid="cause-label"
+      value={category}
+      onChange={(event) => choose(event.target.value as Category)}
+      className="min-h-11 rounded-md border border-border-default bg-surface px-2 text-xs text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+    >
+      <option value="" disabled>
+        Unlabelled
+      </option>
+      {(Object.keys(CATEGORY_LABEL) as Category[]).map((value) => (
+        <option key={value} value={value}>
+          {CATEGORY_LABEL[value]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ClusterList({
+  clusters,
+  api,
+}: {
+  clusters: Clusters;
+  api: Pick<ApiClient, 'setTriageLabel'> | undefined;
+}): React.ReactElement {
   if (clusters.totals.failures === 0) {
     return <Quiet>No test failed in this window.</Quiet>;
   }
@@ -43,6 +114,9 @@ function ClusterList({ clusters }: { clusters: Clusters }): React.ReactElement {
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       <p data-testid="clusters-summary" className="text-sm font-medium tabular-nums">
         {clusters.summary}
+        {clusters.totals.unlabelled === undefined
+          ? ''
+          : ` · ${String(clusters.totals.unlabelled)} unlabelled`}
       </p>
       <ol className="min-h-0 flex-1 space-y-2 overflow-y-auto text-sm">
         {clusters.clusters.map((cluster) => (
@@ -57,9 +131,12 @@ function ClusterList({ clusters }: { clusters: Clusters }): React.ReactElement {
                 {`${String(cluster.count)} failure${cluster.count === 1 ? '' : 's'}`}
               </span>
             </p>
-            <p className="text-xs text-fg-muted">
-              {`${String(cluster.tests.length)} test${cluster.tests.length === 1 ? '' : 's'} · ${String(cluster.runs)} run${cluster.runs === 1 ? '' : 's'} · ${cluster.branches.join(', ')} · last ${shortDate(cluster.lastSeen.slice(0, 10))}`}
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs text-fg-muted">
+                {`${String(cluster.tests.length)} test${cluster.tests.length === 1 ? '' : 's'} · ${String(cluster.runs)} run${cluster.runs === 1 ? '' : 's'} · ${cluster.branches.join(', ')} · last ${shortDate(cluster.lastSeen.slice(0, 10))}`}
+              </p>
+              <CauseLabel cluster={cluster} api={api} />
+            </div>
           </li>
         ))}
       </ol>

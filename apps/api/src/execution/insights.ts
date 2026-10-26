@@ -15,7 +15,9 @@ import {
   type Mttr,
   type QaInsights,
   type SlowTest,
+  type TriageLabel,
 } from '@automate/shared-contracts';
+import { labelClusters } from '../services/triage-label-service.js';
 import { dayKey, passRate, readSince, startOfDay } from './trend.js';
 import type { ExecutionRun, ExecutionStore, ExecutionTestResult } from './types.js';
 
@@ -50,6 +52,8 @@ export function createInsightsRoutes(options: {
   store: ExecutionStore;
   workspaceId: string;
   now?: () => Date;
+  /** The workspace's triage labels; absent, clusters are unlabelled. */
+  labels?: () => Promise<readonly TriageLabel[]>;
 }): Hono {
   const app = new Hono();
   app.get('/api/v1/dashboard/insights', async (context) => {
@@ -63,7 +67,13 @@ export function createInsightsRoutes(options: {
       projectId === undefined || projectId === ''
         ? runs
         : runs.filter((run) => belongsTo(run, projectId));
-    return context.json(buildInsights(scoped, now, days, truncated));
+    const insights = buildInsights(scoped, now, days, truncated);
+    const labels = (await options.labels?.()) ?? [];
+    if (insights.failureClusters !== undefined) {
+      const labelled = labelClusters(insights.failureClusters, labels);
+      insights.failureClusters = { ...insights.failureClusters, ...labelled };
+    }
+    return context.json(insights);
   });
   return app;
 }

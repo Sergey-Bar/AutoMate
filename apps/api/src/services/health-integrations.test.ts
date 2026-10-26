@@ -192,6 +192,7 @@ describe('the pull-request comment', () => {
       quarantinedFailures: ['a.spec.ts › pays [webkit]'],
       failures: ['a.spec.ts › refunds`|'],
       flakyUnquarantined: ['b.spec.ts › lists'],
+      unlabelledFailures: 0,
     };
     expect(testsSection(tests)).toEqual([
       '**Tests**',
@@ -214,6 +215,9 @@ describe('the pull-request comment', () => {
       failures: Array.from({ length: 12 }, (_, index) => `t${String(index)}`),
     });
     expect(many[3]).toMatch(/…and 2 more$/u);
+    expect(testsSection({ ...tests, unlabelledFailures: 3 }).at(-1)).toBe(
+      '- 3 failure(s) whose cause has no triage label',
+    );
   });
 
   it('creates the comment the first time and updates it after', async () => {

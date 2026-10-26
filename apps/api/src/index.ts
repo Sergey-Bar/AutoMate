@@ -100,6 +100,7 @@ import { InMemoryQuarantineStore, type QuarantineStore } from './modules/dashboa
 import { boundQuarantineSource } from './execution/quarantine-excusal.js';
 import { commitTests } from './services/commit-tests.js';
 import { applyProjectQuarantinePolicy } from './services/quarantine-policy-service.js';
+import { listTriageLabels } from './services/triage-label-service.js';
 import type { ExecutionRun } from './execution/types.js';
 import {
   DrizzleQuarantineStore,
@@ -890,6 +891,16 @@ app.route(
   createInsightsRoutes({
     store: executionStore,
     workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+    // Triage labels live in the database; an in-memory install has none.
+    ...(databaseResources === undefined
+      ? {}
+      : {
+          labels: () =>
+            listTriageLabels({
+              db: databaseResources.db,
+              workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+            }),
+        }),
   }),
 );
 app.route('/', createChatRoutes({ gateway: chatGateway }));
@@ -1011,6 +1022,8 @@ if (databaseResources !== undefined) {
               quarantined: () => quarantineFor(registry.workspaceId),
               reportErrors: async (runId) =>
                 (await resolveReporterStore().get(runId))?.reportErrors?.length ?? 0,
+              labelledSignatures: async () =>
+                new Set((await listTriageLabels(registry)).map((label) => label.signature)),
             },
             projectId,
             commit,

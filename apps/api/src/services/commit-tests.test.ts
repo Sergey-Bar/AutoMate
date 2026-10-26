@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { failureSignature } from '@automate/reporting';
 import { InMemoryRunRepository } from '../repositories/in-memory-run-repository.js';
 import type { TestRecord } from '../repositories/run-repository.js';
 import type { QuarantineMatch } from '../execution/quarantine-excusal.js';
@@ -79,7 +80,41 @@ describe('commitTests', () => {
       failures: [],
       // `waits` has a pending entry: someone has acted on it, so it is not listed.
       flakyUnquarantined: ['a.spec.ts › retries'],
+      // Its one failure is excused, so there is nothing left to label.
+      unlabelledFailures: 0,
     });
+  });
+
+  it('counts the unexcused failures whose cause nobody labelled', async () => {
+    const repository = await seed(
+      { pays: 'failed', refunds: 'failed', lists: 'passed' },
+      '2026-10-26T10:00:00.000Z',
+      'r-labels',
+    );
+    // `seed` writes no message; a failure with none has the signature of "failed with no message".
+    const tests = await commitTests(
+      {
+        repository,
+        quarantined: async () => [],
+        reportErrors: async () => 0,
+        labelledSignatures: async () => new Set<string>(),
+      },
+      PROJECT,
+      COMMIT,
+    );
+    expect(tests?.unlabelledFailures).toBe(2);
+    const labelled = await commitTests(
+      {
+        repository,
+        quarantined: async () => [],
+        reportErrors: async () => 0,
+        labelledSignatures: async () =>
+          new Set([failureSignature('failed with no message').signature]),
+      },
+      PROJECT,
+      COMMIT,
+    );
+    expect(labelled?.unlabelledFailures).toBe(0);
   });
 
   it('never excuses a run with an error outside its tests', async () => {

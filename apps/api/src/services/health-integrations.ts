@@ -92,6 +92,9 @@ export function testsSection(tests: CommitTests): string[] {
   if (tests.flakyUnquarantined.length > 0) {
     lines.push(`- Flaky, not quarantined: ${testList(tests.flakyUnquarantined)}`);
   }
+  if (tests.unlabelledFailures > 0) {
+    lines.push(`- ${String(tests.unlabelledFailures)} failure(s) whose cause has no triage label`);
+  }
   return lines;
 }
 
