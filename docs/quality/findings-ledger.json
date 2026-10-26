@@ -6506,6 +6506,25 @@
         }
       ],
       "resolution": "Migration 0048 scopes the table to the workspace and seeds four categories; `PUT /api/v1/triage-labels` writes a label keyed on `failureSignature`, which insights and the pull-request comment read."
+    },
+    {
+      "id": "MKT-6",
+      "title": "Migrations 0047 and 0048 named two foreign keys differently from the schema module, and nothing had run the db package since",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "`quarantine.project_id` and `fingerprint_categories.workspace_id` were added with an inline `REFERENCES`, which Postgres names `<table>_<column>_fkey`, while the schema module declares `<table>_<column>_<foreign>_id_fk`. `constraints.test.ts` (\"declares every foreign key the migrations create, with the same referential action\") failed on both. The suites run while building the quarantine and triage-label work were the api and integration packages, which build the schema from the migrations and never compare names, so the package that does was not run until `pnpm verify:local`.",
+      "confirmedBy": "Ran `pnpm verify:local`: `@automate/db#test` failed with exactly those two constraint names in `createdOnly` and their `_fk` counterparts in `declaredOnly`.",
+      "evidence": [
+        {
+          "path": "packages/db/src/schema/constraints.test.ts",
+          "asserts": "Every foreign key the migrations create is declared by the schema module with the same name and referential action; it failed on both constraints before they were named explicitly in the migrations."
+        }
+      ],
+      "resolution": "Both migrations now add the column and then a named constraint (`ADD CONSTRAINT <name> FOREIGN KEY …`) matching the schema. The migrations are unreleased on this branch, so they were edited rather than followed by a rename migration."
     }
   ]
 }

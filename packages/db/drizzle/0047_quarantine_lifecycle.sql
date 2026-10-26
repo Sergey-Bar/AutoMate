@@ -25,7 +25,11 @@ ALTER TABLE quarantine
   ADD CONSTRAINT quarantine_released_at_check
   CHECK ((status = 'released') = (released_at IS NOT NULL));
 --> statement-breakpoint
-ALTER TABLE quarantine ADD COLUMN IF NOT EXISTS project_id uuid
-  REFERENCES projects(id) ON DELETE CASCADE;
+ALTER TABLE quarantine ADD COLUMN IF NOT EXISTS project_id uuid;
+--> statement-breakpoint
+-- Named, because an inline REFERENCES is named `quarantine_project_id_fkey` by Postgres and the
+-- schema module declares `quarantine_project_id_projects_id_fk` (constraints.test.ts).
+ALTER TABLE quarantine ADD CONSTRAINT quarantine_project_id_projects_id_fk
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS quarantine_workspace_project_idx ON quarantine (workspace_id, project_id);

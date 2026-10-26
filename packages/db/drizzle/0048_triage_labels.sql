@@ -32,8 +32,11 @@ INSERT INTO defect_categories (id, name, color, created_at) VALUES
   ('known-issue', 'Known issue', '#6b7280', now())
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
-ALTER TABLE fingerprint_categories ADD COLUMN workspace_id text NOT NULL
-  REFERENCES workspaces(id) ON DELETE restrict;
+ALTER TABLE fingerprint_categories ADD COLUMN workspace_id text NOT NULL;
+--> statement-breakpoint
+-- Named to match the schema module (an inline REFERENCES is named `_fkey` by Postgres).
+ALTER TABLE fingerprint_categories ADD CONSTRAINT fingerprint_categories_workspace_id_workspaces_id_fk
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE restrict;
 --> statement-breakpoint
 ALTER TABLE fingerprint_categories DROP CONSTRAINT fingerprint_categories_pkey;
 --> statement-breakpoint
