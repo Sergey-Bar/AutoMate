@@ -15,6 +15,8 @@ import {
   type ReleaseReadiness,
   type RunEventEnvelope,
   RUN_UPDATED_EVENT_TYPE,
+  TestHistorySchema,
+  type TestHistory,
 } from '@automate/shared-contracts';
 
 export const RunSchema = NormalizedRunSchema;
@@ -273,6 +275,12 @@ export interface ApiClient {
     options?: RequestOptions,
   ): Promise<QuarantineEntry>;
   subscribeToRunEvents(subscription: RunEventSubscription): () => void;
+  /** One test's results across runs, newest first, a page at a time. */
+  getTestHistory(
+    key: string,
+    page?: { days?: number; before?: string },
+    options?: RequestOptions,
+  ): Promise<TestHistory>;
 }
 
 async function responseError(response: Response): Promise<ApiError> {
@@ -553,6 +561,15 @@ function subscribeToRunEvents(subscription: RunEventSubscriber): () => void {
 }
 
 export const defaultApiClient: ApiClient = {
+  getTestHistory: (key, page = {}, options) => {
+    const query = new URLSearchParams({ key, days: String(page.days ?? 90) });
+    if (page.before !== undefined) query.set('before', page.before);
+    return getJson(
+      `/api/v1/dashboard/tests/history?${query.toString()}`,
+      TestHistorySchema,
+      options,
+    );
+  },
   getRuns: (options) => getJson('/api/v1/runs', z.array(NormalizedRunSchema), options),
   getRun: (id, options) =>
     getJson(`/api/v1/runs/${encodeURIComponent(id)}`, NormalizedRunSchema, options),

@@ -16,6 +16,7 @@ import type {
 import { useResource } from '../hooks/useResource.js';
 import type { HealthClient } from '../lib/health-client.js';
 import { Panel, Quiet, Segmented } from './kit.js';
+import { testHistoryPath } from '../route-manifest.js';
 
 /**
  * A project's quarantine, and the one decision about it: whether this install may quarantine
@@ -122,7 +123,14 @@ export function ProjectQuarantine({
                 {view.value.entries.map((entry) => (
                   <TableRow key={entry.id} data-testid={`project-quarantine-${entry.id}`}>
                     <TableCell>
-                      <span className="block">{entry.testTitle}</span>
+                      <a
+                        href={testHistoryPath(
+                          entry.stableId ?? `${entry.testFile} › ${entry.testTitle}`,
+                        )}
+                        className="block text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                      >
+                        {entry.testTitle}
+                      </a>
                       <span className="block font-mono text-xs text-fg-muted">
                         {entry.stableId ?? entry.testFile}
                       </span>

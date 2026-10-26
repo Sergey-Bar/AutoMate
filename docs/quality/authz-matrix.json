@@ -9,7 +9,7 @@
   ],
   "summary": {
     "admin": 13,
-    "viewer": 76,
+    "viewer": 77,
     "operator": 30,
     "open": 14,
     "runner-credential": 9,
@@ -296,6 +296,14 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/tests.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/tests/history",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/modules/dashboard/test-history.test.ts",
       "composition": "always"
     },
     {

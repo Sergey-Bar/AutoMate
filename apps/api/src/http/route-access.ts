@@ -38,6 +38,7 @@ export const ROUTE_ROLES: ReadonlyArray<
   ['GET', '/api/v1/dashboard/runs/:runId/tests', 'viewer'],
   ['GET', '/api/v1/dashboard/suites', 'viewer'],
   ['GET', '/api/v1/dashboard/tests', 'viewer'],
+  ['GET', '/api/v1/dashboard/tests/history', 'viewer'],
   ['GET', '/api/v1/events', 'viewer'],
   ['GET', '/api/v1/integrations/maturity', 'viewer'],
   ['GET', '/api/v1/jobs', 'viewer'],

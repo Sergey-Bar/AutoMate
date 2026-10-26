@@ -143,6 +143,25 @@ export class InMemoryRunRepository implements RunRepository {
     return latest === null ? null : { ...latest };
   }
 
+  async testHistory(
+    stableId: string,
+    page: { since: Date; before?: Date; limit: number },
+  ): Promise<Array<{ run: RunRecord; test: TestRecord }>> {
+    const found: Array<{ run: RunRecord; test: TestRecord }> = [];
+    for (const test of this._tests.values()) {
+      if (test.stableId !== stableId) continue;
+      const run = this._runs.get(test.runId);
+      if (run === undefined) continue;
+      const started = Date.parse(run.startedAt);
+      if (started < page.since.getTime()) continue;
+      if (page.before !== undefined && started >= page.before.getTime()) continue;
+      found.push({ run: { ...run }, test: { ...test } });
+    }
+    return found
+      .sort((left, right) => Date.parse(right.run.startedAt) - Date.parse(left.run.startedAt))
+      .slice(0, page.limit);
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   private _testKey(testId: string, runId: string): string {

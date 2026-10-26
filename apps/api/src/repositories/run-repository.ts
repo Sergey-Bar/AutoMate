@@ -393,4 +393,13 @@ export interface RunRepository {
    * comment reads to say how the commit's tests went.
    */
   latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null>;
+
+  /**
+   * One test's results across runs, newest first, from the `(workspace_id, stable_id)` index:
+   * results of runs started at or after `since` and before `before`, at most `limit`.
+   */
+  testHistory(
+    stableId: string,
+    page: { since: Date; before?: Date; limit: number },
+  ): Promise<Array<{ run: RunRecord; test: TestRecord }>>;
 }

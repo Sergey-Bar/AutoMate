@@ -224,6 +224,7 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/dashboard/runs/:id'],
   ['PATCH', '/api/v1/dashboard/runs/:id/status'],
   ['GET', '/api/v1/dashboard/tests'],
+  ['GET', '/api/v1/dashboard/tests/history'],
   ['GET', '/api/v1/dashboard/suites'],
   ['GET', '/api/v1/dashboard/runs/:runId/tests'],
   ['GET', '/api/v1/dashboard/analytics/summary'],

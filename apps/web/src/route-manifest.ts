@@ -118,6 +118,13 @@ export const routeManifest = [
     tab: 'Quarantine',
   },
   {
+    id: 'test-history',
+    path: '/dashboard/test',
+    label: 'Test History',
+    visible: false,
+    section: 'insights',
+  },
+  {
     id: 'delivery',
     path: '/dashboard/delivery',
     label: 'Delivery',
@@ -289,4 +296,12 @@ export function repoHealthPath(projectId: string): string {
 
 export function repo360Path(projectId: string): string {
   return `${repoHealthPath(projectId)}/overview`;
+}
+
+/**
+ * The path to one test's history. The identity is a search parameter, not a path segment,
+ * because it is a file path and holds `/`. One place builds it, so every link agrees.
+ */
+export function testHistoryPath(key: string): string {
+  return `/dashboard/test?key=${encodeURIComponent(key)}`;
 }

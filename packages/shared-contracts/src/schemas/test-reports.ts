@@ -110,3 +110,47 @@ export const ProjectQuarantineSchema = z.object({
   entries: z.array(ProjectQuarantineEntrySchema),
 });
 export type ProjectQuarantine = z.infer<typeof ProjectQuarantineSchema>;
+
+/**
+ * `GET /api/v1/dashboard/tests/history?key=<identity>&days=&before=` — one test's results,
+ * newest first, one page at a time from the `(workspace_id, stable_id)` index.
+ *
+ * The identity is a query parameter rather than a path segment because it is a file path:
+ * it holds `/`, and a path segment would have to be encoded in a way every proxy agrees on.
+ */
+export const TestHistoryQuerySchema = z.object({
+  key: z.string().min(1).max(2_000),
+  days: z.coerce.number().int().min(1).max(365).default(90),
+  limit: z.coerce.number().int().min(1).max(500).default(200),
+  /** The `startedAt` of the last entry already read; the next page is older. */
+  before: z.iso.datetime().optional(),
+});
+export type TestHistoryQuery = z.infer<typeof TestHistoryQuerySchema>;
+
+export const TestHistoryEntrySchema = z.object({
+  runId: z.string().min(1),
+  startedAt: z.string().min(1),
+  status: z.string().min(1),
+  durationMs: z.number().nullable(),
+  branch: z.string().nullable(),
+  commitSha: z.string().nullable(),
+  error: z.string().nullable(),
+  /** `failureSignature` of the error, so recurrences of one cause group together. */
+  signature: z.string().nullable(),
+});
+export type TestHistoryEntry = z.infer<typeof TestHistoryEntrySchema>;
+
+export const TestHistorySchema = z.object({
+  key: z.string().min(1),
+  title: z.string().nullable(),
+  file: z.string().nullable(),
+  days: z.number().int().min(1),
+  entries: z.array(TestHistoryEntrySchema),
+  /** Older results exist in the window; ask again with `before` = the last `startedAt`. */
+  nextBefore: z.string().nullable(),
+  /** Distinct failure signatures in this page, most frequent first. */
+  signatures: z.array(
+    z.object({ signature: z.string(), count: z.number().int().min(1), example: z.string() }),
+  ),
+});
+export type TestHistory = z.infer<typeof TestHistorySchema>;

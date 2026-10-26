@@ -227,6 +227,9 @@ export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
       status: 'pending',
     })),
     subscribeToRunEvents: vi.fn(() => () => undefined),
+    getTestHistory: vi.fn(async () => {
+      throw new Error('not stubbed');
+    }),
   };
   return { ...base, ...overrides };
 }

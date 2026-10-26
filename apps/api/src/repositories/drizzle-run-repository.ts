@@ -4,7 +4,7 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc, desc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gte, lt, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
@@ -408,6 +408,29 @@ export class DrizzleRunRepository implements RunRepository {
       .limit(1);
     const row = rows[0];
     return row === undefined ? null : this._mapRun(row);
+  }
+
+  async testHistory(
+    stableId: string,
+    page: { since: Date; before?: Date; limit: number },
+  ): Promise<Array<{ run: RunRecord; test: TestRecord }>> {
+    // The index is `(workspace_id, stable_id)` on `tests`; the run join is on its primary
+    // key, and both sides carry the workspace, so nothing here can read across it.
+    const rows = await this.db
+      .select({ run: runs, test: tests })
+      .from(tests)
+      .innerJoin(runs, and(eq(runs.id, tests.runId), eq(runs.workspaceId, this.workspaceId)))
+      .where(
+        and(
+          eq(tests.workspaceId, this.workspaceId),
+          eq(tests.stableId, stableId),
+          gte(runs.startedAt, page.since),
+          ...(page.before === undefined ? [] : [lt(runs.startedAt, page.before)]),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(page.limit);
+    return rows.map((row) => ({ run: this._mapRun(row.run), test: this._mapTest(row.test) }));
   }
 
   // ── Internal helpers ──────────────────────────────────────────────────────
