@@ -10585,6 +10585,7 @@
                   "robot",
                   "k6",
                   "zap",
+                  "allure",
                   "sarif",
                   "otel",
                   "generic",
@@ -22029,7 +22030,14 @@
       },
       "ReportFormatIdSchema": {
         "type": "string",
-        "enum": ["junit-xml", "playwright-json", "k6-json", "zap-xml", "legacy-upload"]
+        "enum": [
+          "junit-xml",
+          "playwright-json",
+          "k6-json",
+          "zap-xml",
+          "legacy-upload",
+          "allure-results"
+        ]
       },
       "ReportKindSchema": {
         "type": "string",
@@ -22046,7 +22054,18 @@
       },
       "ReportProducerSchema": {
         "type": "string",
-        "enum": ["playwright", "junit", "robot", "k6", "zap", "sarif", "otel", "generic", "legacy"]
+        "enum": [
+          "playwright",
+          "junit",
+          "robot",
+          "k6",
+          "zap",
+          "allure",
+          "sarif",
+          "otel",
+          "generic",
+          "legacy"
+        ]
       },
       "ReportStatusSchema": { "type": "string", "enum": ["good", "warn", "bad", "info"] },
       "ReporterEventSchema": {

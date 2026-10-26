@@ -58,6 +58,7 @@ import {
   type CanonicalRunResult,
 } from '@automate/shared-contracts';
 import {
+  allureResultsAdapter,
   junitXmlAdapter,
   K6_JSON_ADAPTER,
   legacyUploadAdapter,
@@ -260,6 +261,7 @@ function adapterForFormat(id: ReportFormatId): ProducerAdapter {
     'playwright-json': playwrightJsonAdapter,
     'k6-json': K6_JSON_ADAPTER,
     'zap-xml': ZAP_XML_ADAPTER,
+    'allure-results': allureResultsAdapter,
     'legacy-upload': legacyUploadAdapter,
   };
   return adapters[id];

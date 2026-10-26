@@ -39,7 +39,7 @@ export type CanonicalStatus = CanonicalRunResult['status'];
  * point: a new adapter that maps statuses in its own file is the defect this module exists
  * to prevent.
  */
-export const INGESTED_PRODUCERS = ['playwright', 'junit', 'legacy', 'k6', 'zap'] as const;
+export const INGESTED_PRODUCERS = ['playwright', 'junit', 'legacy', 'k6', 'zap', 'allure'] as const;
 export type IngestedProducer = (typeof INGESTED_PRODUCERS)[number];
 
 /**
@@ -139,6 +139,20 @@ export const TEST_STATUS_MAPPING = {
     low: 'failed',
     medium: 'failed',
     high: 'failed',
+  },
+  // Allure's result status. `broken` is an unexpected exception, as against `failed`, an
+  // assertion; both are the product failing to do what the test asked, and the distinction
+  // is Allure's own report category, not an outcome this product separates. Allure never
+  // emits `flaky` as a status (it is an annotation on a result): flakiness is computed from
+  // several results of one test, as the Playwright adapter computes it from `results[]`.
+  allure: {
+    passed: 'passed',
+    failed: 'failed',
+    broken: 'failed',
+    skipped: 'skipped',
+    unknown: 'unknown',
+    timedOut: 'timedOut',
+    timed_out: 'timedOut',
   },
 } as const satisfies {
   [P in IngestedProducer]: Record<string, CanonicalStatus>;
