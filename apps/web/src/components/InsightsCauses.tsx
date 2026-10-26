@@ -114,6 +114,8 @@ function SuggestionRow({
       .addQuarantine({
         testTitle: suggestion.title,
         testFile: fileOf(suggestion.testKey),
+        // The identity, so the entry is about this project and describe path only.
+        stableId: suggestion.testKey,
         reason: suggestion.reason,
       })
       .then(() => {

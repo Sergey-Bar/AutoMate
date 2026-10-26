@@ -28,6 +28,12 @@ export interface QuarantineEntry {
   id: string;
   testTitle: string;
   testFile: string;
+  /**
+   * The test's identity (`testIdentity`), so the entry is about one project and one
+   * describe path. `null` for an entry recorded before identities: it matches by title and
+   * file in every project, as it did when it was approved.
+   */
+  stableId: string | null;
   reason: string | null;
   quarantinedAt: string; // ISO-8601
   /**
@@ -42,7 +48,10 @@ export interface QuarantineEntry {
 }
 
 /** A quarantine entry as it arrives from a caller: no id, no timestamp, no status. */
-export type NewQuarantineEntry = Omit<QuarantineEntry, 'id' | 'quarantinedAt' | 'status'>;
+export type NewQuarantineEntry = Omit<
+  QuarantineEntry,
+  'id' | 'quarantinedAt' | 'status' | 'stableId'
+> & { stableId?: string | null };
 
 // ---------------------------------------------------------------------------
 // Store interface + in-memory implementation
@@ -85,6 +94,7 @@ export class InMemoryQuarantineStore implements QuarantineStore {
     const id = randomUUID();
     const created: QuarantineEntry = {
       ...entry,
+      stableId: entry.stableId ?? null,
       id,
       quarantinedAt: new Date().toISOString(),
       status: 'pending',
@@ -213,6 +223,7 @@ export function createDashboardQuarantineRoutes(options: DashboardQuarantineOpti
       {
         testTitle: parsed.data.testTitle,
         testFile: parsed.data.testFile,
+        stableId: parsed.data.stableId ?? null,
         reason: parsed.data.reason ?? null,
       },
       contextFor(c),

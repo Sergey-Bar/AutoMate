@@ -38,6 +38,9 @@ export const AddQuarantineEntryBodySchema = z
   .object({
     testTitle: z.string().trim().min(1).max(500),
     testFile: z.string().trim().min(1).max(500),
+    // The test's identity (`testIdentity`), as the insights page and the API report it. An
+    // entry without one matches the title and file in every project.
+    stableId: z.string().min(1).max(2_000).nullish(),
     // Optional, and explicitly nullable: the store's column is nullable and a
     // caller sending `null` means "no reason given" rather than "omit the field".
     reason: z.string().max(2_000).nullish(),

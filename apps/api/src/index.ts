@@ -96,6 +96,8 @@ import {
 import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap/lifecycle.js';
 // T18: dashboard module — runs detail, tests listing, analytics, quarantine, quality gates
 import { createDashboardModule } from './modules/dashboard/index.js';
+import { InMemoryQuarantineStore, type QuarantineStore } from './modules/dashboard/quarantine.js';
+import { boundQuarantineSource } from './execution/quarantine-excusal.js';
 import {
   DrizzleQuarantineStore,
   DrizzleQualityGateStore,
@@ -166,12 +168,14 @@ function createRunRepository(): RunRepository {
 }
 
 function createDashboardStores(): {
-  quarantineStore?: DrizzleQuarantineStore;
+  quarantineStore: QuarantineStore;
   qualityGateStore?: DrizzleQualityGateStore;
 } {
   if (!databaseResources) {
     assertInMemoryAllowed(runtimeConfig, 'dashboard stores');
-    return {};
+    // Created here rather than inside the dashboard module, so the gate and the dashboard
+    // read one quarantine.
+    return { quarantineStore: new InMemoryQuarantineStore() };
   }
   // Bound to the configured workspace, as every other store is. Both used to be composed
   // with none: `quarantine` had no column to scope by, and every audit row they wrote
@@ -340,14 +344,25 @@ function createExecutionStore(): ExecutionStore {
       db: databaseResources.db,
       workspaceId: runtimeConfig.workspaceId,
       artifactBytes: artifactBytesStore,
+      quarantined: quarantineFor,
     });
   }
   assertInMemoryAllowed(runtimeConfig, 'InMemoryExecutionStore');
-  return new InMemoryExecutionStore();
+  return new InMemoryExecutionStore({ quarantined: quarantineFor });
 }
 
-const executionStore = withClassifiedErrors(createExecutionStore());
 const dashboardStores = createDashboardStores();
+
+/**
+ * The quarantine entries every gate evaluation reads. The dashboard's quarantine store is
+ * bound to the configured workspace, so it answers for that workspace and no other: a run
+ * in any other workspace gets no entries, and so no excusal.
+ */
+const quarantineFor = boundQuarantineSource(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID, () =>
+  dashboardStores.quarantineStore.list(),
+);
+
+const executionStore = withClassifiedErrors(createExecutionStore());
 
 /**
  * The one tool registry the agent routes dispatch through, and the catalog that

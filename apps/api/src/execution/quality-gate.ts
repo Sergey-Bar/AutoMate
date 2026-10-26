@@ -1,4 +1,5 @@
 import { digestOf } from './digest.js';
+import { excuseQuarantined, type QuarantineMatch } from './quarantine-excusal.js';
 import type {
   DomainName,
   DomainStatus,
@@ -29,6 +30,11 @@ export interface QualityGateInput {
   domainStatuses?: Partial<Record<DomainName, DomainStatus>>;
   policy: GatePolicy;
   evaluatedAt?: string;
+  /**
+   * The workspace's quarantine entries. Only `approved` ones count, and only for a run that
+   * they explain completely (`excuseQuarantined`); the run is then a warning, not a pass.
+   */
+  quarantined?: readonly QuarantineMatch[];
 }
 
 export interface QualityGateResult {
@@ -158,11 +164,13 @@ function gateEvidenceRefs(run: GateRun): string[] {
 }
 
 /** The run's own outcome and the failures counted in its summary. */
-function outcomeReasons(run: GateRun, summary: GateSummary): string[] {
+function outcomeReasons(run: GateRun, summary: GateSummary, excused: boolean): string[] {
   const reasons: string[] = [];
   const infraReason = runInfraReason(run);
   if (infraReason) reasons.push(infraReason);
-  if (run.outcome === 'failed' || run.phase === 'blocked')
+  // A run that failed only because quarantined tests failed is explained by them; a run
+  // blocked for any other reason is not, and `excused` is never true for one with an error.
+  if ((run.outcome === 'failed' && !excused) || run.phase === 'blocked')
     reasons.push('product_failure:TEST_FAILURE');
   if (summary.failed > 0) reasons.push('product_failure:FAILED_TEST_COUNT');
   return reasons;
@@ -303,7 +311,7 @@ function verdictFor(reasons: string[]): Pick<QualityGateResult, 'status' | 'deci
   }
   if (reasons.includes('evidence:NO_TESTS')) return { status: 'failed', decision: 'blocked' };
   if (reasons.some(isUnknownReason)) return { status: 'unknown', decision: 'not_ready' };
-  if (reasons.some((reason) => reason.endsWith(':WARNING'))) {
+  if (reasons.some((reason) => reason.endsWith(':WARNING') || reason.startsWith('quarantine:'))) {
     return { status: 'warning', decision: 'ready_with_warnings' };
   }
   return { status: 'passed', decision: 'ready' };
@@ -312,19 +320,34 @@ function verdictFor(reasons: string[]): Pick<QualityGateResult, 'status' | 'deci
 export function evaluateQualityGate(input: QualityGateInput): QualityGateResult {
   const run = input.run;
   const policy = input.policy;
-  const summary = run.summary ?? EMPTY_GATE_SUMMARY;
+  const reported = run.summary ?? EMPTY_GATE_SUMMARY;
+  const excusal = excuseQuarantined(run, input.quarantined ?? []);
+  // A run whose every test is quarantined has nothing left to pass on, so it is not
+  // excused: the warning is for a run that proved something and carried known noise.
+  const excused = excusal.complete && reported.passed > 0;
+  // The thresholds read the run without its excused tests. The run itself is not changed.
+  const summary: GateSummary = excused
+    ? {
+        ...reported,
+        total: reported.total - excusal.excused,
+        failed: reported.failed - excusal.excusedFailures,
+        flaky: reported.flaky - excusal.excusedFlaky,
+      }
+    : reported;
   const artifacts = run.artifacts ?? [];
   const domains = { ...defaultDomains(run), ...(input.domainStatuses ?? {}) } as Record<
     DomainName,
     DomainStatus
   >;
+  if (excused && domains.browser === 'failed') domains.browser = 'warning';
   const evidenceRefs = gateEvidenceRefs(run);
   const reasons = [
-    ...outcomeReasons(run, summary),
+    ...outcomeReasons(run, summary, excused),
     ...thresholdReasons(summary, policy),
     ...requiredDomainReasons(requiredDomainsOf(policy), domains, evidenceRefs),
     ...ruleReasons(policy, domains, summary, artifacts),
   ];
+  if (excused) reasons.push(refusal('quarantine:EXCUSED', { excused: excusal.excused }));
   // A run that claims a pass while executing nothing is the case every
   // threshold above silently skipped, because each one sits behind
   // `summary.total > 0`. `NO_TESTS` is a product failure, not an unknown:

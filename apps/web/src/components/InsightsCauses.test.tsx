@@ -97,6 +97,7 @@ describe('quarantine suggestions', () => {
       expect(api.addQuarantine).toHaveBeenCalledWith({
         testTitle: 'logs in',
         testFile: 'e2e/login.spec.ts',
+        stableId: 'e2e/login.spec.ts › logs in',
         reason: 'Flipped 3 times in 6 runs and cost 4 retries',
       }),
     );

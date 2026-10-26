@@ -230,6 +230,7 @@ function FlakyPanel({
       await api.addQuarantine({
         testTitle: test.title,
         testFile: test.file ?? '(unknown file)',
+        stableId: test.key,
         reason: `Flaky in Insights: ${String(test.flips)} flips, ${String(test.flaky)} retries over ${String(test.runs)} runs`,
       });
       setQuarantined((current) => new Set([...current, test.key]));

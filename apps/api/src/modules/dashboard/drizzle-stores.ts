@@ -26,7 +26,7 @@ import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { randomUUID } from 'node:crypto';
 import type { QualityGate, QualityGateStore } from './quality-gates.js';
-import type { QuarantineEntry, QuarantineStore } from './quarantine.js';
+import type { NewQuarantineEntry, QuarantineEntry, QuarantineStore } from './quarantine.js';
 import {
   canTransitionQuarantine,
   type QuarantineStatus,
@@ -136,6 +136,7 @@ function mapEntry(row: typeof quarantine.$inferSelect): QuarantineEntry {
     id: row.id,
     testTitle: row.testTitle,
     testFile: row.testFile,
+    stableId: row.stableId ?? null,
     reason: row.reason ?? null,
     quarantinedAt: row.quarantinedAt.toISOString(),
     status: row.status,
@@ -175,17 +176,19 @@ export class DrizzleQuarantineStore implements QuarantineStore {
   }
 
   async add(
-    entry: Omit<QuarantineEntry, 'id' | 'quarantinedAt' | 'status'>,
+    entry: NewQuarantineEntry,
     context: WriteContext = systemContext(),
   ): Promise<QuarantineEntry> {
     const id = randomUUID();
     const now = new Date();
+    const stableId = entry.stableId ?? null;
     await this.db.transaction(async (tx) => {
       await tx.insert(quarantine).values({
         id,
         workspaceId: this.workspaceId,
         testTitle: entry.testTitle,
         testFile: entry.testFile,
+        stableId,
         reason: entry.reason ?? null,
         quarantinedAt: now,
         // Explicit rather than relying on the column default, so the value returned
@@ -201,7 +204,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
             resourceType: 'quarantine_entry',
             resourceId: id,
             ...context,
-            details: { testTitle: entry.testTitle, testFile: entry.testFile },
+            details: { testTitle: entry.testTitle, testFile: entry.testFile, stableId },
           },
           this.workspaceId,
           now,
@@ -212,6 +215,7 @@ export class DrizzleQuarantineStore implements QuarantineStore {
       id,
       testTitle: entry.testTitle,
       testFile: entry.testFile,
+      stableId,
       reason: entry.reason ?? null,
       quarantinedAt: now.toISOString(),
       status: 'pending',

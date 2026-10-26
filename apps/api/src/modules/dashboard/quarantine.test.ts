@@ -95,6 +95,7 @@ const FOREIGN_ENTRY: QuarantineEntry = {
   id: 'theirs',
   testTitle: 'their flaky test',
   testFile: 'e2e/their.spec.ts',
+  stableId: null,
   reason: null,
   quarantinedAt: '2026-09-01T00:00:00.000Z',
   status: 'pending',

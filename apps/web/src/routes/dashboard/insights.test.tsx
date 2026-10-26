@@ -70,6 +70,7 @@ describe('the insights page', () => {
     expect(addQuarantine).toHaveBeenCalledWith({
       testTitle: 'logs in',
       testFile: 'e2e/login.spec.ts',
+      stableId: 'e2e/login.spec.ts › logs in',
       reason: 'Flaky in Insights: 2 flips, 1 retries over 6 runs',
     });
   });

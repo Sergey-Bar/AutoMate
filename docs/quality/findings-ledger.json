@@ -6456,6 +6456,29 @@
         }
       ],
       "resolution": "Evidence is classified as a retry pass, a same-commit disagreement, or a cross-commit flip, and only the first two make a test `autoEligible`. The leaderboard reads `flakeCost`."
+    },
+    {
+      "id": "MKT-4",
+      "title": "An approved quarantine entry changed nothing: the gate never read it",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MKT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-26",
+      "summary": "The quarantine table, its routes and its pending → approved decision existed, and the column comment said an approved entry \"removes the test\" from the pass rate. Nothing did: `evaluateQualityGate` in `apps/api/src/execution/quality-gate.ts` took no quarantine input and no caller passed one, so approving an entry was recorded, audited and ignored. Entries were also keyed by title and file only, so one could not be about a single Playwright project.",
+      "confirmedBy": "Read against every `createGateEvaluation` call site; the store-level test fails with the gate change stashed.",
+      "evidence": [
+        {
+          "path": "apps/api/src/execution/quarantine-excusal.test.ts",
+          "asserts": "A run whose only failures are approved quarantined tests passes as a warning; pending, rejected, partial, cross-project, setup-error and every-test-quarantined runs do not."
+        },
+        {
+          "path": "apps/api/src/execution/quarantine-gate.store.test.ts",
+          "asserts": "Both stores record the excused gate without rewriting the run, and one workspace never excuses another."
+        }
+      ],
+      "resolution": "Every gate evaluation reads the workspace quarantine through `ExecutionStore.quarantined`. `excuseQuarantined` decides whether a run is completely explained by approved entries; the gate then passes it with `quarantine:EXCUSED` as a warning. Entries carry `stable_id` (0046)."
     }
   ]
 }

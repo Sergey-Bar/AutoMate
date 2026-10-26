@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { storedTestIdentity, testIdentity } from '@automate/shared-contracts';
+import type { QuarantineMatch } from './quarantine-excusal.js';
 import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
@@ -608,10 +609,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
   );
   private readonly now: () => Date;
   private readonly leaseDurationMs: number;
+  private readonly quarantineSource: ExecutionStoreOptions['quarantined'];
 
   constructor(options: ExecutionStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.leaseDurationMs = options.leaseDurationMs ?? options.leaseMs ?? DEFAULT_LEASE_MS;
+    this.quarantineSource = options.quarantined;
   }
 
   async createRun(
@@ -1071,8 +1074,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
         run,
         policy,
         domainStatuses: { browser: browserGateStatus(run.outcome) },
+        quarantined: await this.quarantined(run.workspaceId),
       }),
     );
+  }
+
+  async quarantined(workspaceId: string): Promise<readonly QuarantineMatch[]> {
+    return (await this.quarantineSource?.(workspaceId)) ?? [];
   }
 
   async addArtifact(
@@ -1223,6 +1231,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
           run: latest,
           policy,
           domainStatuses: { browser: defaultBrowserStatus(latest) },
+          quarantined: await this.quarantined(workspaceId),
         }),
       );
     }

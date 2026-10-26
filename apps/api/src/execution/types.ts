@@ -1,3 +1,5 @@
+import type { QuarantineMatch } from './quarantine-excusal.js';
+
 export type RunPhase =
   | 'queued'
   | 'assigned'
@@ -544,6 +546,11 @@ export interface ExecutionStore {
   reapExpiredLeases(now?: Date): Promise<LeaseReapResult[]>;
   getReadiness(releaseId: string, workspaceId?: string): Promise<ReleaseReadiness>;
   getReleaseReadiness(workspaceId: string, releaseId: string): Promise<ReleaseReadiness>;
+  /**
+   * The workspace's quarantine entries, as every gate evaluation reads them. Only the
+   * workspace asked for: another workspace's approval never excuses this one's failure.
+   */
+  quarantined(workspaceId: string): Promise<readonly QuarantineMatch[]>;
 }
 
 export interface ExecutionStoreOptions {
@@ -551,6 +558,11 @@ export interface ExecutionStoreOptions {
   leaseDurationMs?: number;
   leaseMs?: number;
   tokenTtlMs?: number;
+  /**
+   * Where the quarantine entries come from (the dashboard's quarantine store). Absent means
+   * none: a store with no quarantine source excuses nothing, which is the fail-closed reading.
+   */
+  quarantined?: (workspaceId: string) => Promise<readonly QuarantineMatch[]>;
 }
 
 /**

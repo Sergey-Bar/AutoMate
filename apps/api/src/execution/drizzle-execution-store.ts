@@ -18,6 +18,7 @@ import {
   tests,
 } from '@automate/db';
 import { EVENT_VERSION, storedTestIdentity, testIdentity } from '@automate/shared-contracts';
+import type { QuarantineMatch } from './quarantine-excusal.js';
 import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
 // The one declaration of the byte-store port. This file used to declare its own
 // `ArtifactBytesStore` with two of the three methods, structurally compatible with
@@ -1653,10 +1654,15 @@ export class DrizzleExecutionStore implements ExecutionStore {
           run,
           policy,
           domainStatuses: { browser: browserGateStatus(run.outcome) },
+          quarantined: await this.quarantined(run.workspaceId),
         }),
       );
     }
     return { run, job, status: result.duplicate ? 'duplicate' : 'accepted' };
+  }
+
+  async quarantined(workspaceId: string): Promise<readonly QuarantineMatch[]> {
+    return (await this.options.quarantined?.(workspaceId)) ?? [];
   }
 
   async addArtifact(
@@ -1981,6 +1987,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           run: mapped,
           policy,
           domainStatuses: { browser: browserGateStatus(mapped.outcome) },
+          quarantined: await this.quarantined(workspaceId),
         }),
       );
     }

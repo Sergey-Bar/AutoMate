@@ -564,6 +564,9 @@ export const quarantine = pgTable(
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     testTitle: text('test_title').notNull(),
     testFile: text('test_file').notNull(),
+    // The test's identity (0046). `null` for an entry recorded before identities, which
+    // matches by title and file in every project — `excuseQuarantined` in the API.
+    stableId: text('stable_id'),
     reason: text('reason'),
     // SQLite: text('quarantined_at').notNull()
     quarantinedAt: timestamp('quarantined_at', { withTimezone: true }).notNull(),
@@ -600,6 +603,8 @@ export const quarantine = pgTable(
     index('quarantine_quarantined_idx').on(table.quarantinedAt),
     // The listing as it now runs: one workspace, in quarantine order (0028).
     index('quarantine_workspace_quarantined_idx').on(table.workspaceId, table.quarantinedAt),
+    // 0046: the gate reads one workspace's entries for the identities a run reported.
+    index('quarantine_workspace_stable_id_idx').on(table.workspaceId, table.stableId),
   ],
 );
 

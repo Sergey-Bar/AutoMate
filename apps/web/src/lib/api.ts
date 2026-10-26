@@ -34,6 +34,9 @@ export const QuarantineEntrySchema = z.object({
   id: z.string(),
   testTitle: z.string(),
   testFile: z.string(),
+  // The test's identity, or `null` for an entry that matches title and file in every
+  // project. Optional so an older server's answer still parses.
+  stableId: z.string().nullable().optional(),
   reason: z.string().nullable(),
   quarantinedAt: z.string(),
   // Where the entry stands. `pending` is the fail-closed default: the test is
@@ -266,7 +269,7 @@ export interface ApiClient {
   getAnalyticsSummary(options?: RequestOptions): Promise<AnalyticsSummary>;
   getQuarantine(options?: RequestOptions): Promise<QuarantineEntry[]>;
   addQuarantine(
-    entry: { testTitle: string; testFile: string; reason?: string },
+    entry: { testTitle: string; testFile: string; stableId?: string; reason?: string },
     options?: RequestOptions,
   ): Promise<QuarantineEntry>;
   subscribeToRunEvents(subscription: RunEventSubscription): () => void;
