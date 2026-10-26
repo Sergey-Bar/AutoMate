@@ -128,7 +128,14 @@ describe('NavBar', () => {
     const tabs = await screen.findByTestId('section-tabs');
     expect(tabs).toHaveAttribute('aria-label', 'Insights pages');
     const links = within(tabs).getAllByRole('link');
-    expect(links.map((link) => link.textContent)).toEqual(['Tests', 'Trends', 'Quarantine']);
+    expect(links.map((link) => link.textContent)).toEqual([
+      'Tests',
+      'Trends',
+      'Quarantine',
+      'Delivery',
+      'AI code',
+      'Agents',
+    ]);
     expect(within(tabs).getByRole('link', { name: 'Trends' })).toHaveAttribute(
       'aria-current',
       'page',

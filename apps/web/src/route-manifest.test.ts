@@ -3,6 +3,7 @@ import { routeTree } from './router.js';
 import {
   SECTIONS,
   isApplicationPath,
+  repo360Path,
   routeManifest,
   runDetailPath,
   sectionOf,
@@ -62,8 +63,12 @@ describe('route manifest', () => {
       '/dashboard/insights',
       '/dashboard/analytics',
       '/dashboard/quarantine',
+      '/dashboard/delivery',
+      '/dashboard/ai-code',
+      '/dashboard/agents',
       '/dashboard/map',
       '/dashboard/health',
+      '/dashboard/supply-chain',
       '/dashboard/toolbox',
       '/dashboard/access',
       '/dashboard/reports',
@@ -89,6 +94,11 @@ describe('route manifest', () => {
     ['/dashboard', 'overview'],
     ['/dashboard/portfolio', 'overview'],
     ['/dashboard/repo/project-1', 'overview'],
+    ['/dashboard/repo/project-1/overview', 'overview'],
+    ['/dashboard/delivery', 'insights'],
+    ['/dashboard/ai-code', 'insights'],
+    ['/dashboard/agents', 'insights'],
+    ['/dashboard/supply-chain', 'map'],
     ['/dashboard/runs', 'runs'],
     ['/dashboard/runs/run-1', 'runs'],
     ['/dashboard/runs/run-1/extra', 'runs'],
@@ -113,10 +123,18 @@ describe('route manifest', () => {
   it('lists each section’s tabs, and the overview leads with Now', () => {
     expect(tabsOf('overview').map((tab) => tab.tab)).toEqual(['Now', 'Portfolio', 'Project']);
     expect(tabsOf('runs').map((tab) => tab.tab)).toEqual(['Runs', 'Launch']);
-    expect(tabsOf('insights').map((tab) => tab.tab)).toEqual(['Tests', 'Trends', 'Quarantine']);
+    expect(tabsOf('insights').map((tab) => tab.tab)).toEqual([
+      'Tests',
+      'Trends',
+      'Quarantine',
+      'Delivery',
+      'AI code',
+      'Agents',
+    ]);
     expect(tabsOf('map').map((tab) => tab.tab)).toEqual([
       'Map',
       'Capabilities',
+      'Supply chain',
       'Toolbox',
       'Access',
       'Reports',
@@ -141,6 +159,21 @@ describe('route manifest', () => {
       [...registered].some((path) => path.replace(/\/$/u, '').endsWith('map')),
       'the map route is not registered',
     ).toBe(true);
+  });
+
+  it('registers the scorecard pages and the 360 in the router', () => {
+    const registered = registeredPaths().map((path) => path.replace(/^\//u, ''));
+    for (const path of [
+      'supply-chain',
+      'delivery',
+      'ai-code',
+      'agents',
+      'repo/$projectId/overview',
+    ]) {
+      expect(registered, `${path} is in the manifest but not the router`).toContain(path);
+    }
+    expect(repo360Path('p 1')).toBe('/dashboard/repo/p%201/overview');
+    expect(sectionOf(repo360Path('p 1'))).toBe('overview');
   });
 
   it('recognizes canonical run detail links without accepting arbitrary dashboard paths', () => {

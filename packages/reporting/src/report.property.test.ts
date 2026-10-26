@@ -1,6 +1,8 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_ACTIONS,
+  MAX_AREAS,
   composeReport,
   escapeTelegramHtml,
   renderPlain,
@@ -14,7 +16,8 @@ import {
  *
  * Fixed seed and `numRuns`, so a red run reproduces on any host. The inputs are hostile on
  * purpose: arbitrary unicode including `&`, `<`, `>`, quotes and pipes, long titles, many
- * items, and links that may or may not be URLs.
+ * items, and links that may or may not be URLs — and, since the digest grew area lines and a
+ * top-actions list, hostile project names, fix titles and scorecard reasons in every area.
  */
 const SEED = 20261025;
 const params = { seed: SEED, numRuns: 300 } as const;
@@ -26,6 +29,18 @@ const hostile = fc.string({
     fc.constantFrom('🔴', 'é', '中'),
   ),
   maxLength: 400,
+});
+
+const card = fc.record({
+  project: hostile,
+  status: fc.constantFrom(
+    'pass' as const,
+    'fail' as const,
+    'insufficient' as const,
+    'not_configured' as const,
+  ),
+  score: fc.option(fc.double({ min: 0, max: 100, noNaN: true }), { nil: null }),
+  reasons: fc.array(hostile, { maxLength: 3 }),
 });
 
 const input: fc.Arbitrary<ReportInput> = fc.record({
@@ -47,6 +62,18 @@ const input: fc.Arbitrary<ReportInput> = fc.record({
   link: fc.option(fc.oneof(fc.webUrl(), hostile, fc.constant('https://a.test/x|y>z<w')), {
     nil: null,
   }),
+  areas: fc.array(fc.record({ label: hostile, cards: fc.array(card, { maxLength: 6 }) }), {
+    maxLength: 5,
+  }),
+  scorecards: fc.array(card, { maxLength: 6 }),
+  fixNext: fc.array(
+    fc.record({
+      project: hostile,
+      title: hostile,
+      gain: fc.double({ min: 0, max: 100, noNaN: true }),
+    }),
+    { maxLength: 8 },
+  ),
 });
 
 const limit = fc.integer({ min: 80, max: 5_000 });
@@ -83,6 +110,18 @@ describe('DIGEST-1: every rendering fits its platform limit', () => {
         const model = composeReport(raw);
         expect(model.items.length).toBeLessThanOrEqual(3);
         expect(model.items.length + model.more).toBe(raw.attention.length + raw.digest.length);
+      }),
+      params,
+    );
+  });
+
+  it('never shows more than three area lines or three actions, and no action twice', () => {
+    fc.assert(
+      fc.property(input, (raw) => {
+        const model = composeReport(raw);
+        expect(model.areas.length).toBeLessThanOrEqual(MAX_AREAS);
+        expect(model.actions.length).toBeLessThanOrEqual(MAX_ACTIONS);
+        expect(new Set(model.actions).size).toBe(model.actions.length);
       }),
       params,
     );

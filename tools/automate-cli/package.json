@@ -1,0 +1,28 @@
+{
+  "name": "@automate/cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A dependency-free CLI for CI: upload reports, ask for the gate, push a deployment, send agent-config files.",
+  "bin": {
+    "automate": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs"
+  },
+  "devDependencies": {
+    "@automate/config": "workspace:*",
+    "@automate/projects": "workspace:*",
+    "@automate/shared-contracts": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

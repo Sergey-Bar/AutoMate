@@ -4,6 +4,8 @@ import { Route as dashboardRoute } from '../dashboard.js';
 import { Portfolio } from '../../components/Portfolio.js';
 import { RepoHealth } from '../../components/RepoHealth.js';
 import { createHealthClient } from '../../lib/health-client.js';
+import { createAiCodeClient } from '../../lib/ai-code-client.js';
+import { createDeliveryClient } from '../../lib/delivery-client.js';
 import { AccessGate, AccessPage } from '../../components/Access.js';
 import { PairPage } from '../../components/Pairing.js';
 
@@ -13,7 +15,17 @@ export const PortfolioRoute = createRoute({
   path: '/portfolio',
   component: () => {
     const health = createHealthClient();
-    return <AccessGate health={health}>{() => <Portfolio health={health} />}</AccessGate>;
+    return (
+      <AccessGate health={health}>
+        {() => (
+          <Portfolio
+            health={health}
+            delivery={createDeliveryClient()}
+            aiCode={createAiCodeClient()}
+          />
+        )}
+      </AccessGate>
+    );
   },
 });
 

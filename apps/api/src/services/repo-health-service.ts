@@ -1,9 +1,10 @@
-import { and, asc, count, desc, eq, gte, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, ne, sql, type SQL, count } from 'drizzle-orm';
 import { healthFindings, healthReports, healthSnapshots, projects, schedules } from '@automate/db';
 import {
   CODEOWNERS_PATHS,
   evaluateHealthGate,
   grade,
+  type GateAgents,
   healthScannersFor,
   ownerOf,
   parseCodeowners,
@@ -16,11 +17,33 @@ import {
 } from '@automate/projects';
 import {
   HealthReportError,
+  MAX_HEALTH_REPORT_BYTES,
+  parseAxeResults,
+  parseCycloneDx,
   parseHealthMetrics,
+  parseLineCoverage,
+  parseProvenance,
   parseSarif,
-  type MetricFormat,
+  parseSkillSpector,
+  parseSpdx,
+  parseStrykerReport,
+  parseVex,
+  evalMetrics,
+  provenanceMetric,
+  verifyProvenance,
+  type LineCoverageReport,
+  type ParsedProvenance,
+  type SbomDocument,
   type ScannerRun,
+  type VexDocument,
+  type EvalRun,
 } from '@automate/reporter';
+import {
+  parseUnifiedDiff,
+  type AiGovernanceVerdict,
+  type Attribution,
+  type AttributionSignal,
+} from '@automate/reporting';
 import {
   DimensionMetricSchema,
   HEALTH_DIMENSIONS,
@@ -28,7 +51,10 @@ import {
   HealthGradeSchema,
   HealthPolicySchema,
   HealthToolSchema,
+  isEvalUploadFormat,
+  isFindingReportFormat,
   type CanonicalFinding,
+  type DiffCoverageRecord,
   type DimensionMetric,
   type FindingState,
   type HealthDimension,
@@ -44,13 +70,46 @@ import {
   type Portfolio,
   type PortfolioEntry,
   type ProjectHealth,
+  type Scorecard,
+  type SupplyChainPolicy,
+  type SupplyChainPolicyRecord,
   type TriageFindingBody,
+  SBOM_REPORT_FORMATS,
 } from '@automate/shared-contracts';
 import { z } from 'zod/v4';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import type { ProjectRegistryServiceOptions } from './project-registry-service.js';
 import { qaScore } from './qa-score-service.js';
+import { withinBound } from './bounded-list.js';
 import { AlertSettingsSchema } from './health-integrations.js';
+import {
+  branchFor,
+  projectRow,
+  syncFindings,
+  type ProjectRow,
+  type SyncResult,
+} from './health-findings.js';
+import {
+  LICENCE_TOOL,
+  applyPreTriage,
+  applyStoredVex,
+  carriesVulnerabilityAnalysis,
+  evaluateBranchLicences,
+  licenceBranches,
+  provenanceTrust,
+  readSupplyChainPolicy,
+  replaceSbomInventory,
+  storeVexDocument,
+  supplyChainPolicyRecord,
+  writeSupplyChainPolicy,
+} from './supply-chain-service.js';
+import { gateDiffCoverage, storeDiff, storeLineMap } from './diff-coverage-service.js';
+import {
+  agentsPolicyOf,
+  parseEvalUpload,
+  storeEvalRun,
+  type EvalGateReading,
+} from './eval-service.js';
 
 /**
  * Repository health: reports in, findings carried across them, the grade out.
@@ -76,9 +135,106 @@ export interface TestsReading {
   failingTests: number;
 }
 
+/**
+ * What delivery contributes: the DORA scorecard as the `delivery` dimension's metric (counted
+ * only when the policy weights the dimension — HEALTH-3), the scorecard itself for the gate
+ * comment, and whether the policy gates on it.
+ */
+export interface DeliveryReading {
+  /** `null` while the scorecard has no score. */
+  metric: DimensionMetric | null;
+  dora: Scorecard;
+  gateOnDelivery: boolean;
+}
+
+/** What AI-written code contributes to the grade: the `ai-code` scorecard as a metric. */
+export interface AiCodeReading {
+  /** `null` while the scorecard has no score. */
+  metric: DimensionMetric | null;
+}
+
+/**
+ * What the agents' runtime contributes: the runtime scorecard as the `agent-quality`
+ * dimension's `agent-runtime` metric (beside each eval suite's metrics, which arrive with
+ * the eval upload), the scorecard for the gate, and whether the policy gates on it.
+ */
+export interface AgentRuntimeReading {
+  /** `null` while the scorecard has no score. */
+  metric: DimensionMetric | null;
+  scorecard: Scorecard;
+  gateOnRuntime: boolean;
+}
+
+/** What the gate measured on the pull request, for the AI-governance rules. */
+export interface AiGovernanceFacts {
+  newHigh: number;
+  newCritical: number;
+  /** 0–100; `null` when the gated commit's diff coverage was not measured. */
+  diffCoverage: number | null;
+}
+
+/** The AI-governance rules on one pull request, and what they read. */
+export interface AiGovernanceCheck {
+  pullRequest: number;
+  /** Whether the delivery sync has read the pull request. */
+  synced: boolean;
+  attribution: Attribution;
+  agent: string | null;
+  confidence: number;
+  signals: AttributionSignal[];
+  /** Set when the pull request was never synced: why attribution is unknown. */
+  unknownReason: string | null;
+  verdict: AiGovernanceVerdict;
+}
+
+/** What the gate found new on a pull request, for the AI-code outcomes. */
+export interface GateFindingsReport {
+  pullRequest: number;
+  commit: string;
+  newHigh: number;
+  newCritical: number;
+}
+
 export interface RepoHealthOptions extends Options {
   /** The existing QA score as the Tests dimension, or `null` when no run has been recorded. */
   testsReading?: (projectId: string) => Promise<TestsReading | null>;
+  /** The project's delivery scorecard. Absent: delivery is not measured. */
+  deliveryReading?: (projectId: string) => Promise<DeliveryReading | null>;
+  /**
+   * The AI-code scorecard as the `ai-governance` dimension's metric (counted only when the
+   * policy weights the dimension — HEALTH-3). Absent: not measured here.
+   */
+  aiCodeReading?: (projectId: string) => Promise<AiCodeReading | null>;
+  /**
+   * The agent runtime scorecard as an `agent-quality` metric (counted only when the policy
+   * weights the dimension) and as the gate reads it. Absent: not measured here.
+   */
+  agentRuntimeReading?: (projectId: string) => Promise<AgentRuntimeReading | null>;
+  /**
+   * Each eval suite on the branch against the default branch, judged on `commit`'s runs when
+   * one is named and has them. Absent: evals never gate.
+   */
+  evalGateReading?: (
+    projectId: string,
+    branch: string,
+    commit?: string,
+  ) => Promise<EvalGateReading | null>;
+  /**
+   * The built-in agent-config scan of a local checkout, run by `POST /health/scan`. Returns
+   * the scanner id it ran as, or `null` when the project has no checkout here to read.
+   */
+  agentConfigScan?: (projectId: string) => Promise<string | null>;
+  /**
+   * The AI-governance rules on one pull request, `null` when the policy does not enable them.
+   * Absent: the gate never applies them.
+   */
+  aiGovernance?: (
+    projectId: string,
+    pullRequest: number,
+    facts: AiGovernanceFacts,
+  ) => Promise<AiGovernanceCheck | null>;
+  /** Called by the gate report for a named pull request, with what the gate found new on it. */
+  onGateReport?: (projectId: string, report: GateFindingsReport) => Promise<void>;
   /**
    * A file in a local repository, for CODEOWNERS. Absent, or a git-sourced project: only an
    * uploaded CODEOWNERS (`PUT /health/codeowners`) assigns owners.
@@ -112,59 +268,24 @@ export type HealthSettings = z.infer<typeof HealthSettingsSchema>;
 const HISTORY_DAYS = 90;
 const TREND_DAYS = 30;
 const DAY_MS = 86_400_000;
-const INSERT_CHUNK = 500;
 /** More distinct report kinds than any scanner set produces; the grade reads at most these. */
 const MAX_REPORT_KINDS = 200;
+/** The report kinds, and the licence policy that may judge the SBOM inventory beside them. */
+const MAX_FINDING_TOOL_KEYS = MAX_REPORT_KINDS + 1;
 const ScannerRunListSchema = z.array(
   z.object({ tool: HealthToolSchema, dimensions: z.array(z.enum(HEALTH_DIMENSIONS)) }),
 );
 
-interface ProjectRow {
-  id: string;
-  name: string;
-  slug: string;
-  defaultBranch: string | null;
-  repoPath: string | null;
-  repositoryUrl: string | null;
-  profile: Record<string, unknown>;
-  settings: Record<string, unknown>;
-}
+export { branchFor };
 
-async function projectRow(options: Options, projectId: string): Promise<ProjectRow> {
-  // A malformed id is "no such project", not a database error about uuid syntax.
-  if (!/^[0-9a-f-]{36}$/iu.test(projectId)) {
-    throw new DomainError(ErrorCode.NOT_FOUND, `No project ${projectId}`);
-  }
-  const rows = await options.db
-    .select({
-      id: projects.id,
-      name: projects.name,
-      slug: projects.slug,
-      defaultBranch: projects.defaultBranch,
-      repoPath: projects.repoPath,
-      repositoryUrl: projects.repositoryUrl,
-      profile: projects.profile,
-      settings: projects.settings,
-    })
-    .from(projects)
-    .where(and(eq(projects.workspaceId, options.workspaceId), eq(projects.id, projectId)))
-    .limit(1);
-  const row = rows[0];
-  if (row === undefined) throw new DomainError(ErrorCode.NOT_FOUND, `No project ${projectId}`);
-  return row;
-}
-
-/** The branch a read means when it names none: the project's default, else `main`. */
-export function branchFor(project: Pick<ProjectRow, 'defaultBranch'>, requested?: string): string {
-  const branch = requested?.trim();
-  return branch !== undefined && branch.length > 0
-    ? branch.slice(0, 255)
-    : (project.defaultBranch ?? 'main');
+/** The project's health policy (`automate.config.json`'s `health` key), when it parses. */
+export function healthPolicyOf(project: Pick<ProjectRow, 'profile'>): HealthPolicy | undefined {
+  const parsed = HealthPolicySchema.safeParse(project.profile['health']);
+  return parsed.success ? parsed.data : undefined;
 }
 
 function policyOf(project: ProjectRow): HealthPolicy | undefined {
-  const parsed = HealthPolicySchema.safeParse(project.profile['health']);
-  return parsed.success ? parsed.data : undefined;
+  return healthPolicyOf(project);
 }
 
 /** A suppression or acceptance past its expiry counts again, without anyone rewriting it. */
@@ -175,23 +296,157 @@ export function effectiveState(state: string, expiresAt: Date | null, now: Date)
   return state as FindingState;
 }
 
-function toolKeyFor(format: HealthReportFormat, tools: readonly ScannerRun[]): string {
+function toolKeyFor(format: HealthReportFormat, parsed: ParsedReport): string {
+  // One kind per eval suite: a second suite's run must not supersede the first's metrics.
+  if (parsed.evalRun !== undefined) return `${format}:${parsed.evalRun.suite}`.slice(0, 300);
   if (format !== 'sarif') return format;
-  const names = [...new Set(tools.map((run) => run.tool.name))].sort();
+  const names = [...new Set(parsed.tools.map((run) => run.tool.name))].sort();
   return `sarif:${names.join('+') || 'unknown'}`;
+}
+
+/** The formats after whose upload every stored VEX document is applied again. */
+const VEX_REAPPLY_FORMATS: ReadonlySet<HealthReportFormat> = new Set([
+  'sarif',
+  'cyclonedx-json',
+  'spdx-json',
+  'vex',
+]);
+const SBOM_FORMATS: ReadonlySet<HealthReportFormat> = new Set(SBOM_REPORT_FORMATS);
+
+/**
+ * One report as the ingestion reads it.
+ *
+ * `findings` is `null` for a report that says nothing about findings — a metric, a VEX
+ * document, a diff, an inventory without a vulnerability analysis — so the lifecycle never
+ * reads its silence as "everything was fixed". The optional parts are what each evidence
+ * format carries beyond findings and metrics.
+ */
+export interface ParsedReport {
+  tools: ScannerRun[];
+  findings: CanonicalFinding[] | null;
+  metrics: DimensionMetric[];
+  sbom?: SbomDocument;
+  vex?: VexDocument;
+  provenance?: ParsedProvenance;
+  lines?: LineCoverageReport;
+  diff?: Map<string, Set<number>>;
+  evalRun?: EvalRun;
+}
+
+/** A unified diff has at least one of git's headers or a hunk; anything else is not a diff. */
+function parseGitDiff(bytes: Uint8Array): Map<string, Set<number>> {
+  if (bytes.byteLength > MAX_HEALTH_REPORT_BYTES) {
+    throw new HealthReportError('too_large', 'diff is larger than the upload limit');
+  }
+  const text = new TextDecoder().decode(bytes);
+  if (!/^(?:diff --git |\+\+\+ |@@ -)/mu.test(text)) {
+    throw new HealthReportError('malformed', 'not a unified diff: no file header or hunk');
+  }
+  return parseUnifiedDiff(text);
+}
+
+function readReport(
+  format: HealthReportFormat,
+  bytes: Uint8Array,
+  sourceRoot: string | undefined,
+  storePrompts = false,
+): ParsedReport {
+  switch (format) {
+    case 'promptfoo-json':
+    case 'deepeval-json':
+    case 'inspect-eval-json':
+    case 'automate-eval-json': {
+      const run = parseEvalUpload(format, bytes, storePrompts);
+      return { tools: [], findings: null, metrics: evalMetrics(run), evalRun: run };
+    }
+    case 'automate-agent-config':
+      throw new HealthReportError(
+        'unsupported',
+        'automate-agent-config is written by the built-in agent-config scanner only; send the files to POST /health/agent-config',
+      );
+    case 'sarif': {
+      const parsed = parseSarif(bytes, sourceRoot === undefined ? {} : { sourceRoot });
+      return { ...parsed, metrics: [] };
+    }
+    case 'cyclonedx-json': {
+      const sbom = parseCycloneDx(bytes);
+      // A BOM with no vulnerability analysis is an inventory, not a clean scan.
+      const analysed = carriesVulnerabilityAnalysis(bytes);
+      const tool = sbom.findings[0]?.tool ?? 'cyclonedx';
+      return {
+        tools: analysed
+          ? [{ tool: { name: tool, version: null }, dimensions: ['dependencies'] }]
+          : [],
+        findings: analysed ? sbom.findings : null,
+        metrics: [],
+        sbom,
+      };
+    }
+    case 'spdx-json':
+      return { tools: [], findings: null, metrics: [], sbom: parseSpdx(bytes) };
+    case 'vex':
+      return { tools: [], findings: null, metrics: [], vex: parseVex(bytes) };
+    case 'slsa-provenance':
+      return { tools: [], findings: null, metrics: [], provenance: parseProvenance(bytes) };
+    case 'stryker-mutation': {
+      const report = parseStrykerReport(bytes);
+      const tool = report.metrics[0]?.tool ?? {
+        name: report.findings[0]?.tool ?? 'stryker',
+        version: null,
+      };
+      return {
+        tools: [{ tool, dimensions: ['test-effectiveness'] }],
+        findings: report.findings,
+        metrics: report.metrics,
+      };
+    }
+    case 'axe-json': {
+      const report = parseAxeResults(bytes);
+      const tool = report.metrics[0]?.tool ?? {
+        name: report.findings[0]?.tool ?? 'axe-core',
+        version: null,
+      };
+      return {
+        tools: [{ tool, dimensions: ['accessibility'] }],
+        findings: report.findings,
+        metrics: report.metrics,
+      };
+    }
+    case 'skillspector-json':
+      return {
+        tools: [{ tool: { name: 'skillspector', version: null }, dimensions: ['ai-governance'] }],
+        findings: parseSkillSpector(bytes),
+        metrics: [],
+      };
+    case 'git-diff':
+      return { tools: [], findings: null, metrics: [], diff: parseGitDiff(bytes) };
+    case 'lcov':
+    case 'cobertura':
+    case 'jacoco-xml':
+    case 'go-coverprofile':
+      return {
+        tools: [],
+        findings: null,
+        metrics: parseHealthMetrics(format, bytes),
+        lines: parseLineCoverage(format, bytes),
+      };
+    case 'jscpd':
+    case 'scorecard':
+    case 'lighthouse':
+    case 'k6':
+    case 'istanbul-summary':
+      return { tools: [], findings: null, metrics: parseHealthMetrics(format, bytes) };
+  }
 }
 
 function parseReport(
   format: HealthReportFormat,
   bytes: Uint8Array,
   sourceRoot: string | undefined,
-): { tools: ScannerRun[]; findings: CanonicalFinding[]; metrics: DimensionMetric[] } {
+  storePrompts: boolean,
+): ParsedReport {
   try {
-    if (format === 'sarif') {
-      const parsed = parseSarif(bytes, sourceRoot === undefined ? {} : { sourceRoot });
-      return { ...parsed, metrics: [] };
-    }
-    return { tools: [], findings: [], metrics: parseHealthMetrics(format as MetricFormat, bytes) };
+    return readReport(format, bytes, sourceRoot, storePrompts);
   } catch (error) {
     if (error instanceof HealthReportError) {
       throw new DomainError(
@@ -211,6 +466,103 @@ export interface UploadInput {
   commitSha?: string | undefined;
   source: 'ci' | 'runner' | 'manual';
   sourceRoot?: string | undefined;
+  /** The artifact digest a `slsa-provenance` upload must describe, `sha256:<hex>`. */
+  digest?: string | undefined;
+}
+
+function digestOf(raw: string | undefined): { alg: string; value: string } | undefined {
+  if (raw === undefined) return undefined;
+  const [alg = '', value = ''] = raw.split(':', 2);
+  return { alg: alg.toLowerCase(), value: value.toLowerCase() };
+}
+
+/** The supply-chain metric a provenance upload produces, verified against the stored trust. */
+async function provenanceMetrics(
+  options: RepoHealthOptions,
+  projectId: string,
+  parsed: ParsedProvenance,
+  digest: string | undefined,
+  now: Date,
+): Promise<DimensionMetric[]> {
+  const stored = await readSupplyChainPolicy(options, projectId);
+  if (stored?.policy.provenance.expectedDigestSource === 'upload-query' && digest === undefined) {
+    throw new DomainError(
+      ErrorCode.INVALID_REQUEST,
+      'This project verifies provenance against the artifact digest: name it as digest=sha256:<hex>',
+    );
+  }
+  const verification = verifyProvenance(
+    parsed,
+    provenanceTrust(stored?.policy ?? null, digestOf(digest), now),
+  );
+  return [provenanceMetric(verification)];
+}
+
+/** What an evidence format stores beside the report: inventory, VEX, line maps, diffs. */
+async function storeEvidence(
+  options: RepoHealthOptions,
+  context: {
+    project: ProjectRow;
+    branch: string;
+    commit: string | undefined;
+    reportId: string;
+    toolKey: string;
+    parsed: ParsedReport;
+    now: Date;
+  },
+): Promise<void> {
+  const { project, branch, commit, reportId, toolKey, parsed, now } = context;
+  if (parsed.sbom !== undefined) {
+    await replaceSbomInventory(options, {
+      projectId: project.id,
+      branch,
+      reportId,
+      components: parsed.sbom.components,
+      now,
+    });
+    if (parsed.findings !== null) {
+      await applyPreTriage(options, {
+        projectId: project.id,
+        branch,
+        toolKey,
+        preTriaged: parsed.sbom.preTriaged,
+        present: new Set(parsed.findings.map((finding) => finding.fingerprint)),
+        now,
+      });
+    }
+    const stored = await readSupplyChainPolicy(options, project.id);
+    if (stored !== null) {
+      await evaluateBranchLicences(options, {
+        projectId: project.id,
+        branch,
+        policy: stored.policy,
+        now,
+      });
+    }
+  }
+  if (parsed.vex !== undefined) {
+    await storeVexDocument(options, { projectId: project.id, document: parsed.vex, reportId, now });
+  }
+  if (parsed.lines !== undefined && commit !== undefined) {
+    await storeLineMap(options, {
+      projectId: project.id,
+      branch,
+      commit,
+      files: parsed.lines.files,
+      reportId,
+      now,
+    });
+  }
+  if (parsed.diff !== undefined && commit !== undefined) {
+    await storeDiff(options, {
+      projectId: project.id,
+      branch,
+      commit,
+      changed: parsed.diff,
+      reportId,
+      now,
+    });
+  }
 }
 
 /**
@@ -223,16 +575,42 @@ export async function ingestHealthReport(
   options: RepoHealthOptions,
   input: UploadInput,
 ): Promise<HealthUploadResult> {
+  const project = await projectRow(options, input.projectId);
+  if (input.format === 'git-diff' && input.commitSha === undefined) {
+    throw new DomainError(
+      ErrorCode.INVALID_REQUEST,
+      'A diff is measured against one commit: name it as commit=<sha>',
+    );
+  }
+  const storePrompts = agentsPolicyOf(project).storePrompts === true;
+  const parsed = parseReport(input.format, input.bytes, input.sourceRoot, storePrompts);
+  return ingestParsedReport(options, input, parsed);
+}
+
+/**
+ * Stores one report that is already parsed: the second half of {@link ingestHealthReport},
+ * and the door the built-in agent-config scanner writes its findings through, so a built-in
+ * scan's findings carry forward, grade and alert exactly as an uploaded scanner's do.
+ */
+export async function ingestParsedReport(
+  options: RepoHealthOptions,
+  input: Omit<UploadInput, 'bytes'>,
+  parsed: ParsedReport,
+): Promise<HealthUploadResult> {
   const now = options.now?.() ?? new Date();
   const project = await projectRow(options, input.projectId);
   const branch = branchFor(project, input.branch);
-  const parsed = parseReport(input.format, input.bytes, input.sourceRoot);
-  const toolKey = toolKeyFor(input.format, parsed.tools);
-  const scope = and(
-    eq(healthFindings.workspaceId, options.workspaceId),
-    eq(healthFindings.projectId, project.id),
-    eq(healthFindings.branch, branch),
-  );
+  const commit = input.commitSha?.slice(0, 64).toLowerCase();
+  if (parsed.provenance !== undefined) {
+    parsed.metrics = await provenanceMetrics(
+      options,
+      project.id,
+      parsed.provenance,
+      input.digest,
+      now,
+    );
+  }
+  const toolKey = toolKeyFor(input.format, parsed);
 
   // The grade as it stood before this report, which is what an alert compares against. Read
   // live rather than from the last snapshot: two snapshots taken in one instant have no order.
@@ -246,103 +624,44 @@ export async function ingestHealthReport(
       workspaceId: options.workspaceId,
       projectId: project.id,
       branch,
-      commitSha: input.commitSha?.slice(0, 64) ?? null,
+      commitSha: commit ?? null,
       source: input.source,
       format: input.format,
       toolKey,
       tools: parsed.tools,
       metrics: parsed.metrics,
-      findingCount: parsed.findings.length,
+      findingCount: parsed.findings?.length ?? 0,
       receivedAt: now,
     })
     .returning({ id: healthReports.id });
   const reportId = (inserted[0] as { id: string }).id;
 
-  let created = 0;
-  let persisting = 0;
-  let fixed = 0;
-  const added: CanonicalFinding[] = [];
-  if (input.format === 'sarif') {
+  let synced: SyncResult = { created: 0, persisting: 0, fixed: 0, added: [] };
+  if (parsed.findings !== null) {
     const rules = await ownerRules(options, project);
-    const existing = await options.db
-      .select({ fingerprint: healthFindings.fingerprint, state: healthFindings.state })
-      .from(healthFindings)
-      .where(and(scope, eq(healthFindings.toolKey, toolKey)));
-    const known = new Map(existing.map((row) => [row.fingerprint, row.state]));
-    const present = new Set(parsed.findings.map((finding) => finding.fingerprint));
-    for (const finding of parsed.findings) {
-      if (known.has(finding.fingerprint)) persisting += 1;
-      else {
-        created += 1;
-        added.push(finding);
-      }
-    }
-    for (let start = 0; start < parsed.findings.length; start += INSERT_CHUNK) {
-      const chunk = parsed.findings.slice(start, start + INSERT_CHUNK);
-      await options.db
-        .insert(healthFindings)
-        .values(
-          chunk.map((finding) => ({
-            workspaceId: options.workspaceId,
-            projectId: project.id,
-            branch,
-            fingerprint: finding.fingerprint,
-            toolKey,
-            tool: finding.tool,
-            ruleId: finding.ruleId,
-            kind: finding.kind,
-            severity: finding.severity,
-            dimension: finding.dimension,
-            path: finding.path,
-            line: finding.line,
-            message: finding.message,
-            helpUri: finding.helpUri,
-            fixAvailable: finding.fixAvailable,
-            owner: rules === null ? null : ownerOf(rules, finding.path),
-            firstSeenAt: now,
-            lastSeenAt: now,
-            lastReportId: reportId,
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [
-            healthFindings.workspaceId,
-            healthFindings.projectId,
-            healthFindings.branch,
-            healthFindings.fingerprint,
-          ],
-          set: {
-            toolKey: sql`excluded.tool_key`,
-            severity: sql`excluded.severity`,
-            kind: sql`excluded.kind`,
-            dimension: sql`excluded.dimension`,
-            path: sql`excluded.path`,
-            line: sql`excluded.line`,
-            message: sql`excluded.message`,
-            helpUri: sql`excluded.help_uri`,
-            fixAvailable: sql`excluded.fix_available`,
-            lastSeenAt: sql`excluded.last_seen_at`,
-            lastReportId: sql`excluded.last_report_id`,
-            // A person's assignment outlives CODEOWNERS; CODEOWNERS fills what nobody assigned.
-            owner: sql`COALESCE(${healthFindings.owner}, excluded.owner)`,
-            // A fixed finding that comes back is open again; a person's decision is kept.
-            state: sql`CASE WHEN ${healthFindings.state} = 'fixed' THEN 'open' ELSE ${healthFindings.state} END`,
-          },
-        });
-    }
-    const gone = [...known.entries()]
-      .filter(([fingerprint, state]) => state === 'open' && !present.has(fingerprint))
-      .map(([fingerprint]) => fingerprint);
-    fixed = gone.length;
-    for (let start = 0; start < gone.length; start += INSERT_CHUNK) {
-      await options.db
-        .update(healthFindings)
-        .set({ state: 'fixed' })
-        .where(
-          and(scope, inArray(healthFindings.fingerprint, gone.slice(start, start + INSERT_CHUNK))),
-        );
-    }
+    synced = await syncFindings(options, {
+      projectId: project.id,
+      branch,
+      toolKey,
+      findings: parsed.findings,
+      reportId,
+      now,
+      ...(rules === null ? {} : { ownerOf: (path: string | null) => ownerOf(rules, path) }),
+    });
   }
+  await storeEvidence(options, { project, branch, commit, reportId, toolKey, parsed, now });
+  if (parsed.evalRun !== undefined && isEvalUploadFormat(input.format)) {
+    await storeEvalRun(options, {
+      projectId: project.id,
+      branch,
+      commit,
+      format: input.format,
+      source: input.source,
+      run: parsed.evalRun,
+      now,
+    });
+  }
+  if (VEX_REAPPLY_FORMATS.has(input.format)) await applyStoredVex(options, project.id, now);
 
   const current = await computeGrade(options, project, branch, now);
   await recordSnapshot(options, project.id, branch, current, now);
@@ -355,14 +674,14 @@ export async function ingestHealthReport(
       ? { letter: before.grade.letter, score: before.grade.score }
       : null,
     current,
-    added,
+    added: synced.added,
     settings: settingsOf(project),
   });
   return {
     reportId,
     branch,
     toolKey,
-    findings: { new: created, persisting, fixed },
+    findings: { new: synced.created, persisting: synced.persisting, fixed: synced.fixed },
     metrics: parsed.metrics.length,
     grade: current,
   };
@@ -403,8 +722,21 @@ async function computeGrade(
   const findingTools = reports.flatMap((report) => toolRuns(report.tools));
   const metrics = reports.flatMap((report) => metricsOf(report.metrics));
   const keys = reports
-    .filter((report) => report.format === 'sarif')
-    .map((report) => report.toolKey);
+    .filter((report) => isFindingReportFormat(report.format as HealthReportFormat))
+    .map((report) => report.toolKey)
+    .slice(0, MAX_REPORT_KINDS);
+  // The licence policy is a judge that ran whenever there is an inventory to judge and a
+  // policy to judge it by: a clean inventory is a measurement, not an absence of one.
+  if (
+    reports.some((report) => SBOM_FORMATS.has(report.format as HealthReportFormat)) &&
+    (await readSupplyChainPolicy(options, project.id)) !== null
+  ) {
+    keys.push(LICENCE_TOOL);
+    findingTools.push({
+      tool: { name: LICENCE_TOOL, version: null },
+      dimensions: ['dependencies'],
+    });
+  }
   const rows =
     keys.length === 0
       ? []
@@ -418,7 +750,7 @@ async function computeGrade(
               eq(healthFindings.branch, branch),
               // One key per report kind on the branch; capped so a branch flooded with
               // distinct tool names cannot grow the statement without bound.
-              inArray(healthFindings.toolKey, keys.slice(0, MAX_REPORT_KINDS)),
+              inArray(healthFindings.toolKey, withinBound(keys, MAX_FINDING_TOOL_KEYS)),
               ne(healthFindings.state, 'fixed'),
             ),
           );
@@ -437,14 +769,38 @@ async function computeGrade(
     state: effectiveState(row.state, row.triageExpiresAt, now),
   }));
   const tests = branch === branchFor(project) ? await options.testsReading?.(project.id) : null;
+  const extra = await defaultBranchMetrics(options, project, branch);
   return HealthGradeSchema.parse(
     grade({
       findingTools,
       findings,
-      metrics: tests === null || tests === undefined ? metrics : [...metrics, tests.metric],
+      metrics: [
+        ...metrics,
+        ...(tests === null || tests === undefined ? [] : [tests.metric]),
+        ...extra,
+      ],
       failingTests: tests?.failingTests ?? null,
       policy: policyOf(project),
     }),
+  );
+}
+
+/**
+ * Delivery and AI-written code are properties of the repository's default branch, like Tests:
+ * their metrics join the grade there and nowhere else. Each counts only when the policy
+ * weights its dimension (HEALTH-3).
+ */
+async function defaultBranchMetrics(
+  options: RepoHealthOptions,
+  project: ProjectRow,
+  branch: string,
+): Promise<DimensionMetric[]> {
+  if (branch !== branchFor(project)) return [];
+  const delivery = await options.deliveryReading?.(project.id);
+  const aiCode = await options.aiCodeReading?.(project.id);
+  const runtime = await options.agentRuntimeReading?.(project.id);
+  return [delivery?.metric, aiCode?.metric, runtime?.metric].filter(
+    (metric): metric is DimensionMetric => metric !== null && metric !== undefined,
   );
 }
 
@@ -893,7 +1249,10 @@ export async function startHealthScan(
       'This project has neither a repository path nor a git URL, so there is nothing to scan. Upload reports from CI instead.',
     );
   }
+  // The built-in scanners run here, on the checkout, and need no runner.
+  const builtIn = await builtInScans(options, project);
   if (options.startScanJob === undefined) {
+    if (builtIn.length > 0) return { runIds: [], scanners: builtIn, notConfigured: [] };
     throw new DomainError(
       ErrorCode.NOT_CONFIGURED,
       'This install has no runner queue to scan with.',
@@ -924,11 +1283,21 @@ export async function startHealthScan(
   }
   return {
     runIds,
-    scanners: runnable.map((scanner) => scanner.id),
+    scanners: [...builtIn, ...runnable.map((scanner) => scanner.id)],
     notConfigured: applicable
       .filter((scanner) => !available.has(scanner.id))
       .map((scanner) => scanner.id),
   };
+}
+
+/**
+ * The scanners this API runs itself over a local checkout: today, the agent-config scanner.
+ * A git-sourced project has no checkout here; its CI sends the files instead.
+ */
+async function builtInScans(options: HealthScanOptions, project: ProjectRow): Promise<string[]> {
+  if (project.repoPath === null || options.agentConfigScan === undefined) return [];
+  const ran = await options.agentConfigScan(project.id);
+  return ran === null ? [] : [ran];
 }
 
 /**
@@ -1052,24 +1421,123 @@ export interface GateResult {
   verdict: GateVerdict;
   grade: HealthGrade;
   added: HealthFinding[];
+  /** The gated commit's diff coverage; `null` when none was measured. */
+  diffCoverage: DiffCoverageRecord | null;
+  /** The project's DORA scorecard; `null` when delivery is not read here. */
+  delivery: Scorecard | null;
+  /** The AI-governance rules on the named pull request; `null` when not enabled or no PR named. */
+  aiGovernance: AiGovernanceCheck | null;
+  /** Each eval suite on the branch against the default branch; `null` when evals are not read. */
+  evals: EvalGateReading | null;
+  /** The agent runtime scorecard; `null` when runtime is not read here. */
+  agentRuntime: Scorecard | null;
 }
 
-/** The pull-request gate for a branch: its grade, and what it adds over the default branch. */
+/** The agent-quality verdicts the gate counts: only those the policy gates on. */
+function agentsGate(
+  evals: EvalGateReading | null,
+  runtime: AgentRuntimeReading | null,
+): GateAgents | null {
+  const gatedEvals = evals?.gateOnEvals === true && !evals.onDefaultBranch ? evals.suites : null;
+  const gatedRuntime = runtime?.gateOnRuntime === true ? runtime.scorecard : null;
+  if (gatedEvals === null && gatedRuntime === null) return null;
+  return { evals: gatedEvals, runtime: gatedRuntime };
+}
+
+/** The AI-governance check for the pull request, when one is named and the rules are read. */
+async function governanceFor(
+  options: RepoHealthOptions,
+  projectId: string,
+  pullRequest: number | undefined,
+  added: readonly HealthFinding[],
+  diffCoverage: DiffCoverageRecord | null,
+): Promise<AiGovernanceCheck | null> {
+  if (pullRequest === undefined || options.aiGovernance === undefined) return null;
+  const ratio = diffCoverage?.ratio ?? null;
+  return options.aiGovernance(projectId, pullRequest, {
+    newHigh: added.filter((finding) => finding.severity === 'high').length,
+    newCritical: added.filter((finding) => finding.severity === 'critical').length,
+    diffCoverage: ratio === null ? null : ratio * 100,
+  });
+}
+
+/**
+ * The pull-request gate for a branch: its grade, what it adds over the default branch, the
+ * diff coverage of `commit` (the branch's latest measured commit when none is named), the
+ * project's DORA scorecard under `gateOnDelivery`, the evals under `gateOnEvals` (judged on
+ * `commit`'s runs when it has them), the runtime scorecard under `gateOnRuntime`, and — for a
+ * named pull request, when the policy enables them — the AI-governance rules. A gated input
+ * that was not measured fails the gate with a reason; it is never read as a pass.
+ */
 export async function healthGate(
   options: RepoHealthOptions,
   projectId: string,
   branch: string,
+  commit?: string,
+  pullRequest?: number,
 ): Promise<GateResult> {
   const project = await projectRow(options, projectId);
   const target = branchFor(project, branch);
   const current = await computeGrade(options, project, target, options.now?.() ?? new Date());
   const added = await newFindingsAgainstDefault(options, project.id, target);
+  const diffCoverage = await gateDiffCoverage(options, project.id, target, commit?.toLowerCase());
+  const delivery = (await options.deliveryReading?.(project.id)) ?? null;
+  const aiGovernance = await governanceFor(options, project.id, pullRequest, added, diffCoverage);
+  const evals = (await options.evalGateReading?.(project.id, target, commit)) ?? null;
+  const runtime = (await options.agentRuntimeReading?.(project.id)) ?? null;
   return {
     branch: target,
-    verdict: evaluateHealthGate(policyOf(project)?.gate, current, added),
+    verdict: evaluateHealthGate(
+      policyOf(project)?.gate,
+      current,
+      added,
+      diffCoverage,
+      delivery?.gateOnDelivery === true ? delivery.dora : null,
+      aiGovernance?.verdict ?? null,
+      agentsGate(evals, runtime),
+    ),
     grade: current,
     added,
+    diffCoverage,
+    delivery: delivery?.dora ?? null,
+    aiGovernance,
+    evals,
+    agentRuntime: runtime?.scorecard ?? null,
   };
+}
+
+/**
+ * Saves a project's supply-chain policy, re-judges every inventory against it, and records the
+ * grade on each branch it changed, so the portfolio reflects the new policy at once.
+ */
+export async function setSupplyChainPolicy(
+  options: RepoHealthOptions,
+  projectId: string,
+  policy: SupplyChainPolicy,
+  actor: string,
+): Promise<{ record: SupplyChainPolicyRecord; branches: string[]; changed: number }> {
+  const now = options.now?.() ?? new Date();
+  const project = await projectRow(options, projectId);
+  await writeSupplyChainPolicy(options, project.id, policy, actor, now);
+  const branches = await licenceBranches(options, project.id);
+  let changed = 0;
+  for (const branch of branches) {
+    const result = await evaluateBranchLicences(options, {
+      projectId: project.id,
+      branch,
+      policy,
+      now,
+    });
+    changed += result.created + result.fixed;
+    await recordSnapshot(
+      options,
+      project.id,
+      branch,
+      await computeGrade(options, project, branch, now),
+      now,
+    );
+  }
+  return { record: await supplyChainPolicyRecord(options, project.id), branches, changed };
 }
 
 /** What a project's repository is, for the integrations that talk to its host. */

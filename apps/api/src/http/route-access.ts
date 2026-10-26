@@ -41,6 +41,10 @@ export const ROUTE_ROLES: ReadonlyArray<
   ['GET', '/api/v1/events', 'viewer'],
   ['GET', '/api/v1/integrations/maturity', 'viewer'],
   ['GET', '/api/v1/jobs', 'viewer'],
+  // The read-only MCP server. Also guarded where it is mounted (`routes/mcp.ts`), because it
+  // is mounted only with a database; this row is the composed app's own copy of the rule.
+  ['GET', '/api/v1/mcp', 'viewer'],
+  ['POST', '/api/v1/mcp', 'viewer'],
   ['GET', '/api/v1/quality-policies', 'viewer'],
   ['GET', '/api/v1/releases/:releaseId/readiness', 'viewer'],
   ['GET', '/api/v1/reporting/kpis', 'viewer'],
@@ -58,6 +62,10 @@ export const ROUTE_ROLES: ReadonlyArray<
   ['POST', '/api/v1/automations', 'operator'],
   ['POST', '/api/v1/automations/:id/jobs', 'operator'],
   ['POST', '/api/v1/chat/completions', 'operator'],
+  // An eval run is model completions in a loop: the same budget, the same class as chat.
+  ['POST', '/api/v1/projects/:id/evals/datasets/:datasetId/run', 'operator'],
+  // A test proposal is a completion too: it spends the same budget chat does.
+  ['POST', '/api/v1/projects/:id/health/test-proposals', 'operator'],
   ['POST', '/api/v1/dashboard/quarantine', 'operator'],
   ['PATCH', '/api/v1/dashboard/quarantine/:id', 'operator'],
   ['DELETE', '/api/v1/dashboard/quarantine/:id', 'operator'],
@@ -93,6 +101,11 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // A device being paired has no credential yet; the code is the credential, and the route
   // is rate-limited per client and installation-wide (`routes/pairing.ts`).
   'POST /api/v1/pair',
+  // GitHub has no session or token here: the HMAC-SHA256 signature over the raw body, under
+  // GITHUB_WEBHOOK_SECRET, is the credential, checked before anything is parsed. It answers
+  // only in LAN mode with that secret set (a 404 otherwise), refuses a replayed delivery id,
+  // and is rate-limited per client (`routes/github-webhook.ts`).
+  'POST /api/v1/webhooks/github',
 ]);
 
 /**

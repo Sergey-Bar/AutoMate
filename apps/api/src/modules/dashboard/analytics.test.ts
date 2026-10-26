@@ -71,13 +71,14 @@ async function summary(app: Hono): Promise<Record<string, unknown>> {
 }
 
 describe('GET /api/v1/dashboard/analytics/summary', () => {
-  it('reports zeroes and a null average for an installation with no runs', async () => {
+  it('reports no runs, and no pass rate or average, for an installation with no runs', async () => {
     const body = await summary(mount(new InMemoryRunRepository()));
 
     // `avgDurationMs: null` and not `0`: no run recorded a duration is a different
     // statement from every run being instant, and a dashboard that renders 0 ms
     // for "we do not know" is lying to the operator reading it.
-    expect(body).toEqual({ totalRuns: 0, passRate: 0, avgDurationMs: null });
+    // `passRate: null` for the same reason: nothing completed, so nothing passed or failed.
+    expect(body).toEqual({ totalRuns: 0, passRate: null, avgDurationMs: null });
   });
 
   it('counts every run, whatever its status', async () => {
@@ -107,7 +108,7 @@ describe('GET /api/v1/dashboard/analytics/summary', () => {
     expect(body['totalRuns']).toBe(4);
   });
 
-  it('reports 0 when every completed run failed, and when none completed at all', async () => {
+  it('reports 0 when every completed run failed, and null when none completed at all', async () => {
     const allFailed = new InMemoryRunRepository();
     await allFailed.upsertRun(makeRun({ id: 'r1', status: 'failed' }));
     await allFailed.upsertRun(makeRun({ id: 'r2', status: 'failed' }));
@@ -116,9 +117,10 @@ describe('GET /api/v1/dashboard/analytics/summary', () => {
     await allRunning.upsertRun(makeRun({ id: 'r2', status: 'interrupted' }));
 
     expect((await summary(mount(allFailed)))['passRate']).toBe(0);
-    // The division has no denominator here. 0 is the honest answer for "nothing
-    // has finished", and it is what an operator would read from 0/0 anyway.
-    expect((await summary(mount(allRunning)))['passRate']).toBe(0);
+    // The division has no denominator here. 0 would read as "every run failed" — the
+    // dashboard showed 0 for an install whose runs were all still executing — so the
+    // answer is `null`: not measured.
+    expect((await summary(mount(allRunning)))['passRate']).toBeNull();
   });
 
   it('rounds the pass rate to a whole percentage', async () => {

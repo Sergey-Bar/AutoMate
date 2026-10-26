@@ -159,9 +159,9 @@ describe('the dashboard summary', () => {
     expect(aggregateRuns(withoutDurations).avgDurationMs).toBeNull();
   });
 
-  it('reports zero passes over zero completed runs, rather than dividing by zero', () => {
+  it('reports no pass rate over zero completed runs, rather than dividing by zero', () => {
     const running = [makeRun(UUID_F, 'running', null, '2026-01-01T00:00:00.000Z')];
-    expect(aggregateRuns(running)).toEqual({ totalRuns: 1, passRate: 0, avgDurationMs: null });
+    expect(aggregateRuns(running)).toEqual({ totalRuns: 1, passRate: null, avgDurationMs: null });
   });
 
   it('answers without selecting the run table', async () => {

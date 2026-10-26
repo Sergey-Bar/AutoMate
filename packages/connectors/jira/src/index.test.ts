@@ -211,8 +211,42 @@ describe('operation dispatch', () => {
         project: { key: 'ACME' },
         issuetype: { name: 'Bug' },
         summary: 'the flaky test',
-        description: 'again',
+        // REST v3 refuses a plain-string description with a 400: it must be an Atlassian
+        // Document. One paragraph per line, so a multi-line description keeps its lines.
+        description: {
+          type: 'doc',
+          version: 1,
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'again' }] }],
+        },
       },
+    });
+  });
+
+  it('keeps each line of a description as its own paragraph, and an empty line as an empty one', async () => {
+    const calls = stubFetchSequence([{ ok: true, status: 201, body: { key: 'ACME-3' } }]);
+    await jiraAdapter.execute(
+      {
+        operation: 'createIssue',
+        input: {
+          baseUrl: 'https://acme.atlassian.net',
+          projectKey: 'ACME',
+          summary: 's',
+          description: 'one\n\ntwo',
+        },
+      },
+      'token',
+    );
+    const init = calls[0]?.init as RequestInit & { body?: string };
+    expect(
+      (JSON.parse(String(init.body)) as { fields: { description: unknown } }).fields.description,
+    ).toEqual({
+      type: 'doc',
+      version: 1,
+      content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'one' }] },
+        { type: 'paragraph', content: [] },
+        { type: 'paragraph', content: [{ type: 'text', text: 'two' }] },
+      ],
     });
   });
 

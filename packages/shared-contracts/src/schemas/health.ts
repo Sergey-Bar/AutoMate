@@ -16,8 +16,16 @@ import { z } from 'zod/v4';
  * The overall score is a weighted geometric mean, the same property the QA score relies on:
  * a zero cannot be averaged away. For the same reason the total alone cannot be diagnosed,
  * so `cappedBy` is required, and a tripped hard gate is reported as the limiter.
+ *
+ * ## Five more dimensions, each opt-in
+ *
+ * `delivery`, `ai-governance`, `test-effectiveness`, `agent-quality` and `accessibility`
+ * are measured and shown like the first seven, but their default weight is `0`: they are
+ * scorecards beside the grade until a project's policy gives them a weight. A weight of
+ * `0` drops a term from the geometric mean, so adding them changed no existing grade
+ * (invariant HEALTH-3).
  */
-export const HEALTH_DIMENSIONS = [
+export const CORE_HEALTH_DIMENSIONS = [
   'security',
   'tests',
   'code-quality',
@@ -26,8 +34,22 @@ export const HEALTH_DIMENSIONS = [
   'supply-chain',
   'runtime',
 ] as const;
+export const OPT_IN_HEALTH_DIMENSIONS = [
+  'delivery',
+  'ai-governance',
+  'test-effectiveness',
+  'agent-quality',
+  'accessibility',
+] as const;
+export const HEALTH_DIMENSIONS = [...CORE_HEALTH_DIMENSIONS, ...OPT_IN_HEALTH_DIMENSIONS] as const;
 export type HealthDimension = (typeof HEALTH_DIMENSIONS)[number];
+export type OptInHealthDimension = (typeof OPT_IN_HEALTH_DIMENSIONS)[number];
 export const HealthDimensionSchema = z.enum(HEALTH_DIMENSIONS);
+
+/** Whether a dimension counts only when a policy weights it. */
+export function isOptInDimension(dimension: HealthDimension): dimension is OptInHealthDimension {
+  return (OPT_IN_HEALTH_DIMENSIONS as readonly string[]).includes(dimension);
+}
 
 /** What a reader sees. One table, so the API's limiter sentence and the UI agree. */
 export const HEALTH_DIMENSION_LABELS: Readonly<Record<HealthDimension, string>> = {
@@ -38,6 +60,11 @@ export const HEALTH_DIMENSION_LABELS: Readonly<Record<HealthDimension, string>> 
   coverage: 'Coverage',
   'supply-chain': 'Supply chain',
   runtime: 'Runtime',
+  delivery: 'Delivery',
+  'ai-governance': 'AI governance',
+  'test-effectiveness': 'Test effectiveness',
+  'agent-quality': 'Agent quality',
+  accessibility: 'Accessibility',
 };
 
 /** Most severe first. The order the findings table sorts by. */
@@ -201,6 +228,81 @@ export type HealthGrade = z.infer<typeof HealthGradeSchema>;
  * purpose, which is different from it being unmeasured and is shown as such. `gate` is the
  * pull-request policy.
  */
+/**
+ * The `aiGovernance` block of the health policy: the pull-request rules for change an AI agent
+ * wrote, and the labels that mark it. Off unless `enabled` is `true`. Read by
+ * `evaluateAiGovernance` in `@automate/reporting`; a human pull request is never subject to it.
+ */
+export const AiGovernancePolicySchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Labels that mark a pull request agent-authored, matched case-insensitively. */
+  agentLabels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  /** Labels that mark a pull request AI-assisted. */
+  assistedLabels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
+  /** Default `true`: an agent's pull request needs one approval by a human other than its author. */
+  requireHumanApproval: z.boolean().optional(),
+  requireTestsTouched: z.boolean().optional(),
+  /** 0–100, the share of the change's executable added lines that ran. */
+  minDiffCoverage: z.number().min(0).max(100).optional(),
+  maxNewHighOrCritical: z.number().int().min(0).optional(),
+  /** Default `['agent-authored']`. */
+  applyTo: z
+    .array(z.enum(['agent-authored', 'ai-assisted']))
+    .min(1)
+    .max(2)
+    .optional(),
+  /** Default `'human'`; `'agent-authored'` is the strict choice. */
+  treatUnknownAs: z.enum(['human', 'agent-authored']).optional(),
+});
+
+/** One model's price, configured by an administrator. No price is built in. */
+export const ModelPriceSchema = z.object({
+  provider: z.string().trim().min(1).max(100).nullable(),
+  model: z.string().trim().min(1).max(200),
+  inputPerMillionUsd: z.number().min(0).max(100_000),
+  outputPerMillionUsd: z.number().min(0).max(100_000),
+});
+export type ModelPriceConfig = z.infer<typeof ModelPriceSchema>;
+
+/** The per-agent runtime budgets; each is checked per agent, never only on the average. */
+export const AgentRuntimeBudgetsSchema = z.object({
+  maxCostPerRunUsd: z.number().min(0).optional(),
+  maxTokensPerRun: z.number().min(0).optional(),
+  /** As a ratio, 0–1. */
+  maxToolFailureRate: z.number().min(0).max(1).optional(),
+  maxP95LatencyMs: z.number().min(0).optional(),
+  /** As a ratio, 0–1. */
+  maxErrorRate: z.number().min(0).max(1).optional(),
+});
+
+/** The longest a project may keep GenAI spans, in days. */
+export const MAX_TRACE_RETENTION_DAYS = 90;
+export const DEFAULT_TRACE_RETENTION_DAYS = 14;
+
+/**
+ * Agent quality: evals, traces and runtime budgets. Nothing here is on by default — prompts
+ * and span content are not stored unless asked for, and neither the eval comparison nor the
+ * runtime budgets fail a pull request unless `gateOnEvals` / `gateOnRuntime` say so.
+ */
+export const AgentsPolicySchema = z.object({
+  /** Keep each eval case's prompt text. Default `false`: only its sha256 is kept. */
+  storePrompts: z.boolean().optional(),
+  /** The allowed drop in a suite's overall pass rate against the default branch, 0–1. */
+  maxEvalRegression: z.number().min(0).max(1).optional(),
+  /** Decided attempts each side needs before a passing comparison is claimed. */
+  minEvalAttempts: z.number().int().min(1).max(100_000).optional(),
+  /** A failing eval comparison fails the pull-request gate. */
+  gateOnEvals: z.boolean().optional(),
+  /** A runtime budget breach fails the pull-request gate. */
+  gateOnRuntime: z.boolean().optional(),
+  budgets: AgentRuntimeBudgetsSchema.optional(),
+  prices: z.array(ModelPriceSchema).max(500).optional(),
+  /** Keep span prompt/completion content, redacted and capped. Default `false`. */
+  storeTraceContent: z.boolean().optional(),
+  traceRetentionDays: z.number().int().min(1).max(MAX_TRACE_RETENTION_DAYS).optional(),
+});
+export type AgentsPolicy = z.infer<typeof AgentsPolicySchema>;
+
 export const HealthPolicySchema = z.object({
   weights: z.partialRecord(HealthDimensionSchema, z.number().min(0).max(100)).optional(),
   disabledGates: z.array(HealthGateIdSchema).optional(),
@@ -209,10 +311,43 @@ export const HealthPolicySchema = z.object({
       minLetter: HealthLetterSchema.optional(),
       maxNewCritical: z.number().int().min(0).optional(),
       maxNewHigh: z.number().int().min(0).optional(),
+      /**
+       * The least share of a change's executable added lines that must have run, 0–100. With
+       * a minimum set, a commit whose diff coverage was not measured fails: an absent number
+       * is never read as a pass.
+       */
+      minDiffCoverage: z.number().min(0).max(100).optional(),
     })
     .optional(),
+  /**
+   * Delivery performance (DORA and pull-request flow). `productionEnvironments` here wins over
+   * the delivery source's own list, because this file is versioned with the code it describes.
+   * The four limits are the DORA scorecard's policy; with `gateOnDelivery` a failing DORA
+   * scorecard fails the pull-request gate. A scorecard with too little data never fails it.
+   */
+  delivery: z
+    .object({
+      productionEnvironments: z.array(z.string().trim().min(1).max(100)).min(1).max(20).optional(),
+      /** As a ratio, 0–1. */
+      maxChangeFailureRate: z.number().min(0).max(1).optional(),
+      maxLeadTimeHours: z.number().min(0).optional(),
+      minDeploysPerWeek: z.number().min(0).optional(),
+      maxRecoveryHours: z.number().min(0).optional(),
+      staleAfterDays: z.number().int().min(1).max(365).optional(),
+      gateOnDelivery: z.boolean().optional(),
+    })
+    .optional(),
+  /**
+   * AI-code governance: the pull-request rules for change an AI agent wrote, and the labels
+   * that mark it. Off unless `enabled`; a human pull request is never subject to the rules.
+   */
+  aiGovernance: AiGovernancePolicySchema.optional(),
+  /** Agent quality: eval storage and gating, trace content and retention, prices, budgets. */
+  agents: AgentsPolicySchema.optional(),
 });
 export type HealthPolicy = z.infer<typeof HealthPolicySchema>;
+export type DeliveryPolicy = NonNullable<HealthPolicy['delivery']>;
+export type AiGovernancePolicyBlock = NonNullable<HealthPolicy['aiGovernance']>;
 
 // ─── The health API ─────────────────────────────────────────────────────────
 
@@ -220,9 +355,8 @@ export type HealthPolicy = z.infer<typeof HealthPolicySchema>;
 export const HEALTH_REPORT_SOURCES = ['ci', 'runner', 'manual'] as const;
 export const HealthReportSourceSchema = z.enum(HEALTH_REPORT_SOURCES);
 
-/** The report formats the upload door reads. `sarif` covers most scanners. */
-export const HEALTH_REPORT_FORMATS = [
-  'sarif',
+/** Formats whose report is numbers only: each becomes one or more `DimensionMetric`s. */
+export const HEALTH_METRIC_FORMATS = [
   'jscpd',
   'scorecard',
   'lighthouse',
@@ -233,8 +367,93 @@ export const HEALTH_REPORT_FORMATS = [
   'jacoco-xml',
   'go-coverprofile',
 ] as const;
+export type HealthMetricFormat = (typeof HEALTH_METRIC_FORMATS)[number];
+
+/** The four coverage formats that also carry line numbers, stored for diff coverage. */
+export const LINE_COVERAGE_REPORT_FORMATS = [
+  'lcov',
+  'cobertura',
+  'jacoco-xml',
+  'go-coverprofile',
+] as const satisfies readonly HealthMetricFormat[];
+
+/**
+ * Eval run reports: three tools' native JSON, and Automate's own run shape — which the
+ * built-in eval runner writes, so its runs enter through this same door (one writer).
+ */
+export const EVAL_UPLOAD_FORMATS = [
+  'promptfoo-json',
+  'deepeval-json',
+  'inspect-eval-json',
+  'automate-eval-json',
+] as const;
+export type EvalUploadFormat = (typeof EVAL_UPLOAD_FORMATS)[number];
+
+export function isEvalUploadFormat(format: string): format is EvalUploadFormat {
+  return (EVAL_UPLOAD_FORMATS as readonly string[]).includes(format);
+}
+
+/**
+ * Formats that are neither SARIF nor a plain metric: an inventory, a statement about one, a
+ * build attestation, a mutation run, an accessibility run, a diff, an agent-skill scan.
+ */
+export const HEALTH_EVIDENCE_FORMATS = [
+  'cyclonedx-json',
+  'spdx-json',
+  'vex',
+  'slsa-provenance',
+  'stryker-mutation',
+  'axe-json',
+  'git-diff',
+  'skillspector-json',
+  ...EVAL_UPLOAD_FORMATS,
+] as const;
+
+/**
+ * Formats only this product writes, never accepted at the upload door: the built-in
+ * agent-config scanner's findings are stored as a report of this kind so the finding
+ * lifecycle and the grade read them like any scanner's.
+ */
+export const BUILT_IN_REPORT_FORMATS = ['automate-agent-config'] as const;
+
+/** The report formats the upload door reads. `sarif` covers most scanners. */
+export const HEALTH_REPORT_FORMATS = [
+  'sarif',
+  ...HEALTH_METRIC_FORMATS,
+  ...HEALTH_EVIDENCE_FORMATS,
+  ...BUILT_IN_REPORT_FORMATS,
+] as const;
 export type HealthReportFormat = (typeof HEALTH_REPORT_FORMATS)[number];
 export const HealthReportFormatSchema = z.enum(HEALTH_REPORT_FORMATS);
+
+/** Whether the upload door accepts the format: every format but the built-in ones. */
+export function isUploadReportFormat(format: HealthReportFormat): boolean {
+  return !(BUILT_IN_REPORT_FORMATS as readonly string[]).includes(format);
+}
+
+/**
+ * Formats whose findings enter the finding lifecycle: a finding the next report of the same
+ * kind does not mention is `fixed`. Every other format carries no findings of its own.
+ */
+export const FINDING_REPORT_FORMATS = [
+  'sarif',
+  'cyclonedx-json',
+  'stryker-mutation',
+  'axe-json',
+  'skillspector-json',
+  'automate-agent-config',
+] as const satisfies readonly HealthReportFormat[];
+export type FindingReportFormat = (typeof FINDING_REPORT_FORMATS)[number];
+
+export function isFindingReportFormat(format: HealthReportFormat): format is FindingReportFormat {
+  return (FINDING_REPORT_FORMATS as readonly string[]).includes(format);
+}
+
+/** The inventory formats: a report of either is an SBOM the licence policy and supply-chain card read. */
+export const SBOM_REPORT_FORMATS = [
+  'cyclonedx-json',
+  'spdx-json',
+] as const satisfies readonly HealthReportFormat[];
 
 /** A stored finding: what the scanner said, plus what people and later scans decided. */
 export const HealthFindingSchema = CanonicalFindingSchema.extend({

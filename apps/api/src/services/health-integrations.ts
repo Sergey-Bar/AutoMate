@@ -5,10 +5,14 @@ import type { GateVerdict } from '@automate/projects';
 import {
   HEALTH_DIMENSION_LABELS,
   type CanonicalFinding,
+  type DiffCoverageRecord,
   type HealthGrade,
   type HealthLetter,
+  type Scorecard,
 } from '@automate/shared-contracts';
 import { z } from 'zod/v4';
+import type { AiGovernanceCheck } from './repo-health-service.js';
+import type { EvalGateReading, EvalGateSuite } from './eval-service.js';
 
 /**
  * What the health grade tells the outside world: a pull request's status and comment, and an
@@ -41,6 +45,166 @@ export interface GateReport {
   added: readonly CanonicalFinding[];
   branch: string;
   detailsUrl: string | null;
+  /** The commit's diff coverage; a line in the comment when present. */
+  diffCoverage?: DiffCoverageRecord | null;
+  /** The project's DORA scorecard; one line in the comment whenever it is measured. */
+  delivery?: Scorecard | null;
+  /** The AI-governance rules on the pull request; a section in the comment when present. */
+  aiGovernance?: AiGovernanceCheck | null;
+  /** Each eval suite against the default branch; an "Evals" section when any was compared. */
+  evals?: EvalGateReading | null;
+}
+
+const EVAL_VERDICTS: Readonly<Record<EvalGateSuite['verdict'], string>> = {
+  pass: 'passed',
+  fail: 'failed',
+  insufficient: 'not enough attempts to tell',
+  'no-baseline': 'no baseline on the default branch',
+  missing: 'runs on the default branch, not run on this branch',
+};
+const COMMENT_EVAL_CASES = 5;
+
+/** Up to five case ids, made safe for one line, and how many more there were. */
+function caseList(ids: readonly string[]): string {
+  const shown = ids.slice(0, COMMENT_EVAL_CASES).map((id) => `\`${inline(id)}\``);
+  const more =
+    ids.length > COMMENT_EVAL_CASES ? ` …and ${String(ids.length - COMMENT_EVAL_CASES)} more` : '';
+  return `${shown.join(', ')}${more}`;
+}
+
+/**
+ * The "Evals" section: each suite's verdict against the default branch, the cases that
+ * regressed beyond noise, and the flaky ones — listed, never a failure on their own. Whether
+ * a failed suite failed the gate is the gate's reasons above, which name it only under
+ * `gateOnEvals`.
+ */
+export function evalsSection(evals: EvalGateReading): string[] {
+  const lines = ['**Evals**', ''];
+  if (!evals.gateOnEvals) {
+    lines.push('_Reported only: the policy does not gate on evals (`agents.gateOnEvals`)._', '');
+  }
+  for (const suite of evals.suites) {
+    lines.push(`- \`${inline(suite.suite)}\`: ${EVAL_VERDICTS[suite.verdict]}`);
+    if (suite.fellBack) {
+      const ran =
+        suite.commitSha === null ? 'no commit' : `\`${inline(suite.commitSha.slice(0, 12))}\``;
+      lines.push(
+        `  - No run on \`${inline(String(evals.commit).slice(0, 12))}\`; fell back to the branch's latest run (${ran})`,
+      );
+    }
+    if (suite.regressions.length > 0) {
+      lines.push(`  - Significant regressions: ${caseList(suite.regressions)}`);
+    }
+    if (suite.flaky.length > 0) lines.push(`  - Flaky: ${caseList(suite.flaky)}`);
+  }
+  return lines;
+}
+
+const ATTRIBUTION_LABELS: Readonly<Record<AiGovernanceCheck['attribution'], string>> = {
+  'agent-authored': 'agent-authored',
+  'ai-assisted': 'AI-assisted',
+  human: 'human',
+  unknown: 'unknown',
+};
+
+const GOVERNANCE_VERDICTS: Readonly<Record<AiGovernanceCheck['verdict']['verdict'], string>> = {
+  pass: 'passed',
+  fail: 'failed',
+  'not-applicable': 'not applicable — the rules govern AI-written change only',
+};
+
+const COMMENT_SIGNALS = 5;
+
+/** Text from a label or a bot login, made safe for one Markdown line. */
+const inline = (text: string) => text.replace(/[`|<>\n\r]/gu, ' ');
+
+/**
+ * The "AI governance" section: the attribution with its confidence and signals, the verdict
+ * and every reason, and — when attribution was unknown — why, so an unread pull request is
+ * never silently passed as human.
+ */
+export function aiGovernanceSection(check: AiGovernanceCheck): string[] {
+  const who = `${ATTRIBUTION_LABELS[check.attribution]}${check.agent === null ? '' : ` (${inline(check.agent)})`}`;
+  const confidence = `${(check.confidence * 100).toFixed(0)}% confidence`;
+  const signals = check.signals.slice(0, COMMENT_SIGNALS).map((signal) => inline(signal.detail));
+  const more =
+    check.signals.length > COMMENT_SIGNALS
+      ? `; …and ${String(check.signals.length - COMMENT_SIGNALS)} more`
+      : '';
+  const lines = [
+    '**AI governance**',
+    '',
+    `Attribution: ${who}, ${confidence}${signals.length === 0 ? '.' : ` — ${signals.join('; ')}${more}.`}`,
+  ];
+  if (check.unknownReason !== null) lines.push('', `_${check.unknownReason}_`);
+  lines.push('', `Rules: ${GOVERNANCE_VERDICTS[check.verdict.verdict]}.`);
+  lines.push(...check.verdict.reasons.map((reason) => `- ${reason}`));
+  if (check.verdict.attributionNote !== null) lines.push('', `_${check.verdict.attributionNote}_`);
+  return lines;
+}
+
+/** The four DORA metrics with a published tier, as the comment names them. */
+const DORA_LINE_METRICS: ReadonlyArray<readonly [string, string]> = [
+  ['deployment-frequency', 'deployment frequency'],
+  ['change-lead-time', 'lead time'],
+  ['change-failure-rate', 'change failure rate'],
+  ['failed-deployment-recovery-time', 'recovery time'],
+];
+
+/**
+ * One line on the project's delivery: the DORA score, each banded metric's 2024 tier, and
+ * what limited it. Only for a measured scorecard — one with a score; a card resting on too
+ * little data has no line rather than a line of dashes.
+ */
+export function doraLine(card: Scorecard): string {
+  const tiers = DORA_LINE_METRICS.map(([key, name]) => {
+    const metric = card.metrics.find((entry) => entry.key === key);
+    return `${name} ${metric?.band ?? 'not enough data'}`;
+  }).join(' · ');
+  const verdict = card.status === 'fail' ? ', failing' : '';
+  return `**Delivery (DORA 2024):** ${String(card.score)} / 100${verdict} — ${tiers}. Limited by ${String(card.cappedBy)}.`;
+}
+
+const COMMENT_RANGES = 10;
+
+/** Consecutive line numbers as `a-b` ranges: `[3, 4, 5, 9]` is `3-5` and `9`. */
+export function lineRanges(lines: readonly number[]): string[] {
+  const sorted = [...new Set(lines)].sort((left, right) => left - right);
+  const ranges: string[] = [];
+  let start: number | undefined;
+  let end = 0;
+  for (const line of sorted) {
+    if (start !== undefined && line === end + 1) {
+      end = line;
+      continue;
+    }
+    if (start !== undefined)
+      ranges.push(start === end ? String(start) : `${String(start)}-${String(end)}`);
+    start = line;
+    end = line;
+  }
+  if (start !== undefined)
+    ranges.push(start === end ? String(start) : `${String(start)}-${String(end)}`);
+  return ranges;
+}
+
+/** One line on the change's diff coverage, naming up to ten uncovered `file:line` ranges. */
+export function diffCoverageLine(diff: DiffCoverageRecord): string {
+  if (diff.ratio === null) {
+    return '**Diff coverage:** no changed line is executable, so there is nothing to measure.';
+  }
+  const head = `**Diff coverage:** ${(diff.ratio * 100).toFixed(1)}% — ${String(diff.covered)} of ${plural(
+    diff.executable,
+    'changed executable line',
+  )} ran.`;
+  const ranges = diff.uncovered.flatMap((file) =>
+    // A path comes from a report, so it may not close the code span.
+    lineRanges(file.lines).map((range) => `\`${file.path.replace(/[`\n]/gu, ' ')}:${range}\``),
+  );
+  if (ranges.length === 0) return head;
+  const more =
+    ranges.length > COMMENT_RANGES ? `, …and ${String(ranges.length - COMMENT_RANGES)} more` : '';
+  return `${head} Uncovered: ${ranges.slice(0, COMMENT_RANGES).join(', ')}${more}.`;
 }
 
 function plural(count: number, noun: string): string {
@@ -96,6 +260,18 @@ export function renderGateComment(report: GateReport): string {
     );
   }
   lines.push(...findingsTable(report));
+  if (report.diffCoverage !== null && report.diffCoverage !== undefined) {
+    lines.push('', diffCoverageLine(report.diffCoverage));
+  }
+  if (report.delivery !== null && report.delivery !== undefined && report.delivery.score !== null) {
+    lines.push('', doraLine(report.delivery));
+  }
+  if (report.aiGovernance !== null && report.aiGovernance !== undefined) {
+    lines.push('', ...aiGovernanceSection(report.aiGovernance));
+  }
+  if (report.evals !== null && report.evals !== undefined && report.evals.suites.length > 0) {
+    lines.push('', ...evalsSection(report.evals));
+  }
   const dimensions = grade.dimensions
     .filter((entry) => entry.measured)
     .map((entry) => `${HEALTH_DIMENSION_LABELS[entry.dimension]} ${entry.letter ?? '—'}`)

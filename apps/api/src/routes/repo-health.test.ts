@@ -7,11 +7,15 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
 import {
+  DiffCoverageStatusSchema,
   HealthFindingsPageSchema,
   HealthHistorySchema,
   HealthUploadResultSchema,
+  PortfolioComponentsPageSchema,
   PortfolioSchema,
   ProjectHealthSchema,
+  SbomComponentsPageSchema,
+  SupplyChainPolicyRecordSchema,
 } from '@automate/shared-contracts';
 import { createErrorBoundary } from '../errors/boundary.js';
 import { syntheticReporterSecret } from '../test-support/synthetic-credentials.js';
@@ -329,5 +333,346 @@ describe('CODEOWNERS, alerts and the schedule', () => {
       cadence: null,
       scanners: [],
     });
+  });
+});
+
+// ─── Waves 1 and 2: the evidence formats, supply chain and diff coverage ─────
+
+const doc = (value: unknown) => JSON.stringify(value);
+
+const CYCLONEDX = doc({
+  bomFormat: 'CycloneDX',
+  specVersion: '1.5',
+  metadata: { tools: { components: [{ name: 'Trivy' }] } },
+  components: [
+    {
+      'bom-ref': 'pkg:npm/lodash@4.17.20',
+      name: 'lodash',
+      version: '4.17.20',
+      purl: 'pkg:npm/lodash@4.17.20',
+      licenses: [{ license: { id: 'MIT' } }],
+    },
+  ],
+  vulnerabilities: [
+    {
+      id: 'CVE-2021-23337',
+      ratings: [{ severity: 'critical' }],
+      affects: [{ ref: 'pkg:npm/lodash@4.17.20' }],
+      recommendation: 'Upgrade to 4.17.21',
+    },
+  ],
+});
+
+const SPDX = doc({
+  spdxVersion: 'SPDX-2.3',
+  packages: [{ SPDXID: 'SPDXRef-a', name: 'a', versionInfo: '1.0.0', licenseConcluded: 'MIT' }],
+});
+
+const VEX = doc({
+  '@context': 'https://openvex.dev/ns/v0.2.0',
+  '@id': 'https://vex.example.test/1',
+  statements: [
+    {
+      vulnerability: { name: 'CVE-2021-23337' },
+      products: [{ '@id': 'pkg:npm/lodash' }],
+      status: 'not_affected',
+      justification: 'component_not_present',
+    },
+  ],
+});
+
+const PROVENANCE = doc({
+  _type: 'https://in-toto.io/Statement/v1',
+  subject: [{ name: 'app', digest: { sha256: 'a'.repeat(64) } }],
+  predicateType: 'https://slsa.dev/provenance/v1',
+  predicate: { runDetails: { builder: { id: 'https://builder.example.test' } } },
+});
+
+const STRYKER = doc({
+  framework: { name: 'StrykerJS', version: '8.0.0' },
+  files: {
+    'src/a.ts': {
+      mutants: [
+        { status: 'Killed' },
+        { status: 'Killed' },
+        { status: 'Killed' },
+        {
+          status: 'Survived',
+          mutatorName: 'BooleanLiteral',
+          location: { start: { line: 3, column: 1 } },
+        },
+      ],
+    },
+  },
+});
+
+const AXE = doc([
+  {
+    url: 'https://app.example.test/login',
+    testEngine: { name: 'axe-core', version: '4.9.0' },
+    violations: [
+      {
+        id: 'image-alt',
+        impact: 'critical',
+        help: 'Images must have alternate text',
+        nodes: [{ target: ['img.logo'] }],
+      },
+    ],
+    passes: [{ id: 'label' }, { id: 'list' }, { id: 'region' }],
+  },
+]);
+
+const DIFF = [
+  'diff --git a/src/a.ts b/src/a.ts',
+  '--- a/src/a.ts',
+  '+++ b/src/a.ts',
+  '@@ -1,1 +1,4 @@',
+  ' one',
+  '+two',
+  '+three',
+  '+four',
+  '',
+].join('\n');
+
+const LCOV = ['SF:src/a.ts', 'DA:1,1', 'DA:2,1', 'DA:3,0', 'DA:4,0', 'end_of_record', ''].join(
+  '\n',
+);
+
+const SKILLSPECTOR = doc({
+  risk_assessment: { recommendation: 'REVIEW', score: 20 },
+  issues: [
+    {
+      id: 'MP3',
+      severity: 'HIGH',
+      finding: 'ignore previous instructions',
+      match_fingerprint: 'f'.repeat(16),
+      location: { file: 'skills/x/SKILL.md', start_line: 3 },
+    },
+  ],
+});
+
+const dimensionOf = (body: unknown, dimension: string) =>
+  HealthUploadResultSchema.parse(body).grade.dimensions.find(
+    (entry) => entry.dimension === dimension,
+  );
+
+describe('the evidence formats through the upload door', () => {
+  it.each([
+    ['cyclonedx-json', CYCLONEDX, 'dependencies', { new: 1 }],
+    ['spdx-json', SPDX, null, { new: 0 }],
+    ['vex', VEX, null, { new: 0 }],
+    ['slsa-provenance', PROVENANCE, 'supply-chain', { new: 0 }],
+    ['stryker-mutation', STRYKER, 'test-effectiveness', { new: 1 }],
+    ['axe-json', AXE, 'accessibility', { new: 1 }],
+    ['skillspector-json', SKILLSPECTOR, 'ai-governance', { new: 1 }],
+  ] as const)(
+    'accepts %s and returns the upload contract',
+    async (format, body, dimension, findings) => {
+      const { app, projectId } = await harness();
+      const response = await upload(app, projectId, `format=${format}&commit=abc1234`, body);
+      expect(response.status).toBe(201);
+      const parsed = HealthUploadResultSchema.parse(await response.json());
+      expect(parsed.toolKey).toBe(format);
+      expect(parsed.findings).toMatchObject(findings);
+      if (dimension !== null) expect(dimensionOf(parsed, dimension)?.measured).toBe(true);
+    },
+  );
+
+  it('reads the metrics each format carries', async () => {
+    const { app, projectId } = await harness();
+    const stryker = await (await upload(app, projectId, 'format=stryker-mutation', STRYKER)).json();
+    expect(dimensionOf(stryker, 'test-effectiveness')?.summary.join(' ')).toContain(
+      'Mutation score 75.0%',
+    );
+    const axe = await (await upload(app, projectId, 'format=axe-json', AXE)).json();
+    expect(dimensionOf(axe, 'accessibility')?.summary.join(' ')).toContain('3 of 4 axe rules');
+    const slsa = await (await upload(app, projectId, 'format=slsa-provenance', PROVENANCE)).json();
+    expect(dimensionOf(slsa, 'supply-chain')?.summary.join(' ')).toContain('SLSA L1');
+  });
+
+  it('accepts a git diff for a commit, and refuses one without a commit', async () => {
+    const { app, projectId } = await harness();
+    expect((await upload(app, projectId, 'format=git-diff', DIFF)).status).toBe(400);
+    const accepted = await upload(app, projectId, 'format=git-diff&commit=abc1234', DIFF);
+    expect(accepted.status).toBe(201);
+    expect(HealthUploadResultSchema.parse(await accepted.json()).toolKey).toBe('git-diff');
+  });
+
+  it.each([
+    ['cyclonedx-json', '{}'],
+    ['spdx-json', '{}'],
+    ['vex', '{"hello":1}'],
+    ['slsa-provenance', '{}'],
+    ['stryker-mutation', '{"files":3}'],
+    ['axe-json', '[]'],
+    ['git-diff', 'not a diff at all'],
+    ['skillspector-json', '{"risk_assessment":{}}'],
+  ] as const)('refuses a malformed %s with 400 INVALID_REQUEST_BODY', async (format, body) => {
+    const { app, projectId } = await harness();
+    const response = await upload(app, projectId, `format=${format}&commit=abc1234`, body);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_REQUEST_BODY' } });
+  });
+
+  it('refuses a digest that is not sha256:<hex>, and needs the upload credential for every format', async () => {
+    const { app, projectId } = await harness();
+    expect(
+      (await upload(app, projectId, 'format=slsa-provenance&digest=md5:abc', PROVENANCE)).status,
+    ).toBe(400);
+    expect((await upload(app, projectId, 'format=vex', VEX, null)).status).toBe(401);
+  });
+});
+
+/** An enforced resolver with one token per role, so a test can show a guard refusing. */
+function rolesHarness() {
+  const tokens: Record<string, 'viewer' | 'operator' | 'admin'> = {
+    'viewer-credential': 'viewer',
+    'operator-credential': 'operator',
+    'admin-credential': 'admin',
+  };
+  return harness({
+    secret: SECRET,
+    extra: {
+      access: {
+        mode: 'enforced',
+        authenticateToken: async (token) =>
+          tokens[token] === undefined
+            ? null
+            : { actor: `token:${token}`, role: tokens[token], uploaderFor: null },
+        hasSession: async () => false,
+      },
+    },
+  });
+}
+
+const as = (role: string) => ({ authorization: `Bearer ${role}-credential` });
+
+describe('the supply-chain policy routes', () => {
+  it('lets a viewer read, only an admin write, validates the body, and audits the write', async () => {
+    const { app, db, projectId } = await rolesHarness();
+    const path = `/api/v1/projects/${projectId}/health/supply-chain-policy`;
+    const read = await app.request(path, { headers: as('viewer') });
+    expect(read.status).toBe(200);
+    expect(SupplyChainPolicyRecordSchema.parse(await read.json()).policy).toBeNull();
+
+    const body = { licences: { deny: ['GPL-3.0-only'] } };
+    expect((await app.request(path, { method: 'PUT', body: doc(body) })).status).toBe(401);
+    expect((await json(app, 'PUT', path, body, as('operator'))).status).toBe(403);
+    expect((await json(app, 'PUT', path, { licences: { deny: 'GPL' } }, as('admin'))).status).toBe(
+      400,
+    );
+    const saved = await json(app, 'PUT', path, body, as('admin'));
+    expect(saved.status).toBe(200);
+    expect(SupplyChainPolicyRecordSchema.parse(await saved.json())).toMatchObject({
+      policy: { licences: { deny: ['GPL-3.0-only'], failOnUnknown: true } },
+      updatedBy: 'token:admin-credential',
+    });
+    const audited = await db
+      .select()
+      .from(schema.auditEvents)
+      .where(eq(schema.auditEvents.action, 'health.supply-chain-policy.set'));
+    expect(audited).toHaveLength(1);
+  });
+});
+
+describe('the inventory reads', () => {
+  it('pages the components of a project and searches the portfolio by purl prefix', async () => {
+    const { app, projectId } = await harness();
+    await upload(app, projectId, 'format=cyclonedx-json', CYCLONEDX);
+    const page = await app.request(`/api/v1/projects/${projectId}/health/components?limit=10`);
+    expect(SbomComponentsPageSchema.parse(await page.json())).toMatchObject({
+      total: 1,
+      components: [{ purl: 'pkg:npm/lodash@4.17.20', licences: ['MIT'] }],
+    });
+    expect(
+      (await app.request(`/api/v1/projects/${projectId}/health/components?limit=0`)).status,
+    ).toBe(400);
+    const search = await app.request('/api/v1/portfolio/components?purl=pkg:npm/lodash');
+    expect(PortfolioComponentsPageSchema.parse(await search.json()).matches).toMatchObject([
+      { projectId, version: '4.17.20', branch: 'main' },
+    ]);
+    expect((await app.request('/api/v1/portfolio/components?purl=lodash')).status).toBe(400);
+    expect((await app.request('/api/v1/portfolio/components')).status).toBe(400);
+  });
+});
+
+describe('diff coverage through the routes', () => {
+  it('computes in either order, serves the status, and puts it in the gate comment', async () => {
+    const requests: ConnectorRequest[] = [];
+    const { app, db, projectId } = await harness({
+      secret: SECRET,
+      extra: {
+        github: {
+          tokenFor: async () => 'synthetic-github-token',
+          adapter: {
+            manifest: { name: 'github', version: '1', operations: {} },
+            execute: async (request) => {
+              requests.push(request);
+              return { status: 'ok', data: [], attempts: 1 };
+            },
+          },
+        },
+      },
+    });
+    await db
+      .update(schema.projects)
+      .set({
+        repositoryUrl: 'https://github.com/example/service.git',
+        profile: { health: { gate: { minDiffCoverage: 80 } } },
+      })
+      .where(eq(schema.projects.id, projectId));
+    const status = async (commit: string) => {
+      const response = await app.request(
+        `/api/v1/projects/${projectId}/health/diff-coverage?commit=${commit}`,
+      );
+      return DiffCoverageStatusSchema.parse(await response.json());
+    };
+
+    await upload(app, projectId, 'format=git-diff&branch=feature&commit=abc1234', DIFF);
+    expect((await status('abc1234')).state).toBe('waiting-for-coverage');
+    await upload(app, projectId, 'format=lcov&branch=feature&commit=abc1234', LCOV);
+    const first = await status('abc1234');
+    expect(first).toMatchObject({
+      state: 'computed',
+      result: { covered: 1, executable: 3, uncovered: [{ path: 'src/a.ts', lines: [3, 4] }] },
+    });
+
+    await upload(app, projectId, 'format=lcov&branch=feature&commit=def5678', LCOV);
+    expect((await status('def5678')).state).toBe('waiting-for-diff');
+    await upload(app, projectId, 'format=git-diff&branch=feature&commit=def5678', DIFF);
+    // The other order computes the same answer, not merely an answer.
+    const second = await status('def5678');
+    expect(second.state).toBe('computed');
+    const measured = (value: typeof first) => ({
+      covered: value.result?.covered,
+      executable: value.result?.executable,
+      ratio: value.result?.ratio,
+      uncovered: value.result?.uncovered,
+      unmeasuredFiles: value.result?.unmeasuredFiles,
+    });
+    expect(measured(second)).toEqual(measured(first));
+    expect(
+      (await app.request(`/api/v1/projects/${projectId}/health/diff-coverage?commit=nope`)).status,
+    ).toBe(400);
+
+    const gate = await app.request(
+      `/api/v1/projects/${projectId}/health/gate?branch=feature&commit=abc1234`,
+    );
+    expect(await gate.json()).toMatchObject({
+      verdict: 'failed',
+      diffCoverage: { covered: 1, executable: 3 },
+    });
+    const reported = await json(
+      app,
+      'POST',
+      `/api/v1/projects/${projectId}/health/gate/report`,
+      { branch: 'feature', commit: 'abc1234', pullRequest: 7 },
+      { authorization: `Bearer ${SECRET}` },
+    );
+    expect(await reported.json()).toMatchObject({ verdict: 'failed' });
+    const comment = requests.find((request) => request.operation === 'createIssueComment');
+    expect(String((comment?.input as { body: string }).body)).toContain(
+      '**Diff coverage:** 33.3% — 1 of 3 changed executable lines ran. Uncovered: `src/a.ts:3-4`.',
+    );
   });
 });

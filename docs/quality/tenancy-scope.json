@@ -24,10 +24,10 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 62,
+    "total": 83,
     "global": 13,
-    "workspaceScoped": 49,
-    "workspaceScopedWithHardBoundary": 49,
+    "workspaceScoped": 70,
+    "workspaceScopedWithHardBoundary": 70,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -343,6 +343,111 @@
       "scope": "workspace",
       "column": "not-null",
       "reason": "Each attempt to send a tenant's report, and the in-app inbox. Hard-scoped from its first migration (`0034_notifications.sql`). Isolation: `apps/api/src/services/notification-service.test.ts`."
+    },
+    "sbom_components": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The latest SBOM inventory of a tenant-owned project, replaced on every SBOM upload and read by the components list and the portfolio search. Hard-scoped from its first migration (`0035_supply_chain.sql`); both indexes lead with workspace_id, so a purl search never crosses tenants. Isolation: `apps/api/src/services/supply-chain-service.test.ts`."
+    },
+    "vex_documents": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "VEX statements a tenant uploaded for its project, applied to that project's findings only. Hard-scoped from its first migration (`0035_supply_chain.sql`). Isolation: `apps/api/src/services/supply-chain-service.test.ts`."
+    },
+    "supply_chain_policies": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's licence and provenance trust policy for one project, including the public keys and roots it trusts. Hard-scoped from its first migration (`0035_supply_chain.sql`). Isolation: `apps/api/src/services/supply-chain-service.test.ts`."
+    },
+    "coverage_line_maps": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "Per-commit executable and covered lines of a tenant-owned project, kept for diff coverage and bounded to the 50 most recent commits per project. Hard-scoped from its first migration (`0036_diff_coverage.sql`). Isolation: `apps/api/src/services/diff-coverage-service.test.ts`."
+    },
+    "diff_coverage_results": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's per-commit diff and its diff coverage, read by the pull-request gate. Hard-scoped from its first migration (`0036_diff_coverage.sql`), bounded like `coverage_line_maps`. Isolation: `apps/api/src/services/diff-coverage-service.test.ts`."
+    },
+    "delivery_sources": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's delivery-data source for one project: whether it syncs, how often, its production environments and its per-stream cursors. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-service.test.ts`."
+    },
+    "delivery_syncs": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The queue of a tenant's delivery syncs, filled by the worker, an operator or a webhook and claimed by the API with a lease. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-syncer.test.ts`."
+    },
+    "pull_requests": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's pull requests as GitHub described them, read by the flow scorecard and, with the attribution columns `0039_ai_code_governance.sql` added, by the AI-code scorecard and governance gate. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-service.test.ts`, `apps/api/src/services/ai-code-service.test.ts`."
+    },
+    "commits": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's commits from its pull requests and default branch, bounded to the 5000 most recent per project, kept for attribution. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-syncer.test.ts`."
+    },
+    "deployments": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's deployments, synced from GitHub or pushed by its CI, read by the DORA scorecard. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-service.test.ts`."
+    },
+    "incidents": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant's incidents, pushed by its CI or pager, read by the DORA recovery time. Hard-scoped from its first migration (`0037_delivery.sql`). Isolation: `apps/api/src/services/delivery-service.test.ts`."
+    },
+    "webhook_deliveries": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The GitHub webhook delivery ids a tenant's receiver accepted, for replay refusal; bounded to seven days and 10 000 rows. Hard-scoped from its first migration (`0038_github_webhooks.sql`). Isolation: `apps/api/src/routes/github-webhook.test.ts`."
+    },
+    "pull_request_gate_findings": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The high and critical findings the pull-request gate found new on each of a tenant's pull requests, upserted per pull request and bounded to 5000 per project; read by the AI-code outcomes. Hard-scoped from its first migration (`0039_ai_code_governance.sql`). Isolation: `apps/api/src/services/ai-code-service.test.ts`."
+    },
+    "eval_runs": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant project's eval runs — an upload through the health door or a run of the built-in eval runner — with the suite, model and totals; bounded by the writer to the 500 newest per project. Hard-scoped from its first migration (`0040_agent_quality.sql`). Isolation: `apps/api/src/services/eval-service.test.ts`."
+    },
+    "eval_cases": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The cases of a tenant's eval runs, with their attempts; prompt text only under the project's `agents.storePrompts`. Deleted with their run. Hard-scoped from its first migration (`0040_agent_quality.sql`). Isolation: `apps/api/src/services/eval-service.test.ts`."
+    },
+    "genai_spans": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "GenAI spans a tenant project exported over OTLP, and the installation's own chat completions (`source = 'self'`, no project, still in the installation's workspace). Each carries the instant it expires from the project's retention policy (default 14 days, at most 90); pruned on write and by the hourly sweep. Hard-scoped from its first migration (`0040_agent_quality.sql`). Isolation: `apps/api/src/services/genai-span-service.test.ts`."
+    },
+    "mcp_servers": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The MCP server inventory of a tenant project's branch, replaced by every agent-config scan; environment variable names only, never values. Hard-scoped from its first migration (`0040_agent_quality.sql`). Isolation: `apps/api/src/services/agent-config-service.test.ts`."
+    },
+    "eval_datasets": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant project's built-in eval runner datasets: cases, deterministic checks and the optional judge. Hard-scoped from its first migration (`0040_agent_quality.sql`). Isolation: `apps/api/src/services/eval-runner.test.ts`."
+    },
+    "issue_trackers": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant project's issue tracker: base URL, project key and issue type. The token is a vault entry, never a column. Hard-scoped from its first migration (`0041_issue_tracking.sql`). Isolation: `apps/api/src/services/issue-tracker-service.test.ts`."
+    },
+    "issue_links": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "The issue created from a tenant project's finding or failure cluster, and the idempotency claim behind it. Hard-scoped from its first migration (`0041_issue_tracking.sql`). Isolation: `apps/api/src/services/issue-tracker-service.test.ts`."
+    },
+    "test_proposals": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A tenant project's AI test proposals: a patch never applied, its rationale, model and token counts. Hard-scoped from its first migration (`0042_test_proposals.sql`). Isolation: `apps/api/src/services/test-proposal-service.test.ts`."
     }
   }
 }

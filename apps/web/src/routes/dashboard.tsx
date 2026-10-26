@@ -17,26 +17,6 @@ export const Route = createRoute({
   component: DashboardLayout,
 });
 
-const DEFAULT_DOMAIN_STATUS: Record<string, DomainReadinessStatus> = {
-  browser: 'unknown',
-  api: 'not_configured',
-  mobile: 'not_configured',
-  performance: 'not_configured',
-  security: 'not_configured',
-  accessibility: 'not_configured',
-  other: 'not_configured',
-};
-
-const DEFAULT_DOMAIN_REASONS: Record<string, string> = {
-  browser: 'No release evidence has been evaluated.',
-  api: 'No executable API quality adapter is configured.',
-  mobile: 'No executable mobile adapter is configured.',
-  performance: 'No executable performance adapter is configured.',
-  security: 'No executable security adapter is configured.',
-  accessibility: 'No executable accessibility adapter is configured.',
-  other: 'No additional quality adapter is configured.',
-};
-
 /**
  * `run.createdAt` is a required `string` here, so there is no empty state to
  * render and no fallback to invent — one would be a user-visible string chosen
@@ -265,14 +245,13 @@ export function ReleaseReadinessCard({
     );
   }
 
-  const domains = Object.entries(data?.domains ?? DEFAULT_DOMAIN_STATUS);
-
   return (
     <Panel
       title="Release readiness"
       data-testid="release-readiness"
       action={
         <Badge
+          data-testid="release-readiness-decision"
           variant={
             data?.decision === 'ready'
               ? 'success'
@@ -293,19 +272,24 @@ export function ReleaseReadinessCard({
           Readiness could not be loaded: {error.message}
         </p>
       ) : null}
-      <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-        {domains.map(([domain, status]) => {
-          const reason = data ? undefined : DEFAULT_DOMAIN_REASONS[domain];
-          return (
-            <li key={domain} className="flex min-w-0 flex-col" title={reason}>
+      {data ? (
+        <ul className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+          {Object.entries(data.domains).map(([domain, status]) => (
+            <li key={domain} className="flex min-w-0 flex-col">
               <span className="text-xs capitalize text-fg-muted">{domain}</span>
               <Badge variant={readinessTone(status)} className="self-start">
                 {status.toUpperCase()}
               </Badge>
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      ) : error ? null : (
+        // No release, so nothing was evaluated: no per-domain status is drawn, because one
+        // drawn here would be a claim about the install that no read made.
+        <Quiet data-testid="release-readiness-unread">
+          No readiness has been evaluated. A run that names a release brings its evidence here.
+        </Quiet>
+      )}
     </Panel>
   );
 }

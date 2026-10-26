@@ -2,6 +2,7 @@ import { z } from 'zod/v4';
 import {
   ArtifactDescriptorSchema,
   CreateRunRequestSchema,
+  DashboardAnalyticsSummarySchema,
   GateEvaluationSchema,
   NormalizedRunSchema,
   ReleaseReadinessSchema,
@@ -22,11 +23,12 @@ export type Run = NormalizedRun;
 export type RunEvent = RunEventEnvelope;
 export type { ArtifactDescriptor, CreateRunRequest, GateEvaluation, ReleaseReadiness };
 
-export const AnalyticsSummarySchema = z.object({
-  totalRuns: z.number(),
-  passRate: z.number(),
-  avgDurationMs: z.number().nullable(),
-});
+/**
+ * The contract the server parses its answer with. `passRate` is `null` when no run has
+ * completed; an older server answered `0` there, which the screen still reads as "not
+ * measured" while `totalRuns` is 0 (see `allTimePassRate`).
+ */
+export const AnalyticsSummarySchema = DashboardAnalyticsSummarySchema;
 
 export const QuarantineEntrySchema = z.object({
   id: z.string(),

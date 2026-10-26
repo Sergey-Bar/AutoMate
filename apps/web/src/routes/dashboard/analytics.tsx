@@ -12,7 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from '@automate/ui';
-import type { ApiClient } from '../../lib/api.js';
+import type { AnalyticsSummary, ApiClient } from '../../lib/api.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
 import type { AnalyticsTrend } from '../../lib/qa.js';
 import { formatDuration, formatPercent, orDash, shortDate } from '../../lib/insights.js';
@@ -139,7 +139,6 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
       </Panel>
     </>
   );
-  const window = trend.status === 'ready' ? trend.value.current : null;
   return (
     <PageFrame data-testid="analytics-page">
       <PageHeader
@@ -147,45 +146,11 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
         subtitle="All-time figures, then the chosen window day by day"
         actions={<Segmented label="Window" options={WINDOWS} value={days} onChange={setDays} />}
       />
-      <section
-        aria-label="Run figures"
-        className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6"
-      >
-        <Kpi data-testid="stat-total-runs" label="Runs · all time" value={String(data.totalRuns)} />
-        <Kpi
-          data-testid="stat-pass-rate"
-          label="Pass rate · all time"
-          value={String(data.passRate)}
-          unit="%"
-        />
-        <Kpi
-          data-testid="stat-avg-duration"
-          label="Avg duration"
-          /*
-            `not measured`, not `N/A`: a missing measurement is a state rather than a value,
-            and the word is the one the dashboard's unmeasured cells use, so one phrase means
-            one thing across the product.
-          */
-          value={data.avgDurationMs === null ? 'not measured' : formatDuration(data.avgDurationMs)}
-        />
-        <Kpi
-          data-testid="stat-window-runs"
-          label={`Runs, ${days} days`}
-          value={window === null ? '—' : String(window.runs)}
-        />
-        <Kpi
-          data-testid="stat-window-pass-rate"
-          label={`Pass rate, ${days} days`}
-          value={orDash(window?.passRate ?? null, (value) => value.toFixed(1))}
-          unit="%"
-        />
-        <Kpi
-          data-testid="stat-window-failed"
-          label={`Failed tests, ${days} days`}
-          value={window === null ? '—' : String(window.testsFailed)}
-          footer={window === null ? undefined : `of ${String(window.tests)} executed`}
-        />
-      </section>
+      <RunFigures
+        summary={data}
+        window={trend.status === 'ready' ? trend.value.current : null}
+        days={days}
+      />
       <Responsive
         label="Analytics sections"
         desktop={
@@ -200,5 +165,96 @@ export function AnalyticsPage({ api, qa }: { api?: ApiClient; qa?: QaClient }) {
         ]}
       />
     </PageFrame>
+  );
+}
+
+/** The all-time pass rate, or `not measured` when no run exists to compute it from. */
+export function allTimePassRate(summary: { totalRuns: number; passRate: number | null }): string {
+  if (summary.totalRuns === 0 || summary.passRate === null) return 'not measured';
+  return String(summary.passRate);
+}
+
+/** `%` beside a measured percentage, and no unit beside a dash or a sentence. */
+function percentUnit(measured: boolean): { unit?: string } {
+  return measured ? { unit: '%' } : {};
+}
+
+function RunFigures({
+  summary,
+  window,
+  days,
+}: {
+  summary: AnalyticsSummary;
+  window: AnalyticsTrend['current'] | null;
+  days: string;
+}): React.ReactElement {
+  const allTime = allTimePassRate(summary);
+  return (
+    <section
+      aria-label="Run figures"
+      className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6"
+    >
+      <Kpi
+        data-testid="stat-total-runs"
+        label="Runs · all time"
+        value={String(summary.totalRuns)}
+        footer="reporter-uploaded runs"
+      />
+      {/*
+        The summary answers 0 for a pass rate it has no completed run to compute from, and
+        0% reads as "every run failed". With no run there is no rate.
+      */}
+      <Kpi
+        data-testid="stat-pass-rate"
+        label="Pass rate · all time"
+        value={allTime}
+        {...percentUnit(allTime !== 'not measured')}
+        footer="reporter-uploaded runs"
+      />
+      <Kpi
+        data-testid="stat-avg-duration"
+        label="Avg duration"
+        /*
+          `not measured`, not `N/A`: a missing measurement is a state rather than a value,
+          and the word is the one the dashboard's unmeasured cells use, so one phrase means
+          one thing across the product.
+        */
+        value={
+          summary.avgDurationMs === null ? 'not measured' : formatDuration(summary.avgDurationMs)
+        }
+      />
+      <WindowFigures window={window} days={days} />
+    </section>
+  );
+}
+
+function WindowFigures({
+  window,
+  days,
+}: {
+  window: AnalyticsTrend['current'] | null;
+  days: string;
+}): React.ReactElement {
+  const passRate = window?.passRate ?? null;
+  return (
+    <>
+      <Kpi
+        data-testid="stat-window-runs"
+        label={`Runs, ${days} days`}
+        value={window === null ? '—' : String(window.runs)}
+      />
+      <Kpi
+        data-testid="stat-window-pass-rate"
+        label={`Pass rate, ${days} days`}
+        value={orDash(passRate, (value) => value.toFixed(1))}
+        {...percentUnit(passRate !== null)}
+      />
+      <Kpi
+        data-testid="stat-window-failed"
+        label={`Failed tests, ${days} days`}
+        value={window === null ? '—' : String(window.testsFailed)}
+        footer={window === null ? undefined : `of ${String(window.tests)} executed`}
+      />
+    </>
   );
 }

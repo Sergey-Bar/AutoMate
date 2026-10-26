@@ -1,5 +1,12 @@
 import { Hono } from 'hono';
-import { buildDigest } from '@automate/reporting';
+import {
+  buildDigest,
+  clusterFailures,
+  flakeCost,
+  suggestQuarantine,
+  type FailureInput,
+  type FlakeObservation,
+} from '@automate/reporting';
 import type {
   BranchPassRate,
   FlakyTest,
@@ -138,6 +145,106 @@ export function buildInsights(
     passRateByBranch: branches(current),
     digest,
     truncated,
+    failureClusters: failureClustersOf(current),
+    quarantineSuggestions: quarantineSuggestionsOf(current),
+  };
+}
+
+/** Causes kept in the response; `totals.causes` still counts every one. */
+const MAX_FAILURE_CLUSTERS = 20;
+
+/**
+ * Quarantine thresholds. The quality policy's flaky setting (`maxFlakyRate`) is a per-run
+ * share of flaky tests — a gate on the suite, not on one test — so it cannot say which test to
+ * quarantine. These are the documented defaults instead: a test that disagreed with itself in
+ * at least a fifth of at least five runs. Raising either can only remove suggestions.
+ */
+export const QUARANTINE_THRESHOLDS = { minScore: 0.2, minObservations: 5 } as const;
+
+function plural(count: number, one: string, many: string): string {
+  return `${String(count)} ${count === 1 ? one : many}`;
+}
+
+/** The window's failed and timed-out results, as the clusterer reads them. */
+export function failureInputsOf(runs: readonly ExecutionRun[]): FailureInput[] {
+  const failures: FailureInput[] = [];
+  for (const run of runs) {
+    for (const test of run.tests) {
+      if (verdictOf(test.status) !== 'fail') continue;
+      failures.push({
+        runId: run.id,
+        testKey: testKey(test),
+        branch: run.branch,
+        at: new Date(Date.parse(run.createdAt)).toISOString(),
+        message: test.error?.message ?? `${test.status} with no message`,
+        stack: typeof test.metadata?.['stack'] === 'string' ? test.metadata['stack'] : null,
+      });
+    }
+  }
+  return failures;
+}
+
+/** The window's failed and timed-out results, grouped by root cause. */
+function failureClustersOf(
+  runs: readonly ExecutionRun[],
+): NonNullable<QaInsights['failureClusters']> {
+  const clustered = clusterFailures(failureInputsOf(runs), { maxClusters: MAX_FAILURE_CLUSTERS });
+  return {
+    ...clustered,
+    summary: `${plural(clustered.totals.failures, 'failure', 'failures')}, ${plural(
+      clustered.totals.causes,
+      'cause',
+      'causes',
+    )}`,
+  };
+}
+
+const OBSERVED: ReadonlySet<string> = new Set([
+  'passed',
+  'failed',
+  'flaky',
+  'timed_out',
+  'skipped',
+]);
+
+/** Every observed result in the window, oldest run first, as the flake-cost model reads it. */
+export function flakeObservationsOf(runs: readonly ExecutionRun[]): FlakeObservation[] {
+  const observations: FlakeObservation[] = [];
+  for (const run of runs) {
+    for (const test of run.tests) {
+      if (!OBSERVED.has(test.status)) continue;
+      observations.push({
+        testKey: testKey(test),
+        title: test.title,
+        runId: run.id,
+        status: test.status as FlakeObservation['status'],
+        retries: Math.max(0, (test.attempt ?? 1) - 1),
+        durationMs: typeof test.durationMs === 'number' ? test.durationMs : null,
+        runBlocked: run.policyEvaluation?.status === 'failed',
+      });
+    }
+  }
+  return observations;
+}
+
+/** Suggestions only: the operator still quarantines through `POST /api/v1/dashboard/quarantine`. */
+function quarantineSuggestionsOf(
+  runs: readonly ExecutionRun[],
+): NonNullable<QaInsights['quarantineSuggestions']> {
+  const costs = flakeCost(flakeObservationsOf(runs));
+  const byKey = new Map(costs.map((cost) => [cost.testKey, cost]));
+  return {
+    thresholds: { ...QUARANTINE_THRESHOLDS },
+    suggestions: suggestQuarantine(costs, QUARANTINE_THRESHOLDS).map((suggestion) => {
+      const cost = byKey.get(suggestion.testKey);
+      return {
+        ...suggestion,
+        observations: cost?.observations ?? 1,
+        retriesSpent: cost?.retriesSpent ?? 0,
+        wastedMs: cost?.wastedMs ?? 0,
+        blockedRuns: cost?.blockedRuns ?? 0,
+      };
+    }),
   };
 }
 

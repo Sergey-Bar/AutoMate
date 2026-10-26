@@ -165,6 +165,12 @@
     "functions": 100,
     "lines": 100
   },
+  "tools/automate-cli": {
+    "statements": 98.1,
+    "branches": 92.8,
+    "functions": 93.7,
+    "lines": 98.5
+  },
   "tools/migrate-cli": {
     "statements": 95.6,
     "branches": 91.6,

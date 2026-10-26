@@ -49,3 +49,13 @@ export * from './compatibility/legacy-reporter.js';
  */
 export * from './adapters/sarif.js';
 export * from './adapters/health-metrics.js';
+export * from './adapters/line-coverage.js';
+export * from './adapters/sbom.js';
+export * from './adapters/vex.js';
+export * from './adapters/provenance.js';
+export * from './adapters/mutation.js';
+export * from './adapters/axe.js';
+export * from './adapters/evals.js';
+export * from './adapters/otlp-genai.js';
+export * from './adapters/skillspector.js';
+export * from './redact.js';

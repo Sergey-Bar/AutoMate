@@ -90,6 +90,85 @@ Tests, coverage and Runtime for a cloned repository come from CI.
 
 Scheduled scans (**daily** or **weekly**) use the same jobs, enqueued by the worker.
 
+## Supply chain, accessibility, mutation and diff coverage
+
+These formats go through the same upload door, with the same token, as `format:path` lines
+for the action. None of them is run by AutoMate. Your CI writes the file, and AutoMate reads it.
+
+| Format              | What it does                                                                                   |
+| ------------------- | ---------------------------------------------------------------------------------------------- |
+| `cyclonedx-json`    | Replaces the branch's component inventory. Its vulnerabilities become Dependencies findings.   |
+| `spdx-json`         | Replaces the branch's component inventory (SPDX 2.x JSON or 3.0 JSON-LD).                      |
+| `vex`               | An OpenVEX or CycloneDX VEX document, stored and applied to the project's findings.            |
+| `slsa-provenance`   | An in-toto statement, DSSE envelope or Sigstore bundle, verified into the `slsa-level` metric. |
+| `stryker-mutation`  | The mutation score (Test effectiveness), and one finding per file with surviving mutants.      |
+| `axe-json`          | Accessibility findings per rule and element, and the axe pass rate.                            |
+| `skillspector-json` | SkillSpector issues as AI-governance findings, keyed on `match_fingerprint`.                   |
+| `git-diff`          | The commit's added lines, for diff coverage. Requires `commit=`.                               |
+
+**VEX.** Every stored document is applied again, oldest upload first, after each VEX, SBOM
+and SARIF upload. A re-scan therefore does not reopen a finding that VEX said is not
+affected, and a later `affected` or `under_investigation` statement reopens it. An acceptance
+written by VEX, or by a CycloneDX producer's own analysis, expires 90 days after it was last
+asserted, and each re-application renews it. A person's triage is never overwritten by
+either.
+
+**The supply-chain policy.** `PUT /api/v1/projects/:id/health/supply-chain-policy` needs the
+admin role:
+
+```json
+{
+  "licences": { "allow": ["MIT", "Apache-2.0"], "deny": ["GPL-3.0-only"], "failOnUnknown": true },
+  "provenance": {
+    "allowedBuilders": ["https://github.com/slsa-framework/slsa-github-generator/..."],
+    "trustedKeysPem": ["-----BEGIN PUBLIC KEY-----..."],
+    "trustedRootsPem": ["-----BEGIN CERTIFICATE-----..."],
+    "trustedIdentities": [
+      {
+        "subject": "https://github.com/octo/app/.github/workflows/release.yml@refs/heads/main",
+        "issuer": "https://token.actions.githubusercontent.com"
+      }
+    ],
+    "expectedDigestSource": "upload-query"
+  }
+}
+```
+
+Every component is judged as an SPDX expression. Denied licences, unlisted licences (when an
+allow list exists) and unknown licences (unless `failOnUnknown` is `false`) become
+`automate-licence` findings. They are fixed when the policy or the inventory changes. With no
+policy, nothing is judged. Provenance is verified against the trusted keys and roots at the
+server's clock, and the result is the SLSA level the evidence supports. With no trust
+configured, a signature is _not configured_, never verified. The Rekor transparency log is
+not checked. With `expectedDigestSource: "upload-query"`, a provenance upload must name its
+artifact as `digest=sha256:<hex>`.
+
+**Levels 2 and 3 need the artifact's digest.** A provenance whose subject was not checked
+against an expected digest — the upload named no `digest=` — is held at **SLSA L1** however
+well it is signed, and its reasons say so: a valid signature over a statement about another
+build proves nothing about this one. Set `expectedDigestSource: "upload-query"` so every
+upload has to name one.
+
+**A root needs an identity policy.** A certificate chaining to a configured root counts as a
+verified signature only when its SAN — the exact URI or email in `trustedIdentities[].subject`
+(for GitHub Actions, the workflow ref) — matches, and, when `issuer` is given, so does the
+Fulcio OIDC issuer extension (`1.3.6.1.4.1.57264.1.8`, or the legacy `1.3.6.1.4.1.57264.1.1`).
+Any other identity is `signature: invalid` with "certificate identity … is not trusted". With
+roots configured and no identities, a certificate signature is _not configured_: a public CA
+such as Fulcio issues certificates to anyone with an OIDC account. Trusted keys are unaffected.
+The policy form keeps identities as it keeps PEMs: set them through the API.
+
+**Diff coverage.** Upload a coverage report and a `git-diff` for the same commit, in either
+order. Whichever arrives second computes the result
+(`GET /api/v1/projects/:id/health/diff-coverage?commit=`). Set `"minDiffCoverage": 80` under
+`health.gate` to fail a pull request below it, or when the commit was not measured. The
+gate comment lists up to ten uncovered `file:line` ranges. Older commits are pruned per
+project; the bound is `DIFF_COVERAGE_RETENTION` in `apps/api/src/services/diff-coverage-service.ts`.
+
+**Inventory.** `GET /api/v1/projects/:id/health/components` pages a project's components.
+`GET /api/v1/portfolio/components?purl=pkg:npm/lodash` finds every project in your workspace
+that ships a matching component.
+
 ## Pull requests
 
 `POST /api/v1/projects/:id/health/gate/report` evaluates the branch's grade and the findings

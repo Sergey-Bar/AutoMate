@@ -17,8 +17,8 @@ export interface AuthSessionBackend {
    * Optional on the interface, and that is a real gap rather than a convenience: an
    * optional member is a member a backend can forget, and a backend that forgets it
    * is the defect again. It is optional only so the *existing* backends and their tests
-   * do not all have to grow a method in one change; `sweepSessions` in
-   * `routes/auth.ts` is where the schedule lives, and this is the seam it calls.
+   * do not all have to grow a method in one change; the hourly schedule is
+   * `sessionRetentionSweep` in `index.ts`, and this is the seam it calls.
    */
   sweep?(): Promise<{ removed: number }>;
 }

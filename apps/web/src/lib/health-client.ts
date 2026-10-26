@@ -4,8 +4,10 @@ import {
   HealthFindingsPageSchema,
   HealthHistorySchema,
   HealthScanStartedSchema,
+  PortfolioHeatmapSchema,
   PortfolioSchema,
   ProjectHealthSchema,
+  ScorecardSchema,
   type FindingSeverity,
   type FindingState,
   type HealthDimension,
@@ -16,6 +18,8 @@ import {
   type Portfolio,
   type ProjectHealth,
   type TriageFindingBody,
+  type PortfolioHeatmap,
+  type Scorecard,
 } from '@automate/shared-contracts';
 import { parse } from './qa-client.js';
 
@@ -37,6 +41,10 @@ export interface FindingQuery {
 
 export interface HealthClient {
   getPortfolio(): Promise<Portfolio>;
+  /** Every project's dimensions and scorecards on one grid. */
+  getHeatmap(): Promise<PortfolioHeatmap>;
+  /** The test-effectiveness scorecard: mutation score, diff coverage, flakes and causes. */
+  getTestEffectiveness(projectId: string): Promise<Scorecard>;
   getHealth(projectId: string): Promise<ProjectHealth>;
   getFindings(projectId: string, query?: FindingQuery): Promise<HealthFindingsPage>;
   getHistory(projectId: string, days: number): Promise<HealthHistory>;
@@ -154,6 +162,9 @@ export function createHealthClient(baseUrl = '', fetchImpl: typeof fetch = fetch
 
   return {
     getPortfolio: () => get('/api/v1/portfolio', PortfolioSchema),
+    getHeatmap: () => get('/api/v1/portfolio/heatmap', PortfolioHeatmapSchema),
+    getTestEffectiveness: (projectId) =>
+      get(`${project(projectId)}/test-effectiveness/scorecard`, ScorecardSchema),
     getHealth: (projectId) => get(`${project(projectId)}/health`, ProjectHealthSchema),
     getFindings: (projectId, query = {}) =>
       get(`${project(projectId)}/health/findings${search(query)}`, HealthFindingsPageSchema),

@@ -129,6 +129,25 @@ export interface ScheduledReportEnqueue {
   idempotencyKey: string;
 }
 
+/** A `delivery_sources` row that is enabled and due. The API writes it; the worker queues it. */
+export interface DeliverySourceDue {
+  id: string;
+  workspaceId: string;
+  projectId: string;
+  cadence: 'hourly' | 'daily';
+  nextSyncAt: string;
+}
+
+export interface DeliverySyncEnqueue {
+  source: DeliverySourceDue;
+  /** The instant the poll ran: the source is advanced only while still due at it. */
+  now: string;
+  /** The start of the next slot, which is when the source is due again. */
+  nextSyncAt: string;
+  /** `delivery:<sourceId>:<slot>`, unique in `delivery_syncs`. */
+  idempotencyKey: string;
+}
+
 export interface ExecutionStore {
   ping(): Promise<boolean>;
   claimJob(
@@ -161,6 +180,13 @@ export interface ExecutionStore {
    * the occurrence was already taken — by another worker, or by this one a poll ago.
    */
   enqueueScheduledReport?(input: ScheduledReportEnqueue): Promise<boolean>;
+  /** Enabled delivery sources whose next sync is due. Absent on a store that has none. */
+  listDueDeliverySources?(now: Date, limit: number): Promise<DeliverySourceDue[]>;
+  /**
+   * Points the source at its next slot and queues one `delivery_syncs` row, atomically.
+   * `false` when the source was no longer due or the slot was already queued.
+   */
+  enqueueDeliverySync?(input: DeliverySyncEnqueue): Promise<boolean>;
   close?(): Promise<void>;
 }
 

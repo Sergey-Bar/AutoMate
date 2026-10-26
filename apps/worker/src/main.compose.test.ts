@@ -62,6 +62,7 @@ function stubStore(ping: () => Promise<boolean>): { close: ReturnType<typeof vi.
   vi.spyOn(PostgresExecutionStore.prototype, 'reapExpiredLeases').mockResolvedValue([]);
   vi.spyOn(PostgresExecutionStore.prototype, 'listDueSchedules').mockResolvedValue([]);
   vi.spyOn(PostgresExecutionStore.prototype, 'listDueReportSchedules').mockResolvedValue([]);
+  vi.spyOn(PostgresExecutionStore.prototype, 'listDueDeliverySources').mockResolvedValue([]);
   const close = vi.fn(() => Promise.resolve());
   vi.spyOn(PostgresExecutionStore.prototype, 'close').mockImplementation(close);
   return { close };

@@ -17,7 +17,7 @@ import { RunList } from './components/RunList.js';
 import { ThemeToggle } from './components/ThemeToggle.js';
 import { NavBar } from './components/NavBar.js';
 import { ThemeProvider } from './theme/ThemeProvider.js';
-import { makeApi, makeRun } from './test-utils.js';
+import { makeApi, makeCanonicalRunResult, makeRun } from './test-utils.js';
 import { RunDetailPage } from './routes/dashboard/run-detail.js';
 import { QuarantinePage } from './routes/dashboard/quarantine.js';
 
@@ -123,21 +123,11 @@ describe('axe sweep over the client components', () => {
   it('reports no violations for the run evidence explorer', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            result: {
-              identity: { runId: 'run-1' },
-              status: 'complete',
-              proof: { state: 'verified' },
-              completeness: { state: 'complete' },
-              attempts: [{ testId: 't1', index: 0, title: 'smoke', status: 'passed' }],
-              evidence: ['trace.zip'],
-            },
-          }),
-          { status: 200 },
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ result: makeCanonicalRunResult() }), { status: 200 }),
         ),
-      ),
     );
     const { container } = render(<RunExplorer runId="run-1" />);
     await waitFor(() => expect(screen.getByTestId('run-explorer')).toBeInTheDocument());

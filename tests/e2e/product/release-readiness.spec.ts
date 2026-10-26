@@ -70,19 +70,42 @@ test.describe('release readiness', () => {
     const card = page.getByTestId('release-readiness');
     await expect(card, 'the Command Center must show a release-readiness view').toBeVisible();
 
-    // The decision badge is read from the DOM, not assumed.
-    const badge = card.locator('[data-slot="badge"], span').filter({ hasText: /.+/ });
+    // The decision badge, read from the DOM rather than assumed. The badge is a `div` with no
+    // `data-slot`, so the old `[data-slot="badge"], span` locator only ever found the domain
+    // labels' `span`s — it went empty with them, and had never found the badge it named.
+    const decision = card.getByTestId('release-readiness-decision');
+    await expect(decision).toBeVisible();
+    await expect(decision).not.toHaveText(/^READY$/u);
     const rendered = (await card.textContent()) ?? '';
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered).toMatch(/Release readiness/i);
     // Nothing on the page may claim a release is ready.
     await expect(card).not.toContainText('READY');
-    for (const domain of READINESS_DOMAINS) {
-      expect(rendered.toLowerCase(), `domain ${domain} must be rendered`).toContain(domain);
+    // **What the card draws is what the API answered, and nothing it did not.**
+    //
+    // This asserted every domain name in the card's text, which held only while the card
+    // drew a hard-coded per-domain table (`browser: unknown`, the rest `not_configured`)
+    // when no release was selected — a status for each domain that no read returned. The
+    // card now draws domains only from `GET /api/v1/releases/:id/readiness` for the release
+    // the latest run names, and an empty state otherwise. A spec cannot attach a release
+    // to a run through the API (the header above says why), so the empty state is the
+    // ordinary case here; the other branch holds the card to the API's own answer.
+    const named = /Release ([0-9a-f-]{36})/iu.exec(rendered)?.[1];
+    if (named === undefined) {
+      await expect(card.getByTestId('release-readiness-unread')).toContainText(
+        'No readiness has been evaluated',
+      );
+      expect(rendered, 'no per-domain status may be drawn without a read').not.toMatch(
+        /NOT_CONFIGURED|PASSED|FAILED/u,
+      );
+    } else {
+      const expected = await getReleaseReadiness(request, named);
+      for (const [domain, status] of Object.entries(expected.domains)) {
+        expect(rendered, `domain ${domain} must show the API's status`).toContain(
+          `${domain}${status.toUpperCase()}`,
+        );
+      }
     }
-    // `badge` is bound so the locator above is exercised, and a missing badge is
-    // itself a finding rather than something to leave unasserted.
-    await expect(badge.first()).toBeVisible();
 
     saveEvidence('release-readiness', 'command-center-readiness.txt', rendered);
   });

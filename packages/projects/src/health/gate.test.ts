@@ -28,6 +28,151 @@ function grade(letter: HealthGrade['letter']): HealthGrade {
 }
 
 describe('evaluateHealthGate', () => {
+  it('fails on a failing eval suite and a failing runtime scorecard', () => {
+    const verdict = evaluateHealthGate({}, grade('B'), [], null, null, null, {
+      evals: [
+        { suite: 'support-bot', verdict: 'fail', reasons: ['Pass rate fell from 90% to 30%.'] },
+        { suite: 'router', verdict: 'pass', reasons: [] },
+      ],
+      runtime: { status: 'fail', reasons: ['planner costs $0.40 a run; the budget is $0.10.'] },
+    });
+    expect(verdict.verdict).toBe('failed');
+    expect(verdict.reasons).toEqual([
+      'Evals (support-bot): Pass rate fell from 90% to 30%.',
+      'Agent runtime: planner costs $0.40 a run; the budget is $0.10.',
+    ]);
+    for (const agents of [
+      { evals: [{ suite: 'a', verdict: 'pass' as const, reasons: [] }], runtime: null },
+      { evals: null, runtime: { status: 'pass' as const, reasons: [] } },
+      { evals: null, runtime: null },
+      null,
+      undefined,
+    ]) {
+      expect(evaluateHealthGate({}, grade('B'), [], null, null, null, agents).verdict).toBe(
+        'passed',
+      );
+    }
+  });
+
+  it('fails a gated eval suite that is insufficient, has no baseline, or is missing on the branch', () => {
+    const verdict = evaluateHealthGate({}, grade('B'), [], null, null, null, {
+      evals: [
+        { suite: 'summariser', verdict: 'insufficient', reasons: ['Too few attempts.'] },
+        { suite: 'router', verdict: 'no-baseline', reasons: [] },
+        { suite: 'planner', verdict: 'missing', reasons: [] },
+        { suite: 'quiet', verdict: 'insufficient', reasons: [] },
+      ],
+      runtime: null,
+    });
+    expect(verdict.verdict).toBe('failed');
+    expect(verdict.reasons).toEqual([
+      'Evals (summariser): Too few attempts.',
+      'Evals (router): the default branch has no run of this suite to compare against; the policy gates on evals',
+      'Evals (planner): the suite runs on the default branch but did not run on this branch; the policy gates on evals',
+      'Evals (quiet): too few attempts to tell a regression from noise; the policy gates on evals',
+    ]);
+  });
+
+  it('fails gated evals with nothing measured, and a gated runtime scorecard that is not measured', () => {
+    expect(
+      evaluateHealthGate({}, grade('B'), [], null, null, null, { evals: [], runtime: null })
+        .reasons,
+    ).toEqual([
+      'Evals were not measured: no eval run on this branch or the default branch; the policy gates on evals',
+    ]);
+    for (const status of ['insufficient', 'not_configured'] as const) {
+      const verdict = evaluateHealthGate({}, grade('B'), [], null, null, null, {
+        evals: null,
+        runtime: { status, reasons: [] },
+      });
+      expect(verdict.verdict).toBe('failed');
+      expect(verdict.reasons).toEqual([
+        `Agent runtime was not measured (${status === 'insufficient' ? 'too little data' : 'not configured'}); the policy gates on runtime`,
+      ]);
+    }
+    expect(
+      evaluateHealthGate({}, grade('B'), [], null, null, null, {
+        evals: null,
+        runtime: { status: 'insufficient', reasons: ['Only 2 runs in the window.'] },
+      }).reasons,
+    ).toEqual([
+      'Agent runtime was not measured (too little data): Only 2 runs in the window; the policy gates on runtime',
+    ]);
+  });
+
+  it('fails on a failing AI-governance verdict, with each of its reasons, and only on a fail', () => {
+    const failing = {
+      verdict: 'fail' as const,
+      reasons: [
+        'Agent-authored change by claude-code needs at least one human approval; it has none.',
+      ],
+    };
+    const verdict = evaluateHealthGate({}, grade('B'), [], null, null, failing);
+    expect(verdict.verdict).toBe('failed');
+    expect(verdict.reasons).toEqual([
+      'AI governance: Agent-authored change by claude-code needs at least one human approval; it has none.',
+    ]);
+    for (const aiGovernance of [
+      { verdict: 'pass' as const, reasons: [] },
+      { verdict: 'not-applicable' as const, reasons: [] },
+      null,
+      undefined,
+    ]) {
+      expect(evaluateHealthGate({}, grade('B'), [], null, null, aiGovernance).verdict).toBe(
+        'passed',
+      );
+    }
+  });
+
+  it('fails on a failing DORA scorecard when the caller gates on delivery, and only then', () => {
+    const failing = {
+      status: 'fail' as const,
+      reasons: ['Change failure rate is 30%, above the policy maximum of 15%.'],
+    };
+    const verdict = evaluateHealthGate({}, grade('B'), [], null, failing);
+    expect(verdict.verdict).toBe('failed');
+    expect(verdict.reasons).toEqual([
+      'Delivery: Change failure rate is 30%, above the policy maximum of 15%.',
+    ]);
+    for (const delivery of [{ status: 'pass' as const, reasons: [] }, null, undefined]) {
+      expect(evaluateHealthGate({}, grade('B'), [], null, delivery).verdict).toBe('passed');
+    }
+  });
+
+  it('fails a gated DORA scorecard that is insufficient or not configured: unmeasured is not a pass', () => {
+    expect(
+      evaluateHealthGate({}, grade('B'), [], null, { status: 'insufficient', reasons: [] }).reasons,
+    ).toEqual(['Delivery was not measured (too little data); the policy gates on delivery']);
+    expect(
+      evaluateHealthGate({}, grade('B'), [], null, {
+        status: 'not_configured',
+        reasons: ['No delivery source is connected.'],
+      }).reasons,
+    ).toEqual([
+      'Delivery was not measured (not configured): No delivery source is connected; the policy gates on delivery',
+    ]);
+  });
+
+  it('fails below minDiffCoverage, passes at it, and fails when diff coverage was not measured', () => {
+    const policy = { minDiffCoverage: 80 };
+    const below = evaluateHealthGate(policy, grade('B'), [], { ratio: 0.75, executable: 8 });
+    expect(below.verdict).toBe('failed');
+    expect(below.reasons).toEqual([
+      'Diff coverage 75.0% of 8 changed executable lines; the policy requires at least 80%',
+    ]);
+    expect(evaluateHealthGate(policy, grade('B'), [], { ratio: 0.8, executable: 5 }).verdict).toBe(
+      'passed',
+    );
+    for (const missing of [null, undefined, { ratio: null, executable: 0 }]) {
+      const verdict = evaluateHealthGate(policy, grade('B'), [], missing);
+      expect(verdict.verdict).toBe('failed');
+      expect(verdict.reasons[0]).toMatch(/not measured/u);
+    }
+    // No minimum: an absent or low diff coverage decides nothing.
+    expect(evaluateHealthGate({}, grade('B'), [], { ratio: 0, executable: 3 }).verdict).toBe(
+      'passed',
+    );
+  });
   it('passes with no new findings and no policy', () => {
     expect(evaluateHealthGate(undefined, grade('B'), [])).toEqual({
       verdict: 'passed',

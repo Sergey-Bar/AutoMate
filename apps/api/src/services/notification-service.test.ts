@@ -478,17 +478,33 @@ describe('the dispatcher', () => {
     try {
       const { db } = await setup();
       const log = vi.fn();
+      // Each poll of an empty queue is one claim statement: counting them counts the polls.
+      let claims = 0;
+      const counted = new Proxy(db, {
+        get(target, property, receiver) {
+          const value = Reflect.get(target, property, receiver) as unknown;
+          if (property !== 'execute' || typeof value !== 'function') return value;
+          return (...args: unknown[]) => {
+            claims += 1;
+            return (value as (...a: unknown[]) => unknown).apply(target, args);
+          };
+        },
+      });
       const dispatcher = createReportDispatcher({
-        db: db as never,
+        db: counted as never,
         vaultSecret: VAULT,
         adapters: {},
         link: null,
         log,
       });
       dispatcher.start(1_000);
+      // A second start is the same loop, not a second one polling beside it.
       dispatcher.start(1_000);
       await vi.advanceTimersByTimeAsync(2_500);
       await dispatcher.stop();
+      expect(claims).toBe(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(claims).toBe(2);
       expect(log).not.toHaveBeenCalledWith('report dispatch failed', expect.anything());
     } finally {
       vi.useRealTimers();
@@ -504,6 +520,8 @@ describe('each channel gets its own rendering', () => {
     sentence: '3 runs in this period.',
     items: [],
     more: 0,
+    areas: [],
+    actions: [],
     link: null,
   };
   const channel = (kind: string, settings: Record<string, string> = {}) => ({

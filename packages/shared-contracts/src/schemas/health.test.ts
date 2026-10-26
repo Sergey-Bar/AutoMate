@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUILT_IN_REPORT_FORMATS,
+  CORE_HEALTH_DIMENSIONS,
+  EVAL_UPLOAD_FORMATS,
+  FINDING_REPORT_FORMATS,
   GitRepositoryUrlSchema,
   HEALTH_DIMENSIONS,
   HEALTH_DIMENSION_LABELS,
+  HEALTH_EVIDENCE_FORMATS,
+  HEALTH_METRIC_FORMATS,
+  HEALTH_REPORT_FORMATS,
+  LINE_COVERAGE_REPORT_FORMATS,
+  MAX_TRACE_RETENTION_DAYS,
+  OPT_IN_HEALTH_DIMENSIONS,
+  isEvalUploadFormat,
+  isFindingReportFormat,
+  isOptInDimension,
+  isUploadReportFormat,
   HealthGradeSchema,
   HealthPolicySchema,
   HealthScanStartedSchema,
@@ -45,6 +59,15 @@ function grade(overrides: Partial<HealthGrade> = {}): HealthGrade {
 describe('the health grade contract', () => {
   it('labels every dimension', () => {
     expect(Object.keys(HEALTH_DIMENSION_LABELS).sort()).toEqual([...HEALTH_DIMENSIONS].sort());
+  });
+
+  it('splits the dimensions into seven core and five opt-in, with no overlap', () => {
+    expect(CORE_HEALTH_DIMENSIONS).toHaveLength(7);
+    expect(OPT_IN_HEALTH_DIMENSIONS).toHaveLength(5);
+    expect(HEALTH_DIMENSIONS).toEqual([...CORE_HEALTH_DIMENSIONS, ...OPT_IN_HEALTH_DIMENSIONS]);
+    for (const dimension of OPT_IN_HEALTH_DIMENSIONS)
+      expect(isOptInDimension(dimension)).toBe(true);
+    for (const dimension of CORE_HEALTH_DIMENSIONS) expect(isOptInDimension(dimension)).toBe(false);
   });
 
   it('requires a complete grade to name what limited it, and lets an incomplete one name nothing', () => {
@@ -145,5 +168,67 @@ describe('GitRepositoryUrlSchema', () => {
     ['not a url at all', false],
   ])('%j → %s', (url, valid) => {
     expect(GitRepositoryUrlSchema.safeParse(url).success).toBe(valid);
+  });
+});
+
+describe('the health report formats', () => {
+  it('reads every metric, evidence and SARIF format once, and finding formats are a subset', () => {
+    expect(HEALTH_REPORT_FORMATS).toEqual([
+      'sarif',
+      ...HEALTH_METRIC_FORMATS,
+      ...HEALTH_EVIDENCE_FORMATS,
+      ...BUILT_IN_REPORT_FORMATS,
+    ]);
+    expect(new Set(HEALTH_REPORT_FORMATS).size).toBe(HEALTH_REPORT_FORMATS.length);
+    for (const format of FINDING_REPORT_FORMATS) expect(HEALTH_REPORT_FORMATS).toContain(format);
+    for (const format of LINE_COVERAGE_REPORT_FORMATS)
+      expect(HEALTH_METRIC_FORMATS).toContain(format);
+    expect(isFindingReportFormat('axe-json')).toBe(true);
+    expect(isFindingReportFormat('vex')).toBe(false);
+    expect(isFindingReportFormat('jscpd')).toBe(false);
+  });
+
+  it('accepts the eval formats at the upload door and keeps the built-in format off it', () => {
+    for (const format of EVAL_UPLOAD_FORMATS) {
+      expect(HEALTH_EVIDENCE_FORMATS).toContain(format);
+      expect(isEvalUploadFormat(format)).toBe(true);
+      expect(isUploadReportFormat(format)).toBe(true);
+    }
+    expect(isEvalUploadFormat('sarif')).toBe(false);
+    expect(isUploadReportFormat('automate-agent-config')).toBe(false);
+    expect(isFindingReportFormat('automate-agent-config')).toBe(true);
+  });
+
+  it('bounds the agents policy: retention to 90 days, ratios to 0–1, prices to admin-set rows', () => {
+    const parse = (agents: unknown) => HealthPolicySchema.safeParse({ agents }).success;
+    expect(
+      parse({
+        storePrompts: true,
+        maxEvalRegression: 0.05,
+        minEvalAttempts: 20,
+        gateOnEvals: true,
+        gateOnRuntime: true,
+        budgets: { maxCostPerRunUsd: 0.1, maxToolFailureRate: 0.2 },
+        prices: [
+          { provider: 'openai', model: 'gpt-4o', inputPerMillionUsd: 2.5, outputPerMillionUsd: 10 },
+        ],
+        storeTraceContent: false,
+        traceRetentionDays: MAX_TRACE_RETENTION_DAYS,
+      }),
+    ).toBe(true);
+    expect(parse({ traceRetentionDays: MAX_TRACE_RETENTION_DAYS + 1 })).toBe(false);
+    expect(parse({ maxEvalRegression: 1.5 })).toBe(false);
+    expect(parse({ budgets: { maxErrorRate: 2 } })).toBe(false);
+    expect(
+      parse({
+        prices: [{ provider: null, model: 'm', inputPerMillionUsd: -1, outputPerMillionUsd: 0 }],
+      }),
+    ).toBe(false);
+  });
+
+  it('bounds a diff-coverage minimum to a percentage', () => {
+    expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: 80 } }).success).toBe(true);
+    expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: 101 } }).success).toBe(false);
+    expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: -1 } }).success).toBe(false);
   });
 });

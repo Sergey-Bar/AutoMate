@@ -173,3 +173,91 @@ describe('the renderers', () => {
     expect(renderSlack(tiny, 100).length).toBeLessThanOrEqual(100);
   });
 });
+
+describe('the digest areas and the top actions', () => {
+  const pass = (project: string, score: number) => ({
+    project,
+    status: 'pass' as const,
+    score,
+    reasons: [],
+  });
+  const fail = (project: string, score: number | null, ...reasons: string[]) => ({
+    project,
+    status: 'fail' as const,
+    score,
+    reasons,
+  });
+  const DIGEST: ReportInput = {
+    ...BASE,
+    areas: [
+      {
+        label: 'DORA',
+        cards: [pass('checkout', 82), fail('billing', 41, 'Lead time 90 h is above 48 h.')],
+      },
+      { label: 'AI code', cards: [pass('checkout', 90), pass('billing', 70)] },
+      {
+        label: 'Agent quality',
+        cards: [{ project: 'checkout', status: 'not_configured', score: null, reasons: [] }],
+      },
+      { label: 'Ignored fourth', cards: [pass('x', 1)] },
+    ],
+    scorecards: [fail('billing', 0, '1 critical vulnerability with a fix available is open.')],
+    fixNext: [
+      { project: 'checkout', title: 'Fix 2 SQL injection findings', gain: 6.5 },
+      { project: 'billing', title: 'Rotate the leaked token', gain: 12 },
+    ],
+  };
+
+  it('writes one line per area, at most three, with the weakest project named', () => {
+    const model = composeReport(DIGEST);
+    expect(model.areas).toEqual([
+      { tone: 'bad', text: 'DORA: 1 of 2 failing — billing 41' },
+      { tone: 'good', text: 'AI code: 2 passing, lowest billing 70' },
+      { tone: 'neutral', text: 'Agent quality: not measured yet' },
+    ]);
+    // A failing area makes the report amber even with nothing else to say.
+    expect(model.status).toBe('caution');
+  });
+
+  it('lists the top three actions: the biggest fixes, then failing reasons, lowest score first', () => {
+    expect(composeReport(DIGEST).actions).toEqual([
+      'billing: Rotate the leaked token (+12.0 pts)',
+      'checkout: Fix 2 SQL injection findings (+6.5 pts)',
+      'billing: 1 critical vulnerability with a fix available is open.',
+    ]);
+    const reasonsOnly = composeReport({ ...DIGEST, fixNext: [] });
+    expect(reasonsOnly.actions).toEqual([
+      'billing: 1 critical vulnerability with a fix available is open.',
+      'billing: Lead time 90 h is above 48 h.',
+    ]);
+    const unscored = composeReport({
+      ...BASE,
+      scorecards: [fail('a', null, 'same'), fail('b', 10, 'first'), fail('a', null, 'same')],
+      fixNext: [{ project: 'p', title: 'not a number', gain: Number.NaN }],
+    });
+    expect(unscored.actions).toEqual(['b: first', 'a: same']);
+  });
+
+  it('renders the actions before the area lines, and leaves an empty area out', () => {
+    const plain = renderPlain(composeReport(DIGEST), 2_000);
+    expect(plain).toContain('Top actions:\n1. billing: Rotate the leaked token (+12.0 pts)');
+    expect(plain.indexOf('Top actions:')).toBeLessThan(plain.indexOf('🔴 DORA'));
+    expect(plain).toContain('• Agent quality: not measured yet');
+    const noAreas = composeReport({ ...BASE, areas: [{ label: 'DORA', cards: [] }] });
+    expect(noAreas.areas).toEqual([]);
+    expect(renderPlain(noAreas)).not.toContain('Top actions');
+    const teams = JSON.stringify(renderTeams(composeReport(DIGEST)));
+    expect(teams).toContain('1. billing: Rotate the leaked token');
+  });
+
+  it('escapes a hostile project name in every line it reaches', () => {
+    const model = composeReport({
+      ...BASE,
+      areas: [{ label: 'DORA', cards: [fail('<b>&evil', 3, 'x < y')] }],
+    });
+    const telegram = renderTelegram(model);
+    expect(telegram).toContain('&lt;b&gt;&amp;evil 3');
+    expect(telegram).toContain('&lt;b&gt;&amp;evil: x &lt; y');
+    expect(renderSlack(model)).toContain('&lt;b&gt;&amp;evil');
+  });
+});

@@ -50,6 +50,10 @@ export const vaultEntries = pgTable(
     salt: text('salt').notNull(),
     // SQLite: iterations INTEGER NOT NULL — PBKDF2 iteration count
     iterations: integer('iterations').notNull(),
+    // The vault key generation the envelope was sealed under, `0043_vault_key_version.sql`.
+    // A rotation re-seals every entry under the new secret and raises this by one, in one
+    // transaction, so a row always says which generation opens it.
+    keyVersion: integer('key_version').notNull().default(1),
     // SQLite: created_at TEXT NOT NULL
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     // SQLite: updated_at TEXT NOT NULL

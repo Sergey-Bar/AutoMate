@@ -8,12 +8,12 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 9,
-    "viewer": 51,
-    "operator": 23,
-    "open": 13,
+    "admin": 12,
+    "viewer": 74,
+    "operator": 30,
+    "open": 14,
     "runner-credential": 9,
-    "reporter-secret": 6,
+    "reporter-secret": 10,
     "enrollment-token": 1,
     "runner-registration-secret": 1
   },
@@ -164,6 +164,14 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/chat/runtime",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/dashboard/analytics/summary",
       "access": "viewer",
       "workspaceScoped": false,
@@ -177,6 +185,14 @@
       "workspaceScoped": true,
       "evidenceTest": "apps/api/src/execution/trend.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/dashboard/failure-clusters/issue",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/issue-tracker-service.test.ts",
+      "composition": "database"
     },
     {
       "method": "GET",
@@ -372,6 +388,22 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/mcp",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/mcp.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/mcp",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/mcp.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/notification-channels",
       "access": "viewer",
       "workspaceScoped": false,
@@ -423,7 +455,39 @@
       "path": "/api/v1/portfolio",
       "access": "viewer",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/services/access-service.test.ts",
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/portfolio/ai-code",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/ai-code.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/portfolio/components",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/portfolio/delivery",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/portfolio/heatmap",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scorecards.test.ts",
       "composition": "database"
     },
     {
@@ -452,6 +516,38 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/projects/:id/agents/mcp-servers",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/agents/runtime",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/ai-code",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/ai-code.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/ai-code/pull-requests",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/ai-code.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects/:id/commands",
       "access": "viewer",
       "workspaceScoped": false,
@@ -467,6 +563,54 @@
       "composition": "database"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/delivery",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/delivery/deployments",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/delivery/incidents",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/delivery/source",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/delivery/source",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/delivery/sync",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/delivery.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/projects/:id/detect",
       "access": "operator",
@@ -476,10 +620,58 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/projects/:id/evals",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/evals/datasets",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/evals/datasets",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/evals/datasets/:datasetId/run",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/evals/runs/:runId",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects/:id/health",
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/agent-config",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
       "composition": "database"
     },
     {
@@ -500,10 +692,34 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/projects/:id/health/components",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/diff-coverage",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects/:id/health/findings",
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/findings/:findingId/issue",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/issue-tracker-service.test.ts",
       "composition": "database"
     },
     {
@@ -527,7 +743,7 @@
       "path": "/api/v1/projects/:id/health/gate/report",
       "access": "reporter-secret",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "evidenceTest": "apps/api/src/routes/ai-code.test.ts",
       "composition": "database"
     },
     {
@@ -543,7 +759,7 @@
       "path": "/api/v1/projects/:id/health/reports",
       "access": "reporter-secret",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
       "composition": "database"
     },
     {
@@ -572,10 +788,74 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/projects/:id/health/supply-chain-policy",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/health/supply-chain-policy",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/health/test-proposals",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/test-proposal-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/health/test-proposals",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/test-proposal-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/projects/:id/history",
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/:id/issue-tracker",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/issue-tracker-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/issue-tracker",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/issue-tracker-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/issue-tracker",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/issue-tracker-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/otlp/v1/traces",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/agent-quality.test.ts",
       "composition": "database"
     },
     {
@@ -640,6 +920,22 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/projects.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/supply-chain/scorecard",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scorecards.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/test-effectiveness/scorecard",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scorecards.test.ts",
       "composition": "database"
     },
     {
@@ -897,6 +1193,14 @@
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/github",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/github-webhook.test.ts",
+      "composition": "database"
     },
     {
       "method": "GET",

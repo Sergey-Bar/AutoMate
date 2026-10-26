@@ -13,7 +13,11 @@ export interface ConnectorRequest {
 export interface ConnectorResult {
   status: 'ok' | 'error';
   data?: unknown;
-  error?: { code: string; retryable: boolean; message: string };
+  /**
+   * `retryAt` is set when the platform said when to come back — a rate limit's reset time,
+   * as an ISO timestamp — so a caller can wait exactly that long rather than guess a backoff.
+   */
+  error?: { code: string; retryable: boolean; message: string; retryAt?: string };
   attempts: number;
 }
 

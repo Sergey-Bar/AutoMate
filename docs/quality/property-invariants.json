@@ -180,8 +180,216 @@
       "shownToFail": "Disabling the cap in compute() fails the property on its first generated input."
     },
     {
+      "id": "HEALTH-3",
+      "statement": "An opt-in dimension (delivery, ai-governance, test-effectiveness, agent-quality, accessibility) changes nothing in the grade until a policy weights it: adding any opt-in issue finding, tool or metric leaves the score, letter, limiter, gates and fix-next identical.",
+      "package": "packages/projects",
+      "testFile": "packages/projects/src/health/grade-opt-in.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "Run before DEFAULT_HEALTH_WEIGHTS carried the five keys, the suite failed on its first input (a secret filed under delivery tripped the gate) and the harness test refutes the claim with the opt-in dimensions weighted."
+    },
+    {
+      "id": "LICENCE-1",
+      "statement": "Adding an `OR <allowed id>` branch to a licence expression never turns it from allowed into denied; the widened expression is always allowed.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/licence.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Making OR take the worse branch fails the property; the harness test refutes a wrong claim."
+    },
+    {
+      "id": "LICENCE-2",
+      "statement": "`A AND B` (and `B AND A`) is denied whenever A alone is denied.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/licence.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Making AND take the better operand fails the property."
+    },
+    {
+      "id": "LICENCE-3",
+      "statement": "Parsing the formatted text of a licence expression returns the same expression.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/licence.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Dropping the parentheses around compound operands in formatLicenceExpression fails the round trip."
+    },
+    {
+      "id": "DIFFCOV-1",
+      "statement": "An empty diff, or one with no executable changed line, has diff coverage null — never 100%.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/diff-coverage.property.test.ts",
+      "seed": 20261103,
+      "shownToFail": "Returning 1 for an empty denominator fails the property."
+    },
+    {
+      "id": "DIFFCOV-2",
+      "statement": "Marking one more changed executable line covered never lowers diff coverage.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/diff-coverage.property.test.ts",
+      "seed": 20261103,
+      "shownToFail": "Counting covered lines outside the diff fails the property."
+    },
+    {
+      "id": "DIFFCOV-3",
+      "statement": "parseUnifiedDiff recovers exactly the added new-file line numbers of a generated diff, with LF or CRLF, even when hunk content looks like a header.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/diff-coverage.property.test.ts",
+      "seed": 20261103,
+      "shownToFail": "Reading `+++` lines inside a hunk as headers fails the property."
+    },
+    {
+      "id": "DIFFCOV-4",
+      "statement": "Covered never exceeds executable, the ratio lies in [0, 1], and the uncovered lines listed are exactly executable minus covered.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/diff-coverage.property.test.ts",
+      "seed": 20261103,
+      "shownToFail": "Covered by the harness test."
+    },
+    {
+      "id": "CLUSTER-1",
+      "statement": "Renaming volatile tokens (numbers, UUIDs, hex, paths, timestamps, quoted data) never changes a failure's signature or the clustering.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/failure-clusters.property.test.ts",
+      "seed": 20261104,
+      "shownToFail": "Found a real defect while written: a path starting with `-/` was split in two. That input is pinned as an example."
+    },
+    {
+      "id": "CLUSTER-2",
+      "statement": "Two different root-cause templates never share a signature, whatever fills their volatile slots.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/failure-clusters.property.test.ts",
+      "seed": 20261104,
+      "shownToFail": "Emptying every quoted string, including the property after `reading`, merges two templates and fails the property."
+    },
+    {
+      "id": "FLAKE-1",
+      "statement": "A test whose decisive results are all failures is never suggested for quarantine, at any threshold.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flake-cost.property.test.ts",
+      "seed": 20261105,
+      "shownToFail": "Removing the broken-not-flaky filter in suggestQuarantine fails the property."
+    },
+    {
+      "id": "FLAKE-2",
+      "statement": "Raising minScore never adds quarantine suggestions.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flake-cost.property.test.ts",
+      "seed": 20261105,
+      "shownToFail": "Covered by the harness test."
+    },
+    {
+      "id": "FLAKE-3",
+      "statement": "A flaky score lies in [0, 1], is 0 for a test with no flaky or passed result, and does not depend on other tests' observations.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flake-cost.property.test.ts",
+      "seed": 20261105,
+      "shownToFail": "Covered by the harness test."
+    },
+    {
+      "id": "DORA-1",
+      "statement": "Change failure rate and rework rate are always in [0, 1] or null, in the current and the previous window.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/dora.property.test.ts",
+      "seed": 20261031,
+      "shownToFail": "The harness test refutes values of 1.0000001 and -0.1 with fc.check."
+    },
+    {
+      "id": "DORA-2",
+      "statement": "Adding a successful production deployment that ships no new change and is not a rollback, hotfix or unplanned deployment never raises the change failure rate.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/dora.property.test.ts",
+      "seed": 20261031,
+      "shownToFail": "Blaming a rollback on the immediately previous deployment fails the property; that counterexample is pinned."
+    },
+    {
+      "id": "DORA-3",
+      "statement": "A DORA metric resting on fewer observations than minSample is insufficient, with no value and no band.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/dora.property.test.ts",
+      "seed": 20261031,
+      "shownToFail": "Removing the sample floor fails the property."
+    },
+    {
+      "id": "FLOW-1",
+      "statement": "Every cycle-time phase and the review latency satisfy 0 <= min <= median <= p75 <= max, or are all null for an empty sample.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flow.property.test.ts",
+      "seed": 20261101,
+      "shownToFail": "Removing the coding-time clamp fails the property."
+    },
+    {
+      "id": "FLOW-2",
+      "statement": "Every directory's bus factor is between 1 and its author count.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/flow.property.test.ts",
+      "seed": 20261101,
+      "shownToFail": "An off-by-one bus factor fails the property."
+    },
+    {
+      "id": "ATTR-1",
+      "statement": "Adding a matching AI-agent signal to a commit or pull request never lowers the attribution confidence.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/ai-attribution.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "fc.check refutes a classifier that scores only the winning mode's signals; a defect in the suite's own injector is pinned as an example."
+    },
+    {
+      "id": "ATTR-2",
+      "statement": "A subject with no author identity and no signal is never classified human.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/ai-attribution.property.test.ts",
+      "seed": 20261026,
+      "shownToFail": "fc.check refutes a classifier that maps unknown to human."
+    },
+    {
+      "id": "AIGOV-1",
+      "statement": "A pull request attributed to a human is never subject to the AI-governance rules, under any policy.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/ai-governance-gate.property.test.ts",
+      "seed": 20261027,
+      "shownToFail": "fc.check refutes a gate that applies its rules to everyone."
+    },
+    {
+      "id": "EVAL-1",
+      "statement": "An identical baseline and candidate eval run is never a fail, for any run and any comparison seed.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/eval-regression.property.test.ts",
+      "seed": 20261025,
+      "shownToFail": "Comparing candidate.high <= baseline.high fails EVAL-1 and EVAL-2; the harness test refutes 'any candidate never fails' with a pinned 10/10 → 0/10 example."
+    },
+    {
+      "id": "EVAL-2",
+      "statement": "A candidate eval run whose every attempt passes never fails against any baseline.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/eval-regression.property.test.ts",
+      "seed": 20261025,
+      "shownToFail": "Adding 0.05 to the allowance fails the pinned 5000-attempt perfect baseline against a 1-attempt perfect candidate."
+    },
+    {
+      "id": "AGENT-1",
+      "statement": "For every agent, model and the overall row, p50 run latency never exceeds p95, and both are null together.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/agent-runtime.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Swapping p50 and p95 fails the property."
+    },
+    {
+      "id": "AGENT-2",
+      "statement": "Adding a span with no matching price never changes the known cost total or the priced-span count; only the unknown count rises, by one if the span is billable.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/agent-runtime.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Billing an invoke_agent span when nothing else in its trace has tokens fails the property with a shrunk counterexample."
+    },
+    {
+      "id": "AGENT-3",
+      "statement": "Every detected tool-call loop has at least max(2, threshold) consecutive execute_tool spans with the loop's tool name and argument hash.",
+      "package": "packages/reporting",
+      "testFile": "packages/reporting/src/agent-runtime.property.test.ts",
+      "seed": 20261102,
+      "shownToFail": "Hard-coding the threshold to 2 fails the property."
+    },
+    {
       "id": "DIGEST-1",
-      "statement": "Every rendering of a scheduled report fits its platform limit at any limit from 80 characters up (Telegram, Slack, plain text for WhatsApp and Signal), and a report never shows more than three items, with the rest counted.",
+      "statement": "Every rendering of a scheduled report fits its platform limit at any limit from 80 characters up (Telegram, Slack, plain text for WhatsApp and Signal), and a report never shows more than three items, with the rest counted, nor more than three area lines or three actions, with no action listed twice.",
       "package": "packages/reporting",
       "testFile": "packages/reporting/src/report.property.test.ts",
       "seed": 20261025,

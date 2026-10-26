@@ -4,13 +4,23 @@ description: >-
   pull-request gate and fails the job when the gate fails.
 
   This action runs no scanner itself. Run the ones you want earlier in the job, writing
-  SARIF (Semgrep, gitleaks, Trivy, OSV-Scanner, CodeQL, ESLint, Ruff, golangci-lint) or one
+  SARIF (Semgrep, gitleaks, Trivy, OSV-Scanner, CodeQL, ESLint, Ruff, golangci-lint), one
   of the metric formats (jscpd, scorecard, lighthouse, k6, istanbul-summary, lcov,
-  cobertura, jacoco-xml, go-coverprofile), and list the files under `reports`.
+  cobertura, jacoco-xml, go-coverprofile), or one of the evidence formats (cyclonedx-json,
+  spdx-json, vex, slsa-provenance, stryker-mutation, axe-json, git-diff, skillspector-json),
+  or one of the eval formats (promptfoo-json, deepeval-json, inspect-eval-json,
+  automate-eval-json), and list the files under `reports`.
 
   The token is an AutoMate access token with the `uploader` role, pinned to this project,
   stored as a repository secret. It can send reports to this one project and do nothing
-  else. It is passed to curl through the environment and a header file, never argv.
+  else. It is passed to curl through the environment and a header file, never argv, and only
+  to an https:// origin or a loopback http:// one: the step refuses anything else before it
+  sends, because the token would cross the network in the clear.
+
+  Optionally it also sends the repository's agent instruction and MCP configuration files
+  (`agent-config: 'true'`), and records a deployment through the delivery push door
+  (`deployment-environment`). The same four calls are the `automate` CLI in
+  `tools/automate-cli` for a pipeline that is not GitHub Actions.
 
 inputs:
   url:
@@ -35,6 +45,23 @@ inputs:
     description: Ask for the pull-request gate after uploading, and fail the job when it fails.
     required: false
     default: 'true'
+  agent-config:
+    description: >-
+      Send the agent instruction and MCP configuration files tracked in the repository
+      (AGENTS.md, CLAUDE.md, .cursor/rules, .mcp.json, SKILL.md, ...) for the agent-config
+      scan. The server applies its own list again and reports what it ignored.
+    required: false
+    default: 'false'
+  deployment-environment:
+    description: >-
+      Record a deployment of this commit to the named environment (e.g. production)
+      through the delivery push door, for the DORA scorecard. Empty: no deployment is sent.
+    required: false
+    default: ''
+  deployment-status:
+    description: 'success or ailure, for the deployment above.'
+    required: false
+    default: 'success'
 
 outputs:
   verdict:
@@ -44,6 +71,33 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Check the destination
+      shell: bash
+      env:
+        AUTOMATE_URL: ${{ inputs.url }}
+      run: |
+        set -euo pipefail
+        scheme="${AUTOMATE_URL%%://*}"
+        rest="${AUTOMATE_URL#*://}"
+        host="${rest%%/*}"
+        host="${host##*@}"
+        case "$host" in
+          \[*\]*) host="${host%%]*}"; host="${host#[}" ;;
+          *) host="${host%%:*}" ;;
+        esac
+        host="${host,,}"
+        if [ "$scheme" = "https" ]; then exit 0; fi
+        # Plain http only to a loopback host: localhost, ::1, or a numeric 127.d.d.d with each
+        # part 0-255. `units.test.ts` in tools/automate-cli holds this pattern to the CLI's
+        # isLoopbackHost, so it can never admit a host (127.evil.example) the CLI refuses.
+        # loopback-pattern:begin
+        octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+        loopback="^(localhost|::1|127\.${octet}\.${octet}\.${octet})$"
+        # loopback-pattern:end
+        if [ "$scheme" = "http" ] && [[ "$host" =~ $loopback ]]; then exit 0; fi
+        echo "::error::Refusing $scheme://$host: use https://, or http:// only to a loopback host, because the token would cross the network in the clear."
+        exit 1
+
     - name: Upload reports
       shell: bash
       env:
@@ -87,6 +141,89 @@ runs:
             fi
           done
         fi
+
+    - name: Send agent configuration
+      if: inputs.agent-config == 'true'
+      shell: bash
+      env:
+        AUTOMATE_URL: ${{ inputs.url }}
+        AUTOMATE_PROJECT: ${{ inputs.project-id }}
+        AUTOMATE_TOKEN: ${{ inputs.token }}
+        AUTOMATE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        AUTOMATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      run: |
+        set -euo pipefail
+        headers="$(mktemp)"
+        files="$(mktemp)"
+        trap 'rm -f "$headers" "$files"' EXIT
+        printf 'Authorization: Bearer %s\n' "$AUTOMATE_TOKEN" > "$headers"
+        shopt -s nocasematch
+        # The agent-config scan's paths (AGENT_CONFIG_PATHS in @automate/projects), as bash
+        # patterns. In [[ ]] a * also matches /, so **/X is X or */X; the server
+        # applies its own list again. tools/automate-cli/src/units.test.ts holds the two together.
+        # agent-config-patterns:begin
+        patterns=(
+          'AGENTS.md' '*/AGENTS.md' 'CLAUDE.md' '*/CLAUDE.md' 'CLAUDE.local.md' '*/CLAUDE.local.md'
+          'GEMINI.md' '*/GEMINI.md' '.claude/agents/*.md' '.claude/commands/*.md' '.cursorrules'
+          '.cursor/rules/*.mdc' '.github/copilot-instructions.md'
+          '.github/instructions/*.instructions.md' '.github/prompts/*.prompt.md' '.windsurfrules'
+          '.windsurf/rules/*.md' '.kiro/steering/*.md' '.kilo/agent/*.md' 'SKILL.md' '*/SKILL.md'
+          '.claude/settings.json' '.claude/settings.local.json' '.mcp.json' '.cursor/mcp.json'
+          '.vscode/mcp.json' '.kiro/settings/mcp.json' '.gemini/settings.json'
+          'claude_desktop_config.json' '*/claude_desktop_config.json'
+        )
+        # agent-config-patterns:end
+        count=0
+        while IFS= read -r -d '' path; do
+          for pattern in "${patterns[@]}"; do
+            if [[ "$path" == $pattern ]]; then
+              size="$(wc -c < "$path")"
+              if [ "$size" -gt 262144 ] || [ "$count" -ge 200 ]; then
+                echo "Skipping $path: over the size or file limit."
+              else
+                jq -Rs --arg path "$path" '{path: $path, text: .}' < "$path" >> "$files"
+                count=$((count + 1))
+              fi
+              break
+            fi
+          done
+        done < <(git ls-files -z)
+        body="$(jq -s --arg branch "$AUTOMATE_BRANCH" --arg commit "$AUTOMATE_COMMIT" \
+          '{branch: $branch, commit: $commit, files: .}' "$files")"
+        echo "Sending $count agent-config file(s)"
+        printf '%s' "$body" | curl --fail-with-body --silent --show-error -H @"$headers" \
+          -H 'content-type: application/json' --data-binary @- \
+          "${AUTOMATE_URL%/}/api/v1/projects/${AUTOMATE_PROJECT}/health/agent-config"
+        echo
+
+    - name: Record the deployment
+      if: inputs.deployment-environment != ''
+      shell: bash
+      env:
+        AUTOMATE_URL: ${{ inputs.url }}
+        AUTOMATE_PROJECT: ${{ inputs.project-id }}
+        AUTOMATE_TOKEN: ${{ inputs.token }}
+        AUTOMATE_ENVIRONMENT: ${{ inputs.deployment-environment }}
+        AUTOMATE_STATUS: ${{ inputs.deployment-status }}
+        AUTOMATE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        AUTOMATE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        AUTOMATE_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+        case "$AUTOMATE_STATUS" in
+          success|failure) ;;
+          *) echo "::error::deployment-status is success or failure, not $AUTOMATE_STATUS"; exit 1 ;;
+        esac
+        headers="$(mktemp)"
+        trap 'rm -f "$headers"' EXIT
+        printf 'Authorization: Bearer %s\n' "$AUTOMATE_TOKEN" > "$headers"
+        body="$(jq -n --arg env "$AUTOMATE_ENVIRONMENT" --arg status "$AUTOMATE_STATUS" \
+          --arg sha "$AUTOMATE_COMMIT" --arg url "$AUTOMATE_RUN_URL" --arg id "$AUTOMATE_RUN_ID" \
+          --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+          '{externalId: ($env + "-" + $id), environment: $env, status: $status, createdAt: $at, sha: $sha, url: $url}')"
+        curl --fail-with-body --silent --show-error -H @"$headers" -H 'content-type: application/json' \
+          --data "$body" "${AUTOMATE_URL%/}/api/v1/projects/${AUTOMATE_PROJECT}/delivery/deployments"
+        echo
 
     - name: Pull-request gate
       id: gate

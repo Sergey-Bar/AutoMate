@@ -21,11 +21,19 @@ import {
 } from './routes/dashboard/portfolio.js';
 import { Route as reportsRoute } from './routes/dashboard/reports.js';
 import { Route as nowRoute } from './routes/dashboard/now.js';
+import {
+  AgentsRoute,
+  AiCodeRoute,
+  DeliveryRoute,
+  Repo360Route,
+  SupplyChainRoute,
+} from './routes/dashboard/scorecards.js';
 
 const dashboardTree = dashboardRoute.addChildren([
   nowRoute,
   PortfolioRoute,
   RepoHealthRoute,
+  Repo360Route,
   AccessRoute,
   PairRoute,
   reportsRoute,
@@ -43,6 +51,10 @@ const dashboardTree = dashboardRoute.addChildren([
   HollowRoute,
   FlakyRoute,
   StructureRoute,
+  SupplyChainRoute,
+  DeliveryRoute,
+  AiCodeRoute,
+  AgentsRoute,
 ]);
 
 /**

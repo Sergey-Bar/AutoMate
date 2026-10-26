@@ -6,3 +6,7 @@ export * from './identity.js';
 export * from './execution.js';
 export * from './health.js';
 export * from './notifications.js';
+export * from './supply-chain.js';
+export * from './delivery.js';
+export * from './agents.js';
+export * from './integrations.js';

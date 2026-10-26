@@ -394,35 +394,31 @@ function Figures({
       />
       <Kpi
         data-testid="kpi-pass-rate"
-        label="Pass rate"
+        label="Pass rate · all projects"
         value={orDash(current?.passRate ?? null, (value) => value.toFixed(1))}
-        unit="%"
+        {...(current?.passRate == null ? {} : { unit: '%' })}
         footer={deltaFooter(find('passRate'))}
         spark={spark(trend, 'passRate', 'Pass rate by day', 'text-chart-line')}
       />
       <Kpi
         data-testid="kpi-runs"
-        label="Runs"
+        label="Runs · all projects"
         value={current === null ? '—' : String(current.runs)}
         footer={deltaFooter(find('runs'))}
         spark={spark(trend, 'runs', 'Runs by day', 'text-chart-1')}
       />
       <Kpi
         data-testid="kpi-duration"
-        label="Avg duration"
+        label="Avg duration · all projects"
         value={orDash(current?.avgDurationMs ?? null, formatDuration)}
         footer={deltaFooter(find('avgDurationMs'))}
         spark={spark(trend, 'avgDurationMs', 'Average duration by day', 'text-chart-2')}
       />
       <Kpi
         data-testid="kpi-flaky"
-        label="Flaky tests"
+        label="Flaky tests · all projects"
         value={current === null ? '—' : String(current.flakyTests)}
-        footer={
-          snapshot.quarantine.value === null
-            ? deltaFooter(find('flakyTests'))
-            : `${String(snapshot.quarantine.value.length)} quarantined`
-        }
+        footer={deltaFooter(find('flakyTests'))}
       />
       <Kpi
         data-testid="kpi-maturity"
@@ -695,9 +691,12 @@ export function summariseReports(reports: readonly RepoReport[]): {
   failing: number;
   findings: number;
 } {
+  // A coverage report with no `lines` figure measured nothing: it is left out of the mean,
+  // not averaged in as 0%.
   const coverage = reports
     .filter((report) => report.kind === 'coverage')
-    .map((report) => report.metrics['lines'] ?? 0);
+    .map((report) => report.metrics['lines'])
+    .filter((value): value is number => typeof value === 'number');
   const sum = (kind: RepoReport['kind'], key: string) =>
     reports
       .filter((report) => report.kind === kind)

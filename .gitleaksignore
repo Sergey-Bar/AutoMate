@@ -1,0 +1,20 @@
+# Exact gitleaks fingerprints, `<commit>:<path>:<rule>:<line>`, and nothing broader.
+#
+# A fingerprint names one finding in one commit. It cannot exempt the same text in any
+# other commit, any other line or any other file, so the tip and every future commit are
+# still scanned in full — narrower than `.config/gitleaks.toml`'s `commits` allowlist,
+# which exempts every line of a commit. `scripts/static-analysis-config-check.mjs` refuses
+# an entry that is not of exactly this shape, so this file cannot grow a path- or
+# rule-wide exemption.
+#
+# 6781127 (feat(quality): sdlc and adlc health and quality platform, PR #103) committed
+# the agent-config scanner's own test fixture, `q8Zr3Lm1Vx7Kp2Nd`, as a literal beside
+# `SERVICE_API_KEY`, `--github-token`, `--api-key=` and `--password`. It is a synthetic
+# value a test feeds the scanner, never a credential. The follow-up commit assembles it at
+# runtime (`GENERIC_SECRET` in agent-config-scan.test.ts), so the tip has no literal; the
+# commit is pushed, and rewriting a pushed branch is not this file's decision to make.
+# Reviewed 2026-10-26. Ledger: W7-27.
+678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:413
+678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:700
+678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:701
+678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:702

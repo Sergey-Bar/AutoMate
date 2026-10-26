@@ -15,7 +15,7 @@
  *   8. GET /api/v1/dashboard/runs/:runId/tests — 404 for unknown run
  *
  *  Analytics:
- *   9. GET /api/v1/dashboard/analytics/summary — empty repo → totalRuns 0, passRate 0, avgDurationMs null
+ *   9. GET /api/v1/dashboard/analytics/summary — empty repo → totalRuns 0, passRate null, avgDurationMs null
  *  10. GET /api/v1/dashboard/analytics/summary — correct pass rate from completed runs
  *  11. GET /api/v1/dashboard/analytics/summary — correct avgDurationMs
  *  12. GET /api/v1/dashboard/analytics/summary — running runs not counted in passRate
@@ -389,7 +389,7 @@ describe('GET /api/v1/dashboard/analytics/summary', () => {
 
     const body = (await jsonBody(res)) as Record<string, unknown>;
     expect(body['totalRuns']).toBe(0);
-    expect(body['passRate']).toBe(0);
+    expect(body['passRate']).toBeNull();
     expect(body['avgDurationMs']).toBeNull();
   });
 
