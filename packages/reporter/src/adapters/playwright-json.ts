@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CanonicalRunResult } from '@automate/shared-contracts';
+import { testIdentity, testRowKey, type CanonicalRunResult } from '@automate/shared-contracts';
 import type { ProducerAdapter } from '../adapter.js';
 import { canonicalRunResult } from '../canonical-run-result.js';
 import { canonicalTestStatusFrom, outcomesWithDeclaredRunStatus } from '../producer-status.js';
@@ -35,6 +35,17 @@ interface PlaywrightSpec {
 }
 interface PlaywrightReport {
   suites?: (PlaywrightSpec | null)[];
+  /** Errors outside any test: global setup, worker teardown, the runner itself. */
+  errors?: ({ message?: string } | null)[];
+}
+
+/** The report's errors outside tests, bounded as the contract bounds them. */
+function reportErrorsOf(report: PlaywrightReport): { message: string }[] {
+  return (report.errors ?? [])
+    .map((error) => (typeof error?.message === 'string' ? error.message.trim() : ''))
+    .filter((message) => message !== '')
+    .slice(0, 100)
+    .map((message) => ({ message: message.slice(0, 8_192) }));
 }
 
 /** One spec, with the suite it was found under — a spec carries no file of its own. */
@@ -42,6 +53,8 @@ interface CollectedSpec {
   spec: PlaywrightSpec;
   file: string;
   suiteTitle: string;
+  /** The `describe` titles between the file and the spec, outermost first. */
+  describePath: string[];
 }
 
 /**
@@ -58,12 +71,18 @@ interface CollectedSpec {
  * Both spellings are accepted because both occur: `suites[].specs[]` is what Playwright
  * emits and `suites[].tests[]` is what a hand-rolled wrapper produces, and neither is a
  * mistake by its author.
+ *
+ * **The describe path.** A root suite is the file (Playwright titles it with the file
+ * name), so it is not a `describe` block; every suite below it is. A spec's describe path
+ * is the titles of the suites between the root and the spec.
  */
 function collectSpecs(
   suites: (PlaywrightSpec | null)[] | undefined,
   output: CollectedSpec[] = [],
   inheritedFile = '',
   inheritedTitle = '',
+  ancestors: readonly string[] = [],
+  depth = 0,
 ): CollectedSpec[] {
   for (const suite of suites ?? []) {
     // **A `null` entry is real and common.** Playwright emits one for a project whose
@@ -77,10 +96,14 @@ function collectSpecs(
     // and is not pushed itself: it carries no attempts, and pushing it would shift every
     // ordinal after it and give a suite an evidence URI that names no test.
     if (suite.tests !== undefined && file && title) {
-      output.push({ spec: suite, file, suiteTitle: title });
+      output.push({ spec: suite, file, suiteTitle: title, describePath: [...ancestors] });
     }
-    collectSpecs(suite.specs, output, file, title);
-    collectSpecs(suite.suites, output, file, title);
+    const below =
+      depth === 0 || suite.title === undefined || suite.title === ''
+        ? ancestors
+        : [...ancestors, suite.title];
+    collectSpecs(suite.specs, output, file, title, below, depth + 1);
+    collectSpecs(suite.suites, output, file, title, below, depth + 1);
   }
   return output;
 }
@@ -196,46 +219,68 @@ export const playwrightJsonAdapter: ProducerAdapter = {
     // `trace.zip`, which Playwright emits for *every* test, is the normal case rather
     // than an unlucky one. Nothing downstream de-duplicates by URI, so both entries
     // survived carrying the same `uri` and different digests (ledger F-5).
-    const testCases = specs.flatMap(({ spec, file, suiteTitle }) =>
+    const testCases = specs.flatMap(({ spec, file, suiteTitle, describePath }) =>
       // A `null` test entry is the same crashed-project case as a `null` suite: the worker
       // died before it reported anything, and reading `test.results` on `null` would reject
       // the whole report over the one project that never ran.
       (spec.tests ?? [])
         .filter((test): test is PlaywrightTest => test !== null)
-        .map((test) => ({ test, file, suiteTitle, spec })),
+        .map((test) => ({ test, file, suiteTitle, spec, describePath })),
     );
-    const attempts = testCases.flatMap(({ test, file, suiteTitle, spec }, ordinal) => {
-      const results = test.results?.length ? test.results : [{ status: test.status }];
-      const flaky = isFlaky(test);
-      const statuses = results.map((attempt) => mapStatus(attempt.status));
-      const last = statuses[statuses.length - 1] ?? 'unknown';
-      finalOutcomes.push(flaky ? 'flaky' : last);
-      return results.map((attempt, attemptIndex) => ({
-        index: attemptIndex + 1,
-        testId: `${file}:${test.title ?? ordinal}`,
-        // The file is the *suite's*, and `collectSpecs` only pushes a pair when both the
-        // file and the title were found on the node or an ancestor. So these are present
-        // by construction. They were typed `string | undefined` and handed to
-        // `CanonicalRunResultSchema.parse`, which would have rejected the whole result —
-        // the throw is real, but it surfaced as an opaque Zod error on a
-        // legitimate-looking report rather than at the point where the invariant is
-        // established.
-        specPath: file,
-        title: test.title ?? spec.title ?? suiteTitle,
-        suite: suiteTitle,
-        // Each attempt keeps its own status: the retry history is evidence and
-        // must not be rewritten. Flakiness is recorded alongside it.
-        status: mapStatus(attempt.status),
-        rawStatus: attempt.status ?? 'unknown',
-        startedAt: attempt.startTime ?? context.startedAt,
-        finishedAt: context.finishedAt,
-        durationMs: attempt.duration,
-        error: attempt.error?.message ? { message: attempt.error.message } : undefined,
-        evidence: evidenceFor(attempt.attachments, context.runId, ordinal, attemptIndex),
-        flakiness: flaky ? ('observed' as const) : ('unknown' as const),
-      }));
-    });
+    // `--repeat-each` lists one test more than once in one report. Each occurrence is a
+    // separate row of this run with the same identity, so the n-th gets the row key
+    // `testRowKey` makes for it.
+    const occurrences = new Map<string, number>();
+    const attempts = testCases.flatMap(
+      ({ test, file, suiteTitle, spec, describePath }, ordinal) => {
+        const results = test.results?.length ? test.results : [{ status: test.status }];
+        const flaky = isFlaky(test);
+        const statuses = results.map((attempt) => mapStatus(attempt.status));
+        const last = statuses[statuses.length - 1] ?? 'unknown';
+        finalOutcomes.push(flaky ? 'flaky' : last);
+        const title = test.title ?? spec.title ?? suiteTitle;
+        const project = test.projectName ?? '';
+        const identity = testIdentity({ file, describePath, title, project });
+        const occurrence = (occurrences.get(identity) ?? 0) + 1;
+        occurrences.set(identity, occurrence);
+        const testId = testRowKey(identity, occurrence);
+        return results.map((attempt, attemptIndex) => ({
+          index: attemptIndex + 1,
+          // The shared identity (`testIdentity`), not the test's position in the report: the
+          // position changed whenever a test was added above it, and carried no project, so
+          // one test in chromium and webkit was two unrelated rows run to run.
+          testId,
+          // The file is the *suite's*, and `collectSpecs` only pushes a pair when both the
+          // file and the title were found on the node or an ancestor. So these are present
+          // by construction. They were typed `string | undefined` and handed to
+          // `CanonicalRunResultSchema.parse`, which would have rejected the whole result —
+          // the throw is real, but it surfaced as an opaque Zod error on a
+          // legitimate-looking report rather than at the point where the invariant is
+          // established.
+          specPath: file,
+          title,
+          suite: suiteTitle,
+          describePath,
+          project,
+          // Each attempt keeps its own status: the retry history is evidence and
+          // must not be rewritten. Flakiness is recorded alongside it.
+          status: mapStatus(attempt.status),
+          rawStatus: attempt.status ?? 'unknown',
+          startedAt: attempt.startTime ?? context.startedAt,
+          finishedAt: context.finishedAt,
+          durationMs: attempt.duration,
+          error: attempt.error?.message ? { message: attempt.error.message } : undefined,
+          evidence: evidenceFor(attempt.attachments, context.runId, ordinal, attemptIndex),
+          flakiness: flaky ? ('observed' as const) : ('unknown' as const),
+        }));
+      },
+    );
     if (attempts.length === 0) throw new Error('Playwright report contains no test attempts');
+    // An error outside every test failed the run even when each test passed: Playwright
+    // itself exits non-zero for it, and a run status derived from the tests alone would
+    // call that run green.
+    const reportErrors = reportErrorsOf(report);
+    if (reportErrors.length > 0) finalOutcomes.push('failed');
     // The status comes from `finalOutcomes` — one entry per *test* — not from
     // `attempts`, which holds one entry per retry. A test that failed once and then
     // passed contributes a `failed` attempt and a `flaky` outcome; deriving the run
@@ -245,6 +290,7 @@ export const playwrightJsonAdapter: ProducerAdapter = {
       {
         outcomes: outcomesWithDeclaredRunStatus(finalOutcomes, context.declaredRunStatus),
         attempts,
+        reportErrors,
         evidence: attempts.flatMap((attempt) => attempt.evidence),
         producer: 'playwright',
         verifier: 'playwright-adapter',

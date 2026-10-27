@@ -8,7 +8,7 @@ import {
 } from './flake-cost.js';
 
 /**
- * Property suite for FLAKE-1 to FLAKE-3.
+ * Property suite for FLAKE-1 to FLAKE-4.
  *
  * Fixed seed and `numRuns`. Observations are drawn over a handful of test keys so that
  * one test collects several results, which is the only way it can disagree with itself.
@@ -20,6 +20,7 @@ const observation: fc.Arbitrary<FlakeObservation> = fc.record({
   testKey: fc.constantFrom('a', 'b', 'c', 'd'),
   title: fc.constantFrom('title one', 'title two'),
   runId: fc.constantFrom('r1', 'r2', 'r3', 'r4', 'r5'),
+  commit: fc.option(fc.constantFrom('c1', 'c2', 'c3'), { nil: null }),
   status: fc.constantFrom('passed', 'failed', 'flaky', 'timed_out', 'skipped'),
   retries: fc.integer({ min: 0, max: 3 }),
   durationMs: fc.option(fc.nat({ max: 60_000 }), { nil: null }),
@@ -64,6 +65,7 @@ describe('FLAKE-1: a test whose decisive results are all failures is never sugge
                 testKey: 'a',
                 title: 't',
                 runId: 'r1',
+                commit: null,
                 status: 'failed',
                 retries: 0,
                 durationMs: 1,
@@ -73,6 +75,7 @@ describe('FLAKE-1: a test whose decisive results are all failures is never sugge
                 testKey: 'a',
                 title: 't',
                 runId: 'r2',
+                commit: null,
                 status: 'flaky',
                 retries: 1,
                 durationMs: 1,
@@ -125,6 +128,70 @@ describe('FLAKE-3: the score is a share of observations and ignores other tests'
   });
 });
 
+/**
+ * Histories in which every outcome is decided by the commit: on a given commit the test always
+ * passes or always fails, and it never passes on a retry. A code change explains every
+ * disagreement in such a history, so nothing in it may be acted on automatically.
+ */
+const deterministic: fc.Arbitrary<FlakeObservation[]> = fc
+  .record({
+    outcome: fc.record({
+      c1: fc.constantFrom('passed', 'failed', 'timed_out'),
+      c2: fc.constantFrom('passed', 'failed', 'timed_out'),
+      c3: fc.constantFrom('passed', 'failed', 'timed_out'),
+    }),
+    runs: fc.array(
+      fc.record({
+        commit: fc.constantFrom('c1', 'c2', 'c3'),
+        skipped: fc.boolean(),
+        retries: fc.integer({ min: 0, max: 3 }),
+      }),
+      { maxLength: 30 },
+    ),
+  })
+  .map(({ outcome, runs }) =>
+    runs.map((run, index) => ({
+      testKey: 'a',
+      title: 't',
+      runId: `r${String(index)}`,
+      commit: run.commit,
+      status: run.skipped
+        ? ('skipped' as const)
+        : (outcome[run.commit as keyof typeof outcome] as FlakeObservation['status']),
+      retries: run.retries,
+      durationMs: 1,
+      runBlocked: false,
+    })),
+  );
+
+describe('FLAKE-4: a deterministic failure is never eligible for automatic quarantine', () => {
+  it('holds for every history whose outcomes the commit decides', () => {
+    fc.assert(
+      fc.property(deterministic, (rows) => {
+        for (const cost of flakeCost(rows)) expect(cost.autoEligible).toBe(false);
+      }),
+      params,
+    );
+  });
+
+  it('holds for every test whose latest decisive result is a failure', () => {
+    fc.assert(
+      fc.property(observations, (rows) => {
+        for (const cost of flakeCost(rows)) {
+          const decisive = rows
+            .filter((row) => row.testKey === cost.testKey)
+            .filter((row) => row.status !== 'flaky' && row.status !== 'skipped');
+          const latest = decisive.at(-1);
+          if (latest !== undefined && latest.status !== 'passed') {
+            expect(cost.autoEligible).toBe(false);
+          }
+        }
+      }),
+      params,
+    );
+  });
+});
+
 describe('the property harness can fail', () => {
   it('refutes FLAKE-1 for a rule that quarantines any test with a flaky result', () => {
     const naive = (rows: readonly FlakeObservation[]) =>
@@ -147,6 +214,15 @@ describe('the property harness can fail', () => {
         const costs = flakeCost(rows);
         return inverted(costs, 1).length <= inverted(costs, 0.1).length;
       }),
+      params,
+    );
+    expect(result.failed).toBe(true);
+  });
+
+  it('refutes FLAKE-4 for a rule that acts on any flip of a test that has passed', () => {
+    const naive = (cost: FlakeCost) => cost.flips > 0 && cost.decisivePasses > 0;
+    const result = fc.check(
+      fc.property(deterministic, (rows) => flakeCost(rows).every((cost) => !naive(cost))),
       params,
     );
     expect(result.failed).toBe(true);

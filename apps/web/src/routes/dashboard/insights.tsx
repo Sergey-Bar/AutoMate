@@ -24,6 +24,7 @@ import { useResource } from '../../hooks/useResource.js';
 import { defaultApiClient, type ApiClient } from '../../lib/api.js';
 import { formatDuration, orDash, shortDate } from '../../lib/insights.js';
 import { createQaClient, type QaClient } from '../../lib/qa-client.js';
+import { testHistoryPath } from '../../route-manifest.js';
 import type {
   FlakyTest,
   ProjectHistory,
@@ -161,7 +162,7 @@ function InsightsGrid({
       <HistoryBody history={history} failure={historyFailure} />
     </Panel>
   );
-  const causes = <FailureClustersPanel clusters={insights.failureClusters} />;
+  const causes = <FailureClustersPanel clusters={insights.failureClusters} api={api} />;
   const suggestions = (
     <QuarantineSuggestionsPanel suggestions={insights.quarantineSuggestions} api={api} />
   );
@@ -230,6 +231,7 @@ function FlakyPanel({
       await api.addQuarantine({
         testTitle: test.title,
         testFile: test.file ?? '(unknown file)',
+        stableId: test.key,
         reason: `Flaky in Insights: ${String(test.flips)} flips, ${String(test.flaky)} retries over ${String(test.runs)} runs`,
       });
       setQuarantined((current) => new Set([...current, test.key]));
@@ -264,9 +266,13 @@ function FlakyPanel({
                   {index + 1}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm" title={test.key}>
+                  <a
+                    href={testHistoryPath(test.key)}
+                    className="block truncate text-sm text-fg underline decoration-border-strong underline-offset-4 hover:decoration-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+                    title={test.key}
+                  >
                     {test.title}
-                  </div>
+                  </a>
                   <div className="flex items-center gap-2">
                     <ScoreBar score={test.score} />
                     <span className="shrink-0 tabular-nums text-xs text-fg-muted">

@@ -32,6 +32,7 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     runId: 'run-1',
     title: 'passes',
     file: 'tests/example.spec.ts',
+    stableId: 'tests/example.spec.ts › passes',
     status: 'running',
     durationMs: null,
     errorCode: null,

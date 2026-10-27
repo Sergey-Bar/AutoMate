@@ -168,6 +168,7 @@ function makeTest(overrides: Partial<TestRecord> = {}): TestRecord {
     runId: '550e8400-e29b-41d4-a716-446655440001',
     title: 'should render login form',
     file: 'e2e/login.spec.ts',
+    stableId: 'e2e/login.spec.ts › should render login form',
     status: 'queued',
     durationMs: null,
     errorCode: null,

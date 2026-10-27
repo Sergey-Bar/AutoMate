@@ -2,6 +2,7 @@
   "name": "@automate/api",
   "private": true,
   "version": "1.0.0",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "tsx --import ./src/instrument.ts src/index.ts",

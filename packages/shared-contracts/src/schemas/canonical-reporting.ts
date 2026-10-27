@@ -103,6 +103,14 @@ const AttemptSchema = z.object({
   specPath: RelativePathSchema,
   title: z.string().min(1),
   suite: z.string().min(1).optional(),
+  /**
+   * The enclosing `describe` titles, outermost first, and the runner project (a Playwright
+   * project, a browser, a device). Together with `specPath` and `title` they are the test's
+   * identity across runs — `testIdentity` in `./test-identity.ts`. Optional and additive: a
+   * producer with no describe blocks or projects sends neither.
+   */
+  describePath: z.array(z.string()).optional(),
+  project: z.string().min(1).optional(),
   status: StatusSchema,
   rawStatus: z.string().min(1),
   startedAt: TimestampSchema,
@@ -252,6 +260,16 @@ const RunResultSchema = z
     retention: RetentionSchema,
     proof: ProofSchema,
     completeness: CompletenessSchema,
+    /**
+     * Errors the producer reported outside any test: a global setup that threw, a worker
+     * teardown, a reporter failure (Playwright's top-level `errors[]`). A run that carries
+     * one failed somewhere no test result describes, so no quarantine entry can excuse it.
+     * Optional and additive: most producers have no such channel.
+     */
+    reportErrors: z
+      .array(z.object({ message: z.string().min(1).max(8_192) }))
+      .max(100)
+      .optional(),
     raw: z.record(z.string(), z.unknown()).default({}),
   })
   .superRefine((result, ctx) => uniqueAttemptIdentity(result.attempts, ctx));

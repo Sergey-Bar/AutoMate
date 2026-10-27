@@ -432,7 +432,10 @@ export const tests = pgTable(
     file: text('file').notNull(),
     line: integer('line'),
     column: integer('column'),
-    stableId: text('stable_id'),
+    // The test's identity across runs — `testIdentity` in `@automate/shared-contracts`.
+    // NOT NULL since 0045, which backfilled it and fills it on insert for a writer that
+    // does not send it.
+    stableId: text('stable_id').notNull(),
     status: text('status', {
       // `timed_out` and `timedOut` were both accepted here. Nothing writes or
       // reads the camelCase spelling — `testStatus()` maps it to `unknown` on
@@ -487,7 +490,8 @@ export const tests = pgTable(
     primaryKey({ columns: [t.id, t.runId] }),
     index('tests_run_id_idx').on(t.runId),
     index('tests_workspace_run_idx').on(t.workspaceId, t.runId),
-    index('tests_stable_id_idx').on(t.stableId),
+    // Per-test history reads one test in one workspace, so the boundary leads (0045).
+    index('tests_workspace_stable_id_idx').on(t.workspaceId, t.stableId),
     // The enum is compile-time only, so the spellings it permits are not
     // enforced by the database. Without this a second spelling of a state can
     // reappear and split every aggregation.
@@ -560,6 +564,9 @@ export const quarantine = pgTable(
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     testTitle: text('test_title').notNull(),
     testFile: text('test_file').notNull(),
+    // The test's identity (0046). `null` for an entry recorded before identities, which
+    // matches by title and file in every project — `excuseQuarantined` in the API.
+    stableId: text('stable_id'),
     reason: text('reason'),
     // SQLite: text('quarantined_at').notNull()
     quarantinedAt: timestamp('quarantined_at', { withTimezone: true }).notNull(),
@@ -568,7 +575,7 @@ export const quarantine = pgTable(
     // from the pass rate) until a human resolves it. The previous default,
     // `approved`, meant a test entered the quarantine and was immediately
     // hidden from reporting with nobody deciding that.
-    status: text('status', { enum: ['pending', 'approved', 'rejected'] })
+    status: text('status', { enum: ['pending', 'approved', 'rejected', 'released'] })
       .notNull()
       .default('pending'),
     flakinessCategory: text('flakiness_category'),
@@ -580,8 +587,18 @@ export const quarantine = pgTable(
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
     resolutionType: text('resolution_type'),
     ttfMs: integer('ttf_ms'),
+    // 0047. When an approved entry stopped excusing its test; set exactly when `released`.
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    // 0047. The project whose test this is; `null` matches the test in any project.
+    projectId: uuid('project_id').references((): AnyPgColumn => projects.id, {
+      onDelete: 'cascade',
+    }),
   },
   (table) => [
+    check(
+      'quarantine_released_at_check',
+      sql`(${table.status} = 'released') = (${table.releasedAt} is not null)`,
+    ),
     // A time-to-fix is a claim that the problem was fixed; it cannot exist
     // without a resolution.
     check(
@@ -596,6 +613,9 @@ export const quarantine = pgTable(
     index('quarantine_quarantined_idx').on(table.quarantinedAt),
     // The listing as it now runs: one workspace, in quarantine order (0028).
     index('quarantine_workspace_quarantined_idx').on(table.workspaceId, table.quarantinedAt),
+    // 0046: the gate reads one workspace's entries for the identities a run reported.
+    index('quarantine_workspace_stable_id_idx').on(table.workspaceId, table.stableId),
+    index('quarantine_workspace_project_idx').on(table.workspaceId, table.projectId),
   ],
 );
 
@@ -718,15 +738,26 @@ export const defectCategories = pgTable('defect_categories', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 });
 
-// Source: fingerprint_categories table — maps error fingerprint to category
-export const fingerprintCategories = pgTable('fingerprint_categories', {
-  fingerprint: text('fingerprint').primaryKey(),
-  categoryId: text('category_id')
-    .notNull()
-    .references(() => defectCategories.id, { onDelete: 'cascade' }),
-  // SQLite: text('assigned_at').notNull()
-  assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull(),
-});
+// Source: fingerprint_categories table — a workspace's triage label for a failure signature.
+// Workspace-scoped since 0048: a label is a team's decision about its own failures.
+export const fingerprintCategories = pgTable(
+  'fingerprint_categories',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    /** `failureSignature` from `@automate/reporting`. */
+    fingerprint: text('fingerprint').notNull(),
+    categoryId: text('category_id')
+      .notNull()
+      .references(() => defectCategories.id, { onDelete: 'cascade' }),
+    // SQLite: text('assigned_at').notNull()
+    assignedAt: timestamp('assigned_at', { withTimezone: true }).notNull(),
+    issueUrl: text('issue_url'),
+    labelledBy: text('labelled_by').notNull().default('manual'),
+  },
+  (t) => [primaryKey({ columns: [t.workspaceId, t.fingerprint] })],
+);
 
 // ─── NL query history ────────────────────────────────────────────────────
 // Source: nl_query_history table — NL→SQL query history

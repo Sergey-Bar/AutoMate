@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { K6_JSON_ADAPTER } from './adapters/k6-json.js';
 import { ZAP_XML_ADAPTER } from './adapters/zap-xml.js';
+import { allureResultsAdapter } from './adapters/allure-results.js';
 import { junitXmlAdapter } from './adapters/junit-xml.js';
 import { playwrightJsonAdapter } from './adapters/playwright-json.js';
 import { COVERAGE_ADAPTERS } from './adapters/coverage.js';
@@ -57,6 +58,15 @@ const RESULT_ADAPTERS: ReadonlyArray<readonly [string, ProducerAdapter, Uint8Arr
     ZAP_XML_ADAPTER,
     new TextEncoder().encode(
       '<OWASPZAPReport version="2.14.0"><site name="a" host="https://a.example"><alerts/></site></OWASPZAPReport>',
+    ),
+  ],
+  [
+    'allure',
+    allureResultsAdapter,
+    new TextEncoder().encode(
+      JSON.stringify([
+        { name: 'a', status: 'passed', start: 1_790_000_000_000, stop: 1_790_000_000_100 },
+      ]),
     ),
   ],
 ];

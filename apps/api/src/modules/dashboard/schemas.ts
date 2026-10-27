@@ -38,6 +38,9 @@ export const AddQuarantineEntryBodySchema = z
   .object({
     testTitle: z.string().trim().min(1).max(500),
     testFile: z.string().trim().min(1).max(500),
+    // The test's identity (`testIdentity`), as the insights page and the API report it. An
+    // entry without one matches the title and file in every project.
+    stableId: z.string().min(1).max(2_000).nullish(),
     // Optional, and explicitly nullable: the store's column is nullable and a
     // caller sending `null` means "no reason given" rather than "omit the field".
     reason: z.string().max(2_000).nullish(),
@@ -78,25 +81,28 @@ export type PatchRunStatusBody = z.infer<typeof PatchRunStatusBodySchema>;
  * because the *transition* rule is the part no other declaration carries, and
  * because `quarantine-status.test.ts` proves the three agree.
  */
-export const QUARANTINE_STATUSES = ['pending', 'approved', 'rejected'] as const;
+export const QUARANTINE_STATUSES = ['pending', 'approved', 'rejected', 'released'] as const;
 
 export type QuarantineStatus = (typeof QUARANTINE_STATUSES)[number];
 
 /**
  * Legal transitions, as one table.
  *
- * `pending → approved | rejected` and nothing else. A resolved entry stays
- * resolved: re-opening a rejection would silently un-decide a decision somebody
- * made, and there is no record of which state it was in before, so the reversal
- * could not even be reported. A no-op transition to the same status is permitted
- * so a retry of an idempotent PATCH is not an error.
+ * `pending → approved | rejected`, and `approved → released`. A rejection stays rejected:
+ * re-opening it would silently un-decide a decision somebody made. An approval is released
+ * when its test has stopped needing it — by a person, or by the auto-quarantine policy after
+ * the test passed cleanly enough times in a row (migration 0047). A release is the end: the
+ * test counts again, and quarantining it again is a new entry with its own reason. A no-op
+ * transition to the same status is permitted so a retry of an idempotent PATCH is not an
+ * error.
  */
 export const QUARANTINE_TRANSITIONS: Readonly<
   Record<QuarantineStatus, readonly QuarantineStatus[]>
 > = {
   pending: ['pending', 'approved', 'rejected'],
-  approved: ['approved'],
+  approved: ['approved', 'released'],
   rejected: ['rejected'],
+  released: ['released'],
 };
 
 export function canTransitionQuarantine(from: QuarantineStatus, to: QuarantineStatus): boolean {
@@ -106,12 +112,15 @@ export function canTransitionQuarantine(from: QuarantineStatus, to: QuarantineSt
 export const ResolveQuarantineBodySchema = z
   .object({
     status: z.enum(QUARANTINE_STATUSES).refine((status) => status !== 'pending', {
-      message: 'status must be approved or rejected; use POST to quarantine, not to re-open one',
+      message:
+        'status must be approved, rejected or released; use POST to quarantine, not to re-open one',
     }),
     // A resolution that removes a test from the pass rate is a claim somebody made,
     // so the reason is required rather than optional.
     resolution: z.string().trim().min(1).max(2_000),
-    resolutionType: z.enum(['fixed', 'fixed_with_skip', 'not_reproducible', 'waived']).optional(),
+    resolutionType: z
+      .enum(['fixed', 'fixed_with_skip', 'not_reproducible', 'waived', 'auto-released'])
+      .optional(),
   })
   .strict();
 

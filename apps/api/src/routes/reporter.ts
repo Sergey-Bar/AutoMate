@@ -33,7 +33,11 @@
  */
 import { Hono, type Context } from 'hono';
 import { domainErrorResponse } from '../errors/boundary.js';
-import { DomainError } from '../errors/domain-error.js';
+import { DomainError, isDomainError } from '../errors/domain-error.js';
+import { decodeArtifactBytes } from '../http/artifact-bytes.js';
+import { DEFAULT_MAX_ARTIFACT_BYTES } from '../infrastructure/s3-artifact-bytes.js';
+import type { ExecutionStore } from '../execution/types.js';
+import { MAX_EXECUTION_BODY_BYTES, artifactKind, safeName } from './execution/shared.js';
 import { bodyLimit } from 'hono/body-limit';
 import { z } from 'zod/v4';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -51,8 +55,10 @@ import {
   REPORT_FORMATS,
   type ReportFormat,
   type ReportFormatId,
+  type CanonicalRunResult,
 } from '@automate/shared-contracts';
 import {
+  allureResultsAdapter,
   junitXmlAdapter,
   K6_JSON_ADAPTER,
   legacyUploadAdapter,
@@ -255,6 +261,7 @@ function adapterForFormat(id: ReportFormatId): ProducerAdapter {
     'playwright-json': playwrightJsonAdapter,
     'k6-json': K6_JSON_ADAPTER,
     'zap-xml': ZAP_XML_ADAPTER,
+    'allure-results': allureResultsAdapter,
     'legacy-upload': legacyUploadAdapter,
   };
   return adapters[id];
@@ -323,6 +330,9 @@ function producerContextFor(document: UploadDocument, workspaceId: string): Prod
   const finishedAt = optionalField(document.fields, 'finishedAt');
   return {
     workspaceId,
+    ...(optionalField(document.fields, 'projectId') === undefined
+      ? {}
+      : { projectId: optionalField(document.fields, 'projectId') }),
     // The caller's run identity, or a name derived from the document rather than invented:
     // `uploaded-run` was the old fallback and a *third* identity for the same run when the
     // body did not carry one. A document with no run id is still identifiable — by its own
@@ -349,10 +359,40 @@ function documentDigest(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-interface UploadDocument {
+export interface UploadDocument {
   bytes: Uint8Array;
   /** Multipart form fields, which carry the cohort and the caller's run identity. */
   fields: Record<string, string>;
+}
+
+/**
+ * A report, parsed by the adapter its declared format (or its shape) names, into the
+ * canonical result. **The one place an uploaded report is read**: `/api/v1/reporter/upload`
+ * and the CLI's `POST /api/v1/projects/:id/tests/reports` both call it, so a report means the
+ * same thing whichever door it arrived at.
+ */
+export function parseUploadDocument(
+  document: UploadDocument,
+  workspaceId: string,
+): CanonicalRunResult {
+  const adapter = pickAdapter(document);
+  assertFormatMatches(adapter, document);
+  try {
+    return adapter.parse(document.bytes, producerContextFor(document, workspaceId));
+  } catch (cause) {
+    // **The adapter's refusal travels, because it is about the caller's own document.**
+    // Every adapter names its refusals — "JUnit report contains no test cases",
+    // "Reporter upload declares no test rows" — and this door used to answer *every*
+    // malformed report with "invalid payload", which gave the person fixing it nothing
+    // to act on and turned a one-line fix into a support ticket. `cause` is never
+    // returned; the message is copied into `details`, and both come from the bytes the
+    // caller just sent, so there is nothing here the caller has not already seen.
+    const message = cause instanceof Error ? cause.message : 'Unreadable reporter upload';
+    throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload', {
+      details: { adapterMessage: message },
+      cause,
+    });
+  }
 }
 
 /**
@@ -482,7 +522,33 @@ export interface ReporterRouteOptions {
    */
   allowQueryToken?: boolean;
   artifactStore?: { putAt(key: string, bytes: Uint8Array): Promise<void> };
+  /**
+   * Where a live reporter's traces, screenshots and videos land: the execution store, so
+   * they are the run's artifacts and `GET /api/v1/runs/:runId/artifacts` serves them.
+   *
+   * In database mode the reporter's runs and the execution store's runs are one `runs`
+   * table, so a run the events door created is a run this store holds. In memory they
+   * are two stores, and the artifact door answers NOT_FOUND rather than inventing a run.
+   */
+  artifacts?: Pick<ExecutionStore, 'getRun' | 'addArtifact'>;
+  /** The decoded-size ceiling for one artifact. Defaults to the artifact store's own. */
+  maxArtifactBytes?: number;
 }
+
+/**
+ * The live reporter's artifact body. JSON with base64 bytes, the shape the runner's job
+ * artifact door already takes, so the decode rules are one module rather than two.
+ */
+const ReporterArtifactSchema = z.object({
+  testId: z.string().min(1).max(2_000).optional(),
+  name: z.string().min(1).max(255),
+  kind: z.string().min(1).max(32),
+  contentType: z.string().min(1).max(255),
+  bytesBase64: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const ARTIFACT_PATH = /^\/api\/v1\/reporter\/runs\/[^/]+\/artifacts$/u;
 
 // ---------------------------------------------------------------------------
 // Route factory
@@ -543,17 +609,17 @@ export function createReporterRoutes(
   options?: ReporterRouteOptions,
 ): Hono {
   const app = new Hono();
-  app.use(
-    '*',
-    bodyLimit({
-      maxSize: MAX_UPLOAD_BYTES,
-      // A hook must *return*, so it renders through the boundary's one exported
-      // renderer rather than throwing — and the body is the same shape every other
-      // refusal in this API produces.
-      onError: (c) =>
-        domainErrorResponse(c, new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large')),
-    }),
-  );
+  // A hook must *return*, so it renders through the boundary's one exported renderer
+  // rather than throwing — and the body is the same shape every other refusal in this
+  // API produces.
+  const tooLarge = (c: Context) =>
+    domainErrorResponse(c, new DomainError('PAYLOAD_TOO_LARGE', 'Request body too large'));
+  const eventLimit = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: tooLarge });
+  // An artifact is base64 in JSON, so its body is the execution routes' ceiling, which is
+  // sized to carry the largest artifact the store accepts once encoded. A trace is
+  // routinely larger than the 5 MiB an event or a report may be.
+  const artifactLimit = bodyLimit({ maxSize: MAX_EXECUTION_BODY_BYTES, onError: tooLarge });
+  app.use('*', (c, next) => (ARTIFACT_PATH.test(c.req.path) ? artifactLimit : eventLimit)(c, next));
 
   // ------------------------------------------------------------------
   // Auth middleware — guards all /api/v1/reporter/* paths
@@ -633,29 +699,7 @@ export function createReporterRoutes(
     }
 
     const document = await readUploadDocument(c);
-    const adapter = pickAdapter(document);
-    assertFormatMatches(adapter, document);
-
-    let result: ReturnType<ProducerAdapter['parse']>;
-    try {
-      result = adapter.parse(
-        document.bytes,
-        producerContextFor(document, options.workspaceId ?? DEFAULT_WORKSPACE_ID),
-      );
-    } catch (cause) {
-      // **The adapter's refusal travels, because it is about the caller's own document.**
-      // Every adapter names its refusals — "JUnit report contains no test cases",
-      // "Reporter upload declares no test rows" — and this door used to answer *every*
-      // malformed report with "invalid payload", which gave the person fixing it nothing
-      // to act on and turned a one-line fix into a support ticket. `cause` is never
-      // returned; the message is copied into `details`, and both come from the bytes the
-      // caller just sent, so there is nothing here the caller has not already seen.
-      const message = cause instanceof Error ? cause.message : 'Unreadable reporter upload';
-      throw new DomainError('INVALID_REPORTER_UPLOAD', 'Invalid reporter upload payload', {
-        details: { adapterMessage: message },
-        cause,
-      });
-    }
+    const result = parseUploadDocument(document, options.workspaceId ?? DEFAULT_WORKSPACE_ID);
 
     const ingested = await ingestCanonicalResult(result, {
       store: options.canonicalStore,
@@ -701,6 +745,57 @@ export function createReporterRoutes(
       },
       202,
     );
+  });
+
+  // ------------------------------------------------------------------
+  // POST /api/v1/reporter/runs/:runId/artifacts
+  // ------------------------------------------------------------------
+  app.post('/api/v1/reporter/runs/:runId/artifacts', async (c) => {
+    const store = options?.artifacts;
+    if (store === undefined) {
+      throw new DomainError('NOT_CONFIGURED', 'Reporter artifact storage is not configured', {
+        callerSafe: true,
+      });
+    }
+    const parsed = ReporterArtifactSchema.safeParse(await readJsonObject(c));
+    if (!parsed.success) {
+      throw new DomainError('INVALID_ARTIFACT', 'Artifact metadata is invalid', {
+        details: { fieldErrors: parsed.error.flatten().fieldErrors },
+      });
+    }
+    const runId = c.req.param('runId');
+    const run = await store.getRun(runId, options?.workspaceId ?? DEFAULT_WORKSPACE_ID);
+    if (run === null) throw new DomainError('RUN_NOT_FOUND', 'Run not found');
+    const decoded = decodeArtifactBytes(
+      parsed.data.bytesBase64,
+      options?.maxArtifactBytes ?? DEFAULT_MAX_ARTIFACT_BYTES,
+    );
+    if (!decoded.ok)
+      throw new DomainError(decoded.code, decoded.message, { details: decoded.details });
+    const name = safeName(parsed.data.name);
+    try {
+      const descriptor = await store.addArtifact({
+        runId: run.id,
+        // No job: a live reporter is not a runner and holds no lease. The column is
+        // nullable for exactly this, and the run's workspace is read from the run.
+        jobId: null,
+        testId: parsed.data.testId ?? null,
+        kind: artifactKind(parsed.data.kind),
+        name,
+        contentType: parsed.data.contentType,
+        storageKey: `runs/${run.id}/${randomUUID()}-${name}`,
+        expiresAt: null,
+        legalHold: false,
+        metadata: { ...parsed.data.metadata, source: 'reporter' },
+        bytes: decoded.bytes,
+      });
+      return c.json(descriptor, 201);
+    } catch (failure) {
+      // The same rule as the runner's door: an unreachable object store is not a bad
+      // request, and a reporter told 400 would not retry.
+      if (isDomainError(failure)) throw failure;
+      throw new DomainError('ARTIFACT_STORAGE_FAILED', 'Artifact storage is unavailable');
+    }
   });
 
   return app;

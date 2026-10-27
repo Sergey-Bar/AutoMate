@@ -47,6 +47,7 @@ export const REPORT_PRODUCERS = [
   'robot',
   'k6',
   'zap',
+  'allure',
   'sarif',
   'otel',
   'generic',
@@ -104,6 +105,13 @@ export const REPORT_FORMATS = [
     detectable: true,
   },
   { id: 'legacy-upload', producer: 'legacy', encoding: 'json', spellings: [], detectable: false },
+  {
+    id: 'allure-results',
+    producer: 'allure',
+    encoding: 'json',
+    spellings: ['allure', 'allure-results'],
+    detectable: false,
+  },
 ] as const;
 
 export type ReportFormatId = (typeof REPORT_FORMATS)[number]['id'];

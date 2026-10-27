@@ -232,8 +232,14 @@ describe('appendEvents: how events fold into the run', () => {
     ]);
     const run = await f.store.getRun(f.runId);
     expect(run?.tests).toEqual([
-      { id: 't1', title: 'First', file: 'a.spec.ts', status: 'running' },
-      { id: 't2', title: 't2', file: null, status: 'running' },
+      {
+        id: 't1',
+        title: 'First',
+        file: 'a.spec.ts',
+        stableId: 'a.spec.ts › First',
+        status: 'running',
+      },
+      { id: 't2', title: 't2', file: null, stableId: ' › t2', status: 'running' },
     ]);
     expect(run?.summary.total).toBe(2);
   });
@@ -251,6 +257,7 @@ describe('appendEvents: how events fold into the run', () => {
         id: 't1',
         title: 't1',
         file: null,
+        stableId: ' › t1',
         status: 'failed',
         durationMs: 12,
         error: { code: 'EXECUTION_ERROR', message: 'boom' },
@@ -274,12 +281,29 @@ describe('appendEvents: how events fold into the run', () => {
     ]);
     const run = await f.store.getRun(f.runId);
     expect(run?.tests).toEqual([
-      { id: 'a', title: 'a', file: null, status: 'timed_out', durationMs: 5, error: null },
-      { id: 'b', title: 'B', file: 'f.ts', status: 'unknown', durationMs: null, error: null },
+      {
+        id: 'a',
+        title: 'a',
+        file: null,
+        stableId: ' › a',
+        status: 'timed_out',
+        durationMs: 5,
+        error: null,
+      },
+      {
+        id: 'b',
+        title: 'B',
+        file: 'f.ts',
+        stableId: 'f.ts › B',
+        status: 'unknown',
+        durationMs: null,
+        error: null,
+      },
       {
         id: 'c',
         title: 'c',
         file: null,
+        stableId: ' › c',
         status: 'flaky',
         durationMs: null,
         error: { code: 'E1', message: 'm' },
@@ -288,11 +312,20 @@ describe('appendEvents: how events fold into the run', () => {
         id: 'd',
         title: 'd',
         file: null,
+        stableId: ' › d',
         status: 'skipped',
         durationMs: null,
         error: { code: 'EXECUTION_ERROR', message: 'Execution failed' },
       },
-      { id: 'e', title: 'e', file: null, status: 'running', durationMs: null, error: null },
+      {
+        id: 'e',
+        title: 'e',
+        file: null,
+        stableId: ' › e',
+        status: 'running',
+        durationMs: null,
+        error: null,
+      },
     ]);
   });
 

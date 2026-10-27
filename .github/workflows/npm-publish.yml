@@ -1,0 +1,59 @@
+name: Publish npm packages
+
+# Pushing a `v*` tag publishes every workspace package that is not `private` to npm, at the
+# tag's version, with a provenance attestation. The list is not written here: it is every
+# package.json without `"private": true`, which `scripts/lib/npm-publish-workflow.test.mjs`
+# checks, so making a package public is one edit to its package.json.
+#
+# Publishing needs an `NPM_TOKEN` secret with publish rights on the `@automate` scope. Without
+# one the job builds, tests and packs, records the gap in the summary, and stops before
+# publishing rather than failing the release.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.x
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build, test and pack each public package
+        run: node ./scripts/npm-publish.mjs --tag "$GITHUB_REF_NAME" --pack
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo '- GAP npm: no NPM_TOKEN secret; packages were built and packed, not published.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node ./scripts/npm-publish.mjs --tag "$GITHUB_REF_NAME" --publish

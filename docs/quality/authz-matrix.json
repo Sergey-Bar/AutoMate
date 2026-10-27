@@ -8,12 +8,12 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 12,
-    "viewer": 74,
-    "operator": 30,
+    "admin": 13,
+    "viewer": 78,
+    "operator": 32,
     "open": 14,
     "runner-credential": 9,
-    "reporter-secret": 10,
+    "reporter-secret": 13,
     "enrollment-token": 1,
     "runner-registration-secret": 1
   },
@@ -296,6 +296,14 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/modules/dashboard/tests.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/tests/history",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/modules/dashboard/test-history.test.ts",
       "composition": "always"
     },
     {
@@ -907,6 +915,30 @@
       "composition": "database"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/quarantine",
+      "access": "viewer",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/:id/quarantine/policy",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/projects/:id/quarantine/policy",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/quarantine-policy-service.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/projects/:id/run.start",
       "access": "operator",
@@ -923,6 +955,14 @@
       "composition": "database"
     },
     {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/shards/plan",
+      "access": "reporter-secret",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/shard-plan.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "GET",
       "path": "/api/v1/projects/:id/supply-chain/scorecard",
       "access": "viewer",
@@ -936,6 +976,14 @@
       "access": "viewer",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/scorecards.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/:id/tests/reports",
+      "access": "reporter-secret",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/test-reports.test.ts",
       "composition": "database"
     },
     {
@@ -1024,6 +1072,14 @@
       "access": "reporter-secret",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/reporter-results.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/reporter/runs/:runId/artifacts",
+      "access": "reporter-secret",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/reporter-artifacts.test.ts",
       "composition": "always"
     },
     {
@@ -1193,6 +1249,30 @@
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/orchestration.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/triage-labels",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/triage-labels",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/triage-labels",
+      "access": "operator",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/services/triage-label-service.test.ts",
+      "composition": "database"
     },
     {
       "method": "POST",

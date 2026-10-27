@@ -332,3 +332,160 @@ describe('failure clusters and quarantine suggestions', () => {
     ).toEqual([]);
   });
 });
+
+describe('test identity across Playwright projects', () => {
+  /** One test, run in chromium (always passes) and webkit (always fails), on three runs. */
+  function browsers(createdAt: string): ExecutionRun {
+    return run(createdAt, 'failed', [
+      {
+        id: 'pays [chromium]',
+        title: 'pays',
+        file: 'a.spec.ts',
+        status: 'passed',
+        durationMs: 10,
+        stableId: 'a.spec.ts › pays [chromium]',
+      },
+      {
+        id: 'pays [webkit]',
+        title: 'pays',
+        file: 'a.spec.ts',
+        status: 'failed',
+        durationMs: 10,
+        stableId: 'a.spec.ts › pays [webkit]',
+        error: { message: 'Safari only' },
+      },
+    ]);
+  }
+
+  it('reads a webkit-only failure as broken, not flaky', () => {
+    const insights = buildInsights(
+      [
+        browsers('2026-10-18T08:00:00.000Z'),
+        browsers('2026-10-19T08:00:00.000Z'),
+        browsers('2026-10-20T08:00:00.000Z'),
+      ],
+      NOW,
+      7,
+      false,
+    );
+    // Keyed on `file › title`, the two projects were one test that flipped on every
+    // observation: score 1, the top of the leaderboard, and a quarantine suggestion.
+    expect(insights.flakyLeaderboard).toEqual([]);
+    expect(insights.quarantineSuggestions?.suggestions ?? []).toEqual([]);
+    expect(insights.failureClusters?.clusters[0]?.tests).toEqual(['a.spec.ts › pays [webkit]']);
+  });
+
+  it('falls back to the legacy key for a result recorded before the identity existed', () => {
+    const insights = buildInsights(
+      [
+        run('2026-10-18T08:00:00.000Z', 'passed', [test('old', 'flaky')]),
+        run('2026-10-19T08:00:00.000Z', 'passed', [test('old', 'passed')]),
+      ],
+      NOW,
+      7,
+      false,
+    );
+    expect(insights.flakyLeaderboard[0]?.key).toBe('a.spec.ts › old');
+  });
+});
+
+describe('which flake evidence automation may act on', () => {
+  const at = (day: number, hour: number) =>
+    `2026-10-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:00:00.000Z`;
+
+  it('never makes a test that was broken and then fixed on a branch eligible', () => {
+    const history = [
+      ['a1', 'passed'],
+      ['b2', 'failed'],
+      ['b2', 'failed'],
+      ['c3', 'passed'],
+      ['c3', 'passed'],
+      ['c3', 'passed'],
+    ] as const;
+    const insights = buildInsights(
+      history.map(([commit, status], index) =>
+        run(at(15 + index, 8), status === 'passed' ? 'passed' : 'failed', [test('pays', status)], {
+          commit,
+          branch: 'fix/pay',
+        }),
+      ),
+      NOW,
+      7,
+      false,
+    );
+    const [suggestion] = insights.quarantineSuggestions?.suggestions ?? [];
+    // It is still ranked and suggested for a person to read: it did disagree with itself.
+    expect(suggestion?.testKey).toBe('a.spec.ts › pays');
+    expect(suggestion?.autoEligible).toBe(false);
+    expect(suggestion?.evidence).toEqual({ retryPasses: 0, sameCommit: 0, crossCommitFlips: 2 });
+  });
+
+  it('makes a test that passed on a retry eligible', () => {
+    const statuses = ['passed', 'flaky', 'passed', 'flaky', 'passed'] as const;
+    const insights = buildInsights(
+      statuses.map((status, index) =>
+        run(
+          at(15 + index, 8),
+          'passed',
+          [{ ...test('pays', status), attempt: status === 'flaky' ? 2 : 1 }],
+          {
+            commit: 'a1',
+          },
+        ),
+      ),
+      NOW,
+      7,
+      false,
+    );
+    const [suggestion] = insights.quarantineSuggestions?.suggestions ?? [];
+    expect(suggestion?.autoEligible).toBe(true);
+    expect(suggestion?.evidence?.retryPasses).toBe(2);
+  });
+});
+
+describe('triage labels on failure causes', () => {
+  it('labels every recurrence of a labelled cause and counts the failures nobody labelled', async () => {
+    const store = new InMemoryExecutionStore();
+    const failing = (message: string): ExecutionTestResult => ({
+      ...test(message.slice(0, 8), 'failed'),
+      error: { message },
+    });
+    store.listRuns = async () => ({
+      runs: [
+        run('2026-10-19T08:00:00.000Z', 'failed', [
+          failing('Timeout 5000ms exceeded'),
+          failing('expected 1 to be 2'),
+        ]),
+        // A new failure with the same cause, after the label was given.
+        run('2026-10-20T08:00:00.000Z', 'failed', [failing('Timeout 7000ms exceeded')]),
+      ],
+      hasMore: false,
+    });
+    const app = createInsightsRoutes({
+      store,
+      workspaceId: 'w',
+      now: () => NOW,
+      labels: async () => [
+        {
+          signature: 'timeout <n>ms exceeded',
+          category: 'environment',
+          issueUrl: 'https://tracker.example/OPS-1',
+          labelledAt: '2026-10-19T09:00:00.000Z',
+          labelledBy: 'user:ana',
+        },
+      ],
+    });
+    const insights = QaInsightsSchema.parse(
+      await (await app.request('/api/v1/dashboard/insights?days=7')).json(),
+    );
+    const timeout = insights.failureClusters?.clusters.find((cluster) =>
+      cluster.signature.startsWith('timeout'),
+    );
+    expect(timeout?.count).toBe(2);
+    expect(timeout?.label).toEqual({
+      category: 'environment',
+      issueUrl: 'https://tracker.example/OPS-1',
+    });
+    expect(insights.failureClusters?.totals.unlabelled).toBe(1);
+  });
+});

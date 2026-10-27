@@ -11,6 +11,7 @@ import { Route as healthRoute } from './routes/dashboard/health.js';
 import { Route as mapRoute } from './routes/dashboard/map.js';
 import { Route as toolboxRoute } from './routes/dashboard/toolbox.js';
 import { Route as quarantineRoute } from './routes/dashboard/quarantine.js';
+import { Route as testHistoryRoute } from './routes/dashboard/test-history.js';
 import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
 import {
@@ -46,6 +47,7 @@ const dashboardTree = dashboardRoute.addChildren([
   toolboxRoute,
   analyticsRoute,
   quarantineRoute,
+  testHistoryRoute,
   scoreRoute,
   GapsRoute,
   HollowRoute,

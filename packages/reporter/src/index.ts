@@ -32,6 +32,7 @@ export * from './adapters/legacy-upload.js';
  */
 export * from './adapters/k6-json.js';
 export * from './adapters/zap-xml.js';
+export * from './adapters/allure-results.js';
 export {
   COVERAGE_ADAPTERS,
   parseCoverage,

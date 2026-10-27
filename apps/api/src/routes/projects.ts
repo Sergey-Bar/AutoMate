@@ -68,6 +68,14 @@ import { createDeliveryRoutes } from './delivery.js';
 import { createGitHubWebhookRoutes } from './github-webhook.js';
 import { createIssueTrackingRoutes } from './issue-tracking.js';
 import { createTestProposalRoutes } from './test-proposals.js';
+import { createTestReportRoutes, type TestReportSink } from './test-reports.js';
+import { createShardPlanRoutes } from './shard-plan.js';
+import type { RunRepository } from '../repositories/run-repository.js';
+import {
+  createProjectQuarantineRoutes,
+  type ProjectQuarantineSource,
+} from './project-quarantine.js';
+import { createTriageLabelRoutes } from './triage-labels.js';
 import type { IssueAdapters } from '../services/issue-tracker-service.js';
 import { createRepoHealthRoutes, type RepoHealthRouteOptions } from './repo-health.js';
 
@@ -153,6 +161,21 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * proposal is a GenAI span. `null` when no provider is configured: proposals are refused.
    */
   testProposals?: { gateway: AiGateway | null; provider: string | null };
+  /**
+   * Where a CI job's test report is recorded and what quarantine it is judged against.
+   * Absent: `POST /api/v1/projects/:id/tests/reports` is not mounted.
+   */
+  testReports?: TestReportSink;
+  /**
+   * The run history a shard plan reads its durations from. Absent:
+   * `POST /api/v1/projects/:id/shards/plan` answers NOT_CONFIGURED.
+   */
+  shardHistory?: Pick<RunRepository, 'fileDurations'>;
+  /**
+   * The quarantine store and the run history a project's quarantine view and its
+   * auto-quarantine policy read. Absent: the view answers NOT_CONFIGURED.
+   */
+  quarantine?: ProjectQuarantineSource;
 }
 
 const DAY_MS = 86_400_000;
@@ -251,6 +274,15 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   };
   const viewer = requireRole('viewer', access);
   const operator = requireRole('operator', access);
+  /** Whether the project is registered in this workspace. */
+  const projectExists = async (projectId: string): Promise<boolean> =>
+    getProject(options, projectId).then(
+      () => true,
+      (error: unknown) => {
+        if (error instanceof DomainError && error.code === ErrorCode.NOT_FOUND) return false;
+        throw error;
+      },
+    );
   app.route(
     '/',
     createAccessRoutes({
@@ -346,6 +378,55 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   );
   // AI-written code: read-only scorecards over what the delivery sync attributed.
   app.route('/', createAiCodeRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // A CI job's test report and the quarantine verdict `automate test` acts on. Mounted
+  // always, so the authz matrix lists it; without its stores it answers NOT_CONFIGURED.
+  app.route(
+    '/',
+    createProjectQuarantineRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      viewer,
+      admin: requireRole('admin', access),
+      actorOf: async (context) => (await callerOf(context, access)).actor,
+      source: options.quarantine,
+    }),
+  );
+  app.route(
+    '/',
+    createTriageLabelRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      viewer,
+      operator,
+      actorOf: async (context) => (await callerOf(context, access)).actor,
+    }),
+  );
+  app.route(
+    '/',
+    createTestReportRoutes({
+      sink: options.testReports,
+      workspaceId: options.workspaceId,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      projectExists,
+    }),
+  );
+  // Which files each CI shard runs: the same CI credential, one step before the report.
+  app.route(
+    '/',
+    createShardPlanRoutes({
+      repository: options.shardHistory,
+      uploader: uploaderGuard({
+        access,
+        reporterSecret: options.health?.reporterSecret,
+        requireReporterSecret: options.health?.requireReporterSecret,
+      }),
+      projectExists,
+    }),
+  );
   // Supply chain and test effectiveness, and the heatmap of every project. Read-only.
   app.route(
     '/',

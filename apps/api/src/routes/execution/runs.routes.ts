@@ -128,6 +128,7 @@ export function registerRunRoutes(app: Hono, context: ExecutionRouteContext): vo
       policy,
       domainStatuses: domainStatusesFromRun(run),
       evaluatedAt: run.completedAt ?? undefined,
+      quarantined: await options.store.quarantined(ws),
     });
     return c.json({ ...evaluation, recorded: false });
   });

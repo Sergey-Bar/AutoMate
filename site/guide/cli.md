@@ -34,6 +34,15 @@ automate upload --format slsa-provenance --file provenance.json --digest sha256:
 # The pull-request gate: exits 1 when it fails, printing every reason
 automate gate --branch "$BRANCH" --commit "$SHA" --pr 42
 
+# Run the tests, send the report, and keep the command's exit code unless every failure is an
+# approved quarantined test. The command runs without a shell; on Windows, `-- cmd /c npx …`.
+automate test --format playwright-json --report results.json -- npx playwright test --reporter=json
+
+# Which files this shard runs, balanced by how long each took. Never drops a file: if the plan
+# cannot be had, it prints them all. Every shard of one CI run sends the commit time as the
+# history cut-off (override with --as-of), so separate shards get one plan.
+npx playwright test $(automate shard --total 4 --index 2 -- $(git ls-files 'e2e/*.spec.ts'))
+
 # A deployment, through the delivery push door, for the DORA scorecard.
 # Also: --id, --url, --created-at, and the switches --rollback, --hotfix, --unplanned
 automate deploy --environment production --status success --sha "$SHA"

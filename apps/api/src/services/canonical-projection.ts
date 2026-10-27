@@ -15,7 +15,7 @@
  * this one was in two files for the whole life of the product.
  */
 
-import type { CanonicalRunResult } from '@automate/shared-contracts';
+import { testIdentity, type CanonicalRunResult } from '@automate/shared-contracts';
 import { deriveRunState } from '../execution/phase-outcome.js';
 import type { RunOutcome, RunPhase } from '../execution/types.js';
 import { normaliseFailure } from './reporter-persistence.js';
@@ -98,6 +98,7 @@ interface TestProjection {
   testId: string;
   specPath: string;
   title: string;
+  stableId: string;
   status: TestStatus;
   durationMs: number | null;
   error: { message: string; code?: string | undefined } | undefined;
@@ -138,6 +139,15 @@ function testsFrom(result: CanonicalRunResult): TestProjection[] {
       testId,
       specPath: final.specPath,
       title: final.title,
+      // The identity across runs, from what the producer said about the test rather than
+      // from `testId`: an adapter's `testId` is a row key inside one report, and for a
+      // report recorded before adapters used the shared identity it was a position.
+      stableId: testIdentity({
+        file: final.specPath,
+        describePath: final.describePath,
+        title: final.title,
+        project: final.project,
+      }),
       status: flaky ? 'flaky' : TEST_STATUS_BY_CANONICAL[final.status],
       durationMs: final.durationMs ?? null,
       error: final.error,
@@ -190,6 +200,9 @@ export function projectCanonicalRun(
       durationMs: result.durationMs ?? null,
       branch: result.provenance.branch ?? null,
       commitSha: result.provenance.commitSha ?? null,
+      // The project the producer's identity names, so a commit's tests can be found per
+      // project. Absent stays absent: `undefined` leaves `runs.project_id` as it was.
+      ...(result.identity.projectId === undefined ? {} : { projectId: result.identity.projectId }),
       triggeredBy: options.triggeredBy ?? 'upload',
     },
     tests: tests.map((test) => ({
@@ -197,6 +210,7 @@ export function projectCanonicalRun(
       runId: result.identity.runId,
       title: test.title,
       file: test.specPath,
+      stableId: test.stableId,
       status: test.status,
       durationMs: test.durationMs,
       // The same bound, the same marker and the same `null`-for-none convention the event
@@ -223,7 +237,15 @@ const RUN_FIELDS = [
   'skipped',
 ] as const;
 
-const TEST_FIELDS = ['title', 'file', 'status', 'durationMs', 'errorCode', 'errorMessage'] as const;
+const TEST_FIELDS = [
+  'title',
+  'file',
+  'stableId',
+  'status',
+  'durationMs',
+  'errorCode',
+  'errorMessage',
+] as const;
 
 function runDifferences(expected: CanonicalProjection['run'], stored: RunRecord): string[] {
   return RUN_FIELDS.filter((field) => stored[field] !== expected[field]).map(

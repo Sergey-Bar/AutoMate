@@ -95,6 +95,10 @@ export interface CanonicalAttemptInput {
    */
   finishedAt?: string;
   suite?: string;
+  /** The enclosing `describe` titles, outermost first; see `testIdentity`. */
+  describePath?: string[];
+  /** The runner project the attempt ran under, such as a Playwright project. */
+  project?: string;
   durationMs?: number;
   error?: { message: string };
   evidence?: CanonicalAttempt['evidence'];
@@ -120,6 +124,8 @@ export interface CanonicalRunResultInput {
    * `status`.
    */
   truncated?: boolean;
+  /** Errors the producer reported outside any test; see `RunResultSchema.reportErrors`. */
+  reportErrors?: readonly { message: string }[];
   /** The producer writing the result, e.g. `'playwright'` or `'junit'`. */
   producer: string;
   /** A human-readable name for this adapter, recorded in `proof.verifier`. */
@@ -150,6 +156,10 @@ export function canonicalRunResult(
     specPath: attempt.specPath,
     title: attempt.title,
     suite: attempt.suite,
+    ...(attempt.describePath === undefined ? {} : { describePath: attempt.describePath }),
+    ...(attempt.project === undefined || attempt.project === ''
+      ? {}
+      : { project: attempt.project }),
     status: attempt.status,
     rawStatus: attempt.rawStatus,
     startedAt: attempt.startedAt,
@@ -205,6 +215,9 @@ export function canonicalRunResult(
       missingShards: [],
       duplicateShards: [],
     },
+    ...(input.reportErrors === undefined || input.reportErrors.length === 0
+      ? {}
+      : { reportErrors: input.reportErrors }),
     raw: {},
   });
 }

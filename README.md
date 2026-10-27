@@ -22,7 +22,8 @@ dashboard.
 
 - **One result model for every producer.** Retries are recorded as `flaky`, not as passes.
 - **Quality gates** that answer `unknown` or `not_configured` instead of quietly passing.
-- **Quarantine** for flaky tests, with a required reason and an audit trail — set aside, never hidden.
+- **Quarantine** for flaky tests, with a required reason and an audit trail — set aside, never hidden. A quarantined failure excuses itself at the gate and in CI (`automate test`), and an optional per-project policy quarantines on retry-pass evidence and releases after a clean streak.
+- **Live Playwright reporter and balanced CI shards.** `@automate/playwright-reporter` streams a run with failure traces; `automate shard` splits files by measured duration. An Allure results importer is on the upload door. See [how AutoMate compares](site/guide/compare.md), including what it does not do.
 - **Live run updates** over server-sent events, and a runner that executes declared commands outside the API process.
 - **A "Now" page** that answers "what needs me?" in five items or fewer, with focus mode, compact density, reduced motion and keyboard shortcuts (`?` lists them).
 - **Scheduled reports**, daily, weekly or custom, to Slack, Microsoft Teams, Telegram, WhatsApp, Signal or the built-in inbox — see [scheduled reports](site/guide/notifications.md).

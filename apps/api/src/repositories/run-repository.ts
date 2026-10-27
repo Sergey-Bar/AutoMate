@@ -154,6 +154,12 @@ export interface RunRecord {
   durationMs: number | null;
   branch: string | null;
   commitSha: string | null;
+  /**
+   * The project the run is about, when its writer knew it (`runs.project_id`). Optional:
+   * the reporter event door names no project, and a run attributed to none is not
+   * attributed to an invented one.
+   */
+  projectId?: string | null;
   triggeredBy: string;
 }
 
@@ -174,6 +180,13 @@ export interface TestRecord {
   runId: string;
   title: string;
   file: string;
+  /**
+   * The test's identity across runs (`testIdentity` in `@automate/shared-contracts`), which
+   * `tests.stable_id` holds. Required, so a writer cannot forget it: every writer of a
+   * test row derives it from what the producer said, and the `0045` backfill wrote the
+   * legacy identity for every row before it.
+   */
+  stableId: string;
   status: TestStatus;
   durationMs: number | null;
   /**
@@ -374,4 +387,29 @@ export interface RunRepository {
    * grouped. An empty `runIds` issues no query at all.
    */
   listTestsForRuns(runIds: readonly string[]): Promise<Map<string, TestRecord[]>>;
+
+  /**
+   * The latest run of a project on a commit, by start time, or `null`. What the pull-request
+   * comment reads to say how the commit's tests went.
+   */
+  latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null>;
+
+  /**
+   * One test's results across runs, newest first, from the `(workspace_id, stable_id)` index:
+   * results of runs started at or after `since` and before `before`, at most `limit`.
+   */
+  testHistory(
+    stableId: string,
+    page: { since: Date; before?: Date; limit: number },
+  ): Promise<Array<{ run: RunRecord; test: TestRecord }>>;
+
+  /**
+   * How long each file's tests took in the project's most recent runs that finished at or
+   * before `asOf`, at most `runs` of them: per file, one sum of its test durations per run,
+   * newest run first. What a shard plan is made from.
+   */
+  fileDurations(
+    projectId: string,
+    window: { asOf: Date; runs: number },
+  ): Promise<{ runs: number; files: Map<string, number[]> }>;
 }

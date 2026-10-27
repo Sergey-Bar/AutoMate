@@ -1,4 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { storedTestIdentity, testIdentity } from '@automate/shared-contracts';
+import type { QuarantineMatch } from './quarantine-excusal.js';
 import { digestOf, tokenMatches } from './digest.js';
 import { normalizeArtifactKind } from './artifact-kind.js';
 import { createGateEvaluation, defaultPolicy } from './quality-gate.js';
@@ -350,7 +352,14 @@ function applyCompletionToRun(
   const phase = completionPhase(status, completion.phase);
   const claimed = completionOutcome(status, completion.outcome);
   const derived = deriveRunState(phase, claimed);
-  if (completion.tests) run.tests = clone(completion.tests);
+  if (completion.tests) {
+    // The same identity the Drizzle store writes to `tests.stable_id`, so the two stores
+    // cannot read one completion as two different tests.
+    run.tests = clone(completion.tests).map((test) => ({
+      ...test,
+      stableId: storedTestIdentity(test),
+    }));
+  }
   run.summary = resolveSummary(clone(completion.summary), run.tests);
   run.phase = derived.phase;
   run.outcome = derived.outcome;
@@ -481,11 +490,22 @@ function numberOr(value: unknown, fallback: number): number {
 function newTestFrom(
   id: string,
   payload: Record<string, unknown>,
-): Pick<ExecutionTestResult, 'id' | 'title' | 'file'> {
+): Pick<ExecutionTestResult, 'id' | 'title' | 'file' | 'stableId'> {
+  const title = String(payload['title'] ?? id);
+  const file = payload['file'] === undefined ? null : String(payload['file']);
   return {
     id,
-    title: String(payload['title'] ?? id),
-    file: payload['file'] === undefined ? null : String(payload['file']),
+    title,
+    file,
+    // As `DrizzleExecutionStore.upsertTestFromEvent` derives it.
+    stableId: testIdentity({
+      file: file ?? '',
+      describePath: Array.isArray(payload['describePath'])
+        ? payload['describePath'].filter((part): part is string => typeof part === 'string')
+        : [],
+      title,
+      project: typeof payload['project'] === 'string' ? payload['project'] : null,
+    }),
   };
 }
 
@@ -589,10 +609,12 @@ export class InMemoryExecutionStore implements ExecutionStore {
   );
   private readonly now: () => Date;
   private readonly leaseDurationMs: number;
+  private readonly quarantineSource: ExecutionStoreOptions['quarantined'];
 
   constructor(options: ExecutionStoreOptions = {}) {
     this.now = options.now ?? (() => new Date());
     this.leaseDurationMs = options.leaseDurationMs ?? options.leaseMs ?? DEFAULT_LEASE_MS;
+    this.quarantineSource = options.quarantined;
   }
 
   async createRun(
@@ -1052,8 +1074,13 @@ export class InMemoryExecutionStore implements ExecutionStore {
         run,
         policy,
         domainStatuses: { browser: browserGateStatus(run.outcome) },
+        quarantined: await this.quarantined(run.workspaceId),
       }),
     );
+  }
+
+  async quarantined(workspaceId: string): Promise<readonly QuarantineMatch[]> {
+    return (await this.quarantineSource?.(workspaceId)) ?? [];
   }
 
   async addArtifact(
@@ -1204,6 +1231,7 @@ export class InMemoryExecutionStore implements ExecutionStore {
           run: latest,
           policy,
           domainStatuses: { browser: defaultBrowserStatus(latest) },
+          quarantined: await this.quarantined(workspaceId),
         }),
       );
     }

@@ -227,6 +227,12 @@ export function makeApi(overrides: Partial<ApiClient> = {}): ApiClient {
       status: 'pending',
     })),
     subscribeToRunEvents: vi.fn(() => () => undefined),
+    getTestHistory: vi.fn(async () => {
+      throw new Error('not stubbed');
+    }),
+    setTriageLabel: vi.fn(async () => {
+      throw new Error('not stubbed');
+    }),
   };
   return { ...base, ...overrides };
 }
@@ -1302,6 +1308,8 @@ export function makeHealthDouble(
     getSettings: vi.fn(never),
     setSchedule: vi.fn(never),
     setAlerts: vi.fn(never),
+    getProjectQuarantine: vi.fn(never),
+    setQuarantinePolicy: vi.fn(never),
     ...overrides,
   };
 }

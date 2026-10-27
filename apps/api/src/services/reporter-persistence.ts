@@ -14,6 +14,7 @@
  */
 import { z } from 'zod/v4';
 import { safeRelativePath } from '@automate/reporter';
+import { testIdentity } from '@automate/shared-contracts';
 import type { NormalizedReporterEvent } from '../routes/reporter.js';
 import {
   DEFAULT_WORKSPACE_ID,
@@ -62,6 +63,10 @@ const TestBeginPayloadSchema = z
     testId: z.string().min(1),
     title: z.string().default(''),
     file: z.string().default(''),
+    // The rest of the test's identity (`testIdentity`). A reporter that runs one test in
+    // several projects sends the project, or the projects read as one test.
+    describePath: z.array(z.string().max(1_000)).max(50).optional(),
+    project: z.string().max(200).optional(),
   })
   .passthrough();
 
@@ -244,12 +249,19 @@ async function persistTestBegin(
   const parsed = TestBeginPayloadSchema.safeParse(event.payload);
   if (!parsed.success) return false;
   const p = parsed.data;
+  // Apply path safety to the file field (user-supplied)
+  const file = sanitizeAttachmentPath(p.file);
   await repo.upsertTest({
     id: p.testId,
     runId: event.runId,
     title: p.title,
-    // Apply path safety to the file field (user-supplied)
-    file: sanitizeAttachmentPath(p.file),
+    file,
+    stableId: testIdentity({
+      file,
+      describePath: p.describePath,
+      title: p.title,
+      project: p.project,
+    }),
     status: 'running',
     durationMs: null,
     // A test that has not finished has no reason. Written explicitly rather than

@@ -17,7 +17,8 @@ import {
   runs,
   tests,
 } from '@automate/db';
-import { EVENT_VERSION } from '@automate/shared-contracts';
+import { EVENT_VERSION, storedTestIdentity, testIdentity } from '@automate/shared-contracts';
+import type { QuarantineMatch } from './quarantine-excusal.js';
 import { sanitizeOutboxEnvelope } from '../infrastructure/outbox-sanitizer.js';
 // The one declaration of the byte-store port. This file used to declare its own
 // `ArtifactBytesStore` with two of the three methods, structurally compatible with
@@ -268,6 +269,11 @@ function mapTest(row: DbRow): ExecutionTestResult {
     id: stringValue(row['id']),
     title: stringValue(row['title'], 'Untitled test'),
     file: nullableString(row['file']),
+    stableId: storedTestIdentity({
+      stableId: nullableString(row['stableId']),
+      file: nullableString(row['file']),
+      title: stringValue(row['title'], 'Untitled test'),
+    }),
     // A row written before migration 0007 with the camelCase spelling still
     // reads as a timeout, not as an unobserved test. Normalising on the way out
     // means the fix is correct even for a database the migration has not reached.
@@ -1373,14 +1379,25 @@ export class DrizzleExecutionStore implements ExecutionStore {
         ? 'running'
         : dbTestStatus(String(payload['status'] ?? 'unknown') as ExecutionTestResult['status']);
     const testDuration = numberValue(payload['durationMs'], 0) || null;
+    const testTitle = stringValue(payload['title'], testId);
+    const testFile = stringValue(payload['file'], '');
+    const stableId = testIdentity({
+      file: testFile,
+      describePath: Array.isArray(payload['describePath'])
+        ? payload['describePath'].filter((part): part is string => typeof part === 'string')
+        : [],
+      title: testTitle,
+      project: typeof payload['project'] === 'string' ? payload['project'] : null,
+    });
     await tx
       .insert(tests)
       .values({
         id: testId,
         runId,
         workspaceId,
-        title: stringValue(payload['title'], testId),
-        file: stringValue(payload['file'], ''),
+        title: testTitle,
+        file: testFile,
+        stableId,
         status: testStatus,
         durationMs: testDuration,
         retryCount: 0,
@@ -1388,7 +1405,10 @@ export class DrizzleExecutionStore implements ExecutionStore {
       .onConflictDoUpdate({
         target: [tests.id, tests.runId],
         set: {
-          title: stringValue(payload['title'], testId),
+          title: testTitle,
+          // Only from an event that names the test: a `test.completed` carrying just its
+          // id and status must not replace the identity `test.started` wrote.
+          ...(typeof payload['title'] === 'string' ? { stableId } : {}),
           status: testStatus,
           durationMs: testDuration,
         },
@@ -1525,6 +1545,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
               workspaceId: job.workspaceId,
               title: test.title,
               file: test.file ?? '',
+              stableId: storedTestIdentity(test),
               status: dbTestStatus(test.status),
               durationMs: test.durationMs ?? null,
               retryCount: Math.max(0, (test.attempt ?? 1) - 1),
@@ -1534,6 +1555,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
               target: [tests.id, tests.runId],
               set: {
                 title: test.title,
+                stableId: storedTestIdentity(test),
                 status: dbTestStatus(test.status),
                 durationMs: test.durationMs ?? null,
                 // On conflict as well as insert: a retry reported over the same
@@ -1632,10 +1654,15 @@ export class DrizzleExecutionStore implements ExecutionStore {
           run,
           policy,
           domainStatuses: { browser: browserGateStatus(run.outcome) },
+          quarantined: await this.quarantined(run.workspaceId),
         }),
       );
     }
     return { run, job, status: result.duplicate ? 'duplicate' : 'accepted' };
+  }
+
+  async quarantined(workspaceId: string): Promise<readonly QuarantineMatch[]> {
+    return (await this.options.quarantined?.(workspaceId)) ?? [];
   }
 
   async addArtifact(
@@ -1960,6 +1987,7 @@ export class DrizzleExecutionStore implements ExecutionStore {
           run: mapped,
           policy,
           domainStatuses: { browser: browserGateStatus(mapped.outcome) },
+          quarantined: await this.quarantined(workspaceId),
         }),
       );
     }

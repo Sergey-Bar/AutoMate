@@ -97,6 +97,7 @@ describe('quarantine suggestions', () => {
       expect(api.addQuarantine).toHaveBeenCalledWith({
         testTitle: 'logs in',
         testFile: 'e2e/login.spec.ts',
+        stableId: 'e2e/login.spec.ts › logs in',
         reason: 'Flipped 3 times in 6 runs and cost 4 retries',
       }),
     );
@@ -158,5 +159,76 @@ describe('the insights page', () => {
     );
     expect(await screen.findByTestId('clusters-summary')).toHaveTextContent('6 failures, 2 causes');
     expect(screen.getByTestId('quarantine-suggestion')).toBeInTheDocument();
+  });
+});
+
+describe('labelling a failure cause', () => {
+  const clusters = {
+    clusters: [
+      {
+        signature: 'timeout <n>ms exceeded',
+        errorType: 'TimeoutError',
+        sampleMessage: 'Timeout 5000ms exceeded',
+        count: 3,
+        tests: ['a.spec.ts › pays'],
+        branches: ['main'],
+        runs: 3,
+        firstSeen: '2026-10-18T00:00:00.000Z',
+        lastSeen: '2026-10-20T00:00:00.000Z',
+        label: null,
+      },
+    ],
+    totals: { failures: 3, causes: 1, unlabelled: 3 },
+    summary: '3 failures, 1 cause',
+  };
+
+  it('labels the cause by its signature and says how many failures are unlabelled', async () => {
+    const setTriageLabel = vi.fn(async () => ({
+      signature: 'timeout <n>ms exceeded',
+      category: 'environment' as const,
+      issueUrl: null,
+      labelledAt: '2026-10-26T00:00:00.000Z',
+      labelledBy: 'user:ana',
+    }));
+    render(
+      <ToastProvider>
+        <FailureClustersPanel clusters={clusters} api={{ setTriageLabel }} />
+      </ToastProvider>,
+    );
+    expect(screen.getByTestId('clusters-summary')).toHaveTextContent(
+      '3 failures, 1 cause · 3 unlabelled',
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Label this cause' }), {
+      target: { value: 'environment' },
+    });
+    await waitFor(() =>
+      expect(setTriageLabel).toHaveBeenCalledWith({
+        signature: 'timeout <n>ms exceeded',
+        category: 'environment',
+      }),
+    );
+    expect(await screen.findByText('Labelled Environment')).toBeInTheDocument();
+  });
+
+  it('puts the label back when the server refuses it', async () => {
+    const setTriageLabel = vi.fn(async () => {
+      throw Object.assign(new Error('refused'), { detail: 'Only an operator can label' });
+    });
+    render(
+      <ToastProvider>
+        <FailureClustersPanel
+          clusters={{
+            ...clusters,
+            clusters: [{ ...clusters.clusters[0]!, label: { category: 'test', issueUrl: null } }],
+          }}
+          api={{ setTriageLabel }}
+        />
+      </ToastProvider>,
+    );
+    const select = screen.getByRole('combobox', { name: 'Label this cause' });
+    expect(select).toHaveValue('test');
+    fireEvent.change(select, { target: { value: 'product' } });
+    expect(await screen.findByText('Only an operator can label')).toBeInTheDocument();
+    await waitFor(() => expect(select).toHaveValue('test'));
   });
 });

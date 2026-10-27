@@ -25,9 +25,9 @@
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
     "total": 83,
-    "global": 13,
-    "workspaceScoped": 70,
-    "workspaceScopedWithHardBoundary": 70,
+    "global": 12,
+    "workspaceScoped": 71,
+    "workspaceScopedWithHardBoundary": 71,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -85,9 +85,9 @@
       "reason": "Controlled vocabulary, shared by every tenant. The same category ids must mean the same thing across workspaces or cross-workspace reporting is meaningless."
     },
     "fingerprint_categories": {
-      "scope": "global",
-      "column": "absent",
-      "reason": "Controlled vocabulary, same reasoning as `defect_categories`."
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A triage label is a team decision about its own failures: which cause is an environment problem, which is a known issue and where it is tracked. Global with no writer until `0048_triage_labels.sql` (ledger MKT-5), which scoped it with the hard boundary: `workspace_id` NOT NULL, a `restrict` key onto `workspaces`, and a primary key leading with it. Isolation: `apps/api/src/services/triage-label-service.test.ts`."
     },
     "failure_taxonomy_rules": {
       "scope": "global",

@@ -19,6 +19,7 @@ import {
   renderGateComment,
   reportToGitHub,
   signWebhook,
+  testsSection,
   diffCoverageLine,
   lineRanges,
 } from './health-integrations.js';
@@ -177,6 +178,46 @@ describe('the pull-request comment', () => {
       renderGateComment({ ...report, delivery: delivery('insufficient', null) }),
     ).not.toContain('DORA');
     expect(renderGateComment({ ...report, delivery: null })).not.toContain('DORA');
+  });
+
+  it('says which failures are quarantined, which are not, and which flaky tests nobody has', () => {
+    const tests = {
+      runId: 'r',
+      total: 40,
+      passed: 36,
+      failed: 2,
+      flaky: 2,
+      reportErrors: 0,
+      excused: false,
+      quarantinedFailures: ['a.spec.ts › pays [webkit]'],
+      failures: ['a.spec.ts › refunds`|'],
+      flakyUnquarantined: ['b.spec.ts › lists'],
+      unlabelledFailures: 0,
+    };
+    expect(testsSection(tests)).toEqual([
+      '**Tests**',
+      '',
+      '40 tests: 36 passed, 2 failed, 2 flaky.',
+      '- Failed: `a.spec.ts › refunds  `',
+      '- Failed, quarantined: `a.spec.ts › pays [webkit]`',
+      '- Flaky, not quarantined: `b.spec.ts › lists`',
+    ]);
+    const excused = testsSection({ ...tests, excused: true, failures: [], failed: 1 });
+    expect(excused).toContain('- Failed, quarantined (excused): `a.spec.ts › pays [webkit]`');
+    expect(testsSection({ ...tests, reportErrors: 2 })[3]).toBe(
+      '- 2 error(s) outside the tests: nothing in this run is excused',
+    );
+    // One section in the comment, and none when there is no run for the commit.
+    expect(renderGateComment({ ...report, tests })).toContain('**Tests**');
+    expect(renderGateComment({ ...report, tests: null })).not.toContain('**Tests**');
+    const many = testsSection({
+      ...tests,
+      failures: Array.from({ length: 12 }, (_, index) => `t${String(index)}`),
+    });
+    expect(many[3]).toMatch(/…and 2 more$/u);
+    expect(testsSection({ ...tests, unlabelledFailures: 3 }).at(-1)).toBe(
+      '- 3 failure(s) whose cause has no triage label',
+    );
   });
 
   it('creates the comment the first time and updates it after', async () => {

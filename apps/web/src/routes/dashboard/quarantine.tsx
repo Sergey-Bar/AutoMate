@@ -45,6 +45,8 @@ const QUARANTINE_STATUS_TONE: Partial<Record<QuarantineEntry['status'], BadgePro
   approved: 'success',
   rejected: 'danger',
   pending: 'warning',
+  // Released: the test counts again. Neutral, because nothing is left to decide.
+  released: 'default',
 };
 
 const UNKNOWN_STATUS_TONE = 'default';

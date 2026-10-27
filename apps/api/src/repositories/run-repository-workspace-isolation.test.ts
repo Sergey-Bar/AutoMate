@@ -98,6 +98,7 @@ function test(runId: string, overrides: Partial<TestRecord> = {}): TestRecord {
     runId,
     title: 'login works',
     file: 'e2e/login.spec.ts',
+    stableId: 'e2e/login.spec.ts › login works',
     status: 'running',
     durationMs: null,
     errorCode: null,

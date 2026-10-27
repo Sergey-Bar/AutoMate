@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CanonicalRunResultSchema } from '@automate/shared-contracts';
+import { CanonicalRunResultSchema, testIdentity } from '@automate/shared-contracts';
 import { junitXmlAdapter, MAX_MESSAGE_CHARS } from './adapters/junit-xml.js';
 
 const context = {
@@ -177,9 +177,11 @@ describe('JUnit adapter', () => {
     for (const attempt of result.attempts) {
       byTest.set(attempt.testId, [...(byTest.get(attempt.testId) ?? []), attempt.index]);
     }
-    expect(byTest.get('checkout:adds to cart')).toEqual([1, 2]);
+    const key = (title: string) =>
+      testIdentity({ file: 'unknown.spec.ts', describePath: ['checkout'], title });
+    expect(byTest.get(key('adds to cart'))).toEqual([1, 2]);
     // A test that ran once is still attempt 1, and unaffected by a neighbour's retry.
-    expect(byTest.get('checkout:refunds')).toEqual([1]);
+    expect(byTest.get(key('refunds'))).toEqual([1]);
   });
 
   it('produces a result the canonical contract accepts, retries and all', () => {
@@ -377,5 +379,21 @@ describe('a JUnit report that is not valid XML', () => {
       'own.bru',
       'unknown.spec.ts',
     ]);
+  });
+});
+
+describe('JUnit test identity', () => {
+  it('is the shared identity, with the classname as the describe path', () => {
+    const result = junitXmlAdapter.parse(
+      new TextEncoder().encode(
+        '<testsuite><testcase classname="Guest" file="tests/pay.spec.ts" name="pays"/><testcase classname="Member" file="tests/pay.spec.ts" name="pays"/></testsuite>',
+      ),
+      context,
+    );
+    expect(result.attempts.map((attempt) => attempt.testId)).toEqual([
+      testIdentity({ file: 'tests/pay.spec.ts', describePath: ['Guest'], title: 'pays' }),
+      testIdentity({ file: 'tests/pay.spec.ts', describePath: ['Member'], title: 'pays' }),
+    ]);
+    expect(result.attempts[1]?.describePath).toEqual(['Member']);
   });
 });

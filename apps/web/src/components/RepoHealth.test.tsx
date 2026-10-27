@@ -172,6 +172,8 @@ function client(overrides: Partial<HealthClient> = {}): HealthClient {
       scanners: ['gitleaks'],
     })),
     setAlerts: vi.fn(async () => undefined),
+    getProjectQuarantine: vi.fn(async () => Promise.reject(new Error('not stubbed'))),
+    setQuarantinePolicy: vi.fn(async () => Promise.reject(new Error('not stubbed'))),
     issuePairingCode: vi.fn(async () => ({
       id: 'p1',
       code: '042137',

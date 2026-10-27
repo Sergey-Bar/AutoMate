@@ -236,6 +236,7 @@ describe('the gate can fail', () => {
       runId: stored.identity.runId,
       title: 'never ran',
       file: 'tests/ghost.spec.ts',
+      stableId: 'tests/ghost.spec.ts › never ran',
       status: 'passed',
       durationMs: null,
       errorCode: null,

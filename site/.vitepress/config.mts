@@ -77,6 +77,7 @@ export default defineConfig({
           { text: 'Agent quality', link: '/guide/agents' },
           { text: 'Issues and test proposals', link: '/guide/issues-and-test-proposals' },
           { text: 'Send results from any CI (CLI)', link: '/guide/cli' },
+          { text: 'How AutoMate compares', link: '/guide/compare' },
           { text: 'Ask your editor (MCP)', link: '/guide/mcp' },
           { text: 'Serve your network (LAN mode)', link: '/guide/lan-mode' },
           { text: 'Scheduled reports', link: '/guide/notifications' },

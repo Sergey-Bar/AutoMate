@@ -4,10 +4,11 @@
  * Implements all 8 methods of the RunRepository interface using Drizzle ORM
  * against the runs and tests tables from @automate/db.
  */
-import { eq, and, sql, asc, inArray, type SQL } from 'drizzle-orm';
+import { eq, and, sql, asc, desc, gte, lt, lte, inArray, type SQL } from 'drizzle-orm';
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
 import type { PgliteQueryResultHKT } from 'drizzle-orm/pglite';
 import { runs, tests } from '@automate/db';
+import { storedTestIdentity } from '@automate/shared-contracts';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import {
   toPersistedStatus,
@@ -143,6 +144,7 @@ export class DrizzleRunRepository implements RunRepository {
         durationMs: run.durationMs ?? null,
         branch: run.branch ?? null,
         commitSha: run.commitSha ?? null,
+        ...(run.projectId === undefined ? {} : { projectId: run.projectId }),
         triggeredBy: run.triggeredBy,
       })
       .onConflictDoUpdate({
@@ -168,6 +170,7 @@ export class DrizzleRunRepository implements RunRepository {
           durationMs: run.durationMs ?? null,
           branch: run.branch ?? null,
           commitSha: run.commitSha ?? null,
+          ...(run.projectId === undefined ? {} : { projectId: run.projectId }),
           triggeredBy: run.triggeredBy,
         },
         setWhere: eq(runs.workspaceId, this.workspaceId),
@@ -293,6 +296,7 @@ export class DrizzleRunRepository implements RunRepository {
         workspaceId: this.workspaceId,
         title: test.title,
         file: test.file,
+        stableId: test.stableId,
         status: test.status,
         durationMs: test.durationMs ?? null,
         errorCode: test.errorCode,
@@ -303,6 +307,7 @@ export class DrizzleRunRepository implements RunRepository {
         set: {
           title: test.title,
           file: test.file,
+          stableId: test.stableId,
           status: test.status,
           durationMs: test.durationMs ?? null,
           // Cleared on conflict as well as set: a retry reported over the same
@@ -388,6 +393,93 @@ export class DrizzleRunRepository implements RunRepository {
     return grouped;
   }
 
+  async latestRunForCommit(projectId: string, commitSha: string): Promise<RunRecord | null> {
+    const rows = await this.db
+      .select()
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, this.workspaceId),
+          eq(runs.projectId, projectId),
+          eq(runs.commitSha, commitSha),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(1);
+    const row = rows[0];
+    return row === undefined ? null : this._mapRun(row);
+  }
+
+  async testHistory(
+    stableId: string,
+    page: { since: Date; before?: Date; limit: number },
+  ): Promise<Array<{ run: RunRecord; test: TestRecord }>> {
+    // The index is `(workspace_id, stable_id)` on `tests`; the run join is on its primary
+    // key, and both sides carry the workspace, so nothing here can read across it.
+    const rows = await this.db
+      .select({ run: runs, test: tests })
+      .from(tests)
+      .innerJoin(runs, and(eq(runs.id, tests.runId), eq(runs.workspaceId, this.workspaceId)))
+      .where(
+        and(
+          eq(tests.workspaceId, this.workspaceId),
+          eq(tests.stableId, stableId),
+          gte(runs.startedAt, page.since),
+          ...(page.before === undefined ? [] : [lt(runs.startedAt, page.before)]),
+        ),
+      )
+      .orderBy(desc(runs.startedAt))
+      .limit(page.limit);
+    return rows.map((row) => ({ run: this._mapRun(row.run), test: this._mapTest(row.test) }));
+  }
+
+  async fileDurations(
+    projectId: string,
+    window: { asOf: Date; runs: number },
+  ): Promise<{ runs: number; files: Map<string, number[]> }> {
+    const recent = await this.db
+      .select({ id: runs.id })
+      .from(runs)
+      .where(
+        and(
+          eq(runs.workspaceId, this.workspaceId),
+          eq(runs.projectId, projectId),
+          lte(runs.finishedAt, window.asOf),
+        ),
+      )
+      .orderBy(desc(runs.finishedAt), desc(runs.id))
+      .limit(window.runs);
+    const files = new Map<string, number[]>();
+    if (recent.length === 0) return { runs: 0, files };
+    const order = new Map(recent.map((run, index) => [run.id, index]));
+    const rows = await this.db
+      .select({
+        runId: tests.runId,
+        file: tests.file,
+        total: sql<string>`sum(${tests.durationMs})`,
+      })
+      .from(tests)
+      .where(
+        and(
+          eq(tests.workspaceId, this.workspaceId),
+          inArray(
+            tests.runId,
+            recent.map((run) => run.id),
+          ),
+          sql`${tests.durationMs} is not null`,
+          sql`${tests.file} <> ''`,
+        ),
+      )
+      .groupBy(tests.runId, tests.file);
+    // Newest run first, as the in-memory repository answers: the database's group order is
+    // not an order, and a median does not care but a reader comparing the two does.
+    rows.sort((left, right) => (order.get(left.runId) ?? 0) - (order.get(right.runId) ?? 0));
+    for (const row of rows) {
+      files.set(row.file, [...(files.get(row.file) ?? []), Number(row.total)]);
+    }
+    return { runs: recent.length, files };
+  }
+
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   /** One run, and only if this workspace owns it. */
@@ -425,6 +517,7 @@ export class DrizzleRunRepository implements RunRepository {
       durationMs: row.durationMs ?? null,
       branch: row.branch ?? null,
       commitSha: row.commitSha ?? null,
+      projectId: row.projectId ?? null,
       triggeredBy: row.triggeredBy ?? 'manual',
     };
   }
@@ -435,6 +528,7 @@ export class DrizzleRunRepository implements RunRepository {
       runId: row.runId,
       title: row.title,
       file: row.file,
+      stableId: storedTestIdentity(row),
       status: row.status as TestStatus,
       durationMs: row.durationMs ?? null,
       errorCode: row.errorCode ?? null,

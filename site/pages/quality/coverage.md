@@ -44,5 +44,6 @@ on a regression instead.
 | `tests/integration`            | 100        | 100      | 100       | 100   |
 | `tools/automate-cli`           | 98.1       | 92.8     | 93.7      | 98.5  |
 | `tools/migrate-cli`            | 95.6       | 91.6     | 98.3      | 95.5  |
+| `tools/playwright-reporter`    | 98.6       | 91.4     | 93.3      | 100   |
 
 <!-- /generated -->

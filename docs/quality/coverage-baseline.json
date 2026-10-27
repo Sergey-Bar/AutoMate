@@ -176,5 +176,11 @@
     "branches": 91.6,
     "functions": 98.3,
     "lines": 95.5
+  },
+  "tools/playwright-reporter": {
+    "statements": 98.6,
+    "branches": 91.4,
+    "functions": 93.3,
+    "lines": 100
   }
 }

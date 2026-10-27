@@ -7,14 +7,17 @@ import {
   type FailureInput,
   type FlakeObservation,
 } from '@automate/reporting';
-import type {
-  BranchPassRate,
-  FlakyTest,
-  HeatmapRow,
-  Mttr,
-  QaInsights,
-  SlowTest,
+import {
+  storedTestIdentity,
+  type BranchPassRate,
+  type FlakyTest,
+  type HeatmapRow,
+  type Mttr,
+  type QaInsights,
+  type SlowTest,
+  type TriageLabel,
 } from '@automate/shared-contracts';
+import { labelClusters } from '../services/triage-label-service.js';
 import { dayKey, passRate, readSince, startOfDay } from './trend.js';
 import type { ExecutionRun, ExecutionStore, ExecutionTestResult } from './types.js';
 
@@ -49,6 +52,8 @@ export function createInsightsRoutes(options: {
   store: ExecutionStore;
   workspaceId: string;
   now?: () => Date;
+  /** The workspace's triage labels; absent, clusters are unlabelled. */
+  labels?: () => Promise<readonly TriageLabel[]>;
 }): Hono {
   const app = new Hono();
   app.get('/api/v1/dashboard/insights', async (context) => {
@@ -62,7 +67,13 @@ export function createInsightsRoutes(options: {
       projectId === undefined || projectId === ''
         ? runs
         : runs.filter((run) => belongsTo(run, projectId));
-    return context.json(buildInsights(scoped, now, days, truncated));
+    const insights = buildInsights(scoped, now, days, truncated);
+    const labels = (await options.labels?.()) ?? [];
+    if (insights.failureClusters !== undefined) {
+      const labelled = labelClusters(insights.failureClusters, labels);
+      insights.failureClusters = { ...insights.failureClusters, ...labelled };
+    }
+    return context.json(insights);
   });
   return app;
 }
@@ -217,6 +228,7 @@ export function flakeObservationsOf(runs: readonly ExecutionRun[]): FlakeObserva
         testKey: testKey(test),
         title: test.title,
         runId: run.id,
+        commit: run.commit,
         status: test.status as FlakeObservation['status'],
         retries: Math.max(0, (test.attempt ?? 1) - 1),
         durationMs: typeof test.durationMs === 'number' ? test.durationMs : null,
@@ -248,9 +260,9 @@ function quarantineSuggestionsOf(
   };
 }
 
-/** `file › title`, so two tests with one title in two files are two tests. */
+/** The shared identity (`testIdentity`): file, describe path, title and project. */
 function testKey(test: ExecutionTestResult): string {
-  return `${test.file ?? ''} › ${test.title}`;
+  return storedTestIdentity(test);
 }
 
 function appearances(runs: readonly ExecutionRun[]): Map<string, Appearance[]> {
@@ -272,36 +284,31 @@ function verdictOf(status: ExecutionTestResult['status']): 'pass' | 'fail' | nul
   return null;
 }
 
-/** How often consecutive decisive results of one test disagree. */
-function countFlips(seen: readonly Appearance[]): number {
-  let flips = 0;
-  let last: 'pass' | 'fail' | null = null;
-  for (const { test } of seen) {
-    const verdict = verdictOf(test.status);
-    if (verdict === null) continue;
-    if (last !== null && verdict !== last) flips += 1;
-    last = verdict;
-  }
-  return flips;
-}
-
+/**
+ * The leaderboard is `flakeCost` read for display: one formula for the score, so the page
+ * and the quarantine suggestions cannot rank one test two ways. It used to restate
+ * `(flaky + flips) / runs` here, dividing by every appearance where `flakeCost` divides by
+ * the observed ones, and nothing asserted the two agreed.
+ */
 function flakyTests(runs: readonly ExecutionRun[]): FlakyTest[] {
-  const ranked: FlakyTest[] = [];
+  const latest = new Map<string, Appearance>();
   for (const [key, seen] of appearances(runs)) {
-    const flaky = seen.filter(({ test }) => test.status === 'flaky').length;
-    const flips = countFlips(seen);
-    const score = Math.min(1, (flaky + flips) / seen.length);
-    const latest = seen.at(-1);
-    if (score === 0 || latest === undefined) continue;
+    const last = seen.at(-1);
+    if (last !== undefined) latest.set(key, last);
+  }
+  const ranked: FlakyTest[] = [];
+  for (const cost of flakeCost(flakeObservationsOf(runs))) {
+    const last = latest.get(cost.testKey);
+    if (cost.flakyScore === 0 || last === undefined) continue;
     ranked.push({
-      key,
-      title: latest.test.title,
-      file: latest.test.file ?? null,
-      runs: seen.length,
-      flaky,
-      flips,
-      score: Math.round(score * 1000) / 1000,
-      lastSeen: latest.run.createdAt,
+      key: cost.testKey,
+      title: last.test.title,
+      file: last.test.file ?? null,
+      runs: cost.observations,
+      flaky: cost.flakyResults,
+      flips: cost.flips,
+      score: cost.flakyScore,
+      lastSeen: last.run.createdAt,
     });
   }
   return ranked

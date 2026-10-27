@@ -48,6 +48,7 @@ import {
 } from '../lib/health-view.js';
 import { PageFrame, PageHeader, Panel, Quiet, Segmented } from './kit.js';
 import { repo360Path } from '../route-manifest.js';
+import { ProjectQuarantine } from './ProjectQuarantine.js';
 
 /**
  * One repository's health: the grade first, then why, then what to do.
@@ -142,6 +143,7 @@ export function RepoHealth({
         <WhatIsGood value={health.value} />
       </div>
       <Findings client={client} projectId={projectId} version={version} onChanged={reload} />
+      <ProjectQuarantine health={client} projectId={projectId} />
       <Settings client={client} projectId={projectId} />
       <Reports value={health.value} />
     </PageFrame>

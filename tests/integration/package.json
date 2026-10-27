@@ -2,7 +2,7 @@
   "name": "@automate/integration-tests",
   "version": "1.0.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "pretest": "pnpm --filter @automate/db build",

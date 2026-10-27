@@ -31,7 +31,7 @@ import { RunnerControlService } from './services/runner-control.js';
 import { OrchestrationService } from './services/orchestration-service.js';
 import { createEventsRoutes } from './routes/events.js';
 import { createExecutionRoutes } from './routes/execution.js';
-import { createAnalyticsTrendRoutes } from './execution/trend.js';
+import { createAnalyticsTrendRoutes, readSince } from './execution/trend.js';
 import { createInsightsRoutes } from './execution/insights.js';
 import { createAgentRoutes } from './routes/agents.js';
 import { createAgentCatalog } from './routes/agent-registry.js';
@@ -96,6 +96,12 @@ import {
 import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap/lifecycle.js';
 // T18: dashboard module — runs detail, tests listing, analytics, quarantine, quality gates
 import { createDashboardModule } from './modules/dashboard/index.js';
+import { InMemoryQuarantineStore, type QuarantineStore } from './modules/dashboard/quarantine.js';
+import { boundQuarantineSource } from './execution/quarantine-excusal.js';
+import { commitTests } from './services/commit-tests.js';
+import { applyProjectQuarantinePolicy } from './services/quarantine-policy-service.js';
+import { listTriageLabels } from './services/triage-label-service.js';
+import type { ExecutionRun } from './execution/types.js';
 import {
   DrizzleQuarantineStore,
   DrizzleQualityGateStore,
@@ -166,12 +172,14 @@ function createRunRepository(): RunRepository {
 }
 
 function createDashboardStores(): {
-  quarantineStore?: DrizzleQuarantineStore;
+  quarantineStore: QuarantineStore;
   qualityGateStore?: DrizzleQualityGateStore;
 } {
   if (!databaseResources) {
     assertInMemoryAllowed(runtimeConfig, 'dashboard stores');
-    return {};
+    // Created here rather than inside the dashboard module, so the gate and the dashboard
+    // read one quarantine.
+    return { quarantineStore: new InMemoryQuarantineStore() };
   }
   // Bound to the configured workspace, as every other store is. Both used to be composed
   // with none: `quarantine` had no column to scope by, and every audit row they wrote
@@ -340,14 +348,35 @@ function createExecutionStore(): ExecutionStore {
       db: databaseResources.db,
       workspaceId: runtimeConfig.workspaceId,
       artifactBytes: artifactBytesStore,
+      quarantined: quarantineFor,
     });
   }
   assertInMemoryAllowed(runtimeConfig, 'InMemoryExecutionStore');
-  return new InMemoryExecutionStore();
+  return new InMemoryExecutionStore({ quarantined: quarantineFor });
+}
+
+const dashboardStores = createDashboardStores();
+
+/**
+ * The quarantine entries every gate evaluation reads. The dashboard's quarantine store is
+ * bound to the configured workspace, so it answers for that workspace and no other: a run
+ * in any other workspace gets no entries, and so no excusal.
+ */
+const quarantineFor = boundQuarantineSource(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID, () =>
+  dashboardStores.quarantineStore.list(),
+);
+
+/** The workspace's runs since a moment, oldest first: what the quarantine policy reads. */
+async function workspaceHistory(since: Date): Promise<ExecutionRun[]> {
+  const { runs } = await readSince(
+    executionStore,
+    runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    since.getTime(),
+  );
+  return [...runs].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
 }
 
 const executionStore = withClassifiedErrors(createExecutionStore());
-const dashboardStores = createDashboardStores();
 
 /**
  * The one tool registry the agent routes dispatch through, and the catalog that
@@ -764,6 +793,8 @@ app.route(
     workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
     bus: realtimeBus,
     artifactStore: { putAt: (key, bytes) => artifactBytesStore.put(key, bytes) },
+    // The live reporter's traces and screenshots, filed as the run's own artifacts.
+    artifacts: executionStore,
     allowQueryToken: false,
   }),
 );
@@ -862,6 +893,16 @@ app.route(
   createInsightsRoutes({
     store: executionStore,
     workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
+    // Triage labels live in the database; an in-memory install has none.
+    ...(databaseResources === undefined
+      ? {}
+      : {
+          labels: () =>
+            listTriageLabels({
+              db: databaseResources.db,
+              workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+            }),
+        }),
   }),
 );
 app.route('/', createChatRoutes({ gateway: chatGateway }));
@@ -950,6 +991,22 @@ if (databaseResources !== undefined) {
         gateway: testProposalGateway,
         provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
       },
+      // The runs `automate test` records are the history a shard plan reads.
+      shardHistory: runRepository,
+      // The same run repository, canonical store and bus the reporter upload door writes,
+      // and the same quarantine every gate evaluation reads.
+      testReports: {
+        repository: runRepository,
+        canonicalStore: resolveReporterStore(),
+        bus: realtimeBus,
+        quarantined: quarantineFor,
+        applyPolicy: (projectId) =>
+          applyProjectQuarantinePolicy(
+            { ...registry, store: dashboardStores.quarantineStore, history: workspaceHistory },
+            projectId,
+          ),
+      },
+      quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
       delivery: {
         lanMode: runtimeConfig.lanMode === true,
         ...(runtimeConfig.githubWebhookSecret === undefined
@@ -960,6 +1017,21 @@ if (databaseResources !== undefined) {
       health: {
         ...healthHooks,
         detailsUrl: dashboardUrl,
+        // The commit's test run, read with the same quarantine and the same rule the gate and
+        // `automate test` use.
+        commitTests: (projectId, commit) =>
+          commitTests(
+            {
+              repository: runRepository,
+              quarantined: () => quarantineFor(registry.workspaceId),
+              reportErrors: async (runId) =>
+                (await resolveReporterStore().get(runId))?.reportErrors?.length ?? 0,
+              labelledSignatures: async () =>
+                new Set((await listTriageLabels(registry)).map((label) => label.signature)),
+            },
+            projectId,
+            commit,
+          ),
         github: {
           adapter: githubAdapter,
           tokenFor: (projectId) =>

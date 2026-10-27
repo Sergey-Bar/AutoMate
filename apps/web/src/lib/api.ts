@@ -15,6 +15,11 @@ import {
   type ReleaseReadiness,
   type RunEventEnvelope,
   RUN_UPDATED_EVENT_TYPE,
+  TestHistorySchema,
+  type TestHistory,
+  TriageLabelSchema,
+  type TriageLabel,
+  type TriageLabelBody,
 } from '@automate/shared-contracts';
 
 export const RunSchema = NormalizedRunSchema;
@@ -34,6 +39,9 @@ export const QuarantineEntrySchema = z.object({
   id: z.string(),
   testTitle: z.string(),
   testFile: z.string(),
+  // The test's identity, or `null` for an entry that matches title and file in every
+  // project. Optional so an older server's answer still parses.
+  stableId: z.string().nullable().optional(),
   reason: z.string().nullable(),
   quarantinedAt: z.string(),
   // Where the entry stands. `pending` is the fail-closed default: the test is
@@ -42,7 +50,7 @@ export const QuarantineEntrySchema = z.object({
   // decision endpoint, and a client schema that omitted it would have called every
   // entry indistinguishable — which is how a quarantine list reads as "these are all
   // excluded" when none of them are.
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: z.enum(['pending', 'approved', 'rejected', 'released']),
 });
 
 export type AnalyticsSummary = z.infer<typeof AnalyticsSummarySchema>;
@@ -266,10 +274,18 @@ export interface ApiClient {
   getAnalyticsSummary(options?: RequestOptions): Promise<AnalyticsSummary>;
   getQuarantine(options?: RequestOptions): Promise<QuarantineEntry[]>;
   addQuarantine(
-    entry: { testTitle: string; testFile: string; reason?: string },
+    entry: { testTitle: string; testFile: string; stableId?: string; reason?: string },
     options?: RequestOptions,
   ): Promise<QuarantineEntry>;
   subscribeToRunEvents(subscription: RunEventSubscription): () => void;
+  /** One test's results across runs, newest first, a page at a time. */
+  getTestHistory(
+    key: string,
+    page?: { days?: number; before?: string },
+    options?: RequestOptions,
+  ): Promise<TestHistory>;
+  /** Labels a failure cause for the workspace; every recurrence carries the label. */
+  setTriageLabel(body: TriageLabelBody, options?: RequestOptions): Promise<TriageLabel>;
 }
 
 async function responseError(response: Response): Promise<ApiError> {
@@ -550,6 +566,15 @@ function subscribeToRunEvents(subscription: RunEventSubscriber): () => void {
 }
 
 export const defaultApiClient: ApiClient = {
+  getTestHistory: (key, page = {}, options) => {
+    const query = new URLSearchParams({ key, days: String(page.days ?? 90) });
+    if (page.before !== undefined) query.set('before', page.before);
+    return getJson(
+      `/api/v1/dashboard/tests/history?${query.toString()}`,
+      TestHistorySchema,
+      options,
+    );
+  },
   getRuns: (options) => getJson('/api/v1/runs', z.array(NormalizedRunSchema), options),
   getRun: (id, options) =>
     getJson(`/api/v1/runs/${encodeURIComponent(id)}`, NormalizedRunSchema, options),
@@ -646,6 +671,27 @@ export const defaultApiClient: ApiClient = {
     getJson('/api/v1/dashboard/analytics/summary', AnalyticsSummarySchema, options),
   getQuarantine: (options) =>
     getJson('/api/v1/dashboard/quarantine', z.array(QuarantineEntrySchema), options),
+  setTriageLabel: async (body, options) => {
+    const path = '/api/v1/triage-labels';
+    return parse(
+      await request(
+        await fetch(
+          path,
+          withSignal(
+            {
+              method: 'PUT',
+              credentials: 'include',
+              headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            },
+            options?.signal,
+          ),
+        ),
+      ),
+      TriageLabelSchema,
+      path,
+    );
+  },
   addQuarantine: async (entry, options) => {
     const path = '/api/v1/dashboard/quarantine';
     return parse(

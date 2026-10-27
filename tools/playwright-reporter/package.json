@@ -1,0 +1,46 @@
+{
+  "name": "@automate/playwright-reporter",
+  "version": "1.0.0",
+  "license": "MIT",
+  "type": "module",
+  "description": "A dependency-free Playwright reporter that streams a run into AutoMate as it happens, with the traces, screenshots and videos of every failure.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sergey-Bar/AutoMate.git",
+    "directory": "tools/playwright-reporter"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "!dist/**/*.test.*"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs"
+  },
+  "devDependencies": {
+    "@automate/config": "workspace:*",
+    "@automate/reporter": "workspace:*",
+    "@automate/shared-contracts": "workspace:*",
+    "@playwright/test": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

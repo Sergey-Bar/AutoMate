@@ -10,6 +10,7 @@ import type { QuarantineStore } from './quarantine.js';
 import type { QualityGateStore } from './quality-gates.js';
 import { createDashboardRunsRoutes } from './runs.js';
 import { createDashboardTestsRoutes } from './tests.js';
+import { createTestHistoryRoutes } from './test-history.js';
 import { createDashboardAnalyticsRoutes } from './analytics.js';
 import { createDashboardQuarantineRoutes, InMemoryQuarantineStore } from './quarantine.js';
 import { createDashboardQualityGatesRoutes, InMemoryQualityGateStore } from './quality-gates.js';
@@ -42,6 +43,8 @@ export function createDashboardModule(options: DashboardModuleOptions): Hono {
   const qualityGateStore = options.qualityGateStore ?? new InMemoryQualityGateStore();
 
   app.route('/', createDashboardRunsRoutes({ repository: options.repository }));
+  // Before the test list, so `/tests/history` is not read as a test id.
+  app.route('/', createTestHistoryRoutes({ repository: options.repository }));
   app.route('/', createDashboardTestsRoutes({ repository: options.repository }));
   app.route('/', createDashboardAnalyticsRoutes({ repository: options.repository }));
   app.route('/', createDashboardQuarantineRoutes({ store: quarantineStore }));

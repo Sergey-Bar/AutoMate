@@ -181,6 +181,7 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   // Ingestion.
   ['POST', '/api/v1/reporter/events'],
   ['POST', '/api/v1/reporter/upload'],
+  ['POST', '/api/v1/reporter/runs/:runId/artifacts'],
   ['POST', '/api/v1/reporter/results'],
   // Runs.
   ['GET', '/api/v1/runs'],
@@ -224,6 +225,7 @@ const CANONICAL_API_ROUTES: Array<[string, string]> = [
   ['GET', '/api/v1/dashboard/runs/:id'],
   ['PATCH', '/api/v1/dashboard/runs/:id/status'],
   ['GET', '/api/v1/dashboard/tests'],
+  ['GET', '/api/v1/dashboard/tests/history'],
   ['GET', '/api/v1/dashboard/suites'],
   ['GET', '/api/v1/dashboard/runs/:runId/tests'],
   ['GET', '/api/v1/dashboard/analytics/summary'],
