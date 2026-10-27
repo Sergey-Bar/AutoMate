@@ -71,6 +71,11 @@ describe('the scorecard routes', () => {
     stubApi(seen);
     render(<MemoryRouter initialEntries={['/dashboard/repo/project-2/overview']} />);
     expect(await screen.findByTestId('repo-360', {}, { timeout: 10_000 })).toBeInTheDocument();
-    expect(seen.some((url) => url.endsWith('/projects/project-2/health'))).toBe(true);
+    // The frame renders before its reads are issued (they start in an effect), so on a loaded
+    // runner the testid can be found a moment before `/health` is requested. It failed once in
+    // CI on exactly this line (v3.1.0 pull request), and passed on every rerun.
+    await waitFor(() =>
+      expect(seen.some((url) => url.endsWith('/projects/project-2/health'))).toBe(true),
+    );
   });
 });
