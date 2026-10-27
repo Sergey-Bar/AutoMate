@@ -78,6 +78,20 @@ export function isAddressAllowed(address: string, cidrs: readonly string[]): boo
   return cidrs.some((cidr) => contains(parseCidr(cidr), address.replace(/^\[|\]$/gu, '')));
 }
 
+/**
+ * Whether a bind address is "every interface" (`0.0.0.0`, `::`), which names no machine at
+ * all. A server in a container has to listen on it, so on its own it says nothing about
+ * whether anyone but the container's neighbours can connect.
+ */
+export function isWildcardBind(bind: string): boolean {
+  const host = bind
+    .trim()
+    .replace(/^\[|\]$/gu, '')
+    .toLowerCase();
+  if (isIP(host) === 0) return false;
+  return toBigInt(host, isIP(host) as 4 | 6) === 0n;
+}
+
 /** Whether a bind address keeps the install on this machine. */
 export function isLoopbackBind(bind: string): boolean {
   const host = bind

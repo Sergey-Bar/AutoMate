@@ -2,6 +2,27 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
+## 3.1.1 - 2026-10-27 - upgrades from 3.0.0 start again
+
+### Fixed
+
+- **An install upgraded from 3.0.0 with `./start.sh update` did not start (3.1.0).** `update`
+  keeps the old install's compose file and changes only the image. The 3.0.0 compose file sets
+  `HOST=0.0.0.0` and does not pass `AUTOMATE_BIND`, and the 3.1.0 API read that wildcard as
+  "reachable from other machines with no login" and refused to start. A wildcard `HOST` names no
+  machine (it is how every container listens), so with no `AUTOMATE_BIND` it now reads as
+  loopback and the API logs a warning that the exposure is unknown. An explicit `AUTOMATE_BIND`,
+  and a concrete `HOST` such as `192.168.1.5`, are enforced exactly as before. The start scripts
+  still refuse an exposed bind before anything starts, and the 3.1 compose file passes the real
+  one. **Given up:** an API image run on its own with only `HOST=0.0.0.0` now starts with a
+  warning, as it did in 3.0.0, instead of refusing. If you were relying on that refusal, set
+  `AUTOMATE_BIND`.
+- The release workflow's upgrade job now also starts from 3.0.0, not only the previous release,
+  so a compose file older than the API can no longer slip through unexercised.
+
+If you ran `update` to 3.1.0 and the stack is down, run `./start.sh update --version 3.1.1`. The
+3.1.0 migrations have already been applied; they are additive and 3.1.1 includes them.
+
 ## 3.1.0 - 2026-10-27 - test intelligence you can read and self-host
 
 ### Added

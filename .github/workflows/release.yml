@@ -330,27 +330,48 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   upgrade:
-    name: Upgrade from the previous release
+    name: Upgrade from ${{ matrix.from }}
     needs: [prepare, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 25
-    # What an existing user does: they have the previous release running, with its own
-    # `.env`, and run `start update`. This installs the previous final release, moves it to
-    # this one, and checks the same sign-in key still works. It is the only place the
-    # migrations are applied to a database an earlier release created.
+    # What an existing user does: they have an earlier release running, with its own `.env` and
+    # its own compose file, and run `start update`. This installs it, moves it to this release,
+    # and checks the same sign-in key still works. It is the only place the migrations are
+    # applied to a database an earlier release created.
+    #
+    # **Two starting points, because one is not enough.** `previous` is the latest final release
+    # before this one. `3.0.0` is pinned: `update` keeps the old install's compose file and only
+    # changes the image, so this is the one run that hands a current API the environment a
+    # pre-LAN-mode compose file gives it (HOST=0.0.0.0, no AUTOMATE_BIND). With `previous`
+    # alone, the 3.1.0 release shipped an API that refused to start on every 3.0.0 install,
+    # and the next release would have stopped looking for it. When the pinned release is also
+    # the previous one the second run skips itself rather than repeat the first.
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [previous, '3.0.0']
     env:
       NEW_VERSION: ${{ needs.prepare.outputs.version }}
     steps:
-      - name: Find the previous final release
+      - name: Find the release to upgrade from
         id: previous
         env:
           GH_TOKEN: ${{ github.token }}
+          FROM: ${{ matrix.from }}
         run: |
           set -euo pipefail
-          tag="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts \
+          previous="$(gh release list -R "$GITHUB_REPOSITORY" --exclude-pre-releases --exclude-drafts \
             --limit 20 --json tagName --jq '.[].tagName' | grep -vx "$GITHUB_REF_NAME" | head -n 1 || true)"
+          if [ "$FROM" = previous ]; then
+            tag="$previous"
+          elif [ "v$FROM" = "$previous" ]; then
+            tag=""
+            echo "$FROM is the previous release; the first run covers it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            tag="v$FROM"
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
-          [ -n "$tag" ] || echo "No earlier final release: nothing to upgrade from." >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$tag" ] || echo "Nothing to upgrade from for '$FROM'." >> "$GITHUB_STEP_SUMMARY"
       - name: Install the previous release
         if: steps.previous.outputs.version != ''
         env:

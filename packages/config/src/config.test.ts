@@ -274,11 +274,35 @@ describe('LAN mode and the client allowlist', () => {
 
   it('reads the published bind ahead of the API listen address', () => {
     // In compose the API listens on 0.0.0.0 inside its network and the edge is what is
-    // published, so the edge bind is the exposure; without it, HOST is.
+    // published, so the edge bind is the exposure.
     expect(parseConfig({ HOST: '0.0.0.0', AUTOMATE_BIND: '127.0.0.1' }).exposedBind).toBe(
       '127.0.0.1',
     );
-    expect(parseConfig({ HOST: '0.0.0.0' }).exposedBind).toBe('0.0.0.0');
+    expect(parseConfig({ HOST: '0.0.0.0', AUTOMATE_BIND: '127.0.0.1' }).bindUndeclared).toBe(false);
+  });
+
+  it('keeps an explicit wildcard bind exposed: the operator said it', () => {
+    const config = parseConfig({ HOST: '0.0.0.0', AUTOMATE_BIND: '0.0.0.0' });
+    expect(config.exposedBind).toBe('0.0.0.0');
+    expect(config.bindUndeclared).toBe(false);
+  });
+
+  it('does not read a wildcard listen address as exposure when no bind is declared', () => {
+    // 0.0.0.0 and :: mean "every interface of this container", which every container
+    // needs and which says nothing about who can reach the container. The 3.0.0 compose
+    // file sets HOST=0.0.0.0 and never AUTOMATE_BIND; reading that as exposed made the
+    // 3.1.0 API refuse to start on every install upgraded from 3.0.0 (release v3.1.0).
+    for (const host of ['0.0.0.0', '::', '[::]', '0:0:0:0:0:0:0:0']) {
+      const config = parseConfig({ HOST: host });
+      expect(config.exposedBind, host).toBe('127.0.0.1');
+      expect(config.bindUndeclared, host).toBe(true);
+    }
+  });
+
+  it('still reads a concrete listen address as exposure when no bind is declared', () => {
+    const config = parseConfig({ HOST: '192.168.1.5' });
+    expect(config.exposedBind).toBe('192.168.1.5');
+    expect(config.bindUndeclared).toBe(false);
   });
 
   it('defaults the allowlist to private, loopback and link-local ranges', () => {
