@@ -56,6 +56,8 @@ export interface HealthClient {
   /** Runs the repository's health scanners. A command id list never leaves the server. */
   startScan(projectId: string): Promise<HealthScanStarted>;
   whoami(): Promise<WhoAmI>;
+  /** What a browser may sign in with beyond a token or the installation key (`/api/v1/features`). */
+  signInMethods?(): Promise<{ oidc: boolean }>;
   /** Signs this browser in with an access token, or with the installation key. */
   signIn(credential: string): Promise<void>;
   signOut(): Promise<void>;
@@ -99,8 +101,17 @@ export const WhoAmISchema = z.object({
   actor: z.string(),
   role: z.enum(['viewer', 'operator', 'admin']).nullable(),
   mode: z.enum(['open', 'enforced']),
+  /** The deployment profile (ADR-014). Absent from an API older than profiles. */
+  profile: z.enum(['solo', 'startup', 'team', 'enterprise']).optional(),
+  /** Where this caller's credential came from. Absent from an API older than profiles. */
+  source: z.enum(['token', 'user', 'cloudflare', 'installation', 'anonymous']).optional(),
 });
 export type WhoAmI = z.infer<typeof WhoAmISchema>;
+
+/** The part of `/api/v1/features` the sign-in screen reads. Absent from older APIs. */
+const FeaturesSignInSchema = z.object({
+  signIn: z.object({ oidc: z.boolean() }).optional(),
+});
 
 export const TOKEN_ROLES = ['viewer', 'operator', 'admin', 'uploader'] as const;
 export type TokenRole = (typeof TOKEN_ROLES)[number];
@@ -190,6 +201,8 @@ export function createHealthClient(baseUrl = '', fetchImpl: typeof fetch = fetch
     startScan: (projectId) =>
       post(`${project(projectId)}/health/scan`, {}, HealthScanStartedSchema),
     whoami: () => get('/api/v1/auth/whoami', WhoAmISchema),
+    signInMethods: async () =>
+      (await get('/api/v1/features', FeaturesSignInSchema)).signIn ?? { oidc: false },
     // A token from an admin starts with the access-token prefix; anything else is the
     // installation key, which signs in as the admin through the existing login.
     signIn: async (credential) => {

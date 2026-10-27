@@ -9,7 +9,7 @@ truth for this page. A capability is not promoted because a page says it is.
 
 | Status       | Count | Meaning                                                                   |
 | ------------ | ----- | ------------------------------------------------------------------------- |
-| **real**     | 54    | implemented and exercised, with the stated qualification.                 |
+| **real**     | 60    | implemented and exercised, with the stated qualification.                 |
 | **mock**     | 9     | a route, response, or UI exists but does not provide the target behavior. |
 | **missing**  | 1     | no usable implementation exists in the target.                            |
 | **deferred** | 6     | intentionally outside the launch scope pending a separate decision.       |
@@ -92,5 +92,11 @@ its source, then run `pnpm site:generate`.
 | Resumable source migration and reconciliation                                                       | `mock`     |
 | One root governance command surface                                                                 | `real`     |
 | Automated repository-boundary validation                                                            | `real`     |
+| Deployment profiles: solo, startup, team, enterprise (ADR-014)                                      | `real`     |
+| Backup and restore of a local install                                                               | `real`     |
+| Remote access through Cloudflare Tunnel and Cloudflare Access                                       | `real`     |
+| People, OIDC sign-in and per-workspace roles (team profile)                                         | `real`     |
+| Append-only, hash-chained audit trail with export and verification (enterprise)                     | `real`     |
+| Enforced single sign-on with break-glass (enterprise)                                               | `real`     |
 
 <!-- /generated -->

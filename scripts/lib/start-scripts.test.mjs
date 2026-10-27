@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   cpSync,
   existsSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -66,12 +68,20 @@ const POWERSHELL = findPowerShell();
 
 /** A Node fake for `docker`: logs argv, answers by state. */
 const FAKE_DOCKER = `
-const { appendFileSync } = require('node:fs');
+const { appendFileSync, writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
 appendFileSync(process.env.FAKE_DOCKER_LOG, JSON.stringify(args) + '\\n');
 const state = process.env.FAKE_DOCKER_STATE || 'running';
 if (args[0] === 'info' && state === 'stopped') process.exit(1);
 if (args[0] === 'compose' && args[1] === 'version' && state === 'no-compose') process.exit(1);
+// 'compose cp service:/path local' leaves a file behind, so a backup has bytes to digest.
+const cp = args.indexOf('cp');
+if (args[0] === 'compose' && cp !== -1) {
+  const [from, to] = args.slice(cp + 1);
+  if (to !== undefined && !/^[a-z]+:/.test(to)) writeFileSync(to, 'fake bytes of ' + from);
+}
+// The migration count a backup records and a restore compares.
+if (args.includes('psql')) process.stdout.write((process.env.FAKE_MIGRATIONS || '') + '\\n');
 process.exit(0);
 `;
 
@@ -178,12 +188,17 @@ function composeCall(all, verb) {
   return all.find((argv) => argv[0] === 'compose' && argv.includes(verb));
 }
 
+/** @param {string | Buffer} value @returns {string} lowercase hex */
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
 /** @param {string} file @returns {Map<string, string>} */
 function readEnv(file) {
   return new Map(
     readFileSync(file, 'utf8')
       .split(/\r?\n/)
-      .filter((line) => /^[A-Z_][A-Z0-9_]*=/.test(line))
+      .filter((line) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(line))
       .map(
         (line) =>
           /** @type {[string, string]} */ ([
@@ -193,6 +208,22 @@ function readEnv(file) {
       ),
   );
 }
+
+test('the cloudflare profile runs a tunnel that publishes nothing and is off by default', () => {
+  // A tunnel dials out; a published port beside it would be a second front door.
+  const block = /\n {2}cloudflared:\n([\s\S]*?)(?=\n {2}[a-z][a-z0-9_-]*:\n|\nnetworks:)/u.exec(
+    SOURCE,
+  )?.[1];
+  assert.ok(block, 'no cloudflared service in the compose file');
+  assert.match(block, /profiles: \['cloudflare'\]/u);
+  assert.match(block, /image: cloudflare\/cloudflared:\d{4}\.\d+\.\d+/u);
+  assert.match(block, /TUNNEL_TOKEN: \$\{TUNNEL_TOKEN:-\}/u);
+  assert.doesNotMatch(block, /ports:/u);
+  // The API reads the tunnel settings, so the startup policy can refuse half of them.
+  for (const name of ['AUTOMATE_REMOTE', 'CF_ACCESS_TEAM_DOMAIN', 'CF_ACCESS_AUD']) {
+    assert.match(SOURCE, new RegExp(`\\n {6}${name}: \\$\\{${name}:-\\}`, 'u'), name);
+  }
+});
 
 for (const [kind, shell] of /** @type {const} */ ([
   ['sh', SH],
@@ -347,6 +378,288 @@ for (const [kind, shell] of /** @type {const} */ ([
         const quiet = await run(kind, where, [], { AUTOMATE_PORT: String(server.port) });
         assert.equal(quiet.status, 0, quiet.output);
         assert.doesNotMatch(quiet.output, /LAN mode|AUTOMATE_LAN_MODE/);
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: a profile decides who may reach the install, and solo stays on this machine`,
+    { skip },
+    async () => {
+      // The API refuses the same combinations (checkExposurePolicy, ADR-014); the script
+      // repeats them so the operator reads the refusal before anything is pulled.
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port) };
+        const unknown = await run(kind, where, [], { ...base, AUTOMATE_PROFILE: 'business' });
+        assert.notEqual(unknown.status, 0, unknown.output);
+        assert.match(unknown.output, /solo, startup, team or enterprise/);
+
+        const soloReachable = await run(kind, where, [], {
+          ...base,
+          AUTOMATE_PROFILE: 'solo',
+          AUTOMATE_BIND: '0.0.0.0',
+        });
+        assert.notEqual(soloReachable.status, 0, soloReachable.output);
+        assert.match(soloReachable.output, /AUTOMATE_PROFILE=startup/);
+
+        const soloLan = await run(kind, where, [], {
+          ...base,
+          AUTOMATE_PROFILE: 'solo',
+          AUTOMATE_LAN_MODE: '1',
+        });
+        assert.notEqual(soloLan.status, 0, soloLan.output);
+        assert.match(soloLan.output, /AUTOMATE_PROFILE=solo/);
+        assert.equal(composeCall(calls(where.log), 'up'), undefined, 'nothing may start');
+
+        // Every profile above solo turns sign-in on, so it may be published.
+        const team = await run(kind, where, [], {
+          ...base,
+          AUTOMATE_PROFILE: 'team',
+          AUTOMATE_BIND: '0.0.0.0',
+        });
+        assert.equal(team.status, 0, team.output);
+        assert.match(team.output, /after signing in/);
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: --profile records the profile in .env, keeps every secret, and names the next step`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port) };
+        const first = await run(kind, where, ['--profile', 'team'], base);
+        assert.equal(first.status, 0, first.output);
+        const before = readEnv(path.join(where.dir, '.env'));
+        assert.equal(before.get('AUTOMATE_PROFILE'), 'team');
+        assert.match(first.output, /Profile: team/);
+        assert.match(first.output, /Next step:/);
+
+        const second = await run(kind, where, ['--profile', 'startup'], base);
+        assert.equal(second.status, 0, second.output);
+        const text = readFileSync(path.join(where.dir, '.env'), 'utf8');
+        assert.equal(text.match(/^AUTOMATE_PROFILE=/gm)?.length, 1, 'one profile line, not two');
+        const after = readEnv(path.join(where.dir, '.env'));
+        assert.equal(after.get('AUTOMATE_PROFILE'), 'startup');
+        // A rerun that rewrote a secret would lock the install out of its own vault.
+        for (const name of ['COOKIE_SECRET', 'VAULT_SECRET', 'AUTOMATE_INSTALLATION_KEY']) {
+          assert.equal(after.get(name), before.get(name), `${name} changed on a rerun`);
+        }
+
+        const wrong = await run(kind, where, ['--profile', 'business'], base);
+        assert.notEqual(wrong.status, 0, wrong.output);
+        assert.equal(readEnv(path.join(where.dir, '.env')).get('AUTOMATE_PROFILE'), 'startup');
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: backup writes the database, the objects, the secrets and a digest of each`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        // A backup is of an install that exists, so the first start comes first.
+        const env = {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_VERSION: '3.2.0',
+          FAKE_MIGRATIONS: '34',
+        };
+        const nothing = await run(kind, where, ['backup'], env);
+        assert.notEqual(nothing.status, 0, nothing.output);
+        assert.match(nothing.output, /nothing to back up/i);
+        assert.equal((await run(kind, where, [], env)).status, 0);
+        const created = await run(kind, where, ['backup'], env);
+        assert.equal(created.status, 0, created.output);
+        const backups = path.join(where.dir, 'backups');
+        const [name] = readdirSync(backups);
+        assert.ok(name?.startsWith('automate-'), `no backup directory in ${backups}`);
+        const folder = path.join(backups, name ?? '');
+        const manifest = readEnv(path.join(folder, 'manifest.env'));
+        assert.equal(manifest.get('format'), '1');
+        assert.equal(manifest.get('version'), '3.2.0');
+        assert.equal(manifest.get('migrations'), '34');
+        // A digest of the vault key, never the key: restore compares it.
+        const vault = readEnv(path.join(where.dir, '.env')).get('VAULT_SECRET') ?? '';
+        assert.equal(manifest.get('vault'), sha256(vault));
+        assert.ok(!readFileSync(path.join(folder, 'manifest.env'), 'utf8').includes(vault));
+        const sums = readFileSync(path.join(folder, 'SHA256SUMS'), 'utf8');
+        for (const part of ['database.dump', 'objects.tar', 'env']) {
+          const digest = sha256(readFileSync(path.join(folder, part)));
+          assert.match(sums, new RegExp(`^${digest}  ${part}$`, 'm'), `${part} digest`);
+        }
+        const all = calls(where.log);
+        assert.ok(
+          all.some((argv) => argv.includes('pg_dump')),
+          'the database was not dumped',
+        );
+        assert.ok(
+          all.some((argv) => argv.includes('objectstore') && argv.includes('tar')),
+          'the objects were not archived',
+        );
+        assert.match(created.output, /holds your secrets/);
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: restore refuses a damaged, newer or foreign backup, and restores a good one`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_VERSION: '3.2.0',
+          FAKE_MIGRATIONS: '34',
+        };
+        assert.equal((await run(kind, where, [], base)).status, 0);
+        assert.equal((await run(kind, where, ['backup'], base)).status, 0);
+        const [name] = readdirSync(path.join(where.dir, 'backups'));
+        const folder = path.join('backups', name ?? '');
+        const full = path.join(where.dir, folder);
+        writeFileSync(where.log, '');
+        const restored = () => calls(where.log).some((argv) => argv.includes('pg_restore'));
+
+        const missing = await run(kind, where, ['restore', 'backups/nowhere'], base);
+        assert.notEqual(missing.status, 0, missing.output);
+        assert.match(missing.output, /no backup/i);
+
+        // A schema newer than this install's: restoring it would hand old code new tables.
+        const behind = await run(kind, where, ['restore', folder], {
+          ...base,
+          FAKE_MIGRATIONS: '30',
+        });
+        assert.notEqual(behind.status, 0, behind.output);
+        assert.match(behind.output, /34 migrations.*30/);
+        assert.equal(restored(), false, 'a newer schema was restored');
+
+        const older = await run(kind, where, ['restore', folder], {
+          ...base,
+          AUTOMATE_VERSION: '3.1.0',
+        });
+        assert.notEqual(older.status, 0, older.output);
+        assert.match(older.output, /3\.2\.0.*newer/);
+        assert.equal(restored(), false, 'a newer release was restored');
+
+        // Secrets that differ from the ones the data was encrypted with.
+        const envFile = path.join(where.dir, '.env');
+        const original = readFileSync(envFile, 'utf8');
+        writeFileSync(
+          envFile,
+          original.replace(/^VAULT_SECRET=.*$/m, `VAULT_SECRET=${'f'.repeat(48)}`),
+        );
+        const foreign = await run(kind, where, ['restore', folder], base);
+        assert.notEqual(foreign.status, 0, foreign.output);
+        assert.match(foreign.output, /VAULT_SECRET/);
+        assert.equal(restored(), false, 'data was restored under a different vault key');
+        writeFileSync(envFile, original);
+
+        // One byte changed in one part.
+        const dump = path.join(full, 'database.dump');
+        const bytes = readFileSync(dump);
+        writeFileSync(dump, `${bytes.toString()}x`);
+        const damaged = await run(kind, where, ['restore', folder], base);
+        assert.notEqual(damaged.status, 0, damaged.output);
+        assert.match(damaged.output, /database\.dump.*does not match/);
+        assert.equal(restored(), false, 'a damaged dump was restored');
+        writeFileSync(dump, bytes);
+
+        const good = await run(kind, where, ['restore', folder], base);
+        assert.equal(good.status, 0, good.output);
+        const all = calls(where.log);
+        assert.ok(restored(), 'the database was not restored');
+        assert.ok(
+          all.some(
+            (argv) =>
+              argv.includes('objectstore') && argv.some((part) => part.includes('objects.tar')),
+          ),
+          'the objects were not restored',
+        );
+        assert.ok(composeCall(all, 'up')?.includes('-d'), 'the install was not started again');
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: --remote cloudflare records the tunnel, starts its profile, and refuses half a setup`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port) };
+        const tunnel = {
+          // Assembled, not a literal: a tunnel token is a credential.
+          TUNNEL_TOKEN: ['eyJh', 'IjoiZmFrZSJ9', '/+='].join(''),
+          CF_ACCESS_TEAM_DOMAIN: 'acme',
+          CF_ACCESS_AUD: 'aud-0123',
+        };
+        const half = await run(kind, where, ['--remote', 'cloudflare'], {
+          ...base,
+          CF_ACCESS_TEAM_DOMAIN: 'acme',
+        });
+        assert.notEqual(half.status, 0, half.output);
+        assert.match(half.output, /TUNNEL_TOKEN/);
+        assert.match(half.output, /CF_ACCESS_AUD/);
+        assert.equal(composeCall(calls(where.log), 'up'), undefined, 'nothing may start');
+
+        const solo = await run(kind, where, ['--profile', 'solo', '--remote', 'cloudflare'], {
+          ...base,
+          ...tunnel,
+        });
+        assert.notEqual(solo.status, 0, solo.output);
+        assert.match(solo.output, /AUTOMATE_PROFILE=solo/);
+        writeFileSync(where.log, '');
+
+        const started = await run(kind, where, ['--profile', 'startup', '--remote', 'cloudflare'], {
+          ...base,
+          ...tunnel,
+        });
+        assert.equal(started.status, 0, started.output);
+        const env = readEnv(path.join(where.dir, '.env'));
+        assert.equal(env.get('AUTOMATE_REMOTE'), 'cloudflare');
+        // Kept in .env, so the next plain start still has the tunnel; the token survives
+        // characters (`/`, `+`, `=`) a sed replacement would mangle.
+        assert.equal(env.get('TUNNEL_TOKEN'), tunnel.TUNNEL_TOKEN);
+        assert.equal(env.get('CF_ACCESS_AUD'), 'aud-0123');
+        const up = composeCall(calls(where.log), 'up');
+        assert.ok(up, 'no compose up');
+        const at = up.indexOf('--profile');
+        assert.equal(
+          up[at + 1],
+          'cloudflare',
+          `the tunnel profile was not started: ${up.join(' ')}`,
+        );
+        assert.ok(!started.output.includes(tunnel.TUNNEL_TOKEN), 'the tunnel token was printed');
+        assert.match(started.output, /Cloudflare/);
+
+        writeFileSync(where.log, '');
+        const again = await run(kind, where, [], base);
+        assert.equal(again.status, 0, again.output);
+        assert.ok(composeCall(calls(where.log), 'up')?.includes('cloudflare'), 'tunnel dropped');
       } finally {
         await server.close();
         where.cleanup();

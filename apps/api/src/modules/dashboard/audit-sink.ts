@@ -20,6 +20,7 @@
  * store built by a helper.
  */
 import { auditEvents } from '@automate/db';
+import { requestAuditFields } from '../../observability/request-context.js';
 
 /**
  * Who a write is attributed to, resolved once by the route and passed down.
@@ -93,5 +94,7 @@ export function auditRow(
     workspaceId,
     requestId: entry.requestId ?? null,
     details: entry.details ?? null,
+    ip: requestAuditFields().ip,
+    userAgent: requestAuditFields().userAgent,
   };
 }

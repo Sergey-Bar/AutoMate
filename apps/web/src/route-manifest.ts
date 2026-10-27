@@ -217,6 +217,14 @@ export const routeManifest = [
     tab: 'Access',
   },
   {
+    id: 'deployment',
+    path: '/dashboard/deployment',
+    label: 'Deployment',
+    visible: true,
+    section: 'map',
+    tab: 'Deployment',
+  },
+  {
     id: 'reports',
     path: '/dashboard/reports',
     label: 'Reports',

@@ -16,6 +16,7 @@ import { Route as scoreRoute } from './routes/dashboard/score.js';
 import { FlakyRoute, GapsRoute, HollowRoute, StructureRoute } from './routes/dashboard/gaps.js';
 import {
   AccessRoute,
+  DeploymentRoute,
   PairRoute,
   PortfolioRoute,
   RepoHealthRoute,
@@ -36,6 +37,7 @@ const dashboardTree = dashboardRoute.addChildren([
   RepoHealthRoute,
   Repo360Route,
   AccessRoute,
+  DeploymentRoute,
   PairRoute,
   reportsRoute,
   insightsRoute,

@@ -2,7 +2,13 @@ import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import { z } from 'zod/v4';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
-import { callerOf, requireRole, BROWSER_SIGN_IN, type CallerResolver } from '../http/roles.js';
+import {
+  callerOf,
+  requireRole,
+  sourceOf,
+  BROWSER_SIGN_IN,
+  type CallerResolver,
+} from '../http/roles.js';
 import { createRateLimiter } from '../middleware/rate-limit.js';
 import { defaultClientKey } from './auth.js';
 import { isSecureFor, type SecureCookies } from '../http/secure-cookies.js';
@@ -52,7 +58,13 @@ export function createAccessRoutes(options: AccessRouteOptions): Hono {
 
   app.get('/api/v1/auth/whoami', async (context) => {
     const caller = await callerOf(context, options.access);
-    return context.json({ actor: caller.actor, role: caller.role, mode: options.access.mode });
+    return context.json({
+      actor: caller.actor,
+      role: caller.role,
+      mode: options.access.mode,
+      profile: options.access.profile ?? 'solo',
+      source: sourceOf(caller),
+    });
   });
 
   app.post('/api/v1/auth/token-login', async (context) => {
@@ -69,6 +81,13 @@ export function createAccessRoutes(options: AccessRouteOptions): Hono {
     // An uploader token is a CI credential; it never signs a browser in.
     if (caller === null || caller.role === null) {
       throw new DomainError('INVALID_CREDENTIALS', 'Invalid credentials');
+    }
+    // After the token is checked, so the refusal tells nothing to a caller without one.
+    if (options.access.ssoEnforced === true) {
+      throw new DomainError(
+        'SSO_ENFORCED',
+        'Single sign-on is enforced: sign in with your identity provider',
+      );
     }
     setCookie(context, BROWSER_SIGN_IN, parsed.data.token, {
       httpOnly: true,

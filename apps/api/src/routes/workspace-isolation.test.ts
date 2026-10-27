@@ -116,6 +116,12 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'triage labels',
     files: ['services/triage-label-service.ts', 'routes/triage-labels.ts'],
   },
+  // People and their roles: a membership is read and written on `workspace_members` filtered
+  // by `workspace_id`, and `oidc.test.ts` proves a person with a role in ws-1 has none in ws-2.
+  { family: 'people and memberships', files: ['services/user-service.ts', 'routes/oidc.ts'] },
+  // The audit trail: every read, the export and the chain check filter `audit_events` on
+  // `workspace_id`, and `audit.test.ts` proves another workspace's rows are not exported.
+  { family: 'audit trail', files: ['routes/audit.ts'] },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

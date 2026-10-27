@@ -24,10 +24,10 @@
   ],
   "whatDoesNotBlock": "Workspace-scoped tables without a hard boundary. That is real debt, counted and reported by `pnpm tenancy:check`, because failing on it would make the gate permanently red — and a permanently red gate stops catching the regressions above.",
   "tally": {
-    "total": 83,
+    "total": 85,
     "global": 12,
-    "workspaceScoped": 71,
-    "workspaceScopedWithHardBoundary": 71,
+    "workspaceScoped": 73,
+    "workspaceScopedWithHardBoundary": 73,
     "workspaceScopedNullable": 0,
     "workspaceScopedAbsent": 0,
     "note": "**Derived, not asserted.** An earlier version of this file carried a hand-written tally of 19 / 37 / 18, which was wrong in every field — the numbers had been written from memory rather than measured. `scripts/lib/tenancy-scope.test.mjs` now recomputes all six from the schema and this register and fails if any disagree, so they cannot drift again. That is the `no-second-authority` failure this repository records as `P-6` and `P-5`, committed by the author of the skill that describes it.",
@@ -52,7 +52,7 @@
     "users": {
       "scope": "global",
       "column": "absent",
-      "reason": "Installation-scoped identity, not workspace-scoped. A user belongs to an installation and can hold roles across every workspace in it."
+      "reason": "Installation-scoped identity, not workspace-scoped. A user belongs to an installation and holds a role per workspace in `workspace_members` (`0049_workspace_members.sql`), so the person is global and the role is the workspace's."
     },
     "roles": {
       "scope": "global",
@@ -328,6 +328,16 @@
       "scope": "workspace",
       "column": "not-null",
       "reason": "One-time device pairing codes an admin issues in LAN mode; each mints an access token in the same workspace. Hard-scoped from its first migration (`0033_pairing_codes.sql`); a code is redeemable only in the workspace that issued it. Isolation: `apps/api/src/services/pairing-service.test.ts`."
+    },
+    "workspace_members": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "A person's role in one workspace (ADR-014): the same person may be an admin in one workspace and a viewer in another, so the row is the workspace's. Hard-scoped from its first migration (`0049_workspace_members.sql`), with a primary key leading with `workspace_id`. Constraints: `tests/integration/src/membership.test.ts`."
+    },
+    "invitations": {
+      "scope": "workspace",
+      "column": "not-null",
+      "reason": "An invitation into one workspace, stored as a hash of its secret; accepting it creates a membership in that workspace and no other. Hard-scoped from its first migration (`0049_workspace_members.sql`). Constraints: `tests/integration/src/membership.test.ts`."
     },
     "notification_channels": {
       "scope": "workspace",

@@ -11,6 +11,7 @@ import {
   pgTable,
   text,
   integer,
+  bigint,
   boolean,
   timestamp,
   jsonb,
@@ -938,11 +939,23 @@ export const users = pgTable(
       .default('viewer'),
     samlSubject: text('saml_subject'),
     tenantId: text('tenant_id'),
+    /**
+     * The identity a sign-in names, since `0049_workspace_members.sql`: the provider's issuer
+     * and its subject, unique together. `role` and `tenantId` above predate it and are read by
+     * nothing; a person's role is per workspace, in `workspace_members`.
+     */
+    issuer: text('issuer'),
+    subject: text('subject'),
+    disabledAt: timestamp('disabled_at', { withTimezone: true }),
+    lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     // SQLite: text('created_at').notNull()
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
   },
-  (t) => [uniqueIndex('users_email_unique').on(t.email)],
+  (t) => [
+    uniqueIndex('users_email_unique').on(t.email),
+    uniqueIndex('users_issuer_subject_idx').on(t.issuer, t.subject),
+  ],
 );
 
 // ─── roles ────────────────────────────────────────────────────────────────────
@@ -1238,12 +1251,20 @@ export const auditEvents = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: 'restrict' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
+    /**
+     * The row's place in its workspace's hash chain, since `0050_audit_chain.sql`. Written by
+     * the insert trigger and never by application code; `audit_chain_breaks` checks them.
+     */
+    chainSeq: bigint('chain_seq', { mode: 'number' }),
+    prevHash: text('prev_hash'),
+    hash: text('hash'),
   },
   (t) => [
     index('audit_events_actor_idx').on(t.actorId),
     index('audit_events_action_idx').on(t.action),
     index('audit_events_timestamp_idx').on(t.timestamp),
     index('audit_events_workspace_timestamp_idx').on(t.workspaceId, t.timestamp),
+    uniqueIndex('audit_events_workspace_chain_idx').on(t.workspaceId, t.chainSeq),
   ],
 );
 

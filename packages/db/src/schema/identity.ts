@@ -1,15 +1,18 @@
+import { sql } from 'drizzle-orm';
 import {
+  check,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 // The tenancy root. `dashboard.ts` does not import this module, so this is no cycle.
-import { workspaces } from './dashboard.js';
+import { users, workspaces } from './dashboard.js';
 
 export const installations = pgTable('installations', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -49,11 +52,68 @@ export const sessions = pgTable(
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /**
+     * The person this session signs in, since `0049_workspace_members.sql`. Null is the
+     * installation's own session — every session before it, and the installation-key sign-in.
+     */
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
   },
   (table) => [
     uniqueIndex('sessions_token_hash_idx').on(table.tokenHash),
     index('sessions_installation_idx').on(table.installationId),
     index('sessions_expiry_idx').on(table.expiresAt),
+    index('sessions_user_idx').on(table.userId),
+  ],
+);
+
+/**
+ * A person's role in one workspace (ADR-014, team). One row per person per workspace, so a
+ * person can be an admin in one and a viewer in another. Hard-scoped from the first migration.
+ */
+export const workspaceMembers = pgTable(
+  'workspace_members',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    role: text('role', { enum: ['viewer', 'operator', 'admin'] }).notNull(),
+    invitedBy: text('invited_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: 'workspace_members_pkey', columns: [table.workspaceId, table.userId] }),
+    index('workspace_members_user_idx').on(table.userId),
+    check('workspace_members_role_check', sql`${table.role} IN ('viewer', 'operator', 'admin')`),
+  ],
+);
+
+/**
+ * An invitation to a workspace. Only a hash of its secret is stored; the secret is in the link
+ * an admin sends, once. Spent when accepted: `accepted_at` set, `accepted_by` the person.
+ */
+export const invitations = pgTable(
+  'invitations',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    email: text('email').notNull(),
+    role: text('role', { enum: ['viewer', 'operator', 'admin'] }).notNull(),
+    tokenHash: text('token_hash').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    acceptedBy: uuid('accepted_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (table) => [
+    uniqueIndex('invitations_token_hash_idx').on(table.tokenHash),
+    index('invitations_workspace_idx').on(table.workspaceId, table.createdAt),
+    check('invitations_role_check', sql`${table.role} IN ('viewer', 'operator', 'admin')`),
   ],
 );
 

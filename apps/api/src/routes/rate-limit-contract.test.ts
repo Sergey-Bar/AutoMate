@@ -62,6 +62,18 @@ const UNAUTHENTICATED_ROUTES: ReadonlyArray<{
     why: 'reads a cookie the caller already holds; it grants nothing, and a limiter here would only add a failure mode to a page load',
   },
   {
+    method: 'GET',
+    path: '/api/v1/auth/oidc/start',
+    limited: true,
+    why: 'each start makes the process discover the provider and sign a flow cookie, so it is budgeted per client like a sign-in',
+  },
+  {
+    method: 'GET',
+    path: '/api/v1/auth/oidc/callback',
+    limited: true,
+    why: 'each callback is a token exchange with the provider; a client replaying codes should run out of attempts, not of the provider’s patience',
+  },
+  {
     method: 'POST',
     path: '/api/v1/auth/logout',
     limited: false,
@@ -381,6 +393,7 @@ describe('the unthrottled set is declared', () => {
 const UNAUTHENTICATED_FACTORIES: ReadonlyArray<{ file: string; exportedAs: string }> = [
   { file: 'routes/health.ts', exportedAs: 'createHealthRoutes' },
   { file: 'routes/auth.ts', exportedAs: 'createAuthRoutes' },
+  { file: 'routes/oidc.ts', exportedAs: 'createOidcRoutes' },
 ];
 
 function unauthenticatedRoutes(): Array<{ method: string; path: string }> {

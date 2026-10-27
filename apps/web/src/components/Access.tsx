@@ -57,6 +57,22 @@ export function AccessGate({
  * One field, for whoever reaches an install that enforces access control with no
  * credential. Exported for the app-wide gate in `routes/__root.tsx`.
  */
+/** Why the provider's sign-in was refused, from `/?signin=<reason>` (`routes/oidc.ts`). */
+const SIGN_IN_REFUSALS: Record<string, string> = {
+  expired: 'That sign-in took too long or was started elsewhere. Try again.',
+  failed: 'The identity provider’s answer could not be verified. Try again.',
+  domain: 'Your email domain is not allowed to sign in to this install.',
+  unverified: 'Your identity provider has not verified your email address.',
+  'not-invited': 'You signed in, but nobody has given you access to this install yet.',
+  disabled: 'Your account on this install is disabled. Ask an admin.',
+  'email-taken': 'Another sign-in already uses your email address on this install. Ask an admin.',
+};
+
+function refusalFromLocation(): string | null {
+  const reason = new URLSearchParams(window.location.search).get('signin');
+  return reason === null ? null : (SIGN_IN_REFUSALS[reason] ?? 'Single sign-on failed.');
+}
+
 export function SignIn({
   health,
   onSignedIn,
@@ -65,9 +81,22 @@ export function SignIn({
   onSignedIn: () => void;
 }): React.ReactElement {
   const [credential, setCredential] = React.useState('');
-  const [error, setError] = React.useState<string | null>(null);
+  const [error, setError] = React.useState<string | null>(refusalFromLocation);
   const [busy, setBusy] = React.useState(false);
+  const [sso, setSso] = React.useState(false);
   const id = React.useId();
+  React.useEffect(() => {
+    let live = true;
+    health
+      .signInMethods?.()
+      .then((methods) => {
+        if (live) setSso(methods.oidc);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [health]);
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -88,8 +117,16 @@ export function SignIn({
     <PageFrame data-testid="sign-in" className="h-auto items-center justify-center py-16">
       <form onSubmit={submit} className="w-full max-w-sm space-y-4" aria-label="Sign in">
         <h1 className="text-3xl font-semibold tracking-tight">Sign in</h1>
+        {sso ? (
+          <a
+            href="/api/v1/auth/oidc/start"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-on-fill hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            Sign in with single sign-on
+          </a>
+        ) : null}
         <p className="text-sm text-fg-muted">
-          Paste the access token an admin gave you, or the installation key.
+          {sso ? 'Or paste' : 'Paste'} the access token an admin gave you, or the installation key.
         </p>
         <Input
           id={`${id}-credential`}

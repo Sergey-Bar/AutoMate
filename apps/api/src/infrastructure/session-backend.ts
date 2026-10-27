@@ -3,7 +3,8 @@ import type { DrizzleSessionStore } from '@automate/db';
 import { hashCredential, type SessionRecord } from '@automate/auth';
 
 export interface AuthSessionBackend {
-  issue(installationId: string): Promise<{ token: string; record: SessionRecord }>;
+  /** `userId` signs a person in (ADR-014); without it, the session is the installation's. */
+  issue(installationId: string, userId?: string): Promise<{ token: string; record: SessionRecord }>;
   validate(token: string): Promise<SessionRecord | undefined>;
   revoke(id: string): Promise<boolean>;
   /**
@@ -32,7 +33,10 @@ export class DrizzleAuthSessionBackend implements AuthSessionBackend {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async issue(installationId: string): Promise<{ token: string; record: SessionRecord }> {
+  async issue(
+    installationId: string,
+    userId?: string,
+  ): Promise<{ token: string; record: SessionRecord }> {
     const token = randomUUID() + randomUUID();
     const issuedAt = this.now();
     const record: SessionRecord = {
@@ -41,6 +45,7 @@ export class DrizzleAuthSessionBackend implements AuthSessionBackend {
       installationId,
       issuedAt,
       expiresAt: new Date(issuedAt.getTime() + this.ttlMs),
+      ...(userId === undefined ? {} : { userId }),
     };
     await this.store.ensureInstallation(installationId);
     await this.store.create({
@@ -49,6 +54,7 @@ export class DrizzleAuthSessionBackend implements AuthSessionBackend {
       tokenHash: record.tokenHash,
       issuedAt: record.issuedAt,
       expiresAt: record.expiresAt,
+      ...(userId === undefined ? {} : { userId }),
     });
     return { token, record };
   }
@@ -63,6 +69,7 @@ export class DrizzleAuthSessionBackend implements AuthSessionBackend {
       issuedAt: row.issuedAt,
       expiresAt: row.expiresAt,
       revokedAt: row.revokedAt ?? undefined,
+      ...(row.userId === null ? {} : { userId: row.userId }),
     };
   }
 

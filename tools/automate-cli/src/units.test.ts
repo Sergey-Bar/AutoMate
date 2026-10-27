@@ -201,3 +201,55 @@ describe('the request', () => {
     });
   });
 });
+
+describe('an install behind Cloudflare Access', () => {
+  const base = {
+    AUTOMATE_URL: 'https://automate.example',
+    AUTOMATE_TOKEN: 'amt_x',
+    AUTOMATE_PROJECT: '11111111-1111-4111-8111-111111111111',
+  };
+  // Assembled at runtime: a service token secret is a credential.
+  const secret = ['cf', 'secret', String(Date.now())].join('-');
+
+  it('sends the Access service token beside the access token, to the same origin only', async () => {
+    const target = resolveTarget(
+      {
+        ...base,
+        AUTOMATE_CF_ACCESS_CLIENT_ID: 'ci.access',
+        AUTOMATE_CF_ACCESS_CLIENT_SECRET: secret,
+      },
+      undefined,
+    );
+    const calls: RequestInit[] = [];
+    const fetchImpl = (async (_url: URL, init: RequestInit) => {
+      calls.push(init);
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    await send(fetchImpl, target, projectUrl(target, '/x'), { method: 'GET' });
+    expect(calls[0]?.headers).toMatchObject({
+      authorization: 'Bearer amt_x',
+      'cf-access-client-id': 'ci.access',
+      'cf-access-client-secret': secret,
+    });
+  });
+
+  it('sends no Access headers when none are configured', async () => {
+    const target = resolveTarget(base, undefined);
+    const calls: RequestInit[] = [];
+    const fetchImpl = (async (_url: URL, init: RequestInit) => {
+      calls.push(init);
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+    await send(fetchImpl, target, projectUrl(target, '/x'), { method: 'GET' });
+    expect(Object.keys(calls[0]?.headers ?? {})).not.toContain('cf-access-client-id');
+  });
+
+  it('refuses half a service token, naming the missing half', () => {
+    expect(() => resolveTarget({ ...base, AUTOMATE_CF_ACCESS_CLIENT_ID: 'ci' }, undefined)).toThrow(
+      /AUTOMATE_CF_ACCESS_CLIENT_SECRET/u,
+    );
+    expect(() =>
+      resolveTarget({ ...base, AUTOMATE_CF_ACCESS_CLIENT_SECRET: secret }, undefined),
+    ).toThrow(/AUTOMATE_CF_ACCESS_CLIENT_ID/u);
+  });
+});

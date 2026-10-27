@@ -33,6 +33,7 @@
     "render:baseline": "node ./scripts/render-baseline.mjs",
     "db:generate": "pnpm --filter @automate/db db:generate",
     "db:migrate": "pnpm --filter @automate/db db:migrate",
+    "audit:verify": "pnpm --filter @automate/db audit:verify",
     "db:check": "pnpm --filter @automate/db exec drizzle-kit check",
     "compose:config": "docker compose -f infra/compose/docker-compose.unified.yml config",
     "compose:boot": "node ./scripts/compose-boot.mjs",

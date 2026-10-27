@@ -71,6 +71,7 @@ describe('route manifest', () => {
       '/dashboard/supply-chain',
       '/dashboard/toolbox',
       '/dashboard/access',
+      '/dashboard/deployment',
       '/dashboard/reports',
     ]);
     expect(visibleRoutes.every((route) => isApplicationPath(route.path))).toBe(true);
@@ -111,6 +112,7 @@ describe('route manifest', () => {
     ['/dashboard/map', 'map'],
     ['/dashboard/health', 'map'],
     ['/dashboard/toolbox', 'map'],
+    ['/dashboard/deployment', 'map'],
   ] as const)('resolves %s to the %s section', (path, section) => {
     expect(sectionOf(path)).toBe(section);
   });
@@ -137,6 +139,7 @@ describe('route manifest', () => {
       'Supply chain',
       'Toolbox',
       'Access',
+      'Deployment',
       'Reports',
     ]);
   });

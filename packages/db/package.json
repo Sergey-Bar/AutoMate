@@ -18,7 +18,8 @@
     "lint": "eslint --max-warnings=0 src/",
     "test": "vitest run --coverage && node ../../scripts/write-coverage-provenance.mjs",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node dist/migrate.js"
+    "db:migrate": "node dist/migrate.js",
+    "audit:verify": "node dist/audit-verify.js"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

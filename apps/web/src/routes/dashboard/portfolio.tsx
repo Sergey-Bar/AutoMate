@@ -7,6 +7,7 @@ import { createHealthClient } from '../../lib/health-client.js';
 import { createAiCodeClient } from '../../lib/ai-code-client.js';
 import { createDeliveryClient } from '../../lib/delivery-client.js';
 import { AccessGate, AccessPage } from '../../components/Access.js';
+import { DeploymentPage } from '../../components/Deployment.js';
 import { PairPage } from '../../components/Pairing.js';
 
 /** The landing page: every repository's grade, worst first. */
@@ -49,6 +50,13 @@ export const AccessRoute = createRoute({
   getParentRoute: () => dashboardRoute,
   path: '/access',
   component: () => <AccessPage health={createHealthClient()} />,
+});
+
+/** What this install is for (its deployment profile), who it lets in, and how to change it. */
+export const DeploymentRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/deployment',
+  component: () => <DeploymentPage health={createHealthClient()} />,
 });
 
 /** Where a pairing QR code lands. Spends the code, then opens the dashboard as that device. */

@@ -190,6 +190,8 @@ describe('migration graph', () => {
       '0046_quarantine_identity',
       '0047_quarantine_lifecycle',
       '0048_triage_labels',
+      '0049_workspace_members',
+      '0050_audit_chain',
     ]);
   });
 

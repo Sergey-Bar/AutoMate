@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { sql } from 'drizzle-orm';
 import { createDbResources } from '@automate/db';
+import type { Profile } from '@automate/config';
 import { AGENT_DOMAINS } from './agent-registry.js';
 import { PROMETHEUS_CONTENT_TYPE, collect, renderExposition } from '../observability/metrics.js';
 
@@ -13,6 +14,10 @@ export interface HealthRouteOptions {
    * composed without any.
    */
   agentAvailability?: (domain: string) => boolean;
+  /** The deployment profile (ADR-014). Public: it says what the install is for, not who uses it. */
+  profile?: Profile;
+  /** The sign-in methods a browser is offered beside a token and the installation key. */
+  signIn?: { oidc: boolean };
   /**
    * Probe the shared pool. The composition root injects this so a readiness
    * probe does not construct a fresh `pg.Pool` on every call — doing so leaked
@@ -140,7 +145,12 @@ export function createHealthRoutes(options: HealthRouteOptions = {}): Hono {
     for (const domain of AGENT_DOMAINS) {
       features[`agent.${domain}`] = options.agentAvailability?.(domain) ?? false;
     }
-    return c.json({ features, version: '1' });
+    return c.json({
+      features,
+      version: '1',
+      profile: options.profile ?? 'solo',
+      signIn: { oidc: options.signIn?.oidc ?? false },
+    });
   });
 
   /**

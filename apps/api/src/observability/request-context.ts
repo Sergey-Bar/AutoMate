@@ -28,7 +28,21 @@ const MAX_REQUEST_ID_LENGTH = 64;
 /** The shape we accept from a client. Printable, no whitespace, no control characters. */
 const ACCEPTED = /^[A-Za-z0-9._-]{1,64}$/;
 
-const storage = new AsyncLocalStorage<{ requestId: string }>();
+const storage = new AsyncLocalStorage<RequestScope>();
+
+/**
+ * What one request carries for the audit trail: its id, the client address the edge saw
+ * (recorded by {@link recordClientAddress} once the proxy policy is known), and its user
+ * agent, bounded so a header cannot be a payload.
+ */
+interface RequestScope {
+  requestId: string;
+  clientAddress?: string;
+  userAgent?: string;
+}
+
+/** The longest user agent an audit row keeps. Real ones are a few hundred characters. */
+const MAX_USER_AGENT_LENGTH = 512;
 
 /**
  * The id to use for a request, whether it came from the client or from us.
@@ -91,6 +105,43 @@ export function runWithRequestId<T>(requestId: string, work: () => T): T {
 }
 
 /**
+ * Run a callback with a whole request scope: its id and its user agent.
+ *
+ * @param scope the id and, when the request carried one, the user agent
+ * @param work what to run
+ */
+export function runWithRequest<T>(
+  scope: { requestId: string; userAgent?: string | undefined },
+  work: () => T,
+): T {
+  const userAgent = scope.userAgent?.slice(0, MAX_USER_AGENT_LENGTH);
+  return storage.run({ requestId: scope.requestId, ...(userAgent ? { userAgent } : {}) }, work);
+}
+
+/**
+ * Records the client's address for the rest of the request. Called by the composition root
+ * once it knows whether to trust `X-Forwarded-For`, which this middleware cannot know.
+ */
+export function recordClientAddress(address: string): void {
+  const scope = storage.getStore();
+  if (scope !== undefined) scope.clientAddress = address.slice(0, 64);
+}
+
+/** The request's audit fields, each `null` outside a request rather than invented. */
+export function requestAuditFields(): {
+  requestId: string | null;
+  ip: string | null;
+  userAgent: string | null;
+} {
+  const scope = storage.getStore();
+  return {
+    requestId: scope?.requestId ?? null,
+    ip: scope?.clientAddress ?? null,
+    userAgent: scope?.userAgent ?? null,
+  };
+}
+
+/**
  * The request id for the rest of the chain, the response header, and the request count.
  *
  * The response header matters as much as the context: a client that cannot see the id
@@ -108,6 +159,6 @@ export function runWithRequestId<T>(requestId: string, work: () => T): T {
 export const requestContext: MiddlewareHandler = async (c, next) => {
   const requestId = normaliseRequestId(c.req.header('x-request-id'));
   c.header('x-request-id', requestId);
-  await runWithRequestId(requestId, () => next());
+  await runWithRequest({ requestId, userAgent: c.req.header('user-agent') }, () => next());
   recordRequest(c.res.status);
 };

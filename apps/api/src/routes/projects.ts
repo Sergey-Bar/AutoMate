@@ -43,6 +43,7 @@ import { storeGitToken } from '../services/git-credential-service.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
 import type { SecureCookies } from '../http/secure-cookies.js';
 import { createAccessRoutes } from './access.js';
+import { createAuditRoutes } from './audit.js';
 import { defaultClientKey } from './auth.js';
 import { createPairingRoutes } from './pairing.js';
 import { createNotificationRoutes } from './notifications.js';
@@ -293,6 +294,8 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
     }),
   );
+  // The audit trail, its export and its chain (ADR-014, enterprise). Admin only.
+  app.route('/', createAuditRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
   // Pairing mints access tokens, so it lives where they do: beside the access routes.
   app.route(
     '/',

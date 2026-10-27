@@ -41,6 +41,7 @@ collision recurring — not this paragraph, and not a reviewer's memory.
 | [ADR-011](./011-execution-safety-posture-no-isolation-in-the-first-release.md) | Execution safety posture: control the process tree, promise no isolation             | proposed | 2026-10-19 | —          |
 | [ADR-012](./012-node-engine-and-typed-loopback-interface.md)                   | Node 24 engine behind a typed loopback interface                                     | proposed | 2026-10-19 | —          |
 | [ADR-013](./013-published-images-and-a-release-bundle.md)                      | Releases publish multi-arch images and a one-download bundle                         | accepted | 2026-10-22 | —          |
+| [ADR-014](./014-deployment-profiles-and-remote-access.md)                      | Deployment profiles, remote access through Cloudflare, and identity in layers        | accepted | 2026-10-27 | —          |
 
 ## Decisions with no record, and where they went
 

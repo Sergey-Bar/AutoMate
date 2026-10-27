@@ -6,11 +6,14 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
+import type { Profile } from '@automate/config';
 import { createErrorBoundary } from '../errors/boundary.js';
+import { recordClientAddress, runWithRequest } from '../observability/request-context.js';
 import type { CallerResolver } from '../http/roles.js';
 import { createProjectsRoutes } from '../routes/projects.js';
 import { literalView } from '@automate/projects';
 import {
+  audit,
   authenticateToken,
   createAccessToken,
   listAccessTokens,
@@ -45,7 +48,11 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
-async function setup(mode: 'open' | 'enforced' = 'enforced') {
+async function setup(
+  mode: 'open' | 'enforced' = 'enforced',
+  profile?: Profile,
+  ssoEnforced = false,
+) {
   const client = new PGlite();
   clients.push(client);
   await client.exec(migrationSql());
@@ -62,6 +69,8 @@ async function setup(mode: 'open' | 'enforced' = 'enforced') {
   const options = { db: db as never, workspaceId: 'ws-1' };
   const access: CallerResolver = {
     mode,
+    ...(profile === undefined ? {} : { profile }),
+    ...(ssoEnforced ? { ssoEnforced } : {}),
     authenticateToken: (token) => authenticateToken(options, token),
     hasSession: async (context) =>
       context.req.header('cookie')?.includes('automate_session=valid') === true,
@@ -316,6 +325,71 @@ describe('the role guards, open', () => {
     expect(await (await app.request('/api/v1/auth/whoami')).json()).toMatchObject({
       role: 'admin',
       mode: 'open',
+      profile: 'solo',
+    });
+  });
+
+  it('reports the deployment profile, so the client can say what this install is for', async () => {
+    const { app } = await setup('enforced', 'team');
+    const who = await app.request('/api/v1/auth/whoami', {
+      headers: { cookie: 'automate_session=valid' },
+    });
+    expect(await who.json()).toMatchObject({
+      role: 'admin',
+      mode: 'enforced',
+      profile: 'team',
+      source: 'installation',
+    });
+  });
+
+  it('records where a decision came from: the request id, the client address and its agent', async () => {
+    const { db, options } = await setup();
+    await runWithRequest({ requestId: 'req-42', userAgent: 'Mozilla/5.0 test' }, async () => {
+      recordClientAddress('192.168.1.7');
+      await audit(options, { actor: 'user:u1', action: 'x', resourceType: 'y', resourceId: 'z' });
+    });
+    const [row] = await db
+      .select({
+        requestId: schema.auditEvents.requestId,
+        ip: schema.auditEvents.ip,
+        userAgent: schema.auditEvents.userAgent,
+        hash: schema.auditEvents.hash,
+      })
+      .from(schema.auditEvents);
+    expect(row).toMatchObject({
+      requestId: 'req-42',
+      ip: '192.168.1.7',
+      userAgent: 'Mozilla/5.0 test',
+    });
+    // The chain is the database's; the writer does not compute it.
+    expect(row?.hash).toMatch(/^[0-9a-f]{64}$/u);
+  });
+
+  it('refuses a browser token sign-in under enforced SSO, while the same token still works as a bearer', async () => {
+    const { app, options } = await setup('enforced', 'enterprise', true);
+    const { token } = await createAccessToken(options, { name: 'v', role: 'viewer' }, 'session');
+    const login = await app.request('/api/v1/auth/token-login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    expect(login.status).toBe(403);
+    expect(((await login.json()) as { error: { code: string } }).error.code).toBe('SSO_ENFORCED');
+    expect((await app.request('/api/v1/portfolio', { headers: bearer(token) })).status).toBe(200);
+  });
+
+  it('records a Cloudflare service token as a service and a person as a user', async () => {
+    const { db, options } = await setup();
+    for (const actor of ['cf-service:ci.access', 'cf:ana@example.com', 'token:t1']) {
+      await audit(options, { actor, action: 'x', resourceType: 'y', resourceId: actor });
+    }
+    const rows = await db
+      .select({ actorId: schema.auditEvents.actorId, actorType: schema.auditEvents.actorType })
+      .from(schema.auditEvents);
+    expect(Object.fromEntries(rows.map((row) => [row.actorId, row.actorType]))).toEqual({
+      'cf-service:ci.access': 'service',
+      'cf:ana@example.com': 'user',
+      'token:t1': 'service',
     });
   });
 });

@@ -52,6 +52,11 @@ export interface AuthRouteOptions {
    * per-address budget on it let a client reset that budget on every request.
    */
   trustProxy?: boolean;
+  /**
+   * Enforced single sign-on (ADR-014). The installation key signs a browser in only under
+   * break-glass, and `onBreakGlass` is told every time it does.
+   */
+  sso?: { enforced: boolean; breakGlass: boolean; onBreakGlass?: (context: Context) => void };
 }
 
 /**
@@ -111,7 +116,14 @@ function sessionResponse(record: SessionRecord) {
 export function memoryBackend(secret: string, ttlMs: number, now?: () => Date): AuthSessionBackend {
   const service = new InMemorySessionService(secret, ttlMs, now);
   return {
-    issue: async (installationId) => service.issue(installationId),
+    // The in-process store has no `users` table to name a person against, so a person's
+    // sign-in is refused rather than issued as the installation's (admin) session.
+    issue: async (installationId, userId) => {
+      if (userId !== undefined) {
+        throw new Error('In-memory sessions cannot sign a person in; a database is required');
+      }
+      return service.issue(installationId);
+    },
     validate: async (token) => service.validate(token),
     revoke: async (id) => service.revoke(id),
     sweep: async () => {
@@ -153,6 +165,16 @@ export function createAuthRoutes(options: AuthRouteOptions) {
     }
     if (!verifyCredential(options.cookieSecret, parsed.data.apiKey, options.installationKeyHash)) {
       throw new DomainError('INVALID_CREDENTIALS', 'Invalid credentials');
+    }
+    // After the key is checked, so a refusal here says nothing to a caller without it.
+    if (options.sso?.enforced === true) {
+      if (!options.sso.breakGlass) {
+        throw new DomainError(
+          'SSO_ENFORCED',
+          'Single sign-on is enforced: sign in with your identity provider',
+        );
+      }
+      options.sso.onBreakGlass?.(context);
     }
     const issued = await sessions.issue(options.installationId);
     setCookie(context, SESSION_COOKIE, issued.token, {

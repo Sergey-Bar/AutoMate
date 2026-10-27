@@ -8,10 +8,10 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 13,
+    "admin": 16,
     "viewer": 78,
     "operator": 32,
-    "open": 14,
+    "open": 16,
     "runner-credential": 9,
     "reporter-secret": 13,
     "enrollment-token": 1,
@@ -75,6 +75,30 @@
       "composition": "always"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/audit",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit/export",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit/verify",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/auth/login",
       "access": "open",
@@ -88,6 +112,22 @@
       "access": "open",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/auth-session-lifecycle.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/callback",
+      "access": "open",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/oidc.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/start",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/oidc.test.ts",
       "composition": "always"
     },
     {
@@ -319,7 +359,7 @@
       "path": "/api/v1/features",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/index.test.ts",
+      "evidenceTest": "apps/api/src/routes/health.test.ts",
       "composition": "always"
     },
     {

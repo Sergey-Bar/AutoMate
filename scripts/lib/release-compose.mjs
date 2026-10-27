@@ -77,6 +77,10 @@ export function releaseCompose(source, version) {
 /** Release settings a user may change, with the default the file already applies. */
 const RELEASE_SETTINGS = [
   ['AUTOMATE_VERSION', 'The release this install runs. `start update` rewrites it.'],
+  [
+    'AUTOMATE_PROFILE',
+    'Default solo (this machine, no login). startup, team or enterprise turn sign-in on.',
+  ],
   ['AUTOMATE_BIND', 'Default 127.0.0.1. 0.0.0.0 exposes an install with no login to your network.'],
   ['AUTOMATE_PORT', 'Default 8080. The one port the stack publishes.'],
 ];

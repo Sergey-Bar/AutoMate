@@ -1,12 +1,22 @@
-import { requestContext, requireRequestId } from './observability/request-context.js';
+import {
+  recordClientAddress,
+  requestContext,
+  requireRequestId,
+} from './observability/request-context.js';
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { createErrorBoundary } from './errors/boundary.js';
 import { withClassifiedErrors } from './errors/db-errors.js';
 import { createHealthRoutes } from './routes/health.js';
+import {
+  createCloudflareAccessVerifier,
+  createCloudflareCallerSource,
+} from './http/cloudflare-access.js';
 import { createReporterRoutes } from './routes/reporter.js';
 import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
+import { createOidcRoutes } from './routes/oidc.js';
+import { callerForUser } from './services/user-service.js';
 import { isLoopbackBind } from '@automate/config';
 import type { CallerResolver } from './http/roles.js';
 import { applyRouteAccess } from './http/route-access.js';
@@ -58,7 +68,7 @@ import {
 import { ingestScanArtifact } from './services/repo-health-service.js';
 import { readGitToken } from './services/git-credential-service.js';
 import { rotateVaultSecrets } from './services/vault-secrets.js';
-import { authenticateToken } from './services/access-service.js';
+import { audit, authenticateToken } from './services/access-service.js';
 import { alertsFor, deliverAlerts } from './services/health-integrations.js';
 import type { ReportEvent } from './services/repo-health-service.js';
 import { githubAdapter } from '@automate/connectors-github';
@@ -612,7 +622,37 @@ const authRoutes = createAuthRoutes({
   secureCookies: resolveSecureCookies(),
   trustProxy: runtimeConfig.trustProxy,
   sessionBackend,
+  sso: {
+    enforced: runtimeConfig.ssoEnforced === true,
+    breakGlass: runtimeConfig.breakGlass === true,
+    // Every break-glass sign-in is loud: a warning in the log and a row in the audit trail.
+    onBreakGlass: (context) => {
+      const client = defaultClientKey(context, runtimeConfig.trustProxy ?? false);
+      logger.warn('break-glass sign-in with the installation key', { client });
+      if (databaseResources !== undefined) {
+        void audit(
+          {
+            db: databaseResources.db as never,
+            workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+          },
+          {
+            actor: 'session',
+            action: 'auth.break-glass',
+            resourceType: 'installation',
+            resourceId: installationId,
+            details: { client },
+          },
+        );
+      }
+    },
+  },
 });
+if (runtimeConfig.ssoEnforced === true && runtimeConfig.breakGlass === true) {
+  logger.warn(
+    'AUTOMATE_BREAK_GLASS is on: the installation key can sign a browser in while single ' +
+      'sign-on is enforced. Every use is audited. Turn it off once you are back in.',
+  );
+}
 
 /**
  * Origins allowed to make credentialed cross-origin requests.
@@ -662,6 +702,19 @@ app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }))
  */
 const accessResolver: CallerResolver = {
   mode: runtimeConfig.accessControl ?? 'open',
+  profile: runtimeConfig.profile ?? 'solo',
+  ssoEnforced: runtimeConfig.ssoEnforced === true,
+  // A verified Cloudflare Access identity, only on an install reached through the tunnel
+  // (ADR-014). The startup policy has already refused a tunnel without both Access settings.
+  ...(runtimeConfig.remote === 'cloudflare' && runtimeConfig.cloudflareAccess !== undefined
+    ? {
+        authenticateRemote: createCloudflareCallerSource(
+          createCloudflareAccessVerifier(runtimeConfig.cloudflareAccess),
+          runtimeConfig.cloudflareAccess,
+          { log: (message, fields) => logger.warn(message, fields) },
+        ),
+      }
+    : {}),
   authenticateToken: async (token) =>
     databaseResources === undefined
       ? null
@@ -672,9 +725,34 @@ const accessResolver: CallerResolver = {
           },
           token,
         ),
+  // A person's session (ADR-014, team), with their role in this workspace. Only with a
+  // database: people are rows in `users`.
+  ...(databaseResources === undefined
+    ? {}
+    : {
+        authenticateSession: async (context: Context) => {
+          const session = getCookie(context, 'automate_session');
+          if (session === undefined) return null;
+          const record = await authRoutes.sessions.validate(session);
+          if (record?.userId === undefined) return null;
+          // A disabled or deleted person's session is nobody, not the installation's.
+          return (
+            (await callerForUser(
+              {
+                db: databaseResources.db as never,
+                workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+              },
+              record.userId,
+            )) ?? { actor: 'anonymous', role: null, uploaderFor: null }
+          );
+        },
+      }),
+  // The installation's own session only: a person's session is never the admin by default.
   hasSession: async (context) => {
     const session = getCookie(context, 'automate_session');
-    return session !== undefined && (await authRoutes.sessions.validate(session)) !== undefined;
+    if (session === undefined) return false;
+    const record = await authRoutes.sessions.validate(session);
+    return record !== undefined && record.userId === undefined;
   },
 };
 // Before any route is mounted: Hono runs matching handlers in registration order.
@@ -689,6 +767,11 @@ app.use(
   }),
 );
 app.use('*', createOriginCheck({ allowedOrigins: resolveAllowedOrigins() }));
+// The client address for the audit trail, read the same way the allowlist reads it.
+app.use('*', async (context, next) => {
+  recordClientAddress(defaultClientKey(context, runtimeConfig.trustProxy ?? false));
+  await next();
+});
 applyRouteAccess(app, accessResolver);
 
 /**
@@ -769,6 +852,8 @@ app.route(
   createHealthRoutes({
     databaseUrl: runtimeConfig.databaseUrl,
     agentAvailability: agentCatalog.available,
+    profile: runtimeConfig.profile ?? 'solo',
+    signIn: { oidc: runtimeConfig.oidc !== undefined && databaseResources !== undefined },
     checkDatabase: databaseResources
       ? async () => {
           await databaseResources.db.execute(sql`SELECT 1`);
@@ -782,6 +867,23 @@ app.route(
   }),
 );
 app.route('/', authRoutes.app);
+// OIDC sign-in, always mounted: a coded 404 until OIDC_ISSUER, OIDC_CLIENT_ID and a database
+// are all configured, so an install that never opted in has nothing to probe.
+app.route(
+  '/',
+  createOidcRoutes({
+    ...(runtimeConfig.oidc === undefined ? {} : { oidc: runtimeConfig.oidc }),
+    ...(databaseResources === undefined ? {} : { db: databaseResources.db as never }),
+    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    sessions: authRoutes.sessions,
+    installationId,
+    cookieSecret: authCookieSecret,
+    sessionTtlMs,
+    secureCookies: resolveSecureCookies(),
+    trustProxy: runtimeConfig.trustProxy ?? false,
+    log: (message, fields) => logger.warn(message, fields),
+  }),
+);
 app.route(
   '/',
   createReporterRoutes(runtimeConfig.reporterSecret, {
@@ -1011,7 +1113,9 @@ if (databaseResources !== undefined) {
       },
       quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
       delivery: {
-        lanMode: runtimeConfig.lanMode === true,
+        // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose
+        // Access application bypasses the receiver's path (ADR-014). The HMAC is the credential.
+        lanMode: runtimeConfig.lanMode === true || runtimeConfig.remote === 'cloudflare',
         ...(runtimeConfig.githubWebhookSecret === undefined
           ? {}
           : { webhookSecret: runtimeConfig.githubWebhookSecret }),
