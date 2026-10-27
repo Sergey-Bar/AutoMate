@@ -109,6 +109,22 @@ services:
       CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
       CF_ACCESS_ROLE_MAP: ${CF_ACCESS_ROLE_MAP:-}
       CF_ACCESS_DEFAULT_ROLE: ${CF_ACCESS_DEFAULT_ROLE:-}
+      # Single sign-on for `team` and `enterprise` (site/guide/profiles.md). The redirect URI
+      # the provider must register is PUBLIC_APP_URL above + /api/v1/auth/oidc/callback.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS:-}
+      OIDC_ROLE_MAP: ${OIDC_ROLE_MAP:-}
+      OIDC_DEFAULT_ROLE: ${OIDC_DEFAULT_ROLE:-}
+      # Empty is the profile's default: enforced on `enterprise`. Break-glass is audited.
+      AUTH_SSO_ENFORCED: ${AUTH_SSO_ENFORCED:-}
+      AUTOMATE_BREAK_GLASS: ${AUTOMATE_BREAK_GLASS:-}
+      # The API's request traces to your OTLP/HTTP collector. Empty is off: no outbound call.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
       ALLOWED_CLIENT_CIDRS: ${ALLOWED_CLIENT_CIDRS:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     depends_on:

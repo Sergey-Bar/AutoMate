@@ -5,6 +5,7 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -223,6 +224,34 @@ test('the cloudflare profile runs a tunnel that publishes nothing and is off by 
   for (const name of ['AUTOMATE_REMOTE', 'CF_ACCESS_TEAM_DOMAIN', 'CF_ACCESS_AUD']) {
     assert.match(SOURCE, new RegExp(`\\n {6}${name}: \\$\\{${name}:-\\}`, 'u'), name);
   }
+});
+
+test('the API container receives every identity, remote and telemetry setting the guides document', () => {
+  // A setting the config schema reads but the compose file never passes is a setting an
+  // operator writes into .env and the container never sees: `team` without OIDC, and an
+  // enterprise install whose enforced sign-on is silently off. Derived from the schema, so
+  // a new OIDC_ or CF_ACCESS_ variable that is not passed through fails here.
+  const config = readFileSync(path.join(REPO_ROOT, 'packages/config/src/config.ts'), 'utf8');
+  const identity = [
+    ...config.matchAll(
+      /^ {2}((?:OIDC|CF_ACCESS)_[A-Z_]+|AUTH_SSO_ENFORCED|AUTOMATE_BREAK_GLASS|AUTOMATE_PROFILE|AUTOMATE_REMOTE):/gmu,
+    ),
+  ].map((match) => match[1]);
+  assert.ok(identity.length >= 12, `read only ${identity.length} identity settings`);
+  // And the trace exporter's settings, read beside Sentry's in the API's observability.
+  const otlp = readFileSync(
+    path.join(REPO_ROOT, 'apps/api/src/observability/otlp-traces.ts'),
+    'utf8',
+  );
+  const telemetry = [...otlp.matchAll(/:\s*'(OTEL_[A-Z_]+)'/gu)].map((match) => match[1]);
+  assert.ok(telemetry.length >= 4, `read only ${telemetry.length} OTLP settings`);
+  identity.push(...telemetry);
+  const api = /\n {2}api:\n([\s\S]*?)(?=\n {2}[a-z][a-z0-9_-]*:\n)/u.exec(SOURCE)?.[1] ?? '';
+  assert.ok(api.includes('environment:'), 'no api service in the compose file');
+  const missing = identity.filter(
+    (name) => !new RegExp(`\\n {6}${name}: \\$\\{${name}:-\\}`, 'u').test(api),
+  );
+  assert.deepEqual(missing, [], 'settings the API container never receives');
 });
 
 for (const [kind, shell] of /** @type {const} */ ([
@@ -513,6 +542,54 @@ for (const [kind, shell] of /** @type {const} */ ([
           'the objects were not archived',
         );
         assert.match(created.output, /holds your secrets/);
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: backup --keep removes the oldest backups beyond the count, and nothing else`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const env = {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_VERSION: '3.2.0',
+          FAKE_MIGRATIONS: '34',
+        };
+        assert.equal((await run(kind, where, [], env)).status, 0);
+        const backups = path.join(where.dir, 'backups');
+        // Three older backups, and two things in the folder that are not backups.
+        for (const name of [
+          'automate-20240101T000000Z',
+          'automate-20250101T000000Z',
+          'automate-20260101T000000Z',
+          'keep-me',
+        ]) {
+          mkdirSync(path.join(backups, name), { recursive: true });
+          writeFileSync(path.join(backups, name, 'SHA256SUMS'), '');
+        }
+        writeFileSync(path.join(backups, 'notes.txt'), 'mine');
+        for (const bad of ['0', 'two', '-1']) {
+          const refused = await run(kind, where, ['backup', '--keep', bad], env);
+          assert.notEqual(refused.status, 0, `--keep ${bad}: ${refused.output}`);
+          assert.match(refused.output, /--keep/u);
+        }
+        // A refused count wrote nothing and removed nothing.
+        assert.equal(readdirSync(backups).length, 5);
+        const kept = await run(kind, where, ['backup', '--keep', '2'], env);
+        assert.equal(kept.status, 0, kept.output);
+        const left = readdirSync(backups).sort();
+        assert.equal(left.length, 4, left.join(', '));
+        assert.equal(left[0], 'automate-20260101T000000Z');
+        assert.match(left[1] ?? '', /^automate-2\d{7}T\d{6}Z$/u);
+        assert.notEqual(left[1], left[0]);
+        assert.deepEqual(left.slice(2), ['keep-me', 'notes.txt']);
+        assert.match(kept.output, /Removed 2 older backup/u);
       } finally {
         await server.close();
         where.cleanup();

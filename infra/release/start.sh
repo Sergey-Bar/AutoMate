@@ -9,7 +9,8 @@
 #   ./start.sh logs                follow the logs
 #   ./start.sh update [--version X]  move to the latest (or a given) release; data is kept
 #   ./start.sh uninstall [--purge] remove the containers; --purge also deletes all data
-#   ./start.sh backup              write the database, artifacts and secrets to backups/
+#   ./start.sh backup [--keep N]   write the database, artifacts and secrets to backups/;
+#                                  --keep N then removes all but the newest N backups
 #   ./start.sh restore FOLDER      check a backup, then replace this install's data with it
 #
 # Settings, read from the environment or from .env:
@@ -30,7 +31,7 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'automate: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  say "Usage: ./start.sh [--profile solo|startup|team|enterprise] [--remote cloudflare] | stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert|backup|restore FOLDER"
+  say "Usage: ./start.sh [--profile solo|startup|team|enterprise] [--remote cloudflare] | stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert|backup [--keep N]|restore FOLDER"
 }
 
 # Docker, running, with Compose v2 — each missing piece named, with what to do about it.
@@ -362,6 +363,20 @@ manifest_value() {
 # database is dumped consistently by pg_dump; artifact bytes are written once and never
 # changed, so a copy taken while the install runs is whole for every finished upload.
 backup() {
+  keep=''
+  keep_given=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --keep) keep_given=1; keep="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+      --keep=*) keep_given=1; keep="${1#--keep=}"; shift ;;
+      *) fail "Unknown backup option '$1'. Use ./start.sh backup [--keep N]." ;;
+    esac
+  done
+  if [ "$keep_given" = 1 ]; then
+    case "$keep" in
+      ''|*[!0-9]*|0*) fail "--keep needs a whole number of backups to keep, 1 or more, like --keep 7." ;;
+    esac
+  fi
   [ -f .env ] || fail "There is nothing to back up yet: no .env here. Run ./start.sh first."
   require_docker
   count="$(migration_count)"
@@ -392,6 +407,23 @@ backup() {
   } > "$folder/manifest.env"
   say "Backup written to $folder"
   say "It holds your secrets (the env file): store it like a password, and off this machine."
+  [ -n "$keep" ] && prune_backups "$keep"
+  return 0
+}
+
+# Removes the oldest backups beyond the newest N. Only folders named the way backup names
+# them are counted or removed; anything else in backups/ is left alone.
+prune_backups() {
+  # The names sort by time, so the newest are last.
+  old="$(find backups -mindepth 1 -maxdepth 1 -type d -name 'automate-[0-9]*T[0-9]*Z' 2>/dev/null \
+    | sort | awk -v keep="$1" '{ names[NR] = $0 } END { for (i = 1; i <= NR - keep; i++) print names[i] }')"
+  removed=0
+  for stale in $old; do
+    rm -rf -- "$stale"
+    removed=$((removed + 1))
+  done
+  [ "$removed" -gt 0 ] && say "Removed $removed older backup(s), keeping the newest $1."
+  return 0
 }
 
 # Checks everything before it changes anything: every digest, the vault key, the release
@@ -464,7 +496,7 @@ case "$command" in
   update) update "$@" ;;
   uninstall) uninstall "$@" ;;
   lan-cert) lan_cert ;;
-  backup) backup ;;
+  backup) backup "$@" ;;
   restore) restore "$@" ;;
   -h|--help|help) usage ;;
   *) usage; exit 2 ;;

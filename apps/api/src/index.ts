@@ -133,6 +133,11 @@ import { getConfig } from './config.js';
 import { createSentryErrorReporter } from './observability/sentry.js';
 import { createLogger } from './observability/logger.js';
 import {
+  createOtlpExporter,
+  otlpRequestSpans,
+  readOtlpSettings,
+} from './observability/otlp-traces.js';
+import {
   assertInMemoryAllowed,
   checkExposurePolicy,
   checkProductionPolicy,
@@ -218,6 +223,19 @@ const app = new Hono();
 const logger = createLogger({ service: 'automate-api' });
 const unknownExposure = exposureWarning(runtimeConfig);
 if (unknownExposure !== undefined) logger.warn(unknownExposure);
+/**
+ * The API's own request traces to the operator's OTLP collector (ADR-014, enterprise). Off
+ * unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; a wrong setting is logged and leaves it off
+ * rather than refusing to start, because a telemetry sink must not take the API down.
+ */
+const otlpRead = readOtlpSettings();
+if (otlpRead !== undefined && 'problem' in otlpRead) {
+  logger.warn('OTLP trace export is off', { problem: otlpRead.problem });
+}
+const otlpExporter =
+  otlpRead !== undefined && 'settings' in otlpRead
+    ? createOtlpExporter(otlpRead.settings, { warn: (message) => logger.warn(message) })
+    : undefined;
 
 /**
  * The one model provider decision, made here because this is the only place that
@@ -1172,6 +1190,7 @@ const durableRealtimeBus = defaultParts.durableRealtimeBus;
 const accessResolver = defaultParts.access;
 
 app.use(requestContext);
+if (otlpExporter !== undefined) app.use(otlpRequestSpans(otlpExporter));
 app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }));
 /**
  * Who is calling, for every role guard in the process — one resolver, so the projects
@@ -1440,6 +1459,11 @@ if (runtimeConfig.nodeEnv !== 'test') {
     // reach the timer; `getConfig` always sets it, the `??` only satisfies the partial type.
     deliverySyncer.start(runtimeConfig.deliverySyncIntervalMs ?? 60_000);
     lifecycle.add('delivery syncer', () => deliverySyncer.stop());
+  }
+  if (otlpExporter !== undefined) {
+    otlpExporter.start(5_000);
+    // Added before the server, so it closes after it: the last requests' spans are sent.
+    lifecycle.add('otlp trace exporter', () => otlpExporter.stop());
   }
   lifecycle.add('http server', () => closeHttpServer(server, SHUTDOWN_DRAIN_MS));
   installShutdownHandlers(lifecycle, {

@@ -113,6 +113,9 @@ set per workspace, so the same person can be an admin in one and a viewer in ano
 
 Workspaces need `DATABASE_URL`: an install without a database has the one workspace.
 
+Running it for an organisation — scheduled backups, restore drills, request traces to your
+collector, the audit export and upgrades — is on [its own page](/guide/operations-enterprise).
+
 ## Moving up a profile
 
 1. `./start.sh backup` — a copy of the database, the stored artifacts and `.env`.
@@ -124,6 +127,6 @@ single sign-on get their roles on first sign-in.
 
 ## What is not built yet
 
-Telemetry export is still to come, and nothing here has been run against a real Entra, Okta
-or Cloudflare account yet. The [capability register](/pages/capabilities) is the list of what
-is, with the test behind each row.
+Nothing here has been run against a real Entra, Okta or Cloudflare account yet. The
+[capability register](/pages/capabilities) is the list of what is, with the test behind each
+row.

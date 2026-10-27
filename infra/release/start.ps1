@@ -8,7 +8,8 @@
 #   .\start.cmd logs                 follow the logs
 #   .\start.cmd update [--version X] move to the latest (or a given) release; data is kept
 #   .\start.cmd uninstall [--purge]  remove the containers; --purge also deletes all data
-#   .\start.cmd backup               write the database, artifacts and secrets to backups\
+#   .\start.cmd backup [--keep N]    write the database, artifacts and secrets to backups\;
+#                                    --keep N then removes all but the newest N backups
 #   .\start.cmd restore FOLDER       check a backup, then replace this install's data with it
 #
 # start.cmd runs this file with `-ExecutionPolicy Bypass`, so it works on a machine where
@@ -35,7 +36,7 @@ function Fail([string]$Message) {
 }
 
 function Show-Usage {
-  Write-Output 'Usage: .\start.cmd [--profile solo|startup|team|enterprise] [--remote cloudflare] | stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert|backup|restore FOLDER'
+  Write-Output 'Usage: .\start.cmd [--profile solo|startup|team|enterprise] [--remote cloudflare] | stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert|backup [--keep N]|restore FOLDER'
 }
 
 # Docker, running, with Compose v2 - each missing piece named, with what to do about it.
@@ -351,7 +352,22 @@ function Write-AsciiLines([string]$Path, [string[]]$Lines) {
 # changed, so a copy taken while the install runs is whole for every finished upload.
 # Files are copied out with 'compose cp' rather than redirected: PowerShell 5.1 re-encodes
 # a native command's redirected output, which would corrupt a binary dump.
-function Backup-Automate {
+function Backup-Automate([string[]]$Rest) {
+  $keep = $null
+  for ($i = 0; $i -lt $Rest.Count; $i++) {
+    $option = $Rest[$i]
+    if ($option -eq '--keep') {
+      $keep = if ($i + 1 -lt $Rest.Count) { $Rest[$i + 1] } else { '' }
+      $i++
+    } elseif ($option -like '--keep=*') {
+      $keep = $option.Substring('--keep='.Length)
+    } else {
+      Fail "Unknown backup option '$option'. Use .\start.cmd backup [--keep N]."
+    }
+  }
+  if ($null -ne $keep -and $keep -notmatch '^[1-9][0-9]*$') {
+    Fail '--keep needs a whole number of backups to keep, 1 or more, like --keep 7.'
+  }
   if (-not (Test-Path -LiteralPath $EnvFile)) { Fail 'There is nothing to back up yet: no .env here. Run .\start.cmd first.' }
   Assert-Docker
   $count = Get-MigrationCount
@@ -381,6 +397,22 @@ function Backup-Automate {
   )
   Write-Output "Backup written to $relative"
   Write-Output 'It holds your secrets (the env file): store it like a password, and off this machine.'
+  if ($null -ne $keep) { Remove-OldBackups ([int]$keep) }
+}
+
+# Removes the oldest backups beyond the newest N. Only folders named the way Backup-Automate
+# names them are counted or removed; anything else in backups\ is left alone.
+function Remove-OldBackups([int]$Keep) {
+  $root = Join-Path $PSScriptRoot 'backups'
+  # The names sort by time, so the newest are last.
+  $all = @(Get-ChildItem -LiteralPath $root -Directory |
+      Where-Object { $_.Name -cmatch '^automate-\d{8}T\d{6}Z$' } |
+      Sort-Object Name)
+  $stale = if ($all.Count -gt $Keep) { $all[0..($all.Count - $Keep - 1)] } else { @() }
+  foreach ($folder in $stale) { Remove-Item -LiteralPath $folder.FullName -Recurse -Force }
+  if ($stale.Count -gt 0) {
+    Write-Output "Removed $($stale.Count) older backup(s), keeping the newest $Keep."
+  }
 }
 
 # Checks everything before it changes anything: every digest, the vault key, the release
@@ -457,7 +489,7 @@ switch ($command) {
   'update' { Update-Automate $rest }
   'uninstall' { Uninstall-Automate $rest }
   'lan-cert' { New-LanCertificate }
-  'backup' { Backup-Automate }
+  'backup' { Backup-Automate $rest }
   'restore' { Restore-Automate $rest }
   { $_ -in 'help', '-h', '--help' } { Show-Usage }
   default { Show-Usage; exit 2 }

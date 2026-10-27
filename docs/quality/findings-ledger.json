@@ -6525,6 +6525,63 @@
         }
       ],
       "resolution": "Both migrations now add the column and then a named constraint (`ADD CONSTRAINT <name> FOREIGN KEY …`) matching the schema. The migrations are unreleased on this branch, so they were edited rather than followed by a rename migration."
+    },
+    {
+      "id": "PRO-1",
+      "title": "The release stack never passed the OIDC and enforced sign-on settings to the API container",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "`site/guide/profiles.md` tells a `team` or `enterprise` operator to put `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED_DOMAINS`, `OIDC_ROLE_MAP` and `OIDC_DEFAULT_ROLE` in `.env`, and `AUTH_SSO_ENFORCED` and `AUTOMATE_BREAK_GLASS` decide enforced sign-on. The api service in `infra/compose/docker-compose.unified.yml` listed none of them, so on the shipped stack the container never saw them: no single sign-on button on `team`, and an `enterprise` install refused to start for lack of an identity provider the operator had configured. Every test of OIDC ran in-process with the settings passed directly, so nothing exercised the compose file's environment.",
+      "confirmedBy": "Read the api service environment against the config schema; the new test in `scripts/lib/start-scripts.test.mjs` listed exactly those eight names as missing before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "Every OIDC_ and CF_ACCESS_ setting, AUTH_SSO_ENFORCED, AUTOMATE_BREAK_GLASS, AUTOMATE_PROFILE and AUTOMATE_REMOTE in the config schema is passed to the api service; derived from the schema, so a new identity setting that is not passed through fails."
+        }
+      ],
+      "resolution": "The api service passes each of them through as `${NAME:-}`; `parseConfig` drops empty values, so unset stays unset."
+    },
+    {
+      "id": "PRO-2",
+      "title": "An apostrophe in a comment inside GUARDED_ACCESS broke the authz matrix meta-test",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "`scripts/lib/authz-matrix.test.mjs` reads the guard classes out of `apps/api/src/http/access.ts` by their single quotes. A comment added beside `'scim-token'` read `An identity provider's SCIM connection`, so the quotes paired wrongly, the test read a class list without `admin`, and it failed with `/api/v1/access-tokens: unknown class admin`. The API's own authz tests passed throughout, because they import the array rather than reading its source.",
+      "confirmedBy": "Ran `pnpm test:integration`; the failure named `admin` as an unknown class.",
+      "evidence": [
+        {
+          "path": "scripts/lib/authz-matrix.test.mjs",
+          "asserts": "The committed matrix uses only classes declared in GUARDED_ACCESS; it failed on the apostrophe and passes without it."
+        }
+      ],
+      "resolution": "The comment no longer contains an apostrophe, and a second comment beside it says why the list must not."
+    },
+    {
+      "id": "PRO-3",
+      "title": "The edge proxy sent /scim/v2 to the web container, so SCIM could not reach the API",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "SCIM is served by the API at `/scim/v2` (`apps/api/src/routes/scim.ts`), and the profiles guide gives an identity provider `https://<host>/scim/v2` as its base URL. `infra/nginx/edge.conf` and the HTTPS server `40-automate-tls.sh` writes proxied only `/api/` to the API and everything else to the web container, so on the shipped stack every SCIM request was answered with the dashboard's HTML. The SCIM tests call the routes in-process, so nothing exercised the proxy.",
+      "confirmedBy": "Read both nginx servers against every route outside /api/ in docs/quality/authz-matrix.json; the new test failed on edge.conf before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/edge-tls.test.mjs",
+          "asserts": "Every API route outside /api/ that is not a container probe has a location proxying it to the API, in the plain-HTTP server and in the HTTPS server; derived from the authz matrix, so a new outside path fails until it is proxied."
+        }
+      ],
+      "resolution": "Both servers proxy `/scim/v2/` to the API."
     }
   ]
 }

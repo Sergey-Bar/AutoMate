@@ -106,3 +106,15 @@ Recorded here as tasks land, so the next session reads the state from the tree.
   default workspace. No run against a real PostgreSQL with two workspaces is recorded.
 - Still open: Task 18 (OTLP, scheduled backups, the enterprise operations guide), Task 19
   (profile-matrix E2E), and the comparison page in Task 20.
+- 2026-10-27 — Task 18: the API's request traces over OTLP/HTTP JSON
+  (`apps/api/src/observability/otlp-traces.ts`, no SDK: one server span per request, named by
+  the route pattern, bounded queue, off unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set);
+  `start backup --keep N` in both shells, for a scheduled job; and the enterprise operations
+  guide (`site/guide/operations-enterprise.md`). Writing the guide found two shipped-stack
+  defects, both fixed with a test derived from the source of truth: the API container never
+  received the OIDC and enforced sign-on settings (`PRO-1`), and the edge proxy sent
+  `/scim/v2` to the web container (`PRO-3`). No run against a real collector is recorded.
+- 2026-10-27 — Task 20: the comparison page names what is built for teams and enterprises,
+  and what was proven only against in-process stand-ins.
+- Still open: Task 19 (profile-matrix E2E, `pr-reporting`), which needs a real PostgreSQL and
+  the composed stack.
