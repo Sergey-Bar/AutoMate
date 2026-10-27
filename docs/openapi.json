@@ -484,6 +484,12 @@
         "tags": ["members"],
         "x-source": "apps/api/src/routes/members.ts",
         "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1Members",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
     "/api/v1/members/{userId}": {
@@ -1614,6 +1620,28 @@
         "operationId": "postApiV1WebhooksGithub",
         "tags": ["webhooks"],
         "x-source": "apps/api/src/routes/github-webhook.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "operationId": "getApiV1Workspaces",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1Workspaces",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/workspaces/select": {
+      "post": {
+        "operationId": "postApiV1WorkspacesSelect",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },

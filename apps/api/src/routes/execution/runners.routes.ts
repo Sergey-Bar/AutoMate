@@ -168,7 +168,7 @@ export function registerRunnerRoutes(app: Hono, context: ExecutionRouteContext):
       parsed.capabilities ?? parsed.requiredCapabilities,
       parsed.labels,
       undefined,
-      ws,
+      options.sharedRunners === true ? undefined : ws,
     );
     if (!job) return c.body(null, 204);
     return c.json(job);

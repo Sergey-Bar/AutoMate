@@ -52,6 +52,10 @@ function admin(overrides: Partial<AdminClient> = {}): AdminClient {
       head: { seq: 2, hash: 'ab'.repeat(32) },
     })),
     exportUrl: (format) => `/api/v1/audit/export${format === 'csv' ? '?format=csv' : ''}`,
+    addMember: vi.fn(async () => undefined),
+    listWorkspaces: vi.fn(async () => ({ current: 'default-workspace', workspaces: [] })),
+    selectWorkspace: vi.fn(async () => undefined),
+    createWorkspace: vi.fn(async () => undefined),
     ...overrides,
   };
 }
@@ -96,6 +100,21 @@ describe('the members page', () => {
     render(<MembersPage health={makeHealthDouble('admin')} admin={client} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Disable ana@example.com' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('This is the last admin here');
+  });
+
+  it('adds a person who has signed in before, with a role, then reads the list again', async () => {
+    const client = admin();
+    render(<MembersPage health={makeHealthDouble('admin')} admin={client} />);
+    const form = await screen.findByRole('form', { name: 'Add a person' });
+    fireEvent.change(within(form).getByLabelText('Email'), {
+      target: { value: 'cy@example.com' },
+    });
+    fireEvent.change(within(form).getByLabelText('Role'), { target: { value: 'operator' } });
+    fireEvent.submit(form);
+    await waitFor(() =>
+      expect(client.addMember).toHaveBeenCalledWith('cy@example.com', 'operator'),
+    );
+    await waitFor(() => expect(vi.mocked(client.listMembers).mock.calls.length).toBeGreaterThan(1));
   });
 
   it('says how people get here when nobody has signed in yet', async () => {

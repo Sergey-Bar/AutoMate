@@ -1,9 +1,11 @@
 import React from 'react';
 import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@automate/ui';
 import type { HealthClient, WhoAmI } from '../lib/health-client.js';
+import type { AdminClient } from '../lib/admin-client.js';
 import { AccessGate } from './Access.js';
 import { PageFrame, PageHeader, Panel } from './kit.js';
 import { StatusLine } from './StatusLine.js';
+import { WorkspacePanel } from './Workspaces.js';
 
 export type Profile = NonNullable<WhoAmI['profile']>;
 
@@ -19,9 +21,8 @@ interface ProfileDescription {
 }
 
 /**
- * The four profiles (ADR-014), in words a person choosing one can act on. Written to say
- * only what this build does: user accounts and single sign-on are the team and enterprise
- * milestones, and until they land the page says sign-in is access tokens and pairing.
+ * The four profiles (ADR-014), in words a person choosing one can act on, saying only what
+ * this build does.
  */
 const PROFILES: Record<Profile, ProfileDescription> = {
   solo: {
@@ -55,11 +56,31 @@ export function describeProfile(profile: Profile): ProfileDescription {
 }
 
 /** What this install is for, how it lets people in, and how to change it. */
-export function DeploymentPage({ health }: { health: HealthClient }): React.ReactElement {
-  return <AccessGate health={health}>{(who) => <DeploymentBody who={who} />}</AccessGate>;
+export function DeploymentPage({
+  health,
+  admin,
+}: {
+  health: HealthClient;
+  /** When given, the page offers the workspace switcher (and creation, to a team admin). */
+  admin?: AdminClient;
+}): React.ReactElement {
+  return (
+    <AccessGate health={health}>{(who) => <DeploymentBody who={who} admin={admin} />}</AccessGate>
+  );
 }
 
-function DeploymentBody({ who }: { who: WhoAmI }): React.ReactElement {
+/** Whether several workspaces are a shape this profile offers (ADR-014: team and up). */
+function offersWorkspaces(profile: Profile): boolean {
+  return profile === 'team' || profile === 'enterprise';
+}
+
+function DeploymentBody({
+  who,
+  admin,
+}: {
+  who: WhoAmI;
+  admin: AdminClient | undefined;
+}): React.ReactElement {
   const profile: Profile = who.profile ?? 'solo';
   const current = describeProfile(profile);
   return (
@@ -87,10 +108,19 @@ function DeploymentBody({ who }: { who: WhoAmI }): React.ReactElement {
               ? 'None: there is one person, and it is you.'
               : who.source === 'cloudflare'
                 ? 'You are signed in through Cloudflare Access; your role comes from the role map on this install. Access tokens, paired devices and the installation key work too.'
-                : 'Sign in with access tokens issued by an admin, a paired device, or the installation key.'}
+                : who.source === 'user'
+                  ? 'You are signed in with your own account, through single sign-on; your role is your membership in this workspace.'
+                  : 'Sign in with single sign-on when it is configured, access tokens issued by an admin, a paired device, or the installation key.'}
           </p>
         </Panel>
       </div>
+      {admin === undefined ? null : (
+        <WorkspacePanel
+          admin={admin}
+          canCreate={who.role === 'admin' && offersWorkspaces(profile)}
+          onChanged={() => window.location.reload()}
+        />
+      )}
       <Panel title="Profiles">
         <Table aria-label="Deployment profiles">
           <TableHeader>

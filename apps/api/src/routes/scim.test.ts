@@ -131,6 +131,62 @@ describe('SCIM users', () => {
     expect(user?.disabledAt).not.toBeNull();
   });
 
+  it('replaces a person whole on PUT, as Okta sends it, deactivating them in the same call', async () => {
+    const h = await harness();
+    const created = await create(h);
+    const replaced = await h.scim('PUT', `/scim/v2/Users/${created.id}`, {
+      ...ANA,
+      userName: 'ana.ng@example.com',
+      emails: [{ value: 'ana.ng@example.com', primary: true }],
+      name: { givenName: 'Ana', familyName: 'Ng-Lee' },
+      active: false,
+    });
+    expect(replaced.status).toBe(200);
+    expect(await replaced.json()).toMatchObject({ userName: 'ana.ng@example.com', active: false });
+    const stored = async () =>
+      (
+        await h.db
+          .select({ email: schema.users.email, externalId: schema.users.externalId })
+          .from(schema.users)
+          .where(eq(schema.users.id, created.id))
+      )[0];
+    expect(await stored()).toEqual({ email: 'ana.ng@example.com', externalId: 'entra-0001' });
+    // A replace with no externalId keeps the one the provider set before, rather than
+    // dropping the key the provider finds this person by.
+    const { externalId: _dropped, ...withoutExternalId } = ANA;
+    const again = await h.scim('PUT', `/scim/v2/Users/${created.id}`, {
+      ...withoutExternalId,
+      active: false,
+    });
+    expect(((await again.json()) as { active: boolean }).active).toBe(false);
+    expect((await stored())?.externalId).toBe('entra-0001');
+  });
+
+  it('answers a person who is not here with 404, and a body that is not SCIM with 400', async () => {
+    const h = await harness();
+    const created = await create(h);
+    const missing = '00000000-0000-4000-8000-000000000000';
+    expect((await h.scim('PUT', `/scim/v2/Users/${missing}`, ANA)).status).toBe(404);
+    expect((await h.scim('PATCH', `/scim/v2/Users/${missing}`, {})).status).toBe(404);
+    expect((await h.scim('DELETE', `/scim/v2/Users/${missing}`)).status).toBe(404);
+    const raw = (method: string, path: string) =>
+      h.app.request(path, {
+        method,
+        headers: { authorization: `Bearer ${h.token}`, 'content-type': SCIM_JSON },
+        body: '{not json',
+      });
+    for (const [method, path, scimType] of [
+      ['POST', '/scim/v2/Users', 'invalidValue'],
+      ['PUT', `/scim/v2/Users/${created.id}`, 'invalidValue'],
+      ['PATCH', `/scim/v2/Users/${created.id}`, 'invalidSyntax'],
+      ['PATCH', '/scim/v2/Groups/admin', 'invalidSyntax'],
+    ] as const) {
+      const response = await raw(method, path);
+      expect(response.status, `${method} ${path}`).toBe(400);
+      expect(await response.json()).toMatchObject({ scimType });
+    }
+  });
+
   it('lets the provisioned person sign in with single sign-on the first time', async () => {
     const h = await harness();
     const created = await create(h);
@@ -183,6 +239,42 @@ describe('SCIM groups are the three roles', () => {
       .where(eq(schema.workspaceMembers.userId, created.id));
     expect(after?.role).toBe('viewer');
   });
+
+  it('reads one group, refuses one that is not a role, and replaces a group’s members', async () => {
+    const h = await harness();
+    const ana = await create(h);
+    const bo = await create(h, {
+      ...ANA,
+      userName: 'bo@example.com',
+      externalId: 'entra-0002',
+      emails: [{ value: 'bo@example.com' }],
+    });
+    const roleOf = async (userId: string) =>
+      (
+        await h.db
+          .select({ role: schema.workspaceMembers.role })
+          .from(schema.workspaceMembers)
+          .where(eq(schema.workspaceMembers.userId, userId))
+      )[0]?.role;
+    await h.scim('PATCH', '/scim/v2/Groups/operator', {
+      schemas: [PATCH_SCHEMA],
+      Operations: [{ op: 'add', path: 'members', value: [{ value: ana.id }] }],
+    });
+    const group = (await (await h.scim('GET', '/scim/v2/Groups/operator')).json()) as {
+      displayName: string;
+      members: Array<{ value: string }>;
+    };
+    expect(group.displayName).toBe('automate-operator');
+    expect(group.members.map((member) => member.value)).toEqual([ana.id]);
+    expect((await h.scim('GET', '/scim/v2/Groups/owner')).status).toBe(404);
+    expect((await h.scim('PATCH', '/scim/v2/Groups/owner', { Operations: [] })).status).toBe(404);
+    // A replace sets the group to exactly these members: Ana leaves it for the default role.
+    await h.scim('PATCH', '/scim/v2/Groups/operator', {
+      schemas: [PATCH_SCHEMA],
+      Operations: [{ op: 'replace', path: 'members', value: [{ value: bo.id }] }],
+    });
+    expect([await roleOf(ana.id), await roleOf(bo.id)]).toEqual(['viewer', 'operator']);
+  });
 });
 
 describe('the SCIM token', () => {
@@ -208,6 +300,19 @@ describe('the SCIM token', () => {
     expect(issued.status).toBe(201);
     const { token, summary } = (await issued.json()) as { token: string; summary: { id: string } };
     expect(token).toMatch(/^scim_/u);
+    const listed = (await (await admin('GET', '/api/v1/scim-tokens')).json()) as {
+      tokens: Array<{ id: string; name: string; displayPrefix: string }>;
+    };
+    // This workspace's two tokens (the harness's and this one), never the other workspace's,
+    // and never the secret itself.
+    expect(listed.tokens.map((entry) => entry.name)).toEqual(['Entra', 'Okta']);
+    expect(JSON.stringify(listed)).not.toContain(token);
+    const unnamed = await h.app.request('/api/v1/scim-tokens', {
+      method: 'POST',
+      headers: { authorization: 'Bearer amt_admin', 'content-type': 'application/json' },
+      body: '{not json',
+    });
+    expect(unnamed.status).toBe(400);
     const rows = await h.db.select().from(schema.scimTokens);
     expect(JSON.stringify(rows)).not.toContain(token);
     expect((await h.scim('GET', '/scim/v2/Users', undefined, token)).status).toBe(200);

@@ -132,6 +132,8 @@ export const ErrorCode = {
   CONFLICT: 'CONFLICT',
   /** The change would leave the workspace with no enabled admin. */
   LAST_ADMIN: 'LAST_ADMIN',
+  /** Several workspaces per install are a team and enterprise feature (ADR-014). */
+  WORKSPACES_NEED_TEAM: 'WORKSPACES_NEED_TEAM',
   RUN_ALREADY_EXISTS: 'RUN_ALREADY_EXISTS',
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
   STALE_LEASE: 'STALE_LEASE',
@@ -317,6 +319,7 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
   OIDC_NOT_CONFIGURED: 404,
   CONFLICT: 409,
   LAST_ADMIN: 409,
+  WORKSPACES_NEED_TEAM: 409,
   RUN_ALREADY_EXISTS: 409,
   IDEMPOTENCY_KEY_REUSED: 409,
   STALE_LEASE: 409,

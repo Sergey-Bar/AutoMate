@@ -64,6 +64,7 @@ export function createAccessRoutes(options: AccessRouteOptions): Hono {
       mode: options.access.mode,
       profile: options.access.profile ?? 'solo',
       source: sourceOf(caller),
+      workspace: options.workspaceId,
     });
   });
 

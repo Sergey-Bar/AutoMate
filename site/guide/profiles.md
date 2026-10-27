@@ -8,7 +8,7 @@ combination that contradicts itself refuses to start and says which setting to c
 | --------------------------------------------------- | ------------ | ---------------------------------- | --------------------------------------------------------- |
 | One developer, on your own machine                  | `solo`       | This machine only                  | Nobody signs in: you are the operator                     |
 | A small team on one network, or remote              | `startup`    | Your network, or Cloudflare Tunnel | Access tokens, paired devices, Cloudflare Access          |
-| Several teams sharing one install                   | `team`       | Cloudflare Tunnel or a proxy       | Single sign-on with OIDC, a role per person               |
+| Several teams sharing one install                   | `team`       | Cloudflare Tunnel or a proxy       | Single sign-on with OIDC, a role per person per workspace |
 | An organisation with an identity provider, auditors | `enterprise` | Cloudflare Tunnel or private       | Single sign-on only; break-glass for the installation key |
 
 Set it with the start script, in the folder you unpacked the release into. Your data and
@@ -92,6 +92,27 @@ Everything in `team`, plus:
 People who signed in appear on _Map → Members_, where an admin changes a role, disables someone
 or removes them. The last admin of a workspace cannot be removed.
 
+## Several workspaces
+
+On `team` and `enterprise`, one install holds several workspaces — one per team, product or
+client — each with its own projects, runs, tokens, members and audit trail. A person's role is
+set per workspace, so the same person can be an admin in one and a viewer in another.
+
+- **Creating one.** On _Map → Deployment_, the installation's admin or an admin of the default
+  workspace fills in _New workspace_ (or calls `POST /api/v1/workspaces` with `{id, name}`).
+  A person who creates one becomes its first admin. On `solo` and `startup` the install keeps the one
+  workspace, and creating another is refused with the profile to move to.
+- **Switching.** The same page lists the workspaces you may enter; choosing one is remembered
+  in your browser and every screen then reads that workspace. You only see the workspaces you
+  are a member of. The installation's own admin sees them all.
+- **CI.** An access token belongs to the workspace it was issued in, and everything it sends
+  lands there: issue an `uploader` token inside each workspace for that team's pipelines.
+  Uploads signed with the installation's `REPORTER_SECRET` land in the default workspace.
+- **Runners** are one pool the whole install shares; a job reports back to the workspace it
+  came from.
+
+Workspaces need `DATABASE_URL`: an install without a database has the one workspace.
+
 ## Moving up a profile
 
 1. `./start.sh backup` — a copy of the database, the stored artifacts and `.env`.
@@ -103,7 +124,6 @@ single sign-on get their roles on first sign-in.
 
 ## What is not built yet
 
-Several workspaces per install are on the plan and not yet available: an install has one
-workspace (`WORKSPACE_ID`). Telemetry export is also still to come. The
-[capability register](/pages/capabilities) is the list of what is, with the test behind each
-row.
+Telemetry export is still to come, and nothing here has been run against a real Entra, Okta
+or Cloudflare account yet. The [capability register](/pages/capabilities) is the list of what
+is, with the test behind each row.

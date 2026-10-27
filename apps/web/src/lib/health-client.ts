@@ -105,6 +105,8 @@ export const WhoAmISchema = z.object({
   profile: z.enum(['solo', 'startup', 'team', 'enterprise']).optional(),
   /** Where this caller's credential came from. Absent from an API older than profiles. */
   source: z.enum(['token', 'user', 'cloudflare', 'installation', 'anonymous']).optional(),
+  /** The workspace this request is in. Absent from an API older than several workspaces. */
+  workspace: z.string().optional(),
 });
 export type WhoAmI = z.infer<typeof WhoAmISchema>;
 

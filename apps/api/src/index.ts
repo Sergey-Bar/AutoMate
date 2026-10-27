@@ -18,7 +18,14 @@ import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
 import { createOidcRoutes } from './routes/oidc.js';
 import { callerForUser } from './services/user-service.js';
 import { isLoopbackBind } from '@automate/config';
-import type { CallerResolver } from './http/roles.js';
+import { callerOf, isInstallationAdmin, type CallerResolver } from './http/roles.js';
+import {
+  createWorkspaceDispatch,
+  resolveRequestWorkspace,
+  type WorkspaceLookups,
+} from './http/workspace-dispatch.js';
+import { createDatabaseWorkspaceLookups } from './http/workspace-lookups.js';
+import { createWorkspacesRoutes } from './routes/workspaces.js';
 import { applyRouteAccess } from './http/route-access.js';
 import { secureCookiePolicy, type SecureCookies } from './http/secure-cookies.js';
 import { createClientAllowlist } from './middleware/client-allowlist.js';
@@ -64,6 +71,7 @@ import {
   DrizzleInstallationKeyStore,
   DrizzleSessionStore,
   runners,
+  workspaces,
 } from '@automate/db';
 import { ingestScanArtifact } from './services/repo-health-service.js';
 import { readGitToken } from './services/git-credential-service.js';
@@ -170,19 +178,16 @@ const databaseUrl = runtimeConfig.databaseUrl;
  */
 const databaseResources = databaseUrl ? createDbResources(databaseUrl) : undefined;
 
-function createRunRepository(): RunRepository {
+function createRunRepository(workspaceId: string): RunRepository {
   if (databaseResources) {
-    return new DrizzleRunRepository(
-      databaseResources.db,
-      runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    );
+    return new DrizzleRunRepository(databaseResources.db, workspaceId);
   }
   // Development/test fallback — startup policy enforces DATABASE_URL in production.
   assertInMemoryAllowed(runtimeConfig, 'InMemoryRunRepository');
   return new InMemoryRunRepository();
 }
 
-function createDashboardStores(): {
+function createDashboardStores(workspaceId: string): {
   quarantineStore: QuarantineStore;
   qualityGateStore?: DrizzleQualityGateStore;
 } {
@@ -192,10 +197,9 @@ function createDashboardStores(): {
     // read one quarantine.
     return { quarantineStore: new InMemoryQuarantineStore() };
   }
-  // Bound to the configured workspace, as every other store is. Both used to be composed
+  // Bound to the workspace being composed, as every other store is. Both used to be composed
   // with none: `quarantine` had no column to scope by, and every audit row they wrote
   // carried a NULL workspace (ledger MNT-17).
-  const workspaceId = runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID;
   return {
     quarantineStore: new DrizzleQuarantineStore(databaseResources.db, workspaceId),
     qualityGateStore: new DrizzleQualityGateStore(databaseResources.db, workspaceId),
@@ -330,7 +334,6 @@ app.notFound(errorBoundary.notFound);
 // mapped status, for the HTTP route and for the worker's reaper alike. Wrapping
 // method by method is what misses the ones nobody remembers, and a missed one
 // surfaces as a bare 500 that a caller then retries forever.
-const runRepository = withClassifiedErrors(createRunRepository());
 const artifactStore = new LocalArtifactStore(
   runtimeConfig.artifactRoot ?? process.env['ARTIFACT_ROOT'] ?? '.artifacts',
 );
@@ -355,11 +358,14 @@ function createArtifactBytesStore(): ArtifactBytesStore {
 
 const artifactBytesStore = createArtifactBytesStore();
 
-function createExecutionStore(): ExecutionStore {
+function createExecutionStore(
+  workspaceId: string,
+  quarantineFor: ReturnType<typeof boundQuarantineSource>,
+): ExecutionStore {
   if (databaseResources) {
     return new DrizzleExecutionStore({
       db: databaseResources.db,
-      workspaceId: runtimeConfig.workspaceId,
+      workspaceId,
       artifactBytes: artifactBytesStore,
       quarantined: quarantineFor,
     });
@@ -367,58 +373,6 @@ function createExecutionStore(): ExecutionStore {
   assertInMemoryAllowed(runtimeConfig, 'InMemoryExecutionStore');
   return new InMemoryExecutionStore({ quarantined: quarantineFor });
 }
-
-const dashboardStores = createDashboardStores();
-
-/**
- * The quarantine entries every gate evaluation reads. The dashboard's quarantine store is
- * bound to the configured workspace, so it answers for that workspace and no other: a run
- * in any other workspace gets no entries, and so no excusal.
- */
-const quarantineFor = boundQuarantineSource(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID, () =>
-  dashboardStores.quarantineStore.list(),
-);
-
-/** The workspace's runs since a moment, oldest first: what the quarantine policy reads. */
-async function workspaceHistory(since: Date): Promise<ExecutionRun[]> {
-  const { runs } = await readSince(
-    executionStore,
-    runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    since.getTime(),
-  );
-  return [...runs].sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
-}
-
-const executionStore = withClassifiedErrors(createExecutionStore());
-
-/**
- * The one tool registry the agent routes dispatch through, and the catalog that
- * `/api/v1/features` and `/api/v1/agents` both read availability from. Browser is the first
- * domain with a real adapter: `browser.run` queues a Playwright job through the same store
- * `POST /api/v1/runs` uses, `api.run` queues a Bruno job and `load.run` a bounded k6 job the
- * same way. The other two domains register nothing and answer `501`.
- */
-const agentRegistry = createToolRegistry();
-registerBrowserAgent({
-  registry: agentRegistry,
-  store: executionStore,
-  workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-  // As `POST /api/v1/runs`: required in production, generated otherwise.
-  requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
-});
-registerApiAgent({
-  registry: agentRegistry,
-  store: executionStore,
-  workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-  requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
-});
-registerLoadAgent({
-  registry: agentRegistry,
-  store: executionStore,
-  workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-  requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
-});
-const agentCatalog = createAgentCatalog(agentRegistry);
 
 /**
  * The one canonical store both reporting and the reporter doors resolve.
@@ -429,32 +383,7 @@ const agentCatalog = createAgentCatalog(agentRegistry);
  * system with a year of test history (ledger row P-73). The store is now built here, once,
  * and handed to both.
  */
-let reporterStore: ReporterResultStore | undefined;
-
-function resolveReporterStore(): ReporterResultStore {
-  if (reporterStore) return reporterStore;
-  reporterStore = databaseResources
-    ? new DrizzleReporterIngestionService(
-        databaseResources.db,
-        runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-      )
-    : new ReporterIngestionService(runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID);
-  return reporterStore;
-}
-
-function mountReportingRoutes(): void {
-  const store = resolveReporterStore();
-  app.route(
-    '/',
-    createReporterResultsRoute(store, {
-      reporterSecret: runtimeConfig.reporterSecret,
-      requireReporterSecret: runtimeConfig.nodeEnv === 'production',
-    }),
-  );
-  app.route('/', createReportingRoutes(store));
-}
-
-function mountLegacyProcessLocalRoutes(): void {
+function mountLegacyProcessLocalRoutes(target: Hono): void {
   if (runtimeConfig.nodeEnv === 'production') {
     const disabled = new Hono();
     const body = {
@@ -474,14 +403,14 @@ function mountLegacyProcessLocalRoutes(): void {
     ]) {
       disabled.all(path, (context) => context.json(body, 503));
     }
-    app.route('/', disabled);
+    target.route('/', disabled);
     return;
   }
-  app.route('/', createRunnerRoutes(new RunnerControlService()));
-  app.route('/', createOrchestrationRoutes(new OrchestrationService()));
+  target.route('/', createRunnerRoutes(new RunnerControlService()));
+  target.route('/', createOrchestrationRoutes(new OrchestrationService()));
 }
-// Durable outbox-backed realtime in production; process-local events otherwise.
-const realtimeWorkspaceId = runtimeConfig.workspaceId ?? 'default-workspace';
+// Durable outbox-backed realtime in production; process-local events otherwise. One feed serves
+// every workspace; each composition has its own bus, which stamps its workspace on what it writes.
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
 const retentionSweep = realtimeFeed ? startOutboxRetentionSweep(realtimeFeed) : undefined;
 /**
@@ -536,20 +465,6 @@ const deliverySyncer = databaseResources
       log: (message, details) => logger.info(message, details),
     })
   : undefined;
-let realtimeBus: RealtimeBus;
-/** The durable bus, when one was constructed — the readiness probe needs its own view. */
-let durableRealtimeBus: DurableRealtimeBus | undefined;
-if (realtimeFeed) {
-  durableRealtimeBus = new DurableRealtimeBus(
-    realtimeFeed,
-    realtimeWorkspaceId,
-    runtimeConfig.sseReplayRetentionHours,
-  );
-  realtimeBus = durableRealtimeBus;
-} else {
-  assertInMemoryAllowed(runtimeConfig, 'InMemoryRealtimeBus');
-  realtimeBus = new InMemoryRealtimeBus();
-}
 // Declared rather than inferred from the branches. It infers
 // `DrizzleAuthSessionBackend | undefined` today, which is why `noImplicitAny`
 // passes — but a `let` with no annotation is one refactor away from being one, and
@@ -693,6 +608,569 @@ function resolveAllowedOrigins(): string[] {
 // boundary reports — runs with a request id already in scope. A context
 // established after the first thing that can fail is a context the first thing
 // that can fail does not have (ledger O-1b).
+/**
+ * One workspace's composition (ADR-014): its stores, its caller resolver, its realtime bus, and
+ * a `mount` that registers its route groups. Built once for the default workspace, served in
+ * place, and once for each other workspace the first time a request is dispatched to it
+ * (`http/workspace-dispatch.ts`). Everything in here is bound to `workspaceId` when it is
+ * built, which is the property every isolation test in this API reasons about.
+ */
+function buildWorkspace(workspaceId: string) {
+  // Wrapped in `withClassifiedErrors` so no store method can leak a raw `pg` error.
+  const runRepository = withClassifiedErrors(createRunRepository(workspaceId));
+  const dashboardStores = createDashboardStores(workspaceId);
+
+  /**
+   * The quarantine entries every gate evaluation reads. The dashboard's quarantine store is
+   * bound to the workspace being composed, so it answers for that workspace and no other: a run
+   * in any other workspace gets no entries, and so no excusal.
+   */
+  const quarantineFor = boundQuarantineSource(workspaceId, () =>
+    dashboardStores.quarantineStore.list(),
+  );
+
+  /** The workspace's runs since a moment, oldest first: what the quarantine policy reads. */
+  async function workspaceHistory(since: Date): Promise<ExecutionRun[]> {
+    const { runs } = await readSince(executionStore, workspaceId, since.getTime());
+    return [...runs].sort(
+      (left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt),
+    );
+  }
+
+  const executionStore = withClassifiedErrors(createExecutionStore(workspaceId, quarantineFor));
+
+  /**
+   * The one tool registry the agent routes dispatch through, and the catalog that
+   * `/api/v1/features` and `/api/v1/agents` both read availability from. Browser is the first
+   * domain with a real adapter: `browser.run` queues a Playwright job through the same store
+   * `POST /api/v1/runs` uses, `api.run` queues a Bruno job and `load.run` a bounded k6 job the
+   * same way. The other two domains register nothing and answer `501`.
+   */
+  const agentRegistry = createToolRegistry();
+  registerBrowserAgent({
+    registry: agentRegistry,
+    store: executionStore,
+    workspaceId,
+    // As `POST /api/v1/runs`: required in production, generated otherwise.
+    requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
+  });
+  registerApiAgent({
+    registry: agentRegistry,
+    store: executionStore,
+    workspaceId,
+    requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
+  });
+  registerLoadAgent({
+    registry: agentRegistry,
+    store: executionStore,
+    workspaceId,
+    requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
+  });
+  const agentCatalog = createAgentCatalog(agentRegistry);
+  let reporterStore: ReporterResultStore | undefined;
+
+  function resolveReporterStore(): ReporterResultStore {
+    if (reporterStore) return reporterStore;
+    reporterStore = databaseResources
+      ? new DrizzleReporterIngestionService(databaseResources.db, workspaceId)
+      : new ReporterIngestionService(workspaceId);
+    return reporterStore;
+  }
+
+  function mountReportingRoutes(target: Hono): void {
+    const store = resolveReporterStore();
+    target.route(
+      '/',
+      createReporterResultsRoute(store, {
+        reporterSecret: runtimeConfig.reporterSecret,
+        requireReporterSecret: runtimeConfig.nodeEnv === 'production',
+      }),
+    );
+    target.route('/', createReportingRoutes(store));
+  }
+
+  let realtimeBus: RealtimeBus;
+  /** The durable bus, when one was constructed — the readiness probe needs its own view. */
+  let durableRealtimeBus: DurableRealtimeBus | undefined;
+  if (realtimeFeed) {
+    durableRealtimeBus = new DurableRealtimeBus(
+      realtimeFeed,
+      workspaceId,
+      runtimeConfig.sseReplayRetentionHours,
+    );
+    realtimeBus = durableRealtimeBus;
+  } else {
+    assertInMemoryAllowed(runtimeConfig, 'InMemoryRealtimeBus');
+    realtimeBus = new InMemoryRealtimeBus();
+  }
+
+  const access: CallerResolver = {
+    mode: runtimeConfig.accessControl ?? 'open',
+    profile: runtimeConfig.profile ?? 'solo',
+    ssoEnforced: runtimeConfig.ssoEnforced === true,
+    // A verified Cloudflare Access identity, only on an install reached through the tunnel
+    // (ADR-014). The startup policy has already refused a tunnel without both Access settings.
+    ...(runtimeConfig.remote === 'cloudflare' && runtimeConfig.cloudflareAccess !== undefined
+      ? {
+          authenticateRemote: createCloudflareCallerSource(
+            createCloudflareAccessVerifier(runtimeConfig.cloudflareAccess),
+            runtimeConfig.cloudflareAccess,
+            { log: (message, fields) => logger.warn(message, fields) },
+          ),
+        }
+      : {}),
+    authenticateToken: async (token) =>
+      databaseResources === undefined
+        ? null
+        : authenticateToken(
+            {
+              db: databaseResources.db as never,
+              workspaceId: workspaceId,
+            },
+            token,
+          ),
+    // A person's session (ADR-014, team), with their role in this workspace. Only with a
+    // database: people are rows in `users`.
+    ...(databaseResources === undefined
+      ? {}
+      : {
+          authenticateSession: async (context: Context) => {
+            const session = getCookie(context, 'automate_session');
+            if (session === undefined) return null;
+            const record = await authRoutes.sessions.validate(session);
+            if (record?.userId === undefined) return null;
+            // A disabled or deleted person's session is nobody, not the installation's.
+            return (
+              (await callerForUser(
+                {
+                  db: databaseResources.db as never,
+                  workspaceId: workspaceId,
+                },
+                record.userId,
+              )) ?? { actor: 'anonymous', role: null, uploaderFor: null }
+            );
+          },
+        }),
+    // The installation's own session only: a person's session is never the admin by default.
+    hasSession: async (context) => {
+      const session = getCookie(context, 'automate_session');
+      if (session === undefined) return false;
+      const record = await authRoutes.sessions.validate(session);
+      return record !== undefined && record.userId === undefined;
+    },
+  };
+
+  function mount(target: Hono): void {
+    applyRouteAccess(target, access);
+    target.route(
+      '/',
+      createReporterRoutes(runtimeConfig.reporterSecret, {
+        repository: runRepository,
+        // The same store `GET /api/v1/reporting/kpis` reads. Without it an upload has nowhere
+        // canonical to land, and every KPI would report the busiest system in the
+        // installation as not knowable.
+        canonicalStore: resolveReporterStore(),
+        // The same workspace the execution routes resolve for a read. Without it the
+        // reporter wrote NULL and every run a producer reported was invisible to
+        // `GET /api/v1/runs` — persisted, and absent from the product.
+        workspaceId: workspaceId,
+        bus: realtimeBus,
+        artifactStore: { putAt: (key, bytes) => artifactBytesStore.put(key, bytes) },
+        // The live reporter's traces and screenshots, filed as the run's own artifacts.
+        artifacts: executionStore,
+        allowQueryToken: false,
+      }),
+    );
+    /**
+     * What every repository-health ingestion shares, whichever door the report came through: a
+     * CI upload, a scan the runner ran, or a scheduled scan the worker enqueued.
+     */
+    const dashboardUrl = (projectId: string): string =>
+      `${(runtimeConfig.publicAppUrl ?? 'http://localhost:5173').replace(/\/$/u, '')}/dashboard/repo/${encodeURIComponent(projectId)}`;
+    const healthHooks = {
+      readRepositoryFile: async (repoPath: string, path: string) =>
+        fileSystemView(repoPath).read(path),
+      onReport: async (event: ReportEvent) => {
+        const alerts = alertsFor({
+          previous: event.previous,
+          current: event.current,
+          added: event.added,
+          onDefaultBranch: event.onDefaultBranch,
+        });
+        if (alerts.length === 0) return;
+        const outcomes = await deliverAlerts(
+          {
+            slack:
+              runtimeConfig.slackBotToken === undefined
+                ? undefined
+                : { adapter: slackAdapter, token: runtimeConfig.slackBotToken },
+            webhookSecret: runtimeConfig.healthWebhookSecret,
+          },
+          event.settings.alerts ?? {},
+          {
+            projectId: event.projectId,
+            project: event.project,
+            branch: event.branch,
+            detailsUrl: dashboardUrl(event.projectId),
+            alerts,
+          },
+        );
+        if (outcomes.length > 0)
+          logger.info('health alerts delivered', { projectId: event.projectId, outcomes });
+      },
+    };
+    target.route(
+      '/',
+      createExecutionRoutes({
+        store: executionStore,
+        legacyRepository: runRepository,
+        workspaceId: workspaceId,
+        runnerRegistrationSecret: runtimeConfig.runnerRegistrationSecret,
+        sharedRunners: true,
+        bus: realtimeBus,
+        // A health scanner's report is ingested the moment the runner uploads it.
+        ...(databaseResources === undefined
+          ? {}
+          : {
+              // A cloned repository's token, read from the vault only for the runner holding the lease.
+              checkoutToken: async (run) =>
+                run.projectId === null
+                  ? null
+                  : readGitToken(
+                      {
+                        db: databaseResources.db as never,
+                        workspaceId: workspaceId,
+                        vaultSecret: runtimeConfig.vaultSecret,
+                      },
+                      run.projectId,
+                    ),
+              onArtifact: async ({ run, name, bytes, metadata }) => {
+                try {
+                  await ingestScanArtifact(
+                    { db: databaseResources.db as never, workspaceId: workspaceId, ...healthHooks },
+                    run.configuration,
+                    name,
+                    bytes,
+                    typeof metadata['sourceRoot'] === 'string' ? metadata['sourceRoot'] : undefined,
+                  );
+                } catch (error) {
+                  logger.error('health report from a scan could not be ingested', {
+                    runId: run.id,
+                    artifact: name,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+                }
+              },
+            }),
+      }),
+    );
+    target.route('/', createAgentRoutes({ registry: agentRegistry }));
+    target.route(
+      '/',
+      createAnalyticsTrendRoutes({
+        store: executionStore,
+        workspaceId: workspaceId,
+      }),
+    );
+    target.route(
+      '/',
+      createInsightsRoutes({
+        store: executionStore,
+        workspaceId: workspaceId,
+        // Triage labels live in the database; an in-memory install has none.
+        ...(databaseResources === undefined
+          ? {}
+          : {
+              labels: () =>
+                listTriageLabels({
+                  db: databaseResources.db,
+                  workspaceId: workspaceId,
+                }),
+            }),
+      }),
+    );
+    target.route('/', createChatRoutes({ gateway: chatGateway }));
+
+    /**
+     * The project registry and the derived QA score.
+     *
+     * Mounted behind the same database handle as everything else, and **only when one
+     * exists** — the registry is not useful without persistence, and a process that
+     * booted without `DATABASE_URL` would otherwise answer a score request with an
+     * empty one rather than with "this install has no registry".
+     *
+     * `startRun` is the one piece of this group that is not a pure read, and it is
+     * injected rather than constructed here: the queue, the runner client and the
+     * idempotency store are all assembled elsewhere, and a route group that builds its
+     * own would be a second way to start a run.
+     */
+    if (databaseResources !== undefined) {
+      const registry: ProjectRegistryServiceOptions = {
+        db: databaseResources.db as never,
+        workspaceId: workspaceId,
+        viewFor: (repoPath) => fileSystemView(repoPath),
+      };
+      /**
+       * The configured workspace exists before anything is written under it.
+       *
+       * Every workspace-scoped table has a `restrict` key onto `workspaces` since 0028, so a
+       * run, a test, a quarantine entry or an audit row naming an unregistered workspace is
+       * refused. The row used to be created only when a project was registered — so a
+       * reporter-only install with a `WORKSPACE_ID` other than the `default-workspace` 0003
+       * seeds would have had every upload refused. Idempotent, and not swallowed: an API that
+       * cannot register its own workspace cannot write anything, and should say so at boot.
+       */
+      /**
+       * Vault key rotation, at boot: with `VAULT_SECRET_PREVIOUS` set beside a new `VAULT_SECRET`,
+       * every entry of the workspace is re-sealed under the new secret in one transaction and its
+       * `key_version` raised. Run again with both still set, it changes nothing. An entry that
+       * opens under neither stops the boot: an API that cannot open its own vault would fail
+       * every credential read, and saying so here is shorter than that diagnosis.
+       */
+      target.route(
+        '/',
+        createProjectsRoutes({
+          ...registry,
+          vaultSecret: runtimeConfig.vaultSecret,
+          // The built-in eval runner uses the raw gateway: its runs are eval runs, not chat.
+          agents: {
+            gateway: gatewayResolution.kind === 'none' ? null : aiGateway,
+            provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+            onRunFailure: (error) =>
+              logger.warn('an eval dataset run failed', {
+                error: error instanceof Error ? error.message : String(error),
+              }),
+          },
+          secureCookies: resolveSecureCookies(),
+          trustProxy: runtimeConfig.trustProxy ?? false,
+          pairing: {
+            pepper: authCookieSecret,
+            publicAppUrl: runtimeConfig.publicAppUrl ?? 'http://localhost:8080',
+          },
+          notifications: {
+            link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
+            ...(reportDispatcher === undefined
+              ? {}
+              : { dispatchNow: () => reportDispatcher.runOnce() }),
+          },
+          // The installation key's session is the admin; tokens carry their own role. With
+          // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
+          access: access,
+          issues: { jira: jiraAdapter, github: githubAdapter, detailsUrl: dashboardUrl },
+          testProposals: {
+            gateway: testProposalGateway,
+            provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+          },
+          // The runs `automate test` records are the history a shard plan reads.
+          shardHistory: runRepository,
+          // The same run repository, canonical store and bus the reporter upload door writes,
+          // and the same quarantine every gate evaluation reads.
+          testReports: {
+            repository: runRepository,
+            canonicalStore: resolveReporterStore(),
+            bus: realtimeBus,
+            quarantined: quarantineFor,
+            applyPolicy: (projectId) =>
+              applyProjectQuarantinePolicy(
+                { ...registry, store: dashboardStores.quarantineStore, history: workspaceHistory },
+                projectId,
+              ),
+          },
+          quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
+          ...(runtimeConfig.oidc?.defaultRole == null
+            ? {}
+            : { scimDefaultRole: runtimeConfig.oidc.defaultRole }),
+          delivery: {
+            // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose
+            // Access application bypasses the receiver's path (ADR-014). The HMAC is the credential.
+            lanMode: runtimeConfig.lanMode === true || runtimeConfig.remote === 'cloudflare',
+            ...(runtimeConfig.githubWebhookSecret === undefined
+              ? {}
+              : { webhookSecret: runtimeConfig.githubWebhookSecret }),
+            ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
+          },
+          health: {
+            ...healthHooks,
+            detailsUrl: dashboardUrl,
+            // The commit's test run, read with the same quarantine and the same rule the gate and
+            // `automate test` use.
+            commitTests: (projectId, commit) =>
+              commitTests(
+                {
+                  repository: runRepository,
+                  quarantined: () => quarantineFor(registry.workspaceId),
+                  reportErrors: async (runId) =>
+                    (await resolveReporterStore().get(runId))?.reportErrors?.length ?? 0,
+                  labelledSignatures: async () =>
+                    new Set((await listTriageLabels(registry)).map((label) => label.signature)),
+                },
+                projectId,
+                commit,
+              ),
+            github: {
+              adapter: githubAdapter,
+              tokenFor: (projectId) =>
+                readGitToken(
+                  { ...registry, vaultSecret: runtimeConfig.vaultSecret },
+                  projectId,
+                ).catch(() => null),
+            },
+            reporterSecret: runtimeConfig.reporterSecret,
+            requireReporterSecret: runtimeConfig.nodeEnv === 'production',
+            // Scanners a live runner advertises. A runner declares them in RUNNER_CAPABILITIES.
+            scannerCapabilities: async () => {
+              const rows = await databaseResources.db
+                .select({ capabilities: runners.capabilities })
+                .from(runners)
+                .where(
+                  and(
+                    eq(runners.workspaceId, registry.workspaceId),
+                    inArray(runners.health, ['healthy', 'degraded']),
+                  ),
+                );
+              return new Set(rows.flatMap((row) => row.capabilities));
+            },
+            // One run per scanner, claimable only by a runner that has the binary.
+            startScanJob: async (job) => {
+              const created = await executionStore.create(
+                {
+                  projectId: job.projectId,
+                  timeoutMs: 20 * 60_000,
+                  source: 'web',
+                  framework: 'tool',
+                  testType: 'health',
+                  suite: `health: ${job.scanner.label}`,
+                  requiredCapabilities: [job.scanner.id],
+                  configuration: {
+                    commandId: `health:${job.scanner.id}`,
+                    health: job.health,
+                    command: {
+                      argv: [...job.scanner.argv],
+                      workingDirectory: '.',
+                      ...(job.repository === null ? {} : { repository: job.repository }),
+                      artifactGlobs: [job.scanner.output],
+                      env: [],
+                      evidence: 'artifact',
+                    },
+                    ...(job.gitUrl === null
+                      ? {}
+                      : { checkout: { url: job.gitUrl, projectId: job.projectId } }),
+                  },
+                },
+                randomUUID(),
+                registry.workspaceId,
+              );
+              return { runId: created.run.id };
+            },
+          },
+          // `.github` and `.husky` are walked for the scan only: they are where CI and the
+          // commit gates are declared, and the detector has no use for either.
+          scanner: createRepoScanner({
+            viewFor: (repoPath) => fileSystemView(repoPath, DEFAULT_IGNORED, ['.github', '.husky']),
+          }),
+          // The argv arrives **already resolved** by `run.start` against the profile or
+          // the scan, and is written into the job as-is. It used to be dropped here — the
+          // job carried only `commandId`, the runner reads `configuration.command`, and so
+          // every project run was a Playwright job with no project: a run that could not
+          // execute the command the operator chose.
+          startRun: async (input) => {
+            const created = await executionStore.create(
+              {
+                projectId: input.projectId,
+                timeoutMs: input.timeoutMs ?? 30 * 60_000,
+                source: 'web',
+                framework: input.command.evidence === 'artifact' ? 'detected' : 'tool',
+                testType: 'tool',
+                suite: input.command.label,
+                // **No `labels`.** A job's labels are routing constraints — a runner claims it
+                // only if it carries every one — so the tool id there made the job unclaimable.
+                // The id is kept in `configuration.commandId`, which is what history reads.
+                configuration: {
+                  commandId: input.commandId,
+                  command: {
+                    argv: input.command.argv,
+                    workingDirectory: input.command.workingDirectory,
+                    ...(input.command.repository === undefined
+                      ? {}
+                      : { repository: input.command.repository }),
+                    artifactGlobs: input.command.artifactGlobs,
+                    env: input.command.env,
+                    evidence: input.command.evidence,
+                  },
+                },
+              },
+              input.idempotencyKey,
+              workspaceId,
+            );
+            return {
+              runId: created.run.id,
+              jobId: created.job.id,
+              phase: created.run.phase,
+            };
+          },
+          // The readiness card's inputs beyond the registry: the run history, and the
+          // quarantined tests still waiting for a person to decide.
+          reliability: {
+            store: executionStore,
+            openQuarantine: async () =>
+              ((await dashboardStores.quarantineStore?.list()) ?? []).filter(
+                (entry) => entry.status === 'pending',
+              ).length,
+          },
+        }),
+      );
+      /**
+       * The registry points at the folder this install was pointed at, once, at boot.
+       *
+       * **Not a watcher and not a poll.** "The moment you open the folder" is satisfied
+       * by the server starting when you start it, and a file watcher here would be a
+       * second thing that decides what the cockpit shows.
+       *
+       * `discoverProjectAtBoot` owns the whole failure policy: an absent
+       * `AUTOMATE_PROJECT_ROOT` logs and returns, and a discovery failure logs and
+       * returns, because a dashboard that will not boot over a folder with no
+       * `package.json` is worse than a dashboard with nothing in it.
+       */
+    }
+    target.route(
+      '/',
+      createEventsRoutes({
+        bus: realtimeBus,
+        feed: realtimeFeed,
+        workspaceId: workspaceId,
+      }),
+    );
+    // T18: dashboard module — /api/v1/dashboard/* routes
+    target.route(
+      '/',
+      createDashboardModule({
+        repository: runRepository,
+        quarantineStore: dashboardStores.quarantineStore,
+        qualityGateStore: dashboardStores.qualityGateStore,
+      }),
+    );
+    mountReportingRoutes(target);
+    // Process-local, so one copy: a second would split its in-memory state.
+    if (workspaceId === defaultWorkspace) mountLegacyProcessLocalRoutes(target);
+  }
+
+  return {
+    workspaceId,
+    executionStore,
+    agentCatalog,
+    durableRealtimeBus,
+    access,
+    mount,
+  };
+}
+
+const defaultWorkspace = runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID;
+const defaultParts = buildWorkspace(defaultWorkspace);
+const executionStore = defaultParts.executionStore;
+const agentCatalog = defaultParts.agentCatalog;
+const durableRealtimeBus = defaultParts.durableRealtimeBus;
+const accessResolver = defaultParts.access;
+
 app.use(requestContext);
 app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }));
 /**
@@ -700,61 +1178,6 @@ app.use('*', createSecurityHeaders({ allowedOrigins: resolveAllowedOrigins() }))
  * routes and the table in `http/route-access.ts` cannot disagree about a credential.
  * Without a database there are no access tokens, so only an installation session counts.
  */
-const accessResolver: CallerResolver = {
-  mode: runtimeConfig.accessControl ?? 'open',
-  profile: runtimeConfig.profile ?? 'solo',
-  ssoEnforced: runtimeConfig.ssoEnforced === true,
-  // A verified Cloudflare Access identity, only on an install reached through the tunnel
-  // (ADR-014). The startup policy has already refused a tunnel without both Access settings.
-  ...(runtimeConfig.remote === 'cloudflare' && runtimeConfig.cloudflareAccess !== undefined
-    ? {
-        authenticateRemote: createCloudflareCallerSource(
-          createCloudflareAccessVerifier(runtimeConfig.cloudflareAccess),
-          runtimeConfig.cloudflareAccess,
-          { log: (message, fields) => logger.warn(message, fields) },
-        ),
-      }
-    : {}),
-  authenticateToken: async (token) =>
-    databaseResources === undefined
-      ? null
-      : authenticateToken(
-          {
-            db: databaseResources.db as never,
-            workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-          },
-          token,
-        ),
-  // A person's session (ADR-014, team), with their role in this workspace. Only with a
-  // database: people are rows in `users`.
-  ...(databaseResources === undefined
-    ? {}
-    : {
-        authenticateSession: async (context: Context) => {
-          const session = getCookie(context, 'automate_session');
-          if (session === undefined) return null;
-          const record = await authRoutes.sessions.validate(session);
-          if (record?.userId === undefined) return null;
-          // A disabled or deleted person's session is nobody, not the installation's.
-          return (
-            (await callerForUser(
-              {
-                db: databaseResources.db as never,
-                workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-              },
-              record.userId,
-            )) ?? { actor: 'anonymous', role: null, uploaderFor: null }
-          );
-        },
-      }),
-  // The installation's own session only: a person's session is never the admin by default.
-  hasSession: async (context) => {
-    const session = getCookie(context, 'automate_session');
-    if (session === undefined) return false;
-    const record = await authRoutes.sessions.validate(session);
-    return record !== undefined && record.userId === undefined;
-  },
-};
 // Before any route is mounted: Hono runs matching handlers in registration order.
 app.use(
   '*',
@@ -772,7 +1195,6 @@ app.use('*', async (context, next) => {
   recordClientAddress(defaultClientKey(context, runtimeConfig.trustProxy ?? false));
   await next();
 });
-applyRouteAccess(app, accessResolver);
 
 /**
  * A server-side deadline on every request that is not a long-lived stream.
@@ -884,408 +1306,94 @@ app.route(
     log: (message, fields) => logger.warn(message, fields),
   }),
 );
-app.route(
-  '/',
-  createReporterRoutes(runtimeConfig.reporterSecret, {
-    repository: runRepository,
-    // The same store `GET /api/v1/reporting/kpis` reads. Without it an upload has nowhere
-    // canonical to land, and every KPI would report the busiest system in the
-    // installation as not knowable.
-    canonicalStore: resolveReporterStore(),
-    // The same workspace the execution routes resolve for a read. Without it the
-    // reporter wrote NULL and every run a producer reported was invisible to
-    // `GET /api/v1/runs` — persisted, and absent from the product.
-    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-    bus: realtimeBus,
-    artifactStore: { putAt: (key, bytes) => artifactBytesStore.put(key, bytes) },
-    // The live reporter's traces and screenshots, filed as the run's own artifacts.
-    artifacts: executionStore,
-    allowQueryToken: false,
-  }),
-);
-/**
- * What every repository-health ingestion shares, whichever door the report came through: a
- * CI upload, a scan the runner ran, or a scheduled scan the worker enqueued.
- */
-const healthWorkspace = runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID;
-const dashboardUrl = (projectId: string): string =>
-  `${(runtimeConfig.publicAppUrl ?? 'http://localhost:5173').replace(/\/$/u, '')}/dashboard/repo/${encodeURIComponent(projectId)}`;
-const healthHooks = {
-  readRepositoryFile: async (repoPath: string, path: string) => fileSystemView(repoPath).read(path),
-  onReport: async (event: ReportEvent) => {
-    const alerts = alertsFor({
-      previous: event.previous,
-      current: event.current,
-      added: event.added,
-      onDefaultBranch: event.onDefaultBranch,
-    });
-    if (alerts.length === 0) return;
-    const outcomes = await deliverAlerts(
-      {
-        slack:
-          runtimeConfig.slackBotToken === undefined
-            ? undefined
-            : { adapter: slackAdapter, token: runtimeConfig.slackBotToken },
-        webhookSecret: runtimeConfig.healthWebhookSecret,
-      },
-      event.settings.alerts ?? {},
-      {
-        projectId: event.projectId,
-        project: event.project,
-        branch: event.branch,
-        detailsUrl: dashboardUrl(event.projectId),
-        alerts,
-      },
-    );
-    if (outcomes.length > 0)
-      logger.info('health alerts delivered', { projectId: event.projectId, outcomes });
-  },
-};
-app.route(
-  '/',
-  createExecutionRoutes({
-    store: executionStore,
-    legacyRepository: runRepository,
-    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-    runnerRegistrationSecret: runtimeConfig.runnerRegistrationSecret,
-    bus: realtimeBus,
-    // A health scanner's report is ingested the moment the runner uploads it.
-    ...(databaseResources === undefined
-      ? {}
-      : {
-          // A cloned repository's token, read from the vault only for the runner holding the lease.
-          checkoutToken: async (run) =>
-            run.projectId === null
-              ? null
-              : readGitToken(
-                  {
-                    db: databaseResources.db as never,
-                    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-                    vaultSecret: runtimeConfig.vaultSecret,
-                  },
-                  run.projectId,
-                ),
-          onArtifact: async ({ run, name, bytes, metadata }) => {
-            try {
-              await ingestScanArtifact(
-                { db: databaseResources.db as never, workspaceId: healthWorkspace, ...healthHooks },
-                run.configuration,
-                name,
-                bytes,
-                typeof metadata['sourceRoot'] === 'string' ? metadata['sourceRoot'] : undefined,
-              );
-            } catch (error) {
-              logger.error('health report from a scan could not be ingested', {
-                runId: run.id,
-                artifact: name,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-          },
-        }),
-  }),
-);
-app.route('/', createAgentRoutes({ registry: agentRegistry }));
-app.route(
-  '/',
-  createAnalyticsTrendRoutes({
-    store: executionStore,
-    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-  }),
-);
-app.route(
-  '/',
-  createInsightsRoutes({
-    store: executionStore,
-    workspaceId: runtimeConfig.workspaceId ?? 'default-workspace',
-    // Triage labels live in the database; an in-memory install has none.
-    ...(databaseResources === undefined
-      ? {}
-      : {
-          labels: () =>
-            listTriageLabels({
-              db: databaseResources.db,
-              workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-            }),
-        }),
-  }),
-);
-app.route('/', createChatRoutes({ gateway: chatGateway }));
 
 /**
- * The project registry and the derived QA score.
+ * Several workspaces in one install (ADR-014). A request whose trusted credential belongs to
+ * another workspace is forwarded, whole, to that workspace's own composition; the default
+ * workspace's is mounted below and served in place. Only with a database: workspaces,
+ * tokens, jobs and memberships are rows, and an in-memory install has the one workspace.
+ */
+if (databaseResources !== undefined) {
+  const db = databaseResources.db;
+  const lookups: WorkspaceLookups = createDatabaseWorkspaceLookups({
+    db: db as never,
+    defaultWorkspace,
+    sessionUser: async (context) => {
+      const session = getCookie(context, 'automate_session');
+      if (session === undefined) return null;
+      return (await authRoutes.sessions.validate(session))?.userId ?? null;
+    },
+    installationLevel: async (context) =>
+      isInstallationAdmin(await callerOf(context, accessResolver)),
+  });
+  // Before the dispatch: these are about which workspace to be in.
+  app.route(
+    '/',
+    createWorkspacesRoutes({
+      db: db as never,
+      defaultWorkspace,
+      profile: runtimeConfig.profile ?? 'solo',
+      secureCookies: resolveSecureCookies(),
+      defaultCaller: (context) => callerOf(context, accessResolver),
+      sessionUser: lookups.sessionUser,
+      current: (context) => resolveRequestWorkspace(context, lookups),
+    }),
+  );
+  app.use(
+    '*',
+    createWorkspaceDispatch({
+      lookups,
+      compose: (workspaceId) => {
+        const composition = new Hono();
+        composition.onError(errorBoundary.onError);
+        composition.notFound(errorBoundary.notFound);
+        buildWorkspace(workspaceId).mount(composition);
+        return composition;
+      },
+    }),
+  );
+}
+defaultParts.mount(app);
+
+/**
+ * Boot steps that run once, not once per composition.
  *
- * Mounted behind the same database handle as everything else, and **only when one
- * exists** — the registry is not useful without persistence, and a process that
- * booted without `DATABASE_URL` would otherwise answer a score request with an
- * empty one rather than with "this install has no registry".
+ * The configured workspace exists before anything is written under it: every
+ * workspace-scoped table has a `restrict` key onto `workspaces` since 0028, so a run, a test,
+ * a quarantine entry or an audit row naming an unregistered workspace is refused. Idempotent,
+ * and not swallowed: an API that cannot register its own workspace cannot write anything.
  *
- * `startRun` is the one piece of this group that is not a pure read, and it is
- * injected rather than constructed here: the queue, the runner client and the
- * idempotency store are all assembled elsewhere, and a route group that builds its
- * own would be a second way to start a run.
+ * Vault key rotation: with `VAULT_SECRET_PREVIOUS` set beside a new `VAULT_SECRET`, every
+ * workspace's entries are re-sealed under the new secret and their `key_version` raised. An
+ * entry that opens under neither stops the boot.
+ *
+ * `AUTOMATE_PROJECT_ROOT` is registered in the default workspace, once.
  */
 if (databaseResources !== undefined) {
   const registry: ProjectRegistryServiceOptions = {
     db: databaseResources.db as never,
-    workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    workspaceId: defaultWorkspace,
     viewFor: (repoPath) => fileSystemView(repoPath),
   };
-  /**
-   * The configured workspace exists before anything is written under it.
-   *
-   * Every workspace-scoped table has a `restrict` key onto `workspaces` since 0028, so a
-   * run, a test, a quarantine entry or an audit row naming an unregistered workspace is
-   * refused. The row used to be created only when a project was registered — so a
-   * reporter-only install with a `WORKSPACE_ID` other than the `default-workspace` 0003
-   * seeds would have had every upload refused. Idempotent, and not swallowed: an API that
-   * cannot register its own workspace cannot write anything, and should say so at boot.
-   */
   await ensureWorkspace(registry);
-  /**
-   * Vault key rotation, at boot: with `VAULT_SECRET_PREVIOUS` set beside a new `VAULT_SECRET`,
-   * every entry of the workspace is re-sealed under the new secret in one transaction and its
-   * `key_version` raised. Run again with both still set, it changes nothing. An entry that
-   * opens under neither stops the boot: an API that cannot open its own vault would fail
-   * every credential read, and saying so here is shorter than that diagnosis.
-   */
   const previousVaultSecret = process.env['VAULT_SECRET_PREVIOUS']?.trim();
   if (
     previousVaultSecret !== undefined &&
     previousVaultSecret !== '' &&
     runtimeConfig.vaultSecret !== undefined
   ) {
-    const rotation = await rotateVaultSecrets(
-      { ...registry, actor: 'system:boot' },
-      previousVaultSecret,
-      runtimeConfig.vaultSecret,
-    );
-    logger.info('vault rotation checked', { ...rotation });
+    const all = await databaseResources.db.select({ id: workspaces.id }).from(workspaces);
+    for (const { id } of all) {
+      const rotation = await rotateVaultSecrets(
+        { ...registry, workspaceId: id, actor: 'system:boot' },
+        previousVaultSecret,
+        runtimeConfig.vaultSecret,
+      );
+      logger.info('vault rotation checked', { workspaceId: id, ...rotation });
+    }
   }
-  app.route(
-    '/',
-    createProjectsRoutes({
-      ...registry,
-      vaultSecret: runtimeConfig.vaultSecret,
-      // The built-in eval runner uses the raw gateway: its runs are eval runs, not chat.
-      agents: {
-        gateway: gatewayResolution.kind === 'none' ? null : aiGateway,
-        provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
-        onRunFailure: (error) =>
-          logger.warn('an eval dataset run failed', {
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      },
-      secureCookies: resolveSecureCookies(),
-      trustProxy: runtimeConfig.trustProxy ?? false,
-      pairing: {
-        pepper: authCookieSecret,
-        publicAppUrl: runtimeConfig.publicAppUrl ?? 'http://localhost:8080',
-      },
-      notifications: {
-        link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
-        ...(reportDispatcher === undefined
-          ? {}
-          : { dispatchNow: () => reportDispatcher.runOnce() }),
-      },
-      // The installation key's session is the admin; tokens carry their own role. With
-      // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
-      access: accessResolver,
-      issues: { jira: jiraAdapter, github: githubAdapter, detailsUrl: dashboardUrl },
-      testProposals: {
-        gateway: testProposalGateway,
-        provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
-      },
-      // The runs `automate test` records are the history a shard plan reads.
-      shardHistory: runRepository,
-      // The same run repository, canonical store and bus the reporter upload door writes,
-      // and the same quarantine every gate evaluation reads.
-      testReports: {
-        repository: runRepository,
-        canonicalStore: resolveReporterStore(),
-        bus: realtimeBus,
-        quarantined: quarantineFor,
-        applyPolicy: (projectId) =>
-          applyProjectQuarantinePolicy(
-            { ...registry, store: dashboardStores.quarantineStore, history: workspaceHistory },
-            projectId,
-          ),
-      },
-      quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
-      ...(runtimeConfig.oidc?.defaultRole == null
-        ? {}
-        : { scimDefaultRole: runtimeConfig.oidc.defaultRole }),
-      delivery: {
-        // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose
-        // Access application bypasses the receiver's path (ADR-014). The HMAC is the credential.
-        lanMode: runtimeConfig.lanMode === true || runtimeConfig.remote === 'cloudflare',
-        ...(runtimeConfig.githubWebhookSecret === undefined
-          ? {}
-          : { webhookSecret: runtimeConfig.githubWebhookSecret }),
-        ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
-      },
-      health: {
-        ...healthHooks,
-        detailsUrl: dashboardUrl,
-        // The commit's test run, read with the same quarantine and the same rule the gate and
-        // `automate test` use.
-        commitTests: (projectId, commit) =>
-          commitTests(
-            {
-              repository: runRepository,
-              quarantined: () => quarantineFor(registry.workspaceId),
-              reportErrors: async (runId) =>
-                (await resolveReporterStore().get(runId))?.reportErrors?.length ?? 0,
-              labelledSignatures: async () =>
-                new Set((await listTriageLabels(registry)).map((label) => label.signature)),
-            },
-            projectId,
-            commit,
-          ),
-        github: {
-          adapter: githubAdapter,
-          tokenFor: (projectId) =>
-            readGitToken({ ...registry, vaultSecret: runtimeConfig.vaultSecret }, projectId).catch(
-              () => null,
-            ),
-        },
-        reporterSecret: runtimeConfig.reporterSecret,
-        requireReporterSecret: runtimeConfig.nodeEnv === 'production',
-        // Scanners a live runner advertises. A runner declares them in RUNNER_CAPABILITIES.
-        scannerCapabilities: async () => {
-          const rows = await databaseResources.db
-            .select({ capabilities: runners.capabilities })
-            .from(runners)
-            .where(
-              and(
-                eq(runners.workspaceId, registry.workspaceId),
-                inArray(runners.health, ['healthy', 'degraded']),
-              ),
-            );
-          return new Set(rows.flatMap((row) => row.capabilities));
-        },
-        // One run per scanner, claimable only by a runner that has the binary.
-        startScanJob: async (job) => {
-          const created = await executionStore.create(
-            {
-              projectId: job.projectId,
-              timeoutMs: 20 * 60_000,
-              source: 'web',
-              framework: 'tool',
-              testType: 'health',
-              suite: `health: ${job.scanner.label}`,
-              requiredCapabilities: [job.scanner.id],
-              configuration: {
-                commandId: `health:${job.scanner.id}`,
-                health: job.health,
-                command: {
-                  argv: [...job.scanner.argv],
-                  workingDirectory: '.',
-                  ...(job.repository === null ? {} : { repository: job.repository }),
-                  artifactGlobs: [job.scanner.output],
-                  env: [],
-                  evidence: 'artifact',
-                },
-                ...(job.gitUrl === null
-                  ? {}
-                  : { checkout: { url: job.gitUrl, projectId: job.projectId } }),
-              },
-            },
-            randomUUID(),
-            registry.workspaceId,
-          );
-          return { runId: created.run.id };
-        },
-      },
-      // `.github` and `.husky` are walked for the scan only: they are where CI and the
-      // commit gates are declared, and the detector has no use for either.
-      scanner: createRepoScanner({
-        viewFor: (repoPath) => fileSystemView(repoPath, DEFAULT_IGNORED, ['.github', '.husky']),
-      }),
-      // The argv arrives **already resolved** by `run.start` against the profile or
-      // the scan, and is written into the job as-is. It used to be dropped here — the
-      // job carried only `commandId`, the runner reads `configuration.command`, and so
-      // every project run was a Playwright job with no project: a run that could not
-      // execute the command the operator chose.
-      startRun: async (input) => {
-        const created = await executionStore.create(
-          {
-            projectId: input.projectId,
-            timeoutMs: input.timeoutMs ?? 30 * 60_000,
-            source: 'web',
-            framework: input.command.evidence === 'artifact' ? 'detected' : 'tool',
-            testType: 'tool',
-            suite: input.command.label,
-            // **No `labels`.** A job's labels are routing constraints — a runner claims it
-            // only if it carries every one — so the tool id there made the job unclaimable.
-            // The id is kept in `configuration.commandId`, which is what history reads.
-            configuration: {
-              commandId: input.commandId,
-              command: {
-                argv: input.command.argv,
-                workingDirectory: input.command.workingDirectory,
-                ...(input.command.repository === undefined
-                  ? {}
-                  : { repository: input.command.repository }),
-                artifactGlobs: input.command.artifactGlobs,
-                env: input.command.env,
-                evidence: input.command.evidence,
-              },
-            },
-          },
-          input.idempotencyKey,
-          runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-        );
-        return {
-          runId: created.run.id,
-          jobId: created.job.id,
-          phase: created.run.phase,
-        };
-      },
-      // The readiness card's inputs beyond the registry: the run history, and the
-      // quarantined tests still waiting for a person to decide.
-      reliability: {
-        store: executionStore,
-        openQuarantine: async () =>
-          ((await dashboardStores.quarantineStore?.list()) ?? []).filter(
-            (entry) => entry.status === 'pending',
-          ).length,
-      },
-    }),
-  );
-  /**
-   * The registry points at the folder this install was pointed at, once, at boot.
-   *
-   * **Not a watcher and not a poll.** "The moment you open the folder" is satisfied
-   * by the server starting when you start it, and a file watcher here would be a
-   * second thing that decides what the cockpit shows.
-   *
-   * `discoverProjectAtBoot` owns the whole failure policy: an absent
-   * `AUTOMATE_PROJECT_ROOT` logs and returns, and a discovery failure logs and
-   * returns, because a dashboard that will not boot over a folder with no
-   * `package.json` is worse than a dashboard with nothing in it.
-   */
   await discoverProjectAtBoot(registry, runtimeConfig.projectRoot, logger);
 }
-app.route(
-  '/',
-  createEventsRoutes({
-    bus: realtimeBus,
-    feed: realtimeFeed,
-    workspaceId: realtimeWorkspaceId,
-  }),
-);
-// T18: dashboard module — /api/v1/dashboard/* routes
-app.route(
-  '/',
-  createDashboardModule({
-    repository: runRepository,
-    quarantineStore: dashboardStores.quarantineStore,
-    qualityGateStore: dashboardStores.qualityGateStore,
-  }),
-);
-mountReportingRoutes();
-mountLegacyProcessLocalRoutes();
 
 /**
  * How long a stopping API lets requests finish before it cuts off what is left (event streams

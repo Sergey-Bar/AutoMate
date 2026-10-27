@@ -5,6 +5,25 @@ import { DeploymentPage, describeProfile } from './Deployment.js';
 import { makeHealthDouble } from '../test-utils.js';
 import { expectNoBlockingAxeViolations } from '../test-axe.js';
 import type { WhoAmI } from '../lib/health-client.js';
+import type { AdminClient } from '../lib/admin-client.js';
+
+function makeAdminDouble(): AdminClient {
+  return {
+    listMembers: vi.fn(),
+    updateMember: vi.fn(),
+    removeMember: vi.fn(),
+    addMember: vi.fn(),
+    listAudit: vi.fn(),
+    verifyAudit: vi.fn(),
+    exportUrl: () => '',
+    listWorkspaces: vi.fn(async () => ({
+      current: 'default',
+      workspaces: [{ id: 'default', name: 'Default', role: 'admin' as const }],
+    })),
+    selectWorkspace: vi.fn(async () => undefined),
+    createWorkspace: vi.fn(async () => undefined),
+  } as AdminClient;
+}
 
 function renderFor(who: WhoAmI) {
   const health = makeHealthDouble('admin', { whoami: vi.fn(async () => who) });
@@ -67,6 +86,36 @@ describe('the deployment page', () => {
         'You are signed in through Cloudflare Access',
       ),
     );
+  });
+
+  it('offers the workspace switcher, and the create form only to a team admin', async () => {
+    const admin = makeAdminDouble();
+    const health = makeHealthDouble('admin', {
+      whoami: vi.fn(async () => ({
+        actor: 'session',
+        role: 'admin' as const,
+        mode: 'enforced' as const,
+        profile: 'team' as const,
+      })),
+    });
+    render(<DeploymentPage health={health} admin={admin} />);
+    expect(await screen.findByLabelText('Current workspace')).toHaveValue('default');
+    expect(screen.getByRole('form', { name: 'New workspace' })).toBeInTheDocument();
+  });
+
+  it('keeps the create form from a startup install, where one workspace is the shape', async () => {
+    const admin = makeAdminDouble();
+    const health = makeHealthDouble('admin', {
+      whoami: vi.fn(async () => ({
+        actor: 'session',
+        role: 'admin' as const,
+        mode: 'enforced' as const,
+        profile: 'startup' as const,
+      })),
+    });
+    render(<DeploymentPage health={health} admin={admin} />);
+    expect(await screen.findByLabelText('Current workspace')).toBeInTheDocument();
+    expect(screen.queryByRole('form', { name: 'New workspace' })).not.toBeInTheDocument();
   });
 
   it('describes every profile in one sentence, smallest first', () => {

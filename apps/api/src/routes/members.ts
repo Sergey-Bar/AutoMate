@@ -35,6 +35,11 @@ const PatchSchema = z
     message: 'name a role, or whether the person is disabled',
   });
 
+const AddSchema = z.object({
+  email: z.string().trim().toLowerCase().email(),
+  role: z.enum(['viewer', 'operator', 'admin']),
+});
+
 const UserIdSchema = z.string().uuid();
 
 function invalid(context: Context, message: string, details: unknown) {
@@ -116,6 +121,35 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
         joinedAt: row.joinedAt.toISOString(),
       })),
     });
+  });
+
+  app.post('/api/v1/members', admin, async (context) => {
+    const parsed = AddSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return invalid(context, 'Name an email and a role', parsed.error.issues);
+    const [person] = await options.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, parsed.data.email))
+      .limit(1);
+    if (person === undefined) {
+      throw new DomainError(
+        ErrorCode.NOT_FOUND,
+        'Nobody with that email has signed in yet: ask them to sign in once, then add them',
+      );
+    }
+    const added = await options.db
+      .insert(workspaceMembers)
+      .values({
+        workspaceId: options.workspaceId,
+        userId: person.id,
+        role: parsed.data.role,
+        invitedBy: (await callerOf(context, options.access)).actor,
+      })
+      .onConflictDoNothing()
+      .returning({ userId: workspaceMembers.userId });
+    if (added.length === 0) throw new DomainError(ErrorCode.CONFLICT, 'Already a member here');
+    await record(context, 'member.add', person.id, { role: parsed.data.role });
+    return context.json({ userId: person.id, role: parsed.data.role }, 201);
   });
 
   app.patch('/api/v1/members/:userId', admin, async (context) => {

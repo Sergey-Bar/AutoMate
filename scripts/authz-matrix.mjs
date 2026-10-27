@@ -75,9 +75,15 @@ async function loadGroups() {
     /** @type {{ createProjectsRoutes: (options: object) => { routes: import('./lib/authz-matrix.mjs').RegisteredRoute[] } }} */ (
       await import(pathToFileURL(path.join(root, DIST, 'routes/projects.js')).href)
     );
+  const workspaces =
+    /** @type {{ createWorkspacesRoutes: (options: object) => { routes: import('./lib/authz-matrix.mjs').RegisteredRoute[] } }} */ (
+      await import(pathToFileURL(path.join(root, DIST, 'routes/workspaces.js')).href)
+    );
   return [
     { routes: app.routes, composition: 'always' },
     { routes: projects.createProjectsRoutes({}).routes, composition: 'database' },
+    // Listing, choosing and creating workspaces: also mounted only with a database.
+    { routes: workspaces.createWorkspacesRoutes({}).routes, composition: 'database' },
   ];
 }
 

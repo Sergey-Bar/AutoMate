@@ -70,8 +70,13 @@ _a customer whose identity provider cannot be fronted by Cloudflare Access_.
   are proven against in-process fakes with keys generated at runtime. Any capability-register
   row that needs a real provider stays `not_configured` and names the command that would
   decide it.
-- **The workspace move is the largest change in the plan**, and it is done behind a ratchet
-  that counts composition-root-bound workspace sites and only lets the count fall.
+- **The workspace move is the largest change in the plan.** It was first planned behind a
+  ratchet that moved every store to request scope. It landed instead (2026-10-27) as **one
+  composition per workspace**, built by the same factory, with a dispatch that forwards a
+  request to its workspace's composition. The workspace is read only from a credential the
+  server trusts. Every store keeps the construction-time binding that the isolation tests
+  already reason about, so no per-request value can be missed, and no ratchet is needed.
+  Runners are one pool the installation shares.
 - **`solo` behaves exactly as an install did before this record.** No variable is required
   that was not required before.
 
@@ -89,6 +94,10 @@ _a customer whose identity provider cannot be fronted by Cloudflare Access_.
 - `packages/db/drizzle/0050_audit_chain.sql` and `apps/api/src/routes/audit.ts` — the
   append-only audit chain, its export and its verification.
 - `apps/api/src/routes/auth.ts` — enforced single sign-on and break-glass.
+- `apps/api/src/http/workspace-dispatch.ts`, `apps/api/src/http/workspace-lookups.ts` and
+  `apps/api/src/routes/workspaces.ts`, each with its test — several workspaces per install.
+- `apps/api/src/routes/members.ts` and `apps/api/src/routes/scim.ts` — member management and
+  SCIM provisioning.
 - `infra/release/start.sh`, `infra/release/start.ps1` and `scripts/lib/start-scripts.test.mjs`
   — the start scripts repeat the refusals before anything starts.
 - The plan of record: `.kilo/plans/1793102400000-profiles-and-remote-plan.md`.

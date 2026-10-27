@@ -147,6 +147,31 @@ describe('members', () => {
     expect((await call('PATCH', `/api/v1/members/${bo}`, { disabled: false })).status).toBe(200);
   });
 
+  it('adds a person who has signed in before to this workspace, with a role', async () => {
+    const { call, db, other } = await harness();
+    const added = await call('POST', '/api/v1/members', {
+      email: 'Eve@Example.com',
+      role: 'operator',
+    });
+    expect(added.status).toBe(201);
+    const rows = await db
+      .select({
+        workspaceId: schema.workspaceMembers.workspaceId,
+        role: schema.workspaceMembers.role,
+      })
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.userId, other));
+    expect(rows).toContainEqual({ workspaceId: 'ws-1', role: 'operator' });
+    // Again: already a member here.
+    expect(
+      (await call('POST', '/api/v1/members', { email: 'eve@example.com', role: 'viewer' })).status,
+    ).toBe(409);
+    // Nobody by that email has signed in: there is nobody to add yet.
+    expect(
+      (await call('POST', '/api/v1/members', { email: 'zed@example.com', role: 'viewer' })).status,
+    ).toBe(404);
+  });
+
   it('cannot reach a person in another workspace', async () => {
     const { call, other } = await harness();
     expect((await call('PATCH', `/api/v1/members/${other}`, { role: 'viewer' })).status).toBe(404);

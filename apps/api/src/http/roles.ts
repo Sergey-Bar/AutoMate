@@ -65,6 +65,19 @@ export function sourceOf(caller: Caller): CallerSource {
 
 const NOBODY: Caller = { actor: 'anonymous', role: null, uploaderFor: null };
 
+/**
+ * Whether a caller is the installation's own admin, who may enter any workspace (ADR-014): the
+ * installation session, an open install's operator, or a Cloudflare identity the role map makes
+ * an admin. A token and a person are bound to their own workspaces and never are.
+ */
+export function isInstallationAdmin(caller: Caller): boolean {
+  const source = sourceOf(caller);
+  return (
+    caller.role === 'admin' &&
+    (source === 'installation' || source === 'anonymous' || source === 'cloudflare')
+  );
+}
+
 export async function callerOf(context: Context, resolver: CallerResolver): Promise<Caller> {
   const cached = context.get(CALLER as never) as Caller | undefined;
   if (cached !== undefined) return cached;

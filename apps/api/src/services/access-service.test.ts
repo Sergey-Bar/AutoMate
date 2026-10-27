@@ -339,6 +339,7 @@ describe('the role guards, open', () => {
       mode: 'enforced',
       profile: 'team',
       source: 'installation',
+      workspace: 'ws-1',
     });
   });
 

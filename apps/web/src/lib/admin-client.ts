@@ -39,8 +39,15 @@ const VerifySchema = z.object({
 export type AuditVerification = z.infer<typeof VerifySchema>;
 const OkSchema = z.object({ ok: z.literal(true) });
 
+export interface WorkspaceEntry {
+  id: string;
+  name: string;
+  role: Member['role'];
+}
+
 export interface AdminClient {
   listMembers(): Promise<Member[]>;
+  addMember(email: string, role: Member['role']): Promise<void>;
   updateMember(
     userId: string,
     change: { role?: Member['role']; disabled?: boolean },
@@ -50,6 +57,10 @@ export interface AdminClient {
   verifyAudit(): Promise<AuditVerification>;
   /** A link the browser downloads; the session cookie is the credential. */
   exportUrl(format: 'ndjson' | 'csv'): string;
+  /** The workspaces this caller may enter, and the one this request is in. */
+  listWorkspaces(): Promise<{ current: string; workspaces: WorkspaceEntry[] }>;
+  selectWorkspace(workspaceId: string): Promise<void>;
+  createWorkspace(id: string, name: string): Promise<void>;
 }
 
 export function createAdminClient(baseUrl = '', fetchImpl: typeof fetch = fetch): AdminClient {
@@ -86,5 +97,30 @@ export function createAdminClient(baseUrl = '', fetchImpl: typeof fetch = fetch)
       ),
     verifyAudit: () => send('GET', '/api/v1/audit/verify', VerifySchema),
     exportUrl: (format) => `${baseUrl}/api/v1/audit/export${format === 'csv' ? '?format=csv' : ''}`,
+    addMember: async (email, role) => {
+      await send('POST', '/api/v1/members', z.object({ userId: z.string(), role: z.string() }), {
+        email,
+        role,
+      });
+    },
+    listWorkspaces: () =>
+      send(
+        'GET',
+        '/api/v1/workspaces',
+        z.object({
+          current: z.string(),
+          workspaces: z.array(
+            z.object({ id: z.string(), name: z.string(), role: MemberSchema.shape.role }),
+          ),
+        }),
+      ),
+    selectWorkspace: async (workspaceId) => {
+      await send('POST', '/api/v1/workspaces/select', z.object({ current: z.string() }), {
+        workspaceId,
+      });
+    },
+    createWorkspace: async (id, name) => {
+      await send('POST', '/api/v1/workspaces', z.object({ id: z.string() }), { id, name });
+    },
   };
 }

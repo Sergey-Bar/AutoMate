@@ -47,27 +47,47 @@ export async function verifyAuditTrail(io: AuditVerifyIo): Promise<0 | 1> {
   return 1;
 }
 
-if (isDirectInvocation(process.argv[1], import.meta.url)) {
-  const url = process.env['DATABASE_URL'];
+/** The part of `pg.Client` the command uses, so a test can stand in for the database. */
+export interface AuditVerifyClient {
+  connect: () => Promise<unknown>;
+  query: (text: string) => Promise<{ rows: unknown[] }>;
+  end: () => Promise<unknown>;
+}
+
+/**
+ * The command: refuses a missing or unusable `DATABASE_URL` (2), reads the trail (0 or 1), and
+ * reports a database it cannot read as 2 rather than as an intact trail.
+ */
+export async function runAuditVerify(
+  url: string | undefined,
+  open: (connectionString: string) => AuditVerifyClient,
+  log: Pick<Console, 'info' | 'error'> = console,
+): Promise<0 | 1 | 2> {
   try {
     assertMigrationDatabaseUrl(url);
   } catch (error) {
-    console.error(`audit:verify: ${(error as Error).message}`);
-    process.exit(2);
+    log.error(`audit:verify: ${(error as Error).message}`);
+    return 2;
   }
-  const client = new pg.Client({ connectionString: url });
+  const client = open(url as string);
   try {
     await client.connect();
-    const code = await verifyAuditTrail({
+    return await verifyAuditTrail({
       query: async (text) => (await client.query(text)).rows as Array<Record<string, unknown>>,
-      info: (line) => console.info(line),
-      error: (line) => console.error(line),
+      info: (line) => log.info(line),
+      error: (line) => log.error(line),
     });
-    process.exitCode = code;
   } catch (error) {
-    console.error(`audit:verify: could not read the audit trail: ${(error as Error).message}`);
-    process.exitCode = 2;
+    log.error(`audit:verify: could not read the audit trail: ${(error as Error).message}`);
+    return 2;
   } finally {
     await client.end().catch(() => undefined);
   }
+}
+
+if (isDirectInvocation(process.argv[1], import.meta.url)) {
+  process.exitCode = await runAuditVerify(
+    process.env['DATABASE_URL'],
+    (connectionString) => new pg.Client({ connectionString }),
+  );
 }

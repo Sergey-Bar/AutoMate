@@ -128,6 +128,18 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // SCIM: every read and write is scoped to the SCIM token's own workspace, and
   // `scim.test.ts` proves another workspace's token cannot read a person here.
   { family: 'scim provisioning', files: ['routes/scim.ts'] },
+  // Which workspace a request belongs to: read only from a trusted credential (a token row,
+  // a job row, a membership), and `workspace-dispatch.test.ts` proves a token cannot be
+  // pointed at another workspace and a person cannot enter one they are not a member of;
+  // `workspace-lookups.test.ts` proves the rows behind it on the real migration graph.
+  {
+    family: 'workspace dispatch',
+    files: ['http/workspace-dispatch.ts', 'http/workspace-lookups.ts'],
+  },
+  // Listing, choosing and creating workspaces: what a caller may enter is read from their
+  // token row, their memberships or the installation session, and `workspaces.test.ts` proves
+  // a person cannot choose a workspace they are not a member of, nor a token another.
+  { family: 'workspace management', files: ['routes/workspaces.ts'] },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

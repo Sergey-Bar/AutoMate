@@ -72,7 +72,7 @@ export const AuditRoute = createRoute({
 export const DeploymentRoute = createRoute({
   getParentRoute: () => dashboardRoute,
   path: '/deployment',
-  component: () => <DeploymentPage health={createHealthClient()} />,
+  component: () => <DeploymentPage health={createHealthClient()} admin={createAdminClient()} />,
 });
 
 /** Where a pairing QR code lands. Spends the code, then opens the dashboard as that device. */

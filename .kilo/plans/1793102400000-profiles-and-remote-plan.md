@@ -88,3 +88,21 @@ Recorded here as tasks land, so the next session reads the state from the tree.
   backups, the enterprise operations guide), Task 19 (profile-matrix E2E).
 - 2026-10-27 — Task 20, partly: `site/guide/profiles.md` (choose a profile, per-profile
   quickstarts, moving up). The comparison page is not yet updated.
+- 2026-10-27 — Task 13 and Task 17: member management (`apps/api/src/routes/members.ts`, add,
+  role, disable, remove, last-admin refusal), SCIM 2.0 (`apps/api/src/routes/scim.ts`,
+  `0051_scim_tokens.sql`, the `scim-token` guard class), and the Members and Audit web pages.
+- 2026-10-27 — Tasks 9–12, by a different route than planned: **a composition per workspace**
+  rather than moving every store to request scope. `buildWorkspace(workspaceId)` in
+  `apps/api/src/index.ts` builds every store and route group for one workspace; the default is
+  served in place and any other is built once and reached through
+  `apps/api/src/http/workspace-dispatch.ts`, which reads the workspace only from a trusted
+  credential (token row, job row, membership plus the chosen cookie, the installation admin's
+  choice). The lookups are `apps/api/src/http/workspace-lookups.ts`, proved on the migrated
+  graph. Why: every store is bound at construction and every isolation test reasons about
+  that binding; threading a request value through ~600 sites risked a missed filter. The
+  ratchet in Task 9 is therefore not needed. Runners are one shared pool (`sharedRunners`).
+  Workspace listing, choosing and creating (`apps/api/src/routes/workspaces.ts`) and the
+  switcher on the Deployment page complete Task 13. `REPORTER_SECRET` uploads land in the
+  default workspace. No run against a real PostgreSQL with two workspaces is recorded.
+- Still open: Task 18 (OTLP, scheduled backups, the enterprise operations guide), Task 19
+  (profile-matrix E2E), and the comparison page in Task 20.

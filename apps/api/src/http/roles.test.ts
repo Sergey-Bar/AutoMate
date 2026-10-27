@@ -2,7 +2,13 @@ import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import { createErrorBoundary } from '../errors/boundary.js';
 import type { Caller } from '../services/access-service.js';
-import { callerOf, requireRole, sourceOf, type CallerResolver } from './roles.js';
+import {
+  callerOf,
+  isInstallationAdmin,
+  requireRole,
+  sourceOf,
+  type CallerResolver,
+} from './roles.js';
 
 /**
  * The credential order (ADR-014): a token, then a Cloudflare Access identity, then the
@@ -92,6 +98,18 @@ describe('the credential order', () => {
 });
 
 describe('sourceOf', () => {
+  it('makes only the installation’s own admins free to enter any workspace', () => {
+    expect(isInstallationAdmin({ actor: 'session', role: 'admin', uploaderFor: null })).toBe(true);
+    expect(isInstallationAdmin({ actor: 'anonymous', role: 'admin', uploaderFor: null })).toBe(
+      true,
+    );
+    expect(isInstallationAdmin({ actor: 'cf:a@x', role: 'admin', uploaderFor: null })).toBe(true);
+    expect(isInstallationAdmin({ actor: 'cf:a@x', role: 'viewer', uploaderFor: null })).toBe(false);
+    expect(isInstallationAdmin({ actor: 'token:t', role: 'admin', uploaderFor: null })).toBe(false);
+    expect(isInstallationAdmin({ actor: 'user:u', role: 'admin', uploaderFor: null })).toBe(false);
+    expect(isInstallationAdmin({ actor: 'anonymous', role: null, uploaderFor: null })).toBe(false);
+  });
+
   it('names where every kind of caller came from', () => {
     expect(sourceOf({ actor: 'token:t1', role: 'viewer', uploaderFor: null })).toBe('token');
     expect(sourceOf({ actor: 'session', role: 'admin', uploaderFor: null })).toBe('installation');

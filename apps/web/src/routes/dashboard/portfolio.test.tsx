@@ -19,6 +19,13 @@ function stubApi(role: 'admin' | null) {
         return reply({ actor: 'anonymous', role, mode: role === null ? 'enforced' : 'open' });
       if (url.endsWith('/api/v1/portfolio')) return reply({ projects: [] });
       if (url.endsWith('/api/v1/access-tokens')) return reply({ tokens: [] });
+      if (url.endsWith('/api/v1/members')) return reply({ members: [] });
+      if (url.includes('/api/v1/audit?')) return reply({ events: [], next: null });
+      if (url.endsWith('/api/v1/workspaces'))
+        return reply({
+          current: 'default',
+          workspaces: [{ id: 'default', name: 'Default', role: 'admin' }],
+        });
       return reply({ error: { message: 'No project p-1' } }, 404);
     }),
   );
@@ -51,6 +58,26 @@ describe('the repository-health routes', () => {
     stubApi('admin');
     render(<MemoryRouter initialEntries={['/dashboard/access']} />);
     expect(await screen.findByTestId('access-page', {}, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
+  it('opens the members and audit pages, each with its own admin client', async () => {
+    stubApi('admin');
+    const members = render(<MemoryRouter initialEntries={['/dashboard/members']} />);
+    expect(await screen.findByTestId('members-page', {}, { timeout: 10_000 })).toBeInTheDocument();
+    members.unmount();
+    render(<MemoryRouter initialEntries={['/dashboard/audit']} />);
+    expect(await screen.findByTestId('audit-page', {}, { timeout: 10_000 })).toBeInTheDocument();
+  });
+
+  it('opens the deployment page with the workspace switcher', async () => {
+    stubApi('admin');
+    render(<MemoryRouter initialEntries={['/dashboard/deployment']} />);
+    expect(
+      await screen.findByTestId('deployment-page', {}, { timeout: 10_000 }),
+    ).toBeInTheDocument();
+    expect(await screen.findByLabelText('Current workspace', {}, { timeout: 10_000 })).toHaveValue(
+      'default',
+    );
   });
 
   it('asks a caller with no role to sign in before any of them', async () => {

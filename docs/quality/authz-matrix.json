@@ -8,8 +8,8 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 22,
-    "viewer": 78,
+    "admin": 24,
+    "viewer": 80,
     "operator": 32,
     "open": 16,
     "runner-credential": 9,
@@ -159,7 +159,7 @@
       "method": "GET",
       "path": "/api/v1/auth/whoami",
       "access": "open",
-      "workspaceScoped": false,
+      "workspaceScoped": true,
       "evidenceTest": "apps/api/src/services/access-service.test.ts",
       "composition": "database"
     },
@@ -456,6 +456,14 @@
       "path": "/api/v1/members",
       "access": "admin",
       "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/members.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/members",
+      "access": "admin",
+      "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/members.test.ts",
       "composition": "database"
     },
@@ -1369,6 +1377,30 @@
       "access": "open",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/github-webhook.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workspaces",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/select",
+      "access": "viewer",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
       "composition": "database"
     },
     {

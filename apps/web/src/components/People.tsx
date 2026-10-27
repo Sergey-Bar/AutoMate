@@ -2,6 +2,7 @@ import React from 'react';
 import {
   Badge,
   Button,
+  Input,
   Skeleton,
   Table,
   TableBody,
@@ -58,6 +59,7 @@ function MembersBody({ admin }: { admin: AdminClient }): React.ReactElement {
           {error}
         </p>
       )}
+      <AddPerson onAdd={(email, role) => act(admin.addMember(email, role))} />
       <Panel title="People">
         {members.status === 'loading' ? (
           <Skeleton className="h-16 w-full" />
@@ -145,6 +147,63 @@ function MembersBody({ admin }: { admin: AdminClient }): React.ReactElement {
         )}
       </Panel>
     </PageFrame>
+  );
+}
+
+/** Gives a person who has signed in before a role in this workspace. */
+function AddPerson({
+  onAdd,
+}: {
+  onAdd: (email: string, role: Member['role']) => void;
+}): React.ReactElement {
+  const [email, setEmail] = React.useState('');
+  const [role, setRole] = React.useState<Member['role']>('viewer');
+  const field = React.useId();
+  return (
+    <Panel title="Add a person">
+      <form
+        aria-label="Add a person"
+        className="grid gap-2 sm:grid-cols-[2fr_1fr_auto] sm:items-end"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onAdd(email.trim(), role);
+          setEmail('');
+        }}
+      >
+        <Input
+          id={`${field}-email`}
+          label="Email"
+          type="email"
+          value={email}
+          required
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <div>
+          <label htmlFor={`${field}-role`} className="mb-1 block text-sm font-medium">
+            Role
+          </label>
+          <select
+            id={`${field}-role`}
+            value={role}
+            onChange={(event) => setRole(event.target.value as Member['role'])}
+            className="min-h-10 w-full rounded-lg border border-border bg-surface px-2 text-sm text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus"
+          >
+            {ROLES.map((entry) => (
+              <option key={entry} value={entry}>
+                {entry}
+              </option>
+            ))}
+          </select>
+        </div>
+        <Button type="submit" className="min-h-10">
+          Add
+        </Button>
+      </form>
+      <p className="mt-2 max-w-measure text-xs text-fg-muted">
+        The person must have signed in with single sign-on once. People an identity provider
+        provisions over SCIM appear without this.
+      </p>
+    </Panel>
   );
 }
 

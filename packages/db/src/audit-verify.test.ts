@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
-import { afterEach, describe, expect, it } from 'vitest';
-import { verifyAuditTrail } from './audit-verify.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { runAuditVerify, verifyAuditTrail } from './audit-verify.js';
 
 /** `pnpm audit:verify` against the real migration graph, in an in-process PostgreSQL. */
 const drizzleDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../drizzle');
@@ -64,5 +64,62 @@ describe('audit:verify', () => {
     const { lines, io: seam } = io(client);
     expect(await verifyAuditTrail(seam)).toBe(1);
     expect(lines.error).toEqual(['audit:verify: ws-a row 1 is edited']);
+  });
+});
+
+describe('the audit:verify command', () => {
+  const URL_OK = 'postgres://automate@localhost:5432/automate';
+  const log = () => {
+    const lines: string[] = [];
+    return {
+      lines,
+      log: { info: (line: string) => lines.push(line), error: (line: string) => lines.push(line) },
+    };
+  };
+
+  it('refuses to run with no database named, before connecting to anything', async () => {
+    const open = vi.fn();
+    const { lines, log: sink } = log();
+    expect(await runAuditVerify(undefined, open, sink)).toBe(2);
+    expect(open).not.toHaveBeenCalled();
+    expect(lines.join('\n')).toMatch(/^audit:verify: /u);
+  });
+
+  it('reads the trail through the client it opened, and closes it', async () => {
+    const client = await migrated();
+    opened.push(client);
+    const end = vi.fn(async () => undefined);
+    const { lines, log: sink } = log();
+    const code = await runAuditVerify(
+      URL_OK,
+      () => ({
+        connect: async () => undefined,
+        query: async (text) => ({ rows: (await client.query(text)).rows }),
+        end,
+      }),
+      sink,
+    );
+    expect(code).toBe(0);
+    expect(lines.at(-1)).toBe('audit:verify: every workspace chain is intact.');
+    expect(end).toHaveBeenCalledOnce();
+  });
+
+  it('reports a database it cannot read as 2, not as an intact trail', async () => {
+    const { lines, log: sink } = log();
+    const code = await runAuditVerify(
+      URL_OK,
+      () => ({
+        connect: async () => {
+          throw new Error('connection refused');
+        },
+        query: async () => ({ rows: [] }),
+        end: async () => {
+          throw new Error('not connected');
+        },
+      }),
+      sink,
+    );
+    expect(code).toBe(2);
+    expect(lines).toEqual(['audit:verify: could not read the audit trail: connection refused']);
   });
 });
