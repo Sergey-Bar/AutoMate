@@ -948,6 +948,8 @@ export const users = pgTable(
     subject: text('subject'),
     disabledAt: timestamp('disabled_at', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    /** The identity provider's id for a person it provisioned over SCIM (`0051_scim_tokens.sql`). */
+    externalId: text('external_id'),
     // SQLite: text('created_at').notNull()
     createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull(),
@@ -955,6 +957,7 @@ export const users = pgTable(
   (t) => [
     uniqueIndex('users_email_unique').on(t.email),
     uniqueIndex('users_issuer_subject_idx').on(t.issuer, t.subject),
+    index('users_external_id_idx').on(t.externalId),
   ],
 );
 

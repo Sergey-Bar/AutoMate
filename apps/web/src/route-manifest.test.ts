@@ -71,6 +71,8 @@ describe('route manifest', () => {
       '/dashboard/supply-chain',
       '/dashboard/toolbox',
       '/dashboard/access',
+      '/dashboard/members',
+      '/dashboard/audit',
       '/dashboard/deployment',
       '/dashboard/reports',
     ]);
@@ -139,6 +141,8 @@ describe('route manifest', () => {
       'Supply chain',
       'Toolbox',
       'Access',
+      'Members',
+      'Audit',
       'Deployment',
       'Reports',
     ]);

@@ -130,6 +130,8 @@ export const ErrorCode = {
 
   // 409 — the request is well-formed but conflicts with current state.
   CONFLICT: 'CONFLICT',
+  /** The change would leave the workspace with no enabled admin. */
+  LAST_ADMIN: 'LAST_ADMIN',
   RUN_ALREADY_EXISTS: 'RUN_ALREADY_EXISTS',
   IDEMPOTENCY_KEY_REUSED: 'IDEMPOTENCY_KEY_REUSED',
   STALE_LEASE: 'STALE_LEASE',
@@ -314,6 +316,7 @@ const STATUS_BY_CODE: Record<ErrorCodeValue, number> = {
   WEBHOOK_NOT_CONFIGURED: 404,
   OIDC_NOT_CONFIGURED: 404,
   CONFLICT: 409,
+  LAST_ADMIN: 409,
   RUN_ALREADY_EXISTS: 409,
   IDEMPOTENCY_KEY_REUSED: 409,
   STALE_LEASE: 409,

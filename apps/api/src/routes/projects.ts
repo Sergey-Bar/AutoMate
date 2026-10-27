@@ -44,6 +44,8 @@ import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
 import type { SecureCookies } from '../http/secure-cookies.js';
 import { createAccessRoutes } from './access.js';
 import { createAuditRoutes } from './audit.js';
+import { createMembersRoutes } from './members.js';
+import { createScimRoutes } from './scim.js';
 import { defaultClientKey } from './auth.js';
 import { createPairingRoutes } from './pairing.js';
 import { createNotificationRoutes } from './notifications.js';
@@ -146,6 +148,8 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * receiver on; `syncNow` runs queued syncs at once after a request queues one.
    */
   delivery?: { lanMode?: boolean; webhookSecret?: string; syncNow?: () => Promise<unknown> };
+  /** The role a person provisioned over SCIM starts with: `OIDC_DEFAULT_ROLE`, or viewer. */
+  scimDefaultRole?: 'viewer' | 'operator' | 'admin';
   /**
    * The built-in eval runner's model access: the configured gateway (`null` when no provider
    * is configured, and runs are refused `NOT_CONFIGURED`) and its provider name.
@@ -296,6 +300,18 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   );
   // The audit trail, its export and its chain (ADR-014, enterprise). Admin only.
   app.route('/', createAuditRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // The people who signed in with single sign-on, and their roles here. Admin only.
+  app.route('/', createMembersRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // SCIM provisioning (ADR-014, enterprise): scoped to each SCIM token's own workspace.
+  app.route(
+    '/',
+    createScimRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      access,
+      ...(options.scimDefaultRole === undefined ? {} : { defaultRole: options.scimDefaultRole }),
+    }),
+  );
   // Pairing mints access tokens, so it lives where they do: beside the access routes.
   app.route(
     '/',

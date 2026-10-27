@@ -227,3 +227,29 @@ export const legacyIdMap = pgTable(
 // table, and `retain_until` does not exist on `audit_events` at all.
 //
 // `auditEvents` in `dashboard.ts` is the audit table, and the only one.
+
+/**
+ * The credential an identity provider's SCIM connection presents (ADR-014, enterprise). One per
+ * connection, shown once at creation and stored only as a sha256. Every SCIM request is scoped
+ * to this row's workspace. Added in `0051_scim_tokens.sql`.
+ */
+export const scimTokens = pgTable(
+  'scim_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull(),
+    displayPrefix: text('display_prefix').notNull(),
+    createdBy: text('created_by').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+    revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('scim_tokens_hash_idx').on(table.tokenHash),
+    index('scim_tokens_workspace_idx').on(table.workspaceId, table.createdAt),
+  ],
+);

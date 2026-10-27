@@ -78,10 +78,19 @@ Everything in `team`, plus:
   installation key works again, every use is logged and written to the audit trail, and the
   start-up log says it is on. Turn it off once you are back in.
 - **An audit trail an auditor accepts.** Every decision is a row chained to the one before it,
-  and the table refuses edits. Admins can page it at `GET /api/v1/audit`, export it at
-  `GET /api/v1/audit/export` (NDJSON or `?format=csv`), and check it at `GET /api/v1/audit/verify`
-  or with `pnpm audit:verify` against the database. Keep the `head` line of each export
-  somewhere else: it is what proves later that the trail was not rewritten from that point.
+  and the table refuses edits. Admins read it, check it and export it on _Map → Audit_ (or at
+  `GET /api/v1/audit`, `/audit/verify` and `/audit/export`), and `pnpm audit:verify` checks it
+  against the database. Keep the head hash of each export somewhere else: it is what proves
+  later that the trail was not rewritten from that point.
+- **Provisioning with SCIM.** Issue a SCIM token (`POST /api/v1/scim-tokens`, as an admin) and
+  give your identity provider the base URL `https://<your host>/scim/v2` and that token. Assign
+  people to the `automate-viewer`, `automate-operator` or `automate-admin` groups to set their
+  role. Deactivating someone in the identity provider signs them out of Automate at once. Behind
+  Cloudflare Access, add a _Bypass_ policy for the path `/scim/v2`: the SCIM token is the
+  credential there.
+
+People who signed in appear on _Map → Members_, where an admin changes a role, disables someone
+or removes them. The last admin of a workspace cannot be removed.
 
 ## Moving up a profile
 
@@ -95,6 +104,6 @@ single sign-on get their roles on first sign-in.
 ## What is not built yet
 
 Several workspaces per install are on the plan and not yet available: an install has one
-workspace (`WORKSPACE_ID`). SCIM provisioning, a members and audit page in the app, and
-telemetry export are also still to come. The [capability register](/pages/capabilities) is
-the list of what is, with the test behind each row.
+workspace (`WORKSPACE_ID`). Telemetry export is also still to come. The
+[capability register](/pages/capabilities) is the list of what is, with the test behind each
+row.

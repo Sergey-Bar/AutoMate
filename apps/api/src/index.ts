@@ -1112,6 +1112,9 @@ if (databaseResources !== undefined) {
           ),
       },
       quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
+      ...(runtimeConfig.oidc?.defaultRole == null
+        ? {}
+        : { scimDefaultRole: runtimeConfig.oidc.defaultRole }),
       delivery: {
         // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose
         // Access application bypasses the receiver's path (ADR-014). The HMAC is the credential.

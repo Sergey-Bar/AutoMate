@@ -478,6 +478,34 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/members": {
+      "get": {
+        "operationId": "getApiV1Members",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/members/{userId}": {
+      "delete": {
+        "operationId": "deleteApiV1MembersUserId",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "patch": {
+        "operationId": "patchApiV1MembersUserId",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/notification-channels": {
       "get": {
         "operationId": "getApiV1NotificationChannels",
@@ -1533,6 +1561,31 @@
         "operationId": "postApiV1Schedules",
         "tags": ["schedules"],
         "x-source": "apps/api/src/routes/orchestration.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/scim-tokens": {
+      "get": {
+        "operationId": "getApiV1ScimTokens",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1ScimTokens",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/scim-tokens/{id}": {
+      "delete": {
+        "operationId": "deleteApiV1ScimTokensId",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },

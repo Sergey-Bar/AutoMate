@@ -122,6 +122,12 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
   // The audit trail: every read, the export and the chain check filter `audit_events` on
   // `workspace_id`, and `audit.test.ts` proves another workspace's rows are not exported.
   { family: 'audit trail', files: ['routes/audit.ts'] },
+  // Members: every read and write filters `workspace_members` on `workspace_id`, and
+  // `members.test.ts` proves a person in another workspace is a 404.
+  { family: 'members', files: ['routes/members.ts'] },
+  // SCIM: every read and write is scoped to the SCIM token's own workspace, and
+  // `scim.test.ts` proves another workspace's token cannot read a person here.
+  { family: 'scim provisioning', files: ['routes/scim.ts'] },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

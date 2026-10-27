@@ -192,6 +192,7 @@ describe('migration graph', () => {
       '0048_triage_labels',
       '0049_workspace_members',
       '0050_audit_chain',
+      '0051_scim_tokens',
     ]);
   });
 

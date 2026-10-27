@@ -184,9 +184,11 @@ export async function audit(
     await options.db.insert(auditEvents).values({
       timestamp: now,
       actorId: entry.actor,
-      // A token and a Cloudflare service token are machines; anything else is a person.
+      // A token, a Cloudflare service token and a SCIM connection are machines.
       actorType:
-        entry.actor.startsWith('token:') || entry.actor.startsWith('cf-service:')
+        entry.actor.startsWith('token:') ||
+        entry.actor.startsWith('cf-service:') ||
+        entry.actor.startsWith('scim:')
           ? 'service'
           : 'user',
       action: entry.action,

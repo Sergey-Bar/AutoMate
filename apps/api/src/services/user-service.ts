@@ -50,11 +50,27 @@ export async function signInPerson(
 ): Promise<SignInOutcome> {
   const email = claims.email.toLowerCase();
   const displayName = claims.name?.trim() || email;
-  const [existing] = await options.db
+  let [existing] = await options.db
     .select({ id: users.id, disabledAt: users.disabledAt })
     .from(users)
     .where(and(eq(users.issuer, claims.issuer), eq(users.subject, claims.subject)))
     .limit(1);
+  if (existing === undefined) {
+    // A person SCIM provisioned has no issuer yet: their first sign-in links the row by email.
+    // Only a row with no issuer is linked, so a second provider cannot take over a first one's.
+    const [provisioned] = await options.db
+      .select({ id: users.id, disabledAt: users.disabledAt })
+      .from(users)
+      .where(and(eq(users.email, email), isNull(users.issuer)))
+      .limit(1);
+    if (provisioned !== undefined) {
+      await options.db
+        .update(users)
+        .set({ issuer: claims.issuer, subject: claims.subject, updatedAt: now })
+        .where(eq(users.id, provisioned.id));
+      existing = provisioned;
+    }
+  }
   if (existing?.disabledAt) return { ok: false, reason: 'disabled' };
 
   const mapped = ruleRoleFor(

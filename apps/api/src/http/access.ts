@@ -22,6 +22,8 @@ export const GUARDED_ACCESS = [
   'runner-registration-secret',
   'runner-credential',
   'enrollment-token',
+  // An identity provider's SCIM connection (`routes/scim.ts`, ADR-014).
+  'scim-token',
   // The repository-health roles, each admitting the roles above it (`http/roles.ts`).
   'viewer',
   'operator',
