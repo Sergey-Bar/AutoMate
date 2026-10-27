@@ -2,7 +2,7 @@
 
 > Historical release claims are not current product truth. Current capability status is `docs/migration/capability-register.md`.
 
-## Unreleased — one server for the whole network, and reports that come to you
+## 3.1.0 - 2026-10-27 - test intelligence you can read and self-host
 
 ### Added
 
