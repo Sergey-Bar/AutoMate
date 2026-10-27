@@ -1,5 +1,5 @@
 import { z } from 'zod/v4';
-import { DEFAULT_CLIENT_CIDRS, parseCidr } from './network.js';
+import { DEFAULT_CLIENT_CIDRS, isWildcardBind, parseCidr } from './network.js';
 
 /** A comma-separated environment value as its trimmed, non-empty entries. */
 function splitList(value: string | undefined): string[] {
@@ -349,8 +349,15 @@ export type AppConfig = {
   accessControl: 'open' | 'enforced';
   /** `AUTOMATE_LAN_MODE`: serve other machines on the local network. */
   lanMode: boolean;
-  /** Where the install is reachable from: `AUTOMATE_BIND` when set, otherwise `HOST`. */
+  /**
+   * Where the install is reachable from: `AUTOMATE_BIND` when set. Otherwise `HOST`, unless
+   * `HOST` is a wildcard (`0.0.0.0`, `::`), which names no machine: it is how every container
+   * listens, and the 3.0.0 compose file sets it without `AUTOMATE_BIND`. That case reads as
+   * loopback, with {@link bindUndeclared} saying the exposure is unknown rather than safe.
+   */
   exposedBind: string;
+  /** No `AUTOMATE_BIND`, and a wildcard `HOST`: the install cannot tell who can reach it. */
+  bindUndeclared: boolean;
   /** `ALLOWED_CLIENT_CIDRS`, or {@link DEFAULT_CLIENT_CIDRS}. */
   allowedClientCidrs: string[];
   healthWebhookSecret?: string;
@@ -414,7 +421,8 @@ export function parseConfig(
     trustProxy: parsed.TRUST_PROXY === 'true',
     accessControl: parsed.ACCESS_CONTROL ?? (parsed.AUTOMATE_LAN_MODE ? 'enforced' : 'open'),
     lanMode: parsed.AUTOMATE_LAN_MODE,
-    exposedBind: parsed.AUTOMATE_BIND ?? parsed.HOST,
+    exposedBind: parsed.AUTOMATE_BIND ?? (isWildcardBind(parsed.HOST) ? DEFAULT_HOST : parsed.HOST),
+    bindUndeclared: parsed.AUTOMATE_BIND === undefined && isWildcardBind(parsed.HOST),
     allowedClientCidrs:
       parsed.ALLOWED_CLIENT_CIDRS === undefined
         ? [...DEFAULT_CLIENT_CIDRS]

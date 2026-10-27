@@ -32,6 +32,11 @@ device, open `https://<server-name>.local:8443` or `https://<server-ip>:8443`.
 | Cross-site protection  | A state-changing request a browser sends on behalf of another page is refused with `CROSS_SITE_REQUEST`.                                                          |
 | HTTPS                  | Once `lan-cert` has run, the edge serves HTTPS on `AUTOMATE_HTTPS_PORT` (default 8443), redirects plain HTTP to it, sends HSTS, and session cookies are `Secure`. |
 
+The refusal applies to a bind you declare (`AUTOMATE_BIND`) and to a concrete `HOST` such as
+`192.168.1.5`. An API started with only `HOST=0.0.0.0` and no `AUTOMATE_BIND` starts with a
+warning instead, because that is how every container listens and it says nothing about who can
+reach it; set `AUTOMATE_BIND` to the address it is published on.
+
 If you narrow `ALLOWED_CLIENT_CIDRS`, keep `172.16.0.0/12` in it: the bundled runner reaches
 the API from the Docker network, and Docker Desktop delivers browser connections from its
 own gateway in that range.

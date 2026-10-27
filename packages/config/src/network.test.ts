@@ -1,5 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_CLIENT_CIDRS, isAddressAllowed, isLoopbackBind, parseCidr } from './network.js';
+import {
+  DEFAULT_CLIENT_CIDRS,
+  isAddressAllowed,
+  isLoopbackBind,
+  isWildcardBind,
+  parseCidr,
+} from './network.js';
+
+describe('isWildcardBind', () => {
+  it('is every spelling of "all interfaces", and nothing else', () => {
+    for (const bind of ['0.0.0.0', '::', '[::]', '0:0:0:0:0:0:0:0', ' 0.0.0.0 ', '::0']) {
+      expect(isWildcardBind(bind), bind).toBe(true);
+    }
+    for (const bind of [
+      '127.0.0.1',
+      '::1',
+      '192.168.1.5',
+      'localhost',
+      '0.0.0.1',
+      'automate',
+      '',
+    ]) {
+      expect(isWildcardBind(bind), bind).toBe(false);
+    }
+  });
+});
 
 describe('isAddressAllowed', () => {
   it('admits the private ranges a home or office network uses', () => {

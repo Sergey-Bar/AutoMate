@@ -118,6 +118,7 @@ import {
   assertInMemoryAllowed,
   checkExposurePolicy,
   checkProductionPolicy,
+  exposureWarning,
   resolveAuthSecrets,
 } from './startup-policy.js';
 import {
@@ -201,6 +202,8 @@ const app = new Hono();
  * reading the log has to know which of them produced the line it is looking at.
  */
 const logger = createLogger({ service: 'automate-api' });
+const unknownExposure = exposureWarning(runtimeConfig);
+if (unknownExposure !== undefined) logger.warn(unknownExposure);
 
 /**
  * The one model provider decision, made here because this is the only place that

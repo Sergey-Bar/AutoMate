@@ -161,6 +161,29 @@ export function checkExposurePolicy(config: AppConfig): void {
   }
 }
 
+/**
+ * What to tell the operator when the install cannot know whether it is reachable.
+ *
+ * The 3.0.0 compose file sets `HOST=0.0.0.0` (every interface of the container, which every
+ * container needs) and does not pass `AUTOMATE_BIND`, and `start update` keeps that file. So
+ * an upgraded install has a wildcard listen address and no declared bind, and refusing it
+ * left every upgraded install down (v3.1.0). It is allowed, with this warning, because the
+ * start scripts still refuse an exposed bind before anything starts, and the 3.1 compose
+ * file always passes the real one. What is given up is the refusal for an API image run on
+ * its own with `HOST=0.0.0.0` and nothing else, which is how 3.0.0 behaved.
+ *
+ * @returns the warning, or `undefined` when the bind is declared or the host is concrete
+ */
+export function exposureWarning(config: AppConfig): string | undefined {
+  if (config.bindUndeclared !== true) return undefined;
+  return (
+    'AUTOMATE_BIND is not set and HOST is a wildcard, so this install cannot tell whether ' +
+    'other machines can reach it. Set AUTOMATE_BIND to the address it is published on ' +
+    '(127.0.0.1 keeps it on this machine, and AUTOMATE_LAN_MODE=1 serves your network with ' +
+    'sign-in). Without a login, anything that can reach the port can use the install.'
+  );
+}
+
 export interface AuthSecrets {
   cookieSecret: string;
   installationKey: string;

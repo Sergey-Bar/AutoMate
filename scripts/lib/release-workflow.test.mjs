@@ -137,3 +137,18 @@ test('an existing install is upgraded with `start update`, keeping its key', () 
     /if: always\(\) && steps\.previous\.outputs\.version != ''\n[\s\S]*?uninstall --purge/,
   );
 });
+
+test('the upgrade also starts from 3.0.0, whose compose file predates AUTOMATE_BIND', () => {
+  // `start update` keeps the old install's compose file and changes only the image, so an
+  // upgrade from the previous release only ever tests the previous release's compose file.
+  // v3.1.0 shipped an API that refused to start on every install upgraded from 3.0.0 because
+  // the job tested nothing else: the previous release was 3.0.0 then, and would have been
+  // 3.1.0 for the next release, which has the right compose file.
+  const job = jobs().get('upgrade') ?? '';
+  assert.match(job, /fail-fast: false/, 'one starting point failing must not hide the other');
+  assert.match(job, /from: \[previous, '3\.0\.0'\]/);
+  assert.match(job, /\$FROM is the previous release; the first run covers it/);
+  // The pinned entry is a version that exists and was not a pre-release: the job downloads
+  // its bundle from the release page by name.
+  assert.match(job, /tag="v\$FROM"/);
+});

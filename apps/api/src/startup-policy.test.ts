@@ -5,9 +5,11 @@ import {
   assertInMemoryAllowed,
   checkExposurePolicy,
   checkProductionPolicy,
+  exposureWarning,
   isProduction,
   resolveAuthSecrets,
 } from './startup-policy.js';
+import { parseConfig } from '@automate/config';
 import type { AppConfig } from './config.js';
 import {
   syntheticApiKey,
@@ -68,6 +70,46 @@ describe('isProduction', () => {
 });
 
 describe('checkExposurePolicy', () => {
+  it('starts an install upgraded from 3.0.0: its compose file lists HOST and never AUTOMATE_BIND', () => {
+    // The environment the 3.0.0 compose file gives the api container, through the real config
+    // parser. `start update` keeps the old compose file and only changes the image, so this
+    // is what the 3.1.x API sees on every upgraded install; v3.1.0 refused it and the
+    // release workflow's upgrade job caught it.
+    const upgraded = parseConfig(
+      { NODE_ENV: 'development', HOST: '0.0.0.0' },
+      { requireProductionSecrets: false },
+    );
+    expect(() => checkExposurePolicy(upgraded as AppConfig)).not.toThrow();
+    expect(exposureWarning(upgraded as AppConfig)).toMatch(/AUTOMATE_BIND/u);
+  });
+
+  it('still refuses a wildcard the operator declared as the published bind', () => {
+    const declared = parseConfig(
+      { NODE_ENV: 'development', HOST: '0.0.0.0', AUTOMATE_BIND: '0.0.0.0' },
+      { requireProductionSecrets: false },
+    );
+    expect(() => checkExposurePolicy(declared as AppConfig)).toThrow(/reachable from other/u);
+    expect(exposureWarning(declared as AppConfig)).toBeUndefined();
+  });
+
+  it('still refuses a concrete listen address with no login and no declared bind', () => {
+    const concrete = parseConfig(
+      { NODE_ENV: 'development', HOST: '192.168.1.5' },
+      { requireProductionSecrets: false },
+    );
+    expect(() => checkExposurePolicy(concrete as AppConfig)).toThrow(/192\.168\.1\.5/u);
+  });
+
+  it('says nothing when the bind is declared or the install is on loopback', () => {
+    for (const env of [{ AUTOMATE_BIND: '127.0.0.1', HOST: '0.0.0.0' }, {}]) {
+      const parsed = parseConfig(
+        { NODE_ENV: 'development', ...env },
+        { requireProductionSecrets: false },
+      );
+      expect(exposureWarning(parsed as AppConfig)).toBeUndefined();
+    }
+  });
+
   // A reachable install with no login is the posture `index.ts` describes as wrong for any
   // interface but loopback. It used to be a warning printed by the start scripts; it is a
   // refusal now, in every environment, because the network does not care about NODE_ENV.
