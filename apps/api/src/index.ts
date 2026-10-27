@@ -622,6 +622,70 @@ function resolveAllowedOrigins(): string[] {
   return [...origins];
 }
 
+/**
+ * What every repository-health ingestion shares, whichever door the report came through: a CI
+ * upload, a scan the runner ran, or a scheduled scan the worker enqueued. Nothing in it depends
+ * on the workspace, so every workspace's composition shares the one copy.
+ */
+const dashboardUrl = (projectId: string): string =>
+  `${(runtimeConfig.publicAppUrl ?? 'http://localhost:5173').replace(/\/$/u, '')}/dashboard/repo/${encodeURIComponent(projectId)}`;
+const healthAlertChannels = {
+  slack:
+    runtimeConfig.slackBotToken === undefined
+      ? undefined
+      : { adapter: slackAdapter, token: runtimeConfig.slackBotToken },
+  webhookSecret: runtimeConfig.healthWebhookSecret,
+};
+const healthHooks = {
+  readRepositoryFile: async (repoPath: string, path: string) => fileSystemView(repoPath).read(path),
+  onReport: async (event: ReportEvent) => {
+    const alerts = alertsFor({
+      previous: event.previous,
+      current: event.current,
+      added: event.added,
+      onDefaultBranch: event.onDefaultBranch,
+    });
+    if (alerts.length === 0) return;
+    const outcomes = await deliverAlerts(healthAlertChannels, event.settings.alerts ?? {}, {
+      projectId: event.projectId,
+      project: event.project,
+      branch: event.branch,
+      detailsUrl: dashboardUrl(event.projectId),
+      alerts,
+    });
+    if (outcomes.length > 0)
+      logger.info('health alerts delivered', { projectId: event.projectId, outcomes });
+  },
+};
+
+/** An error's message for a log line, whatever was thrown. */
+const messageOf = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/**
+ * What every workspace's projects routes share, computed once: the chat provider the eval
+ * runner and test proposals report, the installation's own links, the scheduled-report and
+ * delivery hooks, and the SCIM default role. None of it depends on the workspace.
+ */
+const chatProvider = gatewayResolution.kind === 'none' ? null : gatewayResolution.kind;
+const evalGateway = gatewayResolution.kind === 'none' ? null : aiGateway;
+const installationUrl = runtimeConfig.publicAppUrl ?? 'http://localhost:8080';
+const dispatchNowHook =
+  reportDispatcher === undefined ? {} : { dispatchNow: () => reportDispatcher.runOnce() };
+const scimDefaultRole =
+  runtimeConfig.oidc?.defaultRole == null
+    ? {}
+    : { scimDefaultRole: runtimeConfig.oidc.defaultRole };
+const deliveryHooks = {
+  // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose Access
+  // application bypasses the receiver's path (ADR-014). The HMAC is the credential.
+  lanMode: runtimeConfig.lanMode === true || runtimeConfig.remote === 'cloudflare',
+  ...(runtimeConfig.githubWebhookSecret === undefined
+    ? {}
+    : { webhookSecret: runtimeConfig.githubWebhookSecret }),
+  ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
+};
+
 // First, so every later middleware and every handler — and every error the
 // boundary reports — runs with a request id already in scope. A context
 // established after the first thing that can fail is a context the first thing
@@ -799,44 +863,6 @@ function buildWorkspace(workspaceId: string) {
         allowQueryToken: false,
       }),
     );
-    /**
-     * What every repository-health ingestion shares, whichever door the report came through: a
-     * CI upload, a scan the runner ran, or a scheduled scan the worker enqueued.
-     */
-    const dashboardUrl = (projectId: string): string =>
-      `${(runtimeConfig.publicAppUrl ?? 'http://localhost:5173').replace(/\/$/u, '')}/dashboard/repo/${encodeURIComponent(projectId)}`;
-    const healthHooks = {
-      readRepositoryFile: async (repoPath: string, path: string) =>
-        fileSystemView(repoPath).read(path),
-      onReport: async (event: ReportEvent) => {
-        const alerts = alertsFor({
-          previous: event.previous,
-          current: event.current,
-          added: event.added,
-          onDefaultBranch: event.onDefaultBranch,
-        });
-        if (alerts.length === 0) return;
-        const outcomes = await deliverAlerts(
-          {
-            slack:
-              runtimeConfig.slackBotToken === undefined
-                ? undefined
-                : { adapter: slackAdapter, token: runtimeConfig.slackBotToken },
-            webhookSecret: runtimeConfig.healthWebhookSecret,
-          },
-          event.settings.alerts ?? {},
-          {
-            projectId: event.projectId,
-            project: event.project,
-            branch: event.branch,
-            detailsUrl: dashboardUrl(event.projectId),
-            alerts,
-          },
-        );
-        if (outcomes.length > 0)
-          logger.info('health alerts delivered', { projectId: event.projectId, outcomes });
-      },
-    };
     target.route(
       '/',
       createExecutionRoutes({
@@ -875,7 +901,7 @@ function buildWorkspace(workspaceId: string) {
                   logger.error('health report from a scan could not be ingested', {
                     runId: run.id,
                     artifact: name,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: messageOf(error),
                   });
                 }
               },
@@ -952,24 +978,20 @@ function buildWorkspace(workspaceId: string) {
           vaultSecret: runtimeConfig.vaultSecret,
           // The built-in eval runner uses the raw gateway: its runs are eval runs, not chat.
           agents: {
-            gateway: gatewayResolution.kind === 'none' ? null : aiGateway,
-            provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+            gateway: evalGateway,
+            provider: chatProvider,
             onRunFailure: (error) =>
-              logger.warn('an eval dataset run failed', {
-                error: error instanceof Error ? error.message : String(error),
-              }),
+              logger.warn('an eval dataset run failed', { error: messageOf(error) }),
           },
           secureCookies: resolveSecureCookies(),
-          trustProxy: runtimeConfig.trustProxy ?? false,
+          trustProxy: runtimeConfig.trustProxy === true,
           pairing: {
             pepper: authCookieSecret,
-            publicAppUrl: runtimeConfig.publicAppUrl ?? 'http://localhost:8080',
+            publicAppUrl: installationUrl,
           },
           notifications: {
-            link: `${(runtimeConfig.publicAppUrl ?? 'http://localhost:8080').replace(/\/$/u, '')}/dashboard/now`,
-            ...(reportDispatcher === undefined
-              ? {}
-              : { dispatchNow: () => reportDispatcher.runOnce() }),
+            link: `${installationUrl.replace(/\/$/u, '')}/dashboard/now`,
+            ...dispatchNowHook,
           },
           // The installation key's session is the admin; tokens carry their own role. With
           // ACCESS_CONTROL=open, a caller with neither is the single operator ADR-006 describes.
@@ -977,7 +999,7 @@ function buildWorkspace(workspaceId: string) {
           issues: { jira: jiraAdapter, github: githubAdapter, detailsUrl: dashboardUrl },
           testProposals: {
             gateway: testProposalGateway,
-            provider: gatewayResolution.kind === 'none' ? null : gatewayResolution.kind,
+            provider: chatProvider,
           },
           // The runs `automate test` records are the history a shard plan reads.
           shardHistory: runRepository,
@@ -995,18 +1017,8 @@ function buildWorkspace(workspaceId: string) {
               ),
           },
           quarantine: { store: dashboardStores.quarantineStore, history: workspaceHistory },
-          ...(runtimeConfig.oidc?.defaultRole == null
-            ? {}
-            : { scimDefaultRole: runtimeConfig.oidc.defaultRole }),
-          delivery: {
-            // `lanMode` here means "reachable by GitHub": LAN mode, or a Cloudflare tunnel whose
-            // Access application bypasses the receiver's path (ADR-014). The HMAC is the credential.
-            lanMode: runtimeConfig.lanMode === true || runtimeConfig.remote === 'cloudflare',
-            ...(runtimeConfig.githubWebhookSecret === undefined
-              ? {}
-              : { webhookSecret: runtimeConfig.githubWebhookSecret }),
-            ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
-          },
+          ...scimDefaultRole,
+          delivery: deliveryHooks,
           health: {
             ...healthHooks,
             detailsUrl: dashboardUrl,

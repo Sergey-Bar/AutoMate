@@ -145,24 +145,7 @@ export function checkProductionPolicy(config: AppConfig): void {
  * log; they repeat it early, they do not decide it.
  */
 export function checkExposurePolicy(config: AppConfig): void {
-  if (config.lanMode === true && config.accessControl === 'open') {
-    throw new Error(
-      'AUTOMATE_LAN_MODE is on and ACCESS_CONTROL=open is set. LAN mode serves other machines ' +
-        'and needs a login: remove ACCESS_CONTROL (LAN mode turns it on) or set it to enforced.',
-    );
-  }
-  // A profile sets defaults; these are the combinations that contradict the profile itself
-  // (ADR-014). Checked before the bind, so the message names the setting that is wrong.
-  if (
-    (config.profile === 'team' || config.profile === 'enterprise') &&
-    config.accessControl === 'open'
-  ) {
-    throw new Error(
-      `AUTOMATE_PROFILE=${config.profile} serves several people and ACCESS_CONTROL=open would ` +
-        'let anyone who can reach it act as the admin. Remove ACCESS_CONTROL (the profile turns ' +
-        'it on), or set AUTOMATE_PROFILE=solo for a single-person install on this machine.',
-    );
-  }
+  checkProfileContradictions(config);
   const bind = config.exposedBind ?? config.host ?? '127.0.0.1';
   if (config.remote === 'cloudflare') checkTunnel(config);
   if (!isLoopbackBind(bind) && (config.accessControl ?? 'open') === 'open') {
@@ -179,7 +162,35 @@ export function checkExposurePolicy(config: AppConfig): void {
       }. Set AUTOMATE_PROFILE=startup to serve other people with sign-in, or bind to 127.0.0.1.`,
     );
   }
-  // Enforced SSO with nothing to sign in through would leave break-glass as the only door.
+  checkSsoSource(config);
+}
+
+/**
+ * The combinations that contradict themselves, checked before the bind so the message names
+ * the setting that is wrong: LAN mode with access control open, and a profile that serves
+ * several people with access control open (ADR-014).
+ */
+function checkProfileContradictions(config: AppConfig): void {
+  if (config.lanMode === true && config.accessControl === 'open') {
+    throw new Error(
+      'AUTOMATE_LAN_MODE is on and ACCESS_CONTROL=open is set. LAN mode serves other machines ' +
+        'and needs a login: remove ACCESS_CONTROL (LAN mode turns it on) or set it to enforced.',
+    );
+  }
+  if (
+    (config.profile === 'team' || config.profile === 'enterprise') &&
+    config.accessControl === 'open'
+  ) {
+    throw new Error(
+      `AUTOMATE_PROFILE=${config.profile} serves several people and ACCESS_CONTROL=open would ` +
+        'let anyone who can reach it act as the admin. Remove ACCESS_CONTROL (the profile turns ' +
+        'it on), or set AUTOMATE_PROFILE=solo for a single-person install on this machine.',
+    );
+  }
+}
+
+/** Enforced SSO with nothing to sign in through would leave break-glass as the only door. */
+function checkSsoSource(config: AppConfig): void {
   const ssoSource =
     config.oidc !== undefined ||
     (config.remote === 'cloudflare' && config.cloudflareAccess !== undefined);

@@ -134,6 +134,24 @@ function booleanOf(value: unknown): boolean | undefined {
   return undefined;
 }
 
+/**
+ * The attributes one user patch operation sets: `{ [path]: value }`, or — the shape Okta
+ * sends — a value object with no path.
+ */
+function patchFields(operation: { path?: string; value?: unknown }): Record<string, unknown> {
+  if (operation.path !== undefined) return { [operation.path]: operation.value };
+  return typeof operation.value === 'object' && operation.value !== null
+    ? (operation.value as Record<string, unknown>)
+    : {};
+}
+
+/** The member ids in a group patch's value: `[{ value: id }, …]`. Anything else is none. */
+function memberIdsIn(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [])
+    .map((entry: unknown) => (entry as { value?: unknown } | null)?.value)
+    .filter((id): id is string => typeof id === 'string');
+}
+
 const UserBodySchema = z.object({
   userName: z.string().trim().min(3).max(320),
   externalId: z.string().max(200).optional(),
@@ -271,6 +289,72 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     await record(scope, 'scim.user.role', userId, { role });
   };
 
+  /** One attribute a user patch sets: `active`, `displayName` or `externalId`; others are ignored. */
+  const applyUserField = async (
+    scope: ScimScope,
+    userId: string,
+    path: string,
+    value: unknown,
+  ): Promise<void> => {
+    if (path.toLowerCase() === 'active') {
+      const active = booleanOf(value);
+      if (active !== undefined) await setActive(scope, userId, active);
+      return;
+    }
+    if (typeof value !== 'string') return;
+    const change =
+      path === 'displayName'
+        ? { displayName: value }
+        : path === 'externalId'
+          ? { externalId: value }
+          : undefined;
+    if (change === undefined) return;
+    await options.db
+      .update(users)
+      .set({ ...change, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  };
+
+  /** Gives these people the role, each only if they are a member here. */
+  const promote = async (scope: ScimScope, role: AccessRole, ids: readonly string[]) => {
+    for (const id of ids) {
+      if ((await one(scope.workspaceId, id)) !== undefined) await setRole(scope, id, role);
+    }
+  };
+
+  /** Returns these people to the default role, each only if this role is theirs. */
+  const demote = async (scope: ScimScope, role: AccessRole, ids: readonly string[]) => {
+    for (const id of ids) {
+      if ((await one(scope.workspaceId, id))?.role === role) await setRole(scope, id, defaultRole);
+    }
+  };
+
+  /**
+   * One group patch operation on the members of a role's group. `add` gives these people the
+   * role; `replace` also returns everyone else in the group to the default role; `remove`
+   * returns these people to the default role, if the group's role is theirs.
+   */
+  const applyGroupOperation = async (
+    scope: ScimScope,
+    role: AccessRole,
+    op: string,
+    ids: readonly string[],
+  ): Promise<void> => {
+    if (op === 'replace') {
+      const current = await select(scope.workspaceId, eq(workspaceMembers.role, role));
+      await demote(
+        scope,
+        role,
+        current.map((entry) => entry.id).filter((id) => !ids.includes(id)),
+      );
+      await promote(scope, role, ids);
+    } else if (op === 'add') {
+      await promote(scope, role, ids);
+    } else if (op === 'remove') {
+      await demote(scope, role, ids);
+    }
+  };
+
   app.get('/scim/v2/ServiceProviderConfig', scim, (context) =>
     scimJson(context, {
       schemas: ['urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig'],
@@ -395,27 +479,8 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     if (!parsed.success) return scimError(context, 400, 'The patch is not valid', 'invalidSyntax');
     for (const operation of parsed.data.Operations) {
       if (!/^(replace|add)$/iu.test(operation.op)) continue;
-      const fields: Record<string, unknown> =
-        operation.path === undefined
-          ? typeof operation.value === 'object' && operation.value !== null
-            ? (operation.value as Record<string, unknown>)
-            : {}
-          : { [operation.path]: operation.value };
-      for (const [path, value] of Object.entries(fields)) {
-        if (path.toLowerCase() === 'active') {
-          const active = booleanOf(value);
-          if (active !== undefined) await setActive(scope, row.id, active);
-        } else if (path === 'displayName' && typeof value === 'string') {
-          await options.db
-            .update(users)
-            .set({ displayName: value, updatedAt: new Date() })
-            .where(eq(users.id, row.id));
-        } else if (path === 'externalId' && typeof value === 'string') {
-          await options.db
-            .update(users)
-            .set({ externalId: value, updatedAt: new Date() })
-            .where(eq(users.id, row.id));
-        }
+      for (const [path, value] of Object.entries(patchFields(operation))) {
+        await applyUserField(scope, row.id, path, value);
       }
     }
     return scimJson(
@@ -490,30 +555,10 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     if (role === undefined) return scimError(context, 404, 'No such group');
     const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return scimError(context, 400, 'The patch is not valid', 'invalidSyntax');
-    const idsIn = (value: unknown): string[] =>
-      (Array.isArray(value) ? value : [])
-        .map((entry: unknown) => (entry as { value?: unknown } | null)?.value)
-        .filter((id): id is string => typeof id === 'string');
     for (const operation of parsed.data.Operations) {
-      const op = operation.op.toLowerCase();
       const inPath = /^members\[value eq "([^"]+)"\]$/iu.exec(operation.path ?? '')?.[1];
-      const ids = inPath === undefined ? idsIn(operation.value) : [inPath];
-      if (op === 'add' || op === 'replace') {
-        if (op === 'replace') {
-          const current = await select(scope.workspaceId, eq(workspaceMembers.role, role));
-          for (const member of current.filter((entry) => !ids.includes(entry.id))) {
-            await setRole(scope, member.id, defaultRole);
-          }
-        }
-        for (const id of ids) {
-          if ((await one(scope.workspaceId, id)) !== undefined) await setRole(scope, id, role);
-        }
-      } else if (op === 'remove') {
-        for (const id of ids) {
-          const member = await one(scope.workspaceId, id);
-          if (member?.role === role) await setRole(scope, id, defaultRole);
-        }
-      }
+      const ids = inPath === undefined ? memberIdsIn(operation.value) : [inPath];
+      await applyGroupOperation(scope, role, operation.op.toLowerCase(), ids);
     }
     return context.body(null, 204);
   });

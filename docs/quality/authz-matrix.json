@@ -1447,7 +1447,7 @@
       "method": "PATCH",
       "path": "/scim/v2/Groups/:id",
       "access": "scim-token",
-      "workspaceScoped": true,
+      "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/scim.test.ts",
       "composition": "database"
     },

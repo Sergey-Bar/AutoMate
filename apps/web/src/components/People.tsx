@@ -11,8 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from '@automate/ui';
-import { useResource } from '../hooks/useResource.js';
-import type { AdminClient, AuditVerification, Member } from '../lib/admin-client.js';
+import { useResource, type Resource } from '../hooks/useResource.js';
+import type { AdminClient, AuditEvent, AuditVerification, Member } from '../lib/admin-client.js';
 import type { HealthClient } from '../lib/health-client.js';
 import { ago } from '../lib/health-view.js';
 import { AccessGate } from './Access.js';
@@ -242,82 +242,87 @@ function AuditBody({ admin }: { admin: AdminClient }): React.ReactElement {
           </>
         }
       />
-      {verdict.status === 'ready' ? (
-        <>
-          <StatusLine
-            data-testid="audit-status"
-            value={verdict.value.intact ? 'Intact' : 'Broken'}
-            sentence={
-              verdict.value.intact
-                ? `Every row matches its hash and links to the one before it${
-                    verdict.value.head === null
-                      ? '.'
-                      : `, up to row ${String(verdict.value.head.seq)}.`
-                  }`
-                : 'Some rows were changed or removed after they were written.'
-            }
-            tone={verdict.value.intact ? 'good' : 'bad'}
-          />
-          {verdict.value.breaks.length === 0 ? null : (
-            <ul data-testid="audit-breaks" className="space-y-1 text-sm text-danger">
-              {verdict.value.breaks.map((item) => (
-                <li key={`${String(item.seq)}-${item.problem}`}>
-                  Row {item.seq}: {item.problem}
-                </li>
-              ))}
-            </ul>
-          )}
-          {verdict.value.head === null ? null : (
-            <p className="max-w-measure break-all font-mono text-xs text-fg-muted">
-              Head {verdict.value.head.hash}. Keep it with each export: it proves later that the
-              trail was not rewritten from this point.
-            </p>
-          )}
-        </>
-      ) : verdict.status === 'error' ? (
-        <Quiet role="alert">{verdict.message}</Quiet>
-      ) : (
-        <Skeleton className="h-24 w-full" />
-      )}
+      <AuditVerdict verdict={verdict} />
       <Panel title="Newest events">
-        {page.status === 'loading' ? (
-          <Skeleton className="h-16 w-full" />
-        ) : page.status === 'error' ? (
-          <Quiet role="alert">{page.message}</Quiet>
-        ) : page.value.events.length === 0 ? (
-          <Quiet>Nothing has been recorded yet.</Quiet>
-        ) : (
-          <Table aria-label="Audit events">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Row</TableHead>
-                <TableHead>When</TableHead>
-                <TableHead>Who</TableHead>
-                <TableHead>What</TableHead>
-                <TableHead>From</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {page.value.events.map((event) => (
-                <TableRow key={`${String(event.seq)}-${event.timestamp}`}>
-                  <TableCell className="tabular-nums">{event.seq ?? '—'}</TableCell>
-                  <TableCell className="text-fg-muted">{ago(event.timestamp)}</TableCell>
-                  <TableCell className="font-mono text-xs">{event.actorId}</TableCell>
-                  <TableCell>
-                    <span className="font-mono text-xs">{event.action}</span>
-                    {event.resourceId === null ? null : (
-                      <span className="text-fg-muted"> · {event.resourceId}</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-fg-muted">
-                    {event.ip ?? '—'}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        )}
+        <AuditEvents page={page} />
       </Panel>
     </PageFrame>
+  );
+}
+
+/** What the chain check says, in one sentence. */
+function verdictSentence(value: AuditVerification): string {
+  if (!value.intact) return 'Some rows were changed or removed after they were written.';
+  const upTo = value.head === null ? '' : `, up to row ${String(value.head.seq)}`;
+  return `Every row matches its hash and links to the one before it${upTo}.`;
+}
+
+function AuditVerdict({ verdict }: { verdict: Resource<AuditVerification> }): React.ReactElement {
+  if (verdict.status === 'loading') return <Skeleton className="h-24 w-full" />;
+  if (verdict.status === 'error') return <Quiet role="alert">{verdict.message}</Quiet>;
+  const { value } = verdict;
+  return (
+    <>
+      <StatusLine
+        data-testid="audit-status"
+        value={value.intact ? 'Intact' : 'Broken'}
+        sentence={verdictSentence(value)}
+        tone={value.intact ? 'good' : 'bad'}
+      />
+      {value.breaks.length === 0 ? null : (
+        <ul data-testid="audit-breaks" className="space-y-1 text-sm text-danger">
+          {value.breaks.map((item) => (
+            <li key={`${String(item.seq)}-${item.problem}`}>
+              Row {item.seq}: {item.problem}
+            </li>
+          ))}
+        </ul>
+      )}
+      {value.head === null ? null : (
+        <p className="max-w-measure break-all font-mono text-xs text-fg-muted">
+          Head {value.head.hash}. Keep it with each export: it proves later that the trail was not
+          rewritten from this point.
+        </p>
+      )}
+    </>
+  );
+}
+
+function AuditEvents({
+  page,
+}: {
+  page: Resource<{ events: AuditEvent[]; next: number | null }>;
+}): React.ReactElement {
+  if (page.status === 'loading') return <Skeleton className="h-16 w-full" />;
+  if (page.status === 'error') return <Quiet role="alert">{page.message}</Quiet>;
+  if (page.value.events.length === 0) return <Quiet>Nothing has been recorded yet.</Quiet>;
+  return (
+    <Table aria-label="Audit events">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Row</TableHead>
+          <TableHead>When</TableHead>
+          <TableHead>Who</TableHead>
+          <TableHead>What</TableHead>
+          <TableHead>From</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {page.value.events.map((event) => (
+          <TableRow key={`${String(event.seq)}-${event.timestamp}`}>
+            <TableCell className="tabular-nums">{event.seq ?? '—'}</TableCell>
+            <TableCell className="text-fg-muted">{ago(event.timestamp)}</TableCell>
+            <TableCell className="font-mono text-xs">{event.actorId}</TableCell>
+            <TableCell>
+              <span className="font-mono text-xs">{event.action}</span>
+              {event.resourceId === null ? null : (
+                <span className="text-fg-muted"> · {event.resourceId}</span>
+              )}
+            </TableCell>
+            <TableCell className="font-mono text-xs text-fg-muted">{event.ip ?? '—'}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

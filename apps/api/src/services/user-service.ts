@@ -33,6 +33,57 @@ export type SignInOutcome =
   | { ok: true; userId: string; role: AccessRole }
   | { ok: false; reason: 'disabled' | 'not-invited' | 'email-taken' };
 
+type Person = { id: string; disabledAt: Date | null };
+
+/**
+ * The person these claims sign in: by issuer and subject, or — for a person SCIM provisioned,
+ * who has no issuer yet — by email, linking the row to this identity on their first sign-in.
+ * Only a row with no issuer is linked, so a second provider cannot take over a first one's.
+ */
+async function findPerson(
+  options: Options,
+  claims: SignInClaims,
+  email: string,
+  now: Date,
+): Promise<Person | undefined> {
+  const [known] = await options.db
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(and(eq(users.issuer, claims.issuer), eq(users.subject, claims.subject)))
+    .limit(1);
+  if (known !== undefined) return known;
+  const [provisioned] = await options.db
+    .select({ id: users.id, disabledAt: users.disabledAt })
+    .from(users)
+    .where(and(eq(users.email, email), isNull(users.issuer)))
+    .limit(1);
+  if (provisioned === undefined) return undefined;
+  await options.db
+    .update(users)
+    .set({ issuer: claims.issuer, subject: claims.subject, updatedAt: now })
+    .where(eq(users.id, provisioned.id));
+  return provisioned;
+}
+
+/** A person's membership in this workspace, if they have one. */
+async function membershipOf(
+  options: Options,
+  person: Person | undefined,
+): Promise<{ role: AccessRole } | undefined> {
+  if (person === undefined) return undefined;
+  const [membership] = await options.db
+    .select({ role: workspaceMembers.role })
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, options.workspaceId),
+        eq(workspaceMembers.userId, person.id),
+      ),
+    )
+    .limit(1);
+  return membership;
+}
+
 /**
  * Finds or creates the person, then their membership here.
  *
@@ -50,46 +101,14 @@ export async function signInPerson(
 ): Promise<SignInOutcome> {
   const email = claims.email.toLowerCase();
   const displayName = claims.name?.trim() || email;
-  let [existing] = await options.db
-    .select({ id: users.id, disabledAt: users.disabledAt })
-    .from(users)
-    .where(and(eq(users.issuer, claims.issuer), eq(users.subject, claims.subject)))
-    .limit(1);
-  if (existing === undefined) {
-    // A person SCIM provisioned has no issuer yet: their first sign-in links the row by email.
-    // Only a row with no issuer is linked, so a second provider cannot take over a first one's.
-    const [provisioned] = await options.db
-      .select({ id: users.id, disabledAt: users.disabledAt })
-      .from(users)
-      .where(and(eq(users.email, email), isNull(users.issuer)))
-      .limit(1);
-    if (provisioned !== undefined) {
-      await options.db
-        .update(users)
-        .set({ issuer: claims.issuer, subject: claims.subject, updatedAt: now })
-        .where(eq(users.id, provisioned.id));
-      existing = provisioned;
-    }
-  }
+  const existing = await findPerson(options, claims, email, now);
   if (existing?.disabledAt) return { ok: false, reason: 'disabled' };
 
   const mapped = ruleRoleFor(
     { email, groups: claims.groups, serviceTokenId: null },
     policy.roleMap,
   );
-  const [membership] =
-    existing === undefined
-      ? []
-      : await options.db
-          .select({ role: workspaceMembers.role })
-          .from(workspaceMembers)
-          .where(
-            and(
-              eq(workspaceMembers.workspaceId, options.workspaceId),
-              eq(workspaceMembers.userId, existing.id),
-            ),
-          )
-          .limit(1);
+  const membership = await membershipOf(options, existing);
   const role: AccessRole | null = mapped ?? membership?.role ?? policy.defaultRole;
   if (role === null) return { ok: false, reason: 'not-invited' };
 

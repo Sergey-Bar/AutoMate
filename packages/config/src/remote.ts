@@ -81,6 +81,21 @@ export function parseCloudflareRoleMap(value: string | undefined): CloudflareRol
   return parseRoleMap('CF_ACCESS_ROLE_MAP', value);
 }
 
+/** A rule's subject, by the prefix that names its kind, or `undefined` when it names none. */
+function subjectOf(who: string): Omit<RoleRule, 'role'> | undefined {
+  for (const kind of ['group', 'service'] as const) {
+    const prefix = `${kind}:`;
+    if (who.startsWith(prefix) && who.length > prefix.length) {
+      return { kind, value: who.slice(prefix.length) };
+    }
+  }
+  if (who.startsWith('*@') && who.length > 2 && !who.slice(2).includes('@')) {
+    return { kind: 'domain', value: who.slice(2).toLowerCase() };
+  }
+  if (/^[^@\s]+@[^@\s]+$/u.test(who)) return { kind: 'email', value: who.toLowerCase() };
+  return undefined;
+}
+
 /**
  * One role-map grammar for every identity source — `CF_ACCESS_ROLE_MAP` and
  * `OIDC_ROLE_MAP` — so an operator learns it once and the two cannot drift.
@@ -97,20 +112,12 @@ export function parseRoleMap(variable: string, value: string | undefined): RoleR
     };
     const at = rule.indexOf(':');
     const role = at === -1 ? rule : rule.slice(0, at);
-    const who = at === -1 ? '' : rule.slice(at + 1).trim();
     if (!isAccessRole(role)) refuse('must start with viewer:, operator: or admin:');
-    const granted = role as AccessRole;
-    if (who.startsWith('group:') && who.length > 'group:'.length) {
-      rules.push({ role: granted, kind: 'group', value: who.slice('group:'.length) });
-    } else if (who.startsWith('service:') && who.length > 'service:'.length) {
-      rules.push({ role: granted, kind: 'service', value: who.slice('service:'.length) });
-    } else if (who.startsWith('*@') && who.length > 2 && !who.slice(2).includes('@')) {
-      rules.push({ role: granted, kind: 'domain', value: who.slice(2).toLowerCase() });
-    } else if (/^[^@\s]+@[^@\s]+$/u.test(who)) {
-      rules.push({ role: granted, kind: 'email', value: who.toLowerCase() });
-    } else {
+    const subject = subjectOf(at === -1 ? '' : rule.slice(at + 1).trim());
+    if (subject === undefined) {
       refuse('must name an email, *@domain, group:<name> or service:<client id>');
     }
+    rules.push({ role: role as AccessRole, ...(subject as Omit<RoleRule, 'role'>) });
   }
   return rules;
 }
