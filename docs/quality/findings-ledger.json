@@ -6946,6 +6946,25 @@
         }
       ],
       "resolution": "Measured with StrykerJS on Windows on 2026-10-28. `health.ts` went from 45 survivors to 2, and both are equivalent: `<=` against `<` for a space, which the whitespace test catches anyway, and an empty `catch` block whose `undefined` refuses the same as its `false`. That took `shared-contracts` to 92.29 (2,959 killed of 3,206). `orchestration` reads 99.43, and its one survivor is the equivalent hour guard in `schedule.ts`, left as MNT-91 left it. No mutant was excluded and no `// Stryker disable` was added."
+    },
+    {
+      "id": "MNT-153",
+      "title": "The nightly quality baseline was cancelled at its 30-minute limit, so three runs recorded no measurement",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "The `quality-baseline` job in `nightly.yml` runs the whole suite twice: `pnpm test` for the per-package coverage `coverage:ratchet` reads, then `pnpm quality:baseline`, whose root Vitest run is where the aggregate counts tests. On 2026-10-28 `pnpm test` took 18 minutes and the baseline was still in its Vitest run when the 30-minute limit cancelled the job. The nightlies of 2026-10-27, 2026-10-28 and the dispatched run on `053d676` were all cancelled this way and uploaded no report. The job carries `continue-on-error`, so the workflow still read as a pass or as a failure of something else, and nobody saw that the numbers in `docs/quality/` had stopped being measured. The last green run, on 2026-10-26, took 18 minutes in total on a smaller suite.",
+      "confirmedBy": "The job logs of runs 40476041343, 40664476015 and 40705965488: each was cancelled at 30 minutes, inside `node ./scripts/quality-baseline.mjs`, after `pnpm test` had passed.",
+      "evidence": [
+        {
+          "path": ".github/workflows/nightly.yml",
+          "asserts": "The quality baseline job has 60 minutes, with the measured reason beside it."
+        }
+      ],
+      "resolution": "The limit is raised to 60 minutes. Running the suite once would be faster, but the two runs answer different questions (per-package coverage and a workspace-wide count), and folding them is a change to what the baseline measures, not to its budget. The next nightly is what shows the job finishing."
     }
   ]
 }

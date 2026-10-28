@@ -170,8 +170,12 @@ jobs:
   quality-baseline:
     name: Quality baseline
     runs-on: ubuntu-24.04
-    # 30, not 20: the build and the per-package coverage run come first now.
-    timeout-minutes: 30
+    # 60, not 30. The job runs the suite twice: `pnpm test` for the per-package coverage the
+    # ratchet reads, then the root Vitest run the aggregate counts tests from. On 2026-10-28
+    # the first took 18 minutes and the second was still running when 30 minutes cancelled
+    # the job, which is how the three nightlies from 2026-10-27 reported nothing at all
+    # (MNT-153). The last green run took 18 minutes in total, on a smaller suite.
+    timeout-minutes: 60
     # `quality:baseline` existed and was wired nowhere. It is the aggregate the
     # weekly numbers in `docs/quality/` come from, so running it nightly is what
     # makes those numbers a measurement rather than a transcription. Tier `nightly`
