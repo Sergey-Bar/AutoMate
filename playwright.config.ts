@@ -4,6 +4,7 @@ import { defineConfig, devices } from '@playwright/test';
 import {
   API_BASE,
   API_PORT,
+  COOKIE_SECRET,
   INSTALLATION_KEY,
   RUNNER_REGISTRATION_SECRET,
   WEB_BASE,
@@ -109,6 +110,7 @@ if (specFiles.length === 0) {
 }
 
 const RENDER_BUDGET_SPEC = 'rendering-budget.spec.ts';
+const PROFILE_MATRIX_SPEC = 'profiles/profile-matrix.spec.ts';
 
 /**
  * The specs that belong to a project of their own rather than to `product`.
@@ -142,6 +144,10 @@ const DEDICATED_SPECS = [
   // would add 66 page loads to every pull request to buy a number the product suite
   // does not read. It gets its own project below so `pnpm test:e2e` still runs it.
   'accessibility/routes.spec.ts',
+  // The deployment profiles (plan task 19). It boots the API's own entry point once per profile
+  // beside the suite's server, which is minutes of wall clock, and it is `pr-reporting` until it
+  // has three stable runs, so it must not ride in the required `product` run before then.
+  PROFILE_MATRIX_SPEC,
 ];
 
 /** Normalized so the comparison is a suffix match on any platform's separator. */
@@ -175,14 +181,32 @@ const webServerCommand = renderServe
   : 'pnpm --filter @automate/unified-web exec vite --host 127.0.0.1';
 
 const RENDER_PROJECT = 'rendering-budget';
+const PROFILE_MATRIX_PROJECT = 'profile-matrix';
 
 /**
- * The budget project alone in render mode, and every other project otherwise.
+ * The profile matrix boots APIs of its own, one per deployment profile, and is set by
+ * `scripts/profile-matrix.mjs` — the one path `pnpm test:e2e:profiles` takes. Its project
+ * exists only in this mode, for the budget's reason: `pnpm test:e2e` runs every project, and
+ * the matrix is `pr-reporting` until it has three stable runs.
+ */
+const profileMatrix = process.env['AUTOMATE_PROFILE_MATRIX'] === '1';
+
+/** The projects that exist only in a mode of their own, and whether that mode is on. */
+const MODE_PROJECTS: Record<string, boolean> = {
+  [RENDER_PROJECT]: renderServe,
+  [PROFILE_MATRIX_PROJECT]: profileMatrix,
+};
+
+/**
+ * In a mode, that mode's project alone; otherwise every project but the ones that have a mode.
  *
  * @param projects every project this file declares
  */
 function selectProjects<T extends { name?: string }>(projects: T[]): T[] {
-  return projects.filter((project) => (project.name === RENDER_PROJECT) === renderServe);
+  const mode = Object.keys(MODE_PROJECTS).find((name) => MODE_PROJECTS[name] === true);
+  return projects.filter((project) =>
+    mode === undefined ? !Object.hasOwn(MODE_PROJECTS, project.name ?? '') : project.name === mode,
+  );
 }
 
 export default defineConfig({
@@ -249,7 +273,7 @@ export default defineConfig({
         PORT: String(apiPort),
         NODE_ENV: 'development',
         DATABASE_URL: databaseUrl,
-        COOKIE_SECRET: 'e2e-cookie-secret-32-characters-long',
+        COOKIE_SECRET,
         AUTOMATE_API_KEY: INSTALLATION_KEY,
         // The lane enrols a runner, and enrolling is a separate act from reading runs.
         // Without this the register route answered `RUNNER_REGISTRATION_UNAUTHORIZED`:
@@ -355,6 +379,14 @@ export default defineConfig({
       // the race rather than papering over it.
       use: { ...devices['Desktop Chrome'], reducedMotion: 'reduce' },
     },
+    {
+      // The four deployment profiles, each booted from the API's own entry point against this
+      // suite's PostgreSQL (`tests/e2e/profiles/profile-matrix.spec.ts`). Only in its own mode,
+      // and with no browser: every case is HTTP against an API the spec starts itself.
+      name: PROFILE_MATRIX_PROJECT,
+      testMatch: `**/${PROFILE_MATRIX_SPEC}`,
+      timeout: 180_000,
+    },
   ]),
 });
 
@@ -385,6 +417,10 @@ for (const [name, matched] of [
   [
     'accessibility',
     specFiles.filter((file) => baseNameOf(file).endsWith('accessibility/routes.spec.ts')).length,
+  ],
+  [
+    PROFILE_MATRIX_PROJECT,
+    specFiles.filter((file) => baseNameOf(file).endsWith(PROFILE_MATRIX_SPEC)).length,
   ],
 ] as const) {
   if (matched === 0) {
