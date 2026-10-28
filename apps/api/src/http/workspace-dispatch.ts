@@ -12,10 +12,12 @@ import { BROWSER_SIGN_IN } from './roles.js';
  * 1. an access token (`amt_…`): the token row's own workspace, whatever else the request says;
  * 2. a runner's call about a job (`/api/v1/jobs/:jobId/…`): the job's workspace, because
  *    runners are a pool the installation shares;
- * 3. a person's session: the workspace they chose (the `automate_workspace` cookie) if they
- *    are a member of it, else the default if they are a member there, else their first;
- * 4. the installation's own admin (the installation session, an open install, a Cloudflare
- *    identity): any workspace that exists, as chosen;
+ * 3. a person — their session, or on team and enterprise the account Cloudflare Access signs in:
+ *    the workspace they chose (the `automate_workspace` cookie) if they are a member of it, else
+ *    the default if they are a member there, else their first;
+ * 4. the installation's own admin (the installation session, an open install, or a Cloudflare
+ *    identity the role map makes an admin and that is not an account): any workspace that
+ *    exists, as chosen;
  * 5. everything else: the default workspace.
  *
  * A choice is a request to enter, never a grant: every credential is then checked again by the

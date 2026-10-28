@@ -6582,6 +6582,25 @@
         }
       ],
       "resolution": "Both servers proxy `/scim/v2/` to the API."
+    },
+    {
+      "id": "PRO-4",
+      "title": "On team and enterprise, a person Cloudflare Access let in was never an account, so SCIM and per-workspace roles did not reach them",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "ADR-014 makes Cloudflare Access the product's SAML path, and `site/guide/profiles.md` documents SAML through Access and SCIM side by side for `enterprise`. `createCloudflareCallerSource` read every Access identity through `CF_ACCESS_ROLE_MAP` alone and wrote no `users` row. So for everyone arriving through Access: a person SCIM deactivated kept the role map's role until their Access session expired, although the guide says deactivation signs them out at once; a SCIM group or an admin's role change did not apply; nobody could hold a role in a workspace other than the default, because the dispatch routes a person by memberships they could not have; and none of them appeared on the Members page. Every SCIM and members test used OIDC people, so nothing exercised the combination.",
+      "confirmedBy": "Read `createCloudflareCallerSource` (role from `roleForIdentity` only) against `callerForUser` and the dispatch lookups. Restoring the role-map-only caller for people fails five of the new suite's eleven tests.",
+      "evidence": [
+        {
+          "path": "apps/api/src/http/cloudflare-people.test.ts",
+          "asserts": "A person Access lets in becomes one account with the role map's role in the default workspace and their membership's elsewhere; a SCIM-provisioned row is linked by email and keeps its role and name; a deactivated person is refused on the next request; an email another identity holds is refused, not merged; a service token stays a machine; one verification per request; and the dispatch sends a person only to a workspace they are a member of."
+        }
+      ],
+      "resolution": "From `team`, with a database, `apps/api/src/http/cloudflare-people.ts` signs the Access identity in on every request through the same `signInPerson` an OIDC sign-in uses, with the row rewritten at most every five minutes when nothing changed; each workspace resolves the caller from the membership, and the dispatch reads the same account. `startup` keeps the role map alone."
     }
   ]
 }

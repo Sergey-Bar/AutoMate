@@ -13,6 +13,7 @@ import {
   createCloudflareAccessVerifier,
   createCloudflareCallerSource,
 } from './http/cloudflare-access.js';
+import { createCloudflarePeople } from './http/cloudflare-people.js';
 import { createReporterRoutes } from './routes/reporter.js';
 import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
 import { createOidcRoutes } from './routes/oidc.js';
@@ -686,6 +687,48 @@ const deliveryHooks = {
   ...(deliverySyncer === undefined ? {} : { syncNow: () => deliverySyncer.runOnce() }),
 };
 
+/**
+ * Cloudflare Access (ADR-014): one verifier for the process, so every workspace shares one key
+ * cache. On `team` and `enterprise`, with a database, the people it lets in are accounts — the
+ * role map decides their role in the default workspace and memberships the rest, and what SCIM
+ * or an admin decides reaches them. On `startup` an identity is read through the role map
+ * alone, as that profile has no accounts. A service token is a machine on every profile.
+ */
+const cloudflareAccess =
+  runtimeConfig.remote === 'cloudflare' ? runtimeConfig.cloudflareAccess : undefined;
+const cloudflareVerifier =
+  cloudflareAccess === undefined ? undefined : createCloudflareAccessVerifier(cloudflareAccess);
+const accessLog = (message: string, fields: Record<string, unknown>) =>
+  logger.warn(message, fields);
+const cloudflarePeople =
+  cloudflareAccess !== undefined &&
+  cloudflareVerifier !== undefined &&
+  databaseResources !== undefined &&
+  (runtimeConfig.profile === 'team' || runtimeConfig.profile === 'enterprise')
+    ? createCloudflarePeople({
+        db: databaseResources.db as never,
+        defaultWorkspace: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
+        verifier: cloudflareVerifier,
+        access: cloudflareAccess,
+        log: accessLog,
+      })
+    : undefined;
+
+/** The remote credential source for one workspace's resolver, when the install has one. */
+function remoteCallerSource(
+  workspaceId: string,
+): Pick<CallerResolver, 'authenticateRemote'> | Record<string, never> {
+  if (cloudflarePeople !== undefined) {
+    return { authenticateRemote: cloudflarePeople.callerIn(workspaceId) };
+  }
+  if (cloudflareAccess === undefined || cloudflareVerifier === undefined) return {};
+  return {
+    authenticateRemote: createCloudflareCallerSource(cloudflareVerifier, cloudflareAccess, {
+      log: accessLog,
+    }),
+  };
+}
+
 // First, so every later middleware and every handler — and every error the
 // boundary reports — runs with a request id already in scope. A context
 // established after the first thing that can fail is a context the first thing
@@ -792,15 +835,7 @@ function buildWorkspace(workspaceId: string) {
     ssoEnforced: runtimeConfig.ssoEnforced === true,
     // A verified Cloudflare Access identity, only on an install reached through the tunnel
     // (ADR-014). The startup policy has already refused a tunnel without both Access settings.
-    ...(runtimeConfig.remote === 'cloudflare' && runtimeConfig.cloudflareAccess !== undefined
-      ? {
-          authenticateRemote: createCloudflareCallerSource(
-            createCloudflareAccessVerifier(runtimeConfig.cloudflareAccess),
-            runtimeConfig.cloudflareAccess,
-            { log: (message, fields) => logger.warn(message, fields) },
-          ),
-        }
-      : {}),
+    ...remoteCallerSource(workspaceId),
     authenticateToken: async (token) =>
       databaseResources === undefined
         ? null
@@ -1349,10 +1384,14 @@ if (databaseResources !== undefined) {
   const lookups: WorkspaceLookups = createDatabaseWorkspaceLookups({
     db: db as never,
     defaultWorkspace,
+    // A person's session, or — on team and enterprise behind Cloudflare Access — the account
+    // Access signs in, so a person's memberships decide which workspace they may enter. The
+    // order is `callerOf`'s: a person's session before an Access identity.
     sessionUser: async (context) => {
       const session = getCookie(context, 'automate_session');
-      if (session === undefined) return null;
-      return (await authRoutes.sessions.validate(session))?.userId ?? null;
+      const record =
+        session === undefined ? undefined : await authRoutes.sessions.validate(session);
+      return record?.userId ?? (await cloudflarePeople?.userId(context)) ?? null;
     },
     installationLevel: async (context) =>
       isInstallationAdmin(await callerOf(context, accessResolver)),

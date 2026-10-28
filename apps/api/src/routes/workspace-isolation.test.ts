@@ -117,8 +117,12 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     files: ['services/triage-label-service.ts', 'routes/triage-labels.ts'],
   },
   // People and their roles: a membership is read and written on `workspace_members` filtered
-  // by `workspace_id`, and `oidc.test.ts` proves a person with a role in ws-1 has none in ws-2.
-  { family: 'people and memberships', files: ['services/user-service.ts', 'routes/oidc.ts'] },
+  // by `workspace_id`, and `oidc.test.ts` proves a person with a role in ws-1 has none in ws-2;
+  // `cloudflare-people.test.ts` proves the same for a person Cloudflare Access lets in.
+  {
+    family: 'people and memberships',
+    files: ['services/user-service.ts', 'routes/oidc.ts', 'http/cloudflare-people.ts'],
+  },
   // The audit trail: every read, the export and the chain check filter `audit_events` on
   // `workspace_id`, and `audit.test.ts` proves another workspace's rows are not exported.
   { family: 'audit trail', files: ['routes/audit.ts'] },

@@ -58,6 +58,16 @@ the application verifies a JWT, so there is no XML signature handling in this co
 dormant `saml_config` table stays dormant. Direct SAML is deferred, with a removal condition:
 _a customer whose identity provider cannot be fronted by Cloudflare Access_.
 
+**From `team`, a person Cloudflare Access lets in is an account** (amended 2026-10-27). On
+`startup` an Access identity is read through the role map and nothing else. From `team`, it
+is signed in the way an OIDC sign-in is: one `users` row per Access team and user id, the role
+map deciding the default workspace's membership, and memberships deciding every other
+workspace. Access has no sign-in event, so every request is one; the row is rewritten at most
+every five minutes when nothing changed. Without this, the enterprise SAML path and SCIM did not
+meet: a deactivated person kept the role map's role until their Access session expired, and
+nobody arriving through Access could hold a role in any workspace but the default. A service
+token stays a machine on every profile.
+
 **OIDC through `openid-client` v6**, pinned in the `catalog:` block.
 
 ## Consequences
@@ -88,6 +98,8 @@ _a customer whose identity provider cannot be fronted by Cloudflare Access_.
 - `apps/api/src/http/roles.ts` — the credential order.
 - `apps/api/src/http/cloudflare-access.ts`, `apps/api/src/http/cloudflare-access.test.ts` and
   the property suite beside it — the Access verifier and the role map.
+- `apps/api/src/http/cloudflare-people.ts` and its test — the people Access lets in, as
+  accounts on `team` and `enterprise`.
 - `packages/config/src/remote.ts` — the tunnel settings, validated at startup.
 - `apps/api/src/routes/oidc.ts` and `apps/api/src/services/user-service.ts` — OIDC sign-in and
   per-workspace roles.

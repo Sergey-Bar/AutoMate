@@ -68,7 +68,8 @@ const NOBODY: Caller = { actor: 'anonymous', role: null, uploaderFor: null };
 /**
  * Whether a caller is the installation's own admin, who may enter any workspace (ADR-014): the
  * installation session, an open install's operator, or a Cloudflare identity the role map makes
- * an admin. A token and a person are bound to their own workspaces and never are.
+ * an admin — a service token on every profile, and a person only on `startup`, where people are
+ * not accounts. A token and a person are bound to their own workspaces and never are.
  */
 export function isInstallationAdmin(caller: Caller): boolean {
   const source = sourceOf(caller);

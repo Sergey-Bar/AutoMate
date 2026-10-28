@@ -73,7 +73,9 @@ Everything in `team`, plus:
   Cloudflare Access configured, because otherwise nobody could sign in.
 - **SAML** goes through Cloudflare Access: add your SAML identity provider to Zero Trust, and
   map its groups with `CF_ACCESS_ROLE_MAP=admin:group:automate-admins`. Automate verifies the
-  token Cloudflare signs, so there is no XML signature handling in the app.
+  token Cloudflare signs, so there is no XML signature handling in the app. The people Access
+  lets in are accounts, so SCIM, Members and per-workspace roles apply to them as they do to
+  OIDC sign-ins ([how](/guide/remote-cloudflare#on-team-and-enterprise-people-are-accounts)).
 - **Break-glass.** If single sign-on is down, set `AUTOMATE_BREAK_GLASS=1` and restart: the
   installation key works again, every use is logged and written to the audit trail, and the
   start-up log says it is on. Turn it off once you are back in.

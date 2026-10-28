@@ -214,6 +214,42 @@ export function cloudflareActor(identity: CloudflareIdentity): string {
 
 export const CF_ACCESS_HEADER = 'cf-access-jwt-assertion';
 
+export type AccessLog = (message: string, fields: Record<string, unknown>) => void;
+
+/**
+ * The verified Access identity on this request, or `null` when it carries none. A header that
+ * does not verify is `null` too, and is logged with the reason and never the token.
+ */
+export async function verifiedIdentity(
+  verifier: CloudflareAccessVerifier,
+  context: Context,
+  log?: AccessLog,
+): Promise<CloudflareIdentity | null> {
+  const token = context.req.header(CF_ACCESS_HEADER);
+  if (token === undefined || token === '') return null;
+  const result = await verifier.verify(token);
+  if (result.ok) return result.identity;
+  log?.('cloudflare access refused a request', { reason: result.reason, path: context.req.path });
+  return null;
+}
+
+/** A person, as opposed to a machine: an Access user with an email, not a service token. */
+export function isPerson(identity: CloudflareIdentity): boolean {
+  return identity.serviceTokenId === null && identity.email !== null && identity.subject !== '';
+}
+
+/** An identity read through the role map alone: a machine everywhere, a person on `startup`. */
+export function roleMapCaller(
+  identity: CloudflareIdentity,
+  access: CloudflareAccessConfig,
+): Caller {
+  return {
+    actor: cloudflareActor(identity),
+    role: roleForIdentity(identity, access),
+    uploaderFor: null,
+  };
+}
+
 /**
  * The remote credential source `callerOf` asks after a token: the verified Access identity
  * on this request, with its mapped role, or `null`.
@@ -226,23 +262,10 @@ export const CF_ACCESS_HEADER = 'cf-access-jwt-assertion';
 export function createCloudflareCallerSource(
   verifier: CloudflareAccessVerifier,
   access: CloudflareAccessConfig,
-  options: { log?: (message: string, fields: Record<string, unknown>) => void } = {},
+  options: { log?: AccessLog } = {},
 ): (context: Context) => Promise<Caller | null> {
   return async (context) => {
-    const token = context.req.header(CF_ACCESS_HEADER);
-    if (token === undefined || token === '') return null;
-    const result = await verifier.verify(token);
-    if (!result.ok) {
-      options.log?.('cloudflare access refused a request', {
-        reason: result.reason,
-        path: context.req.path,
-      });
-      return null;
-    }
-    return {
-      actor: cloudflareActor(result.identity),
-      role: roleForIdentity(result.identity, access),
-      uploaderFor: null,
-    };
+    const identity = await verifiedIdentity(verifier, context, options.log);
+    return identity === null ? null : roleMapCaller(identity, access);
   };
 }

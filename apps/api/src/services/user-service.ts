@@ -33,7 +33,31 @@ export type SignInOutcome =
   | { ok: true; userId: string; role: AccessRole }
   | { ok: false; reason: 'disabled' | 'not-invited' | 'email-taken' };
 
-type Person = { id: string; disabledAt: Date | null };
+type Person = {
+  id: string;
+  email: string;
+  displayName: string;
+  disabledAt: Date | null;
+  lastLoginAt: Date | null;
+};
+
+const PERSON = {
+  id: users.id,
+  email: users.email,
+  displayName: users.displayName,
+  disabledAt: users.disabledAt,
+  lastLoginAt: users.lastLoginAt,
+};
+
+/**
+ * How often a sign-in rewrites a person's row when nothing about them changed. OIDC signs in
+ * once a session, so it is `0`: every sign-in is recorded. Cloudflare Access has no sign-in
+ * event — every request carries the identity — so its people are recorded at most this often,
+ * rather than with a write per request.
+ */
+export interface SignInTouch {
+  afterMs?: number;
+}
 
 /**
  * The person these claims sign in: by issuer and subject, or — for a person SCIM provisioned,
@@ -47,13 +71,13 @@ async function findPerson(
   now: Date,
 ): Promise<Person | undefined> {
   const [known] = await options.db
-    .select({ id: users.id, disabledAt: users.disabledAt })
+    .select(PERSON)
     .from(users)
     .where(and(eq(users.issuer, claims.issuer), eq(users.subject, claims.subject)))
     .limit(1);
   if (known !== undefined) return known;
   const [provisioned] = await options.db
-    .select({ id: users.id, disabledAt: users.disabledAt })
+    .select(PERSON)
     .from(users)
     .where(and(eq(users.email, email), isNull(users.issuer)))
     .limit(1);
@@ -85,6 +109,92 @@ async function membershipOf(
 }
 
 /**
+ * A new person's row, or `null` when another identity already holds the email: linking the two
+ * by email would let a second provider sign in as the first provider's person.
+ */
+async function createPerson(
+  options: Options,
+  claims: SignInClaims,
+  email: string,
+  now: Date,
+): Promise<string | null> {
+  const [taken] = await options.db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  if (taken !== undefined) return null;
+  const [created] = await options.db
+    .insert(users)
+    .values({
+      email,
+      displayName: claims.name?.trim() || email,
+      issuer: claims.issuer,
+      subject: claims.subject,
+      lastLoginAt: now,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .returning({ id: users.id });
+  if (created === undefined) throw new Error('the user row was not created');
+  return created.id;
+}
+
+/**
+ * Records a returning person: their email and name as the provider says them now, and when
+ * they were last seen. A provider that sends no name leaves the one already there — the one an
+ * admin or SCIM set — rather than replacing it with the email. Nothing is written when nothing
+ * changed and the last sign-in is within `afterMs`.
+ */
+async function touchPerson(
+  options: Options,
+  person: Person,
+  claims: SignInClaims,
+  email: string,
+  now: Date,
+  afterMs: number,
+): Promise<void> {
+  const displayName = claims.name?.trim() || person.displayName;
+  const changed = person.email !== email || person.displayName !== displayName;
+  const seen = person.lastLoginAt?.getTime() ?? Number.NEGATIVE_INFINITY;
+  if (!changed && now.getTime() - seen < afterMs) return;
+  await options.db
+    .update(users)
+    .set({ email, displayName, lastLoginAt: now, updatedAt: now })
+    .where(eq(users.id, person.id));
+}
+
+/** The person's membership here, created or moved to `role` when it is not already. */
+async function ensureMembership(
+  options: Options,
+  userId: string,
+  membership: { role: AccessRole } | undefined,
+  role: AccessRole,
+  now: Date,
+): Promise<void> {
+  if (membership === undefined) {
+    await options.db.insert(workspaceMembers).values({
+      workspaceId: options.workspaceId,
+      userId,
+      role,
+      invitedBy: 'sign-in',
+      createdAt: now,
+    });
+    return;
+  }
+  if (membership.role === role) return;
+  await options.db
+    .update(workspaceMembers)
+    .set({ role })
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, options.workspaceId),
+        eq(workspaceMembers.userId, userId),
+      ),
+    );
+}
+
+/**
  * Finds or creates the person, then their membership here.
  *
  * - A person no rule names gets `defaultRole` on their first sign-in, and keeps whatever role
@@ -98,9 +208,9 @@ export async function signInPerson(
   claims: SignInClaims,
   policy: SignInPolicy,
   now: Date = new Date(),
+  touch: SignInTouch = {},
 ): Promise<SignInOutcome> {
   const email = claims.email.toLowerCase();
-  const displayName = claims.name?.trim() || email;
   const existing = await findPerson(options, claims, email, now);
   if (existing?.disabledAt) return { ok: false, reason: 'disabled' };
 
@@ -112,56 +222,15 @@ export async function signInPerson(
   const role: AccessRole | null = mapped ?? membership?.role ?? policy.defaultRole;
   if (role === null) return { ok: false, reason: 'not-invited' };
 
-  let userId = existing?.id;
-  if (userId === undefined) {
-    const [taken] = await options.db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-    // Another identity already holds this email; linking the two by email would let a
-    // second provider sign in as the first provider's person.
-    if (taken !== undefined) return { ok: false, reason: 'email-taken' };
-    const [created] = await options.db
-      .insert(users)
-      .values({
-        email,
-        displayName,
-        issuer: claims.issuer,
-        subject: claims.subject,
-        lastLoginAt: now,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning({ id: users.id });
-    userId = created?.id;
-    if (userId === undefined) throw new Error('the user row was not created');
+  let userId: string | null;
+  if (existing === undefined) {
+    userId = await createPerson(options, claims, email, now);
+    if (userId === null) return { ok: false, reason: 'email-taken' };
   } else {
-    await options.db
-      .update(users)
-      .set({ email, displayName, lastLoginAt: now, updatedAt: now })
-      .where(eq(users.id, userId));
+    userId = existing.id;
+    await touchPerson(options, existing, claims, email, now, touch.afterMs ?? 0);
   }
-
-  if (membership === undefined) {
-    await options.db.insert(workspaceMembers).values({
-      workspaceId: options.workspaceId,
-      userId,
-      role,
-      invitedBy: 'sign-in',
-      createdAt: now,
-    });
-  } else if (membership.role !== role) {
-    await options.db
-      .update(workspaceMembers)
-      .set({ role })
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, options.workspaceId),
-          eq(workspaceMembers.userId, userId),
-        ),
-      );
-  }
+  await ensureMembership(options, userId, membership, role, now);
   return { ok: true, userId, role };
 }
 

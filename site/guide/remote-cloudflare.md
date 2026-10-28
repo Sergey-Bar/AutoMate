@@ -77,6 +77,28 @@ everyone else is refused with _forbidden_ rather than asked to sign in again.
 Access tokens and paired devices keep working beside Access, and a token presented with a
 request wins over the Cloudflare identity on it.
 
+## On team and enterprise, people are accounts
+
+On the `startup` profile the role map is the whole story: an identity's role is what the map
+says, every request. From `team` up, a person Access lets in becomes an Automate account the
+first time they arrive, just as an OIDC sign-in makes one. That gives you three things:
+
+- **They appear on _Map → Members_**, where an admin changes their role, disables them or
+  adds them to another workspace. Their role in each workspace is their membership there.
+- **The role map still decides the default workspace.** A person a rule names gets that
+  rule's role there on every request, so a change in your identity provider takes effect
+  straight away. Anyone else gets `CF_ACCESS_DEFAULT_ROLE` the first time, and keeps what an
+  admin gives them after that. Every other workspace is membership only.
+- **SCIM reaches them.** A person your identity provider provisions is linked by email on
+  their first visit and keeps the provisioned role. Deactivate them in the provider and
+  Automate refuses their next request, without waiting for their Access session to end. Set
+  `CF_ACCESS_DEFAULT_ROLE=none` to admit only the people SCIM or the map names.
+
+A person is the Access team and its user id, never the email alone. So a person who already
+signed in through OIDC with the same email is refused through Access rather than merged with
+that account: use one of the two for people. A service token stays a machine on every
+profile, with the role map's role in every workspace.
+
 ## CI through the tunnel
 
 Create a service token under _Access → Service auth_, add a _Service Auth_ policy for it to
@@ -116,6 +138,7 @@ this tunnel.
 
 ## What has and has not been tested
 
-The verifier, the role map, the startup refusals and the start scripts are tested against
-keys generated at test time and a stand-in for Docker. No run against a real Cloudflare
-account is recorded yet, and the [capability register](/pages/capabilities) says so.
+The verifier, the role map, the people it signs in, the startup refusals and the start
+scripts are tested against keys generated at test time, the real migration graph and a
+stand-in for Docker. No run against a real Cloudflare account is recorded yet, and the
+[capability register](/pages/capabilities) says so.

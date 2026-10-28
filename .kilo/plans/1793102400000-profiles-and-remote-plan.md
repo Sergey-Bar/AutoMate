@@ -118,3 +118,8 @@ Recorded here as tasks land, so the next session reads the state from the tree.
   and what was proven only against in-process stand-ins.
 - Still open: Task 19 (profile-matrix E2E, `pr-reporting`), which needs a real PostgreSQL and
   the composed stack.
+- 2026-10-27 — Closing the enterprise SAML path (`PRO-4`): from `team`, a person Cloudflare
+  Access lets in is an account (`apps/api/src/http/cloudflare-people.ts`), signed in on every
+  request through the same `signInPerson` as OIDC, so SCIM deactivation, SCIM groups, admin
+  role changes, the Members page and per-workspace memberships reach them. `startup` keeps the
+  role map alone; a service token is a machine everywhere. ADR-014 amended.
