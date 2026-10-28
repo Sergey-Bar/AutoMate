@@ -123,3 +123,12 @@ Recorded here as tasks land, so the next session reads the state from the tree.
   request through the same `signInPerson` as OIDC, so SCIM deactivation, SCIM groups, admin
   role changes, the Members page and per-workspace memberships reach them. `startup` keeps the
   role map alone; a service token is a machine everywhere. ADR-014 amended.
+- 2026-10-28 — Three independent reviews of PR #111 (identity, tenancy, data and operations)
+  found one Critical and a set of Majors, fixed in four commits and recorded as `PRO-7` to
+  `PRO-19`. A person is one account across the installation and a membership is one
+  workspace's (ADR-014 amended). Break-glass works through the tunnel, a restore loads beside
+  the install and swaps it in by rename, the audit trail refuses DELETE and TRUNCATE, and
+  runner scans and the installation's own AI spans work in every workspace. Recorded as debt,
+  each with a removal condition: the tunnel's one client address (`PRO-16`) and the tokens a
+  disabled person created (`PRO-17`). The minors left open are `PRO-19`.
+- Still open: Task 19 (profile-matrix E2E, `pr-reporting`).
