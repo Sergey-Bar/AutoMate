@@ -52,6 +52,14 @@ export async function send(
       headers: {
         authorization: `Bearer ${target.token}`,
         accept: 'application/json',
+        // An install behind Cloudflare Access: the service token gets the request through
+        // Access, to this origin only, like the access token beside it.
+        ...(target.cloudflareAccess === undefined
+          ? {}
+          : {
+              'cf-access-client-id': target.cloudflareAccess.clientId,
+              'cf-access-client-secret': target.cloudflareAccess.clientSecret,
+            }),
         ...(options.contentType === undefined ? {} : { 'content-type': options.contentType }),
       },
       ...(options.body === undefined ? {} : { body: options.body }),

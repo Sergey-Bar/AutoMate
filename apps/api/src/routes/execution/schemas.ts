@@ -309,6 +309,12 @@ export interface ExecutionRoutesOptions {
   legacyRepository?: RunRepository;
   workspaceId?: string;
   runnerRegistrationSecret?: string;
+  /**
+   * Runners are a pool the installation shares across its workspaces (ADR-014): a claim reads
+   * every workspace's queue, and a runner's later calls about a job are dispatched to the job's
+   * workspace. Off, a claim reads only this composition's workspace.
+   */
+  sharedRunners?: boolean;
   registrationSecret?: string;
   requireIdempotencyKey?: boolean;
   bus?: RealtimeBus;

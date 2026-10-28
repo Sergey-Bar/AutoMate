@@ -764,6 +764,15 @@ function pointEight(ctx) {
   const tests = ctx.text('apps/api/src/infrastructure/vault-crypto.test.ts');
   const bound = /function aadFor/.test(vault) && /setAAD/.test(vault);
   const proved = /aadFor/.test(tests) && /(fails|reject|throw)/i.test(tests);
+  const chainSql = ctx.text('packages/db/drizzle/0050_audit_chain.sql');
+  const chainTest = ctx.text('tests/integration/src/audit-chain.test.ts');
+  const chained =
+    /CREATE TRIGGER audit_events_chain BEFORE INSERT/.test(chainSql) &&
+    /CREATE TRIGGER audit_events_append_only BEFORE UPDATE/.test(chainSql) &&
+    /FUNCTION audit_chain_breaks/.test(chainSql) &&
+    /'edited'/.test(chainTest) &&
+    /'missing-before'/.test(chainTest) &&
+    /'relinked'/.test(chainTest);
 
   return [
     bound
@@ -786,12 +795,20 @@ function pointEight(ctx) {
           'a test proves the binding fails closed',
           '`vault-crypto.test.ts` does not assert that a mismatched AAD fails.',
         ),
-    unchecked(
-      'the evidence and audit chain is complete and immutable',
-      'No machine check distinguishes an append-only audit chain from a mutable one. `scripts/lib/` has the ' +
-        'sha256 chain used by the secret scanner, and the product audit chain is asserted per route rather ' +
-        'than as a property of the store.',
-    ),
+    chained
+      ? ok(
+          'the evidence and audit chain is complete and immutable',
+          '`0050_audit_chain.sql` chains every `audit_events` insert per workspace in a trigger, refuses an ' +
+            'UPDATE, and defines `audit_chain_breaks`; `tests/integration/src/audit-chain.test.ts` proves an ' +
+            'edit, a recomputed hash and a deleted row are each named. `pnpm audit:verify` runs it against an ' +
+            'installation.',
+        )
+      : unchecked(
+          'the evidence and audit chain is complete and immutable',
+          'No machine check distinguishes an append-only audit chain from a mutable one. `scripts/lib/` has the ' +
+            'sha256 chain used by the secret scanner, and the product audit chain is asserted per route rather ' +
+            'than as a property of the store.',
+        ),
   ];
 }
 

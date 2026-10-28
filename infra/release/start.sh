@@ -2,13 +2,19 @@
 # Automate — start, stop and update a local install.
 #
 #   ./start.sh                     start (first run creates .env with random secrets)
+#   ./start.sh --profile NAME      start, recording the deployment profile in .env
+#   ./start.sh --remote cloudflare start, and reach it from anywhere through Cloudflare Tunnel
 #   ./start.sh stop                stop the containers; data is kept
 #   ./start.sh status              show the containers
 #   ./start.sh logs                follow the logs
 #   ./start.sh update [--version X]  move to the latest (or a given) release; data is kept
 #   ./start.sh uninstall [--purge] remove the containers; --purge also deletes all data
+#   ./start.sh backup [--keep N]   write the database, artifacts and secrets to backups/;
+#                                  --keep N then removes all but the newest N backups
+#   ./start.sh restore FOLDER      check a backup, then replace this install's data with it
 #
 # Settings, read from the environment or from .env:
+#   AUTOMATE_PROFILE   solo (default: this machine, no login), startup, team or enterprise
 #   AUTOMATE_PORT      the port to open (default 8080)
 #   AUTOMATE_BIND      the address to listen on (default 127.0.0.1, this machine only)
 #   AUTOMATE_LAN_MODE  1 to serve other machines on your network, with sign-in required
@@ -25,7 +31,7 @@ say() { printf '%s\n' "$*"; }
 fail() { printf 'automate: %s\n' "$*" >&2; exit 1; }
 
 usage() {
-  say "Usage: ./start.sh [stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert]"
+  say "Usage: ./start.sh [--profile solo|startup|team|enterprise] [--remote cloudflare] | stop|status|logs|update [--version X]|uninstall [--purge]|lan-cert|backup [--keep N]|restore FOLDER"
 }
 
 # Docker, running, with Compose v2 — each missing piece named, with what to do about it.
@@ -86,7 +92,48 @@ setting() {
 }
 
 compose() {
-  "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml "$@"
+  # The tunnel's profile, when this install is remote, so start, status and logs include it.
+  if [ "$(setting AUTOMATE_REMOTE '')" = cloudflare ]; then
+    "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml --profile cloudflare "$@"
+  else
+    "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml "$@"
+  fi
+}
+
+# The tunnel's profile always, for stop and uninstall: a tunnel an earlier --remote cloudflare
+# started has `restart: unless-stopped`, so it outlives the setting until a command names it.
+compose_all() {
+  "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml --profile cloudflare "$@"
+}
+
+# Sets NAME=VALUE in .env, replacing the line that is there. Written without sed so a value
+# carrying `/`, `&` or `=` — a tunnel token does — is kept exactly. The new file is owner-only,
+# as the first write made .env: it holds every secret, and the tunnel token.
+set_env_value() {
+  rm -f .env.tmp
+  (
+    umask 077
+    grep -v "^$1=" .env > .env.tmp || true
+    printf '%s=%s\n' "$1" "$2" >> .env.tmp
+  )
+  mv .env.tmp .env
+}
+
+# `--remote cloudflare`: the three values a tunnel needs, from the environment or .env, kept
+# in .env so the next plain start still has them. The token is never printed.
+set_remote() {
+  [ "$1" = cloudflare ] || fail "--remote takes one value: cloudflare."
+  missing=""
+  for name in TUNNEL_TOKEN CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD; do
+    [ -n "$(setting "$name" '')" ] || missing="$missing $name"
+  done
+  [ -z "$missing" ] || fail "--remote cloudflare needs${missing}. Create a tunnel and an Access application in the Cloudflare Zero Trust dashboard, then set them (see the remote access guide)."
+  for name in TUNNEL_TOKEN CF_ACCESS_TEAM_DOMAIN CF_ACCESS_AUD; do
+    value="$(setting "$name" '')"
+    grep -q "^$name=" .env && [ "$(sed -n "s/^$name=//p" .env | tail -n 1)" = "$value" ] \
+      || set_env_value "$name" "$value"
+  done
+  set_env_value AUTOMATE_REMOTE cloudflare
 }
 
 http_ok() {
@@ -133,16 +180,60 @@ lan_mode() {
   esac
 }
 
+# The deployment profile (ADR-014): solo, startup, team or enterprise. Empty is unset, which
+# the API reads as solo, or as startup when LAN mode is on.
+profile() {
+  setting AUTOMATE_PROFILE ''
+}
+
+check_profile_name() {
+  case "$1" in
+    ''|solo|startup|team|enterprise) return 0 ;;
+    *) fail "AUTOMATE_PROFILE=$1 is not a profile. Use solo, startup, team or enterprise." ;;
+  esac
+}
+
+# What to do next, per profile. Printed after a start so the first run ends with an action.
+next_step() {
+  case "$1" in
+    startup) say "Next step: sign in with the key below, then pair devices or issue access tokens on the Access page." ;;
+    team|enterprise) say "Next step: sign in with the key below, then open Map > Deployment to see what this profile turns on." ;;
+    *) say "Next step: open a project, or send test results from CI with the automate CLI." ;;
+  esac
+}
+
+# Writes AUTOMATE_PROFILE into .env, replacing the line that is there. Nothing else in .env
+# is touched: the secrets in it sign sessions and encrypt the vault.
+set_profile() {
+  check_profile_name "$1"
+  [ -n "$1" ] || fail "--profile needs a value: solo, startup, team or enterprise."
+  set_env_value AUTOMATE_PROFILE "$1"
+}
+
 # A reachable install with no login is refused, not warned about. The API refuses the same
 # bind at startup (apps/api/src/startup-policy.ts); saying it here means the operator reads
 # it at the prompt, before anything is downloaded.
 check_exposure() {
   bind="$(setting AUTOMATE_BIND 127.0.0.1)"
+  chosen="$(profile)"
+  check_profile_name "$chosen"
+  if [ "$chosen" = solo ] && lan_mode; then
+    fail "AUTOMATE_PROFILE=solo keeps Automate on this machine, and AUTOMATE_LAN_MODE is on. Set AUTOMATE_PROFILE=startup to serve other people with sign-in."
+  fi
   is_loopback "$bind" && return 0
-  lan_mode || fail "AUTOMATE_BIND=$bind would make Automate reachable from other machines with no login. Set AUTOMATE_LAN_MODE=1 to serve your network with sign-in and device pairing, or unset AUTOMATE_BIND to keep it on this machine."
+  if [ "$chosen" = solo ]; then
+    fail "AUTOMATE_PROFILE=solo keeps Automate on this machine, and AUTOMATE_BIND=$bind would make it reachable. Set AUTOMATE_PROFILE=startup to serve other people with sign-in, or unset AUTOMATE_BIND."
+  fi
+  if ! lan_mode && [ -z "$chosen" ]; then
+    fail "AUTOMATE_BIND=$bind would make Automate reachable from other machines with no login. Set AUTOMATE_LAN_MODE=1 (or AUTOMATE_PROFILE=startup) to serve your network with sign-in and device pairing, or unset AUTOMATE_BIND to keep it on this machine."
+  fi
   port="$(setting AUTOMATE_PORT 8080)"
   say ""
-  say "LAN mode: other machines on your network can reach Automate on port $port, after signing in."
+  if lan_mode; then
+    say "LAN mode: other machines on your network can reach Automate on port $port, after signing in."
+  else
+    say "Profile $chosen: other machines can reach Automate on port $port, after signing in."
+  fi
   say "If they cannot connect, allow the port through this machine's firewall (not done for you):"
   say "  ufw:       sudo ufw allow $port/tcp"
   say "  firewalld: sudo firewall-cmd --add-port=$port/tcp --permanent && sudo firewall-cmd --reload"
@@ -153,7 +244,26 @@ check_exposure() {
 start() {
   require_docker
   ensure_env
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --profile) set_profile "${2:-}"; shift 2 || shift ;;
+      --profile=*) set_profile "${1#--profile=}"; shift ;;
+      --remote) remote_wanted="${2:-}"; shift 2 || shift ;;
+      --remote=*) remote_wanted="${1#--remote=}"; shift ;;
+      *) usage; exit 2 ;;
+    esac
+  done
+  # After the profile, so `--profile solo --remote cloudflare` is refused by name below.
+  if [ -n "${remote_wanted:-}" ]; then
+    [ "$(profile)" = solo ] && fail "AUTOMATE_PROFILE=solo keeps Automate on this machine, and --remote cloudflare publishes it through a tunnel. Use --profile startup (or larger)."
+    set_remote "$remote_wanted"
+  fi
   check_exposure
+  # Remote access turned off: the tunnel an earlier start left running is removed, or it would
+  # go on publishing the install. Nothing to remove is the usual case, so it is quiet.
+  if [ "$(setting AUTOMATE_REMOTE '')" != cloudflare ]; then
+    compose_all rm --stop --force cloudflared >/dev/null 2>&1 || true
+  fi
   port="$(setting AUTOMATE_PORT 8080)"
   base="http://localhost:$port"
   say "Downloading the Automate images (the first run takes a few minutes)..."
@@ -161,10 +271,16 @@ start() {
   compose pull --ignore-pull-failures
   compose up -d
   wait_ready "http://127.0.0.1:$port"
+  chosen="$(profile)"
   say ""
   say "Automate is running at $base"
+  say "Profile: ${chosen:-solo}"
+  if [ "$(setting AUTOMATE_REMOTE '')" = cloudflare ]; then
+    say "Remote: through Cloudflare Tunnel, at the public hostname you gave the tunnel. Cloudflare Access decides who reaches it."
+  fi
   say "Sign in with this key: $(setting AUTOMATE_INSTALLATION_KEY '')"
   say "(it is also in .env as AUTOMATE_INSTALLATION_KEY)"
+  next_step "$chosen"
   open_browser "$base"
 }
 
@@ -177,11 +293,7 @@ latest_version() {
 }
 
 set_version() {
-  if grep -q '^AUTOMATE_VERSION=' .env; then
-    sed "s/^AUTOMATE_VERSION=.*/AUTOMATE_VERSION=$1/" .env > .env.tmp && mv .env.tmp .env
-  else
-    printf 'AUTOMATE_VERSION=%s\n' "$1" >> .env
-  fi
+  set_env_value AUTOMATE_VERSION "$1"
 }
 
 update() {
@@ -219,15 +331,216 @@ lan_cert() {
   say "How to trust it on Windows, macOS, Linux, iPhone and Android: docs on LAN mode."
 }
 
+# A file's sha256, lowercase hex. sha256sum on Linux and Git for Windows, shasum on macOS.
+# Read from stdin: given a name with a backslash in it, sha256sum escapes the name and
+# prefixes the digest with one.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum < "$1" | cut -d' ' -f1
+  else shasum -a 256 < "$1" | cut -d' ' -f1
+  fi
+}
+
+# A string's sha256. Used for the vault key, so a backup can say which key it needs
+# without holding the key in its manifest.
+sha256_text() {
+  if command -v sha256sum >/dev/null 2>&1; then printf '%s' "$1" | sha256sum | cut -d' ' -f1
+  else printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1
+  fi
+}
+
+# How many migrations the database has applied: the schema a backup was taken at.
+migration_count() {
+  compose exec -T postgres psql -U automate -d automate -tAc \
+    'SELECT count(*) FROM drizzle.__drizzle_migrations' 2>/dev/null | tr -d '[:space:]'
+}
+
+# Whether dotted version $1 is newer than $2. A pre-release suffix is ignored.
+version_newer() {
+  awk -v a="${1%%-*}" -v b="${2%%-*}" 'BEGIN {
+    n = split(a, x, "."); m = split(b, y, "."); k = n > m ? n : m
+    for (i = 1; i <= k; i++) { if (x[i] + 0 > y[i] + 0) exit 0; if (x[i] + 0 < y[i] + 0) exit 1 }
+    exit 1
+  }'
+}
+
+manifest_value() {
+  sed -n "s/^$2=//p" "$1/manifest.env" | tail -n 1
+}
+
+# SQL against the maintenance database, for what cannot run inside the database it changes:
+# creating, dropping and renaming databases. PostgreSQL refuses those while anyone else is
+# connected, so other sessions on the three a restore touches are ended first. Stops at the
+# first error.
+admin_sql() {
+  compose exec -T postgres psql -U automate -d postgres -v ON_ERROR_STOP=1 -tAq \
+    -c 'SET client_min_messages = warning' \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('automate', 'automate_restore', 'automate_previous') AND pid <> pg_backend_pid()" \
+    "$@" >/dev/null
+}
+
+# The backup's database, loaded into automate_restore: a new database beside this install's,
+# so no table a newer release added here can block it. One transaction, so a load that fails
+# part-way leaves it empty.
+load_database() {
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_restore' -c 'CREATE DATABASE automate_restore' \
+    && compose cp "$1/database.dump" postgres:/tmp/automate-restore.dump \
+    && compose exec -T postgres pg_restore -U automate -d automate_restore --no-owner \
+      --single-transaction /tmp/automate-restore.dump
+}
+
+# A restore that stopped before the swap. This install's own database was never touched, so
+# the copy is dropped and Automate starts again on its own data rather than staying down.
+restore_failed() {
+  compose exec -T postgres rm -f /tmp/automate-restore.dump >/dev/null 2>&1 || true
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_restore' 2>/dev/null || true
+  compose up -d || fail "$1 Nothing was replaced, but Automate could not be started again: run ./start.sh."
+  fail "$1 Nothing was replaced: Automate is started again on its own data. The output above says why."
+}
+
+# The database, the stored artifacts and .env, each with a digest, into backups/. The
+# database is dumped consistently by pg_dump; artifact bytes are written once and never
+# changed, so a copy taken while the install runs is whole for every finished upload.
+backup() {
+  keep=''
+  keep_given=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --keep) keep_given=1; keep="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+      --keep=*) keep_given=1; keep="${1#--keep=}"; shift ;;
+      *) fail "Unknown backup option '$1'. Use ./start.sh backup [--keep N]." ;;
+    esac
+  done
+  if [ "$keep_given" = 1 ]; then
+    case "$keep" in
+      ''|*[!0-9]*|0*) fail "--keep needs a whole number of backups to keep, 1 or more, like --keep 7." ;;
+    esac
+  fi
+  [ -f .env ] || fail "There is nothing to back up yet: no .env here. Run ./start.sh first."
+  require_docker
+  count="$(migration_count)"
+  case "$count" in
+    ''|*[!0-9]*) fail "Could not read the database's migrations. Is Automate running? (./start.sh status)" ;;
+  esac
+  umask 077
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  folder="backups/automate-$stamp"
+  [ ! -e "$folder" ] || fail "$folder already exists. Run the backup again in a second."
+  # Written under a hidden name and renamed once the manifest is in it, so a backup that fails
+  # part-way never leaves a folder that --keep counts. A failed one is removed: it holds a
+  # copy of the database.
+  work="backups/.automate-$stamp.partial"
+  rm -rf -- "$work"
+  mkdir -p "$work"
+  trap 'rm -rf -- "$work"' EXIT
+  say "Backing up the database..."
+  compose exec -T postgres pg_dump -U automate -d automate -Fc -f /tmp/automate-backup.dump
+  compose cp postgres:/tmp/automate-backup.dump "$work/database.dump"
+  compose exec -T postgres rm -f /tmp/automate-backup.dump
+  say "Backing up stored artifacts..."
+  compose exec -T objectstore tar -C /data -cf /tmp/automate-objects.tar .
+  compose cp objectstore:/tmp/automate-objects.tar "$work/objects.tar"
+  compose exec -T objectstore rm -f /tmp/automate-objects.tar
+  cp .env "$work/env"
+  for part in database.dump objects.tar env; do
+    printf '%s  %s\n' "$(sha256_of "$work/$part")" "$part"
+  done > "$work/SHA256SUMS"
+  {
+    say "format=1"
+    say "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    say "version=$(setting AUTOMATE_VERSION '')"
+    say "migrations=$count"
+    say "vault=$(sha256_text "$(setting VAULT_SECRET '')")"
+  } > "$work/manifest.env"
+  mv "$work" "$folder"
+  trap - EXIT
+  say "Backup written to $folder"
+  say "It holds your secrets (the env file): store it like a password, and off this machine."
+  [ -n "$keep" ] && prune_backups "$keep"
+  return 0
+}
+
+# Removes the oldest backups beyond the newest N. Only folders named the way backup names
+# them are counted or removed, never a hidden .partial one; anything else in backups/ is left
+# alone.
+prune_backups() {
+  # The names sort by time, so the newest are last.
+  old="$(find backups -mindepth 1 -maxdepth 1 -type d -name 'automate-[0-9]*T[0-9]*Z' 2>/dev/null \
+    | sort | awk -v keep="$1" '{ names[NR] = $0 } END { for (i = 1; i <= NR - keep; i++) print names[i] }')"
+  removed=0
+  for stale in $old; do
+    rm -rf -- "$stale"
+    removed=$((removed + 1))
+  done
+  [ "$removed" -gt 0 ] && say "Removed $removed older backup(s), keeping the newest $1."
+  return 0
+}
+
+# Checks everything before it changes anything: every digest, the vault key, the release
+# and the schema. Then the install stops, the backup's database is loaded beside this one and
+# swapped in, the objects are replaced, and it starts again. An older backup is fine: the
+# newer release's migrations run forward on start.
+restore() {
+  folder="${1:-}"
+  { [ -n "$folder" ] && [ -f "$folder/manifest.env" ] && [ -f "$folder/SHA256SUMS" ]; } \
+    || fail "There is no backup at '$folder'. Pass the folder './start.sh backup' wrote, like backups/automate-20261027T120000Z."
+  [ -f .env ] || fail "Restore into an install: copy $folder/env to .env before its first start, start it (./start.sh), then run this again."
+  [ "$(manifest_value "$folder" format)" = 1 ] \
+    || fail "$folder was written by a newer start script. Update first: ./start.sh update"
+  for part in database.dump objects.tar env; do
+    expected="$(sed -n "s/^\([0-9a-f]*\)  $part\$/\1/p" "$folder/SHA256SUMS")"
+    [ -f "$folder/$part" ] || fail "$folder/$part is missing. Nothing was restored."
+    [ -n "$expected" ] && [ "$(sha256_of "$folder/$part")" = "$expected" ] \
+      || fail "$folder/$part does not match its digest in SHA256SUMS: the backup is damaged. Nothing was restored."
+  done
+  # Only the vault key: this install's database keeps the POSTGRES_PASSWORD it was first started
+  # with and the dump carries no roles, so the backup's whole env over .env locks it out.
+  [ "$(manifest_value "$folder" vault)" = "$(sha256_text "$(setting VAULT_SECRET '')")" ] \
+    || fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. On this install, keep a copy of .env, then set only VAULT_SECRET in it to the value in $folder/env and run the restore again; the rest of .env stays, because this install's database keeps the POSTGRES_PASSWORD it was first started with. On a new host, copy $folder/env to .env before the first start."
+  taken="$(manifest_value "$folder" version)"
+  current="$(setting AUTOMATE_VERSION '')"
+  if [ -n "$taken" ] && [ -n "$current" ] && version_newer "$taken" "$current"; then
+    fail "This backup is from Automate $taken, which is newer than this install ($current). Update first: ./start.sh update --version $taken"
+  fi
+  require_docker
+  wanted="$(manifest_value "$folder" migrations)"
+  have="$(migration_count)"
+  case "$wanted" in ''|*[!0-9]*) fail "$folder/manifest.env records no migration count. Nothing was restored." ;; esac
+  case "$have" in
+    ''|*[!0-9]*) fail "Could not read this install's migrations. Start Automate first (./start.sh), then restore." ;;
+  esac
+  [ "$wanted" -le "$have" ] \
+    || fail "This backup has $wanted migrations and this install has $have: its schema is newer. Update first: ./start.sh update"
+  say "Restoring $folder. Automate stops while it runs."
+  compose stop api worker runner web edge objectstore \
+    || restore_failed "Automate could not be stopped for the restore."
+  load_database "$folder" || restore_failed "The database in $folder could not be restored."
+  compose exec -T postgres rm -f /tmp/automate-restore.dump >/dev/null 2>&1 || true
+  # Both renames in one statement, so in one transaction: either the restored database is
+  # automate, or nothing moved.
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_previous' \
+    -c 'ALTER DATABASE automate RENAME TO automate_previous; ALTER DATABASE automate_restore RENAME TO automate' \
+    || restore_failed "The restored database could not be swapped in."
+  say "The database it replaced is kept as automate_previous, until the next restore. Once this one is right, drop it from this folder:"
+  say "  docker compose -p $PROJECT exec postgres psql -U automate -d postgres -c \"DROP DATABASE automate_previous\""
+  # The objects belong to the restored database, so they are replaced only once it is in.
+  compose run --rm --no-deps -T -v "$(cd "$folder" && pwd):/backup:ro" --entrypoint sh objectstore \
+    -c 'find /data -mindepth 1 -delete && tar -C /data -xf /backup/objects.tar' \
+    || fail "The database is restored from $folder, but its stored artifacts could not be put back, so Automate is left stopped. The output above says why."
+  compose up -d
+  port="$(setting AUTOMATE_PORT 8080)"
+  wait_ready "http://127.0.0.1:$port"
+  say "Restored $folder. Migrations newer than the backup ran on start."
+}
+
 uninstall() {
   require_docker
   [ -f .env ] || : > .env
   if [ "${1:-}" = "--purge" ]; then
-    compose down -v --remove-orphans
+    compose_all down -v --remove-orphans
     rm -f .env
     say "Automate is removed, with all of its data."
   else
-    compose down --remove-orphans
+    compose_all down --remove-orphans
     say "Automate is removed. Your data and .env are kept; run ./start.sh to start again."
   fi
 }
@@ -235,13 +548,16 @@ uninstall() {
 command="${1:-start}"
 [ $# -gt 0 ] && shift
 case "$command" in
-  start) start ;;
-  stop) require_docker; compose stop ;;
+  start) start "$@" ;;
+  --profile|--profile=*|--remote|--remote=*) start "$command" "$@" ;;
+  stop) require_docker; compose_all stop ;;
   status) require_docker; compose ps ;;
   logs) require_docker; compose logs --tail 200 -f ;;
   update) update "$@" ;;
   uninstall) uninstall "$@" ;;
   lan-cert) lan_cert ;;
+  backup) backup "$@" ;;
+  restore) restore "$@" ;;
   -h|--help|help) usage ;;
   *) usage; exit 2 ;;
 esac

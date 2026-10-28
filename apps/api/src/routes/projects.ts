@@ -43,6 +43,9 @@ import { storeGitToken } from '../services/git-credential-service.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
 import type { SecureCookies } from '../http/secure-cookies.js';
 import { createAccessRoutes } from './access.js';
+import { createAuditRoutes } from './audit.js';
+import { createMembersRoutes } from './members.js';
+import { createScimRoutes } from './scim.js';
 import { defaultClientKey } from './auth.js';
 import { createPairingRoutes } from './pairing.js';
 import { createNotificationRoutes } from './notifications.js';
@@ -145,6 +148,15 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
    * receiver on; `syncNow` runs queued syncs at once after a request queues one.
    */
   delivery?: { lanMode?: boolean; webhookSecret?: string; syncNow?: () => Promise<unknown> };
+  /** The role a person provisioned over SCIM starts with: `OIDC_DEFAULT_ROLE`, or viewer. */
+  scimDefaultRole?: 'viewer' | 'operator' | 'admin';
+  /**
+   * The installation's default workspace (ADR-014). A person is one account across the
+   * installation, and the members and SCIM routes let only this workspace's admins and its
+   * SCIM connection change an account another workspace shares. Never this composition's own
+   * workspace by fallback: then every workspace would count as the default.
+   */
+  defaultWorkspace: string;
   /**
    * The built-in eval runner's model access: the configured gateway (`null` when no provider
    * is configured, and runs are refused `NOT_CONFIGURED`) and its provider name.
@@ -291,6 +303,29 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
       access,
       ...(options.secureCookies === undefined ? {} : { secureCookies: options.secureCookies }),
       ...(options.trustProxy === undefined ? {} : { trustProxy: options.trustProxy }),
+    }),
+  );
+  // The audit trail, its export and its chain (ADR-014, enterprise). Admin only.
+  app.route('/', createAuditRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  // The people who signed in with single sign-on, and their roles here. Admin only.
+  app.route(
+    '/',
+    createMembersRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      defaultWorkspace: options.defaultWorkspace,
+      access,
+    }),
+  );
+  // SCIM provisioning (ADR-014, enterprise): scoped to each SCIM token's own workspace.
+  app.route(
+    '/',
+    createScimRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      defaultWorkspace: options.defaultWorkspace,
+      access,
+      ...(options.scimDefaultRole === undefined ? {} : { defaultRole: options.scimDefaultRole }),
     }),
   );
   // Pairing mints access tokens, so it lives where they do: beside the access routes.

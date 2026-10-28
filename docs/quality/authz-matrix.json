@@ -8,14 +8,15 @@
     "`composition: database` rows are mounted only when `DATABASE_URL` is set, so the in-memory composition cannot send them a request; the class is still read from their guards."
   ],
   "summary": {
-    "admin": 13,
-    "viewer": 78,
+    "admin": 24,
+    "viewer": 80,
     "operator": 32,
-    "open": 14,
+    "open": 16,
     "runner-credential": 9,
     "reporter-secret": 13,
     "enrollment-token": 1,
-    "runner-registration-secret": 1
+    "runner-registration-secret": 1,
+    "scim-token": 10
   },
   "routes": [
     {
@@ -75,6 +76,30 @@
       "composition": "always"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/audit",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit/export",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit/verify",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/audit.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "POST",
       "path": "/api/v1/auth/login",
       "access": "open",
@@ -88,6 +113,22 @@
       "access": "open",
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/auth-session-lifecycle.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/callback",
+      "access": "open",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/oidc.test.ts",
+      "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/start",
+      "access": "open",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/oidc.test.ts",
       "composition": "always"
     },
     {
@@ -118,7 +159,7 @@
       "method": "GET",
       "path": "/api/v1/auth/whoami",
       "access": "open",
-      "workspaceScoped": false,
+      "workspaceScoped": true,
       "evidenceTest": "apps/api/src/services/access-service.test.ts",
       "composition": "database"
     },
@@ -319,7 +360,7 @@
       "path": "/api/v1/features",
       "access": "open",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/index.test.ts",
+      "evidenceTest": "apps/api/src/routes/health.test.ts",
       "composition": "always"
     },
     {
@@ -412,6 +453,38 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/members",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/members.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/members",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/members.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/members/:userId",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/members.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/members/:userId",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/members.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/api/v1/notification-channels",
       "access": "viewer",
       "workspaceScoped": false,
@@ -463,7 +536,7 @@
       "path": "/api/v1/portfolio",
       "access": "viewer",
       "workspaceScoped": false,
-      "evidenceTest": "apps/api/src/routes/repo-health.test.ts",
+      "evidenceTest": "apps/api/src/services/access-service.test.ts",
       "composition": "database"
     },
     {
@@ -1251,6 +1324,30 @@
       "composition": "always"
     },
     {
+      "method": "GET",
+      "path": "/api/v1/scim-tokens",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scim-tokens",
+      "access": "admin",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/scim-tokens/:id",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
       "method": "DELETE",
       "path": "/api/v1/triage-labels",
       "access": "operator",
@@ -1284,6 +1381,30 @@
     },
     {
       "method": "GET",
+      "path": "/api/v1/workspaces",
+      "access": "viewer",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces",
+      "access": "admin",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workspaces/select",
+      "access": "viewer",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/workspaces.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
       "path": "/health",
       "access": "open",
       "workspaceScoped": false,
@@ -1305,6 +1426,86 @@
       "workspaceScoped": false,
       "evidenceTest": "apps/api/src/routes/health.test.ts",
       "composition": "always"
+    },
+    {
+      "method": "GET",
+      "path": "/scim/v2/Groups",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/scim/v2/Groups/:id",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PATCH",
+      "path": "/scim/v2/Groups/:id",
+      "access": "scim-token",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/scim/v2/ServiceProviderConfig",
+      "access": "scim-token",
+      "workspaceScoped": false,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/scim/v2/Users",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "POST",
+      "path": "/scim/v2/Users",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "DELETE",
+      "path": "/scim/v2/Users/:id",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "GET",
+      "path": "/scim/v2/Users/:id",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PATCH",
+      "path": "/scim/v2/Users/:id",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
+    },
+    {
+      "method": "PUT",
+      "path": "/scim/v2/Users/:id",
+      "access": "scim-token",
+      "workspaceScoped": true,
+      "evidenceTest": "apps/api/src/routes/scim.test.ts",
+      "composition": "database"
     }
   ]
 }

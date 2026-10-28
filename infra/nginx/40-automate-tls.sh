@@ -61,6 +61,15 @@ server {
     proxy_read_timeout 1h;
   }
 
+  location /scim/v2/ {
+    proxy_pass http://automate_api;
+    proxy_http_version 1.1;
+    proxy_set_header Host \$host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Host \$http_host;
+  }
+
   location / {
     proxy_pass http://automate_web;
     proxy_http_version 1.1;

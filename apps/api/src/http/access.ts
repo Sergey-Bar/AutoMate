@@ -22,6 +22,9 @@ export const GUARDED_ACCESS = [
   'runner-registration-secret',
   'runner-credential',
   'enrollment-token',
+  // The SCIM connection of an identity provider (`routes/scim.ts`, ADR-014). No apostrophes
+  // in this list: `scripts/lib/authz-matrix.test.mjs` reads the entries by their quotes.
+  'scim-token',
   // The repository-health roles, each admitting the roles above it (`http/roles.ts`).
   'viewer',
   'operator',

@@ -107,6 +107,12 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // only in LAN mode with that secret set (a 404 otherwise), refuses a replayed delivery id,
   // and is rate-limited per client (`routes/github-webhook.ts`).
   'POST /api/v1/webhooks/github',
+  // Single sign-on: a person signing in has no credential yet. The start redirects to the
+  // provider; the callback is credentialed by the signed flow cookie, the state, the nonce,
+  // PKCE and the provider's signed ID token. Both answer a coded 404 until OIDC is
+  // configured, and are rate-limited per client (`routes/oidc.ts`).
+  'GET /api/v1/auth/oidc/start',
+  'GET /api/v1/auth/oidc/callback',
 ]);
 
 /**

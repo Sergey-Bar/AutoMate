@@ -18,6 +18,8 @@ export class DrizzleSessionStore {
     tokenHash: string;
     issuedAt: Date;
     expiresAt: Date;
+    /** The person this session signs in; absent for the installation's own session. */
+    userId?: string;
   }): Promise<string> {
     await this.ensureInstallation(input.installationId);
     const id = input.id ?? randomUUID();
@@ -27,8 +29,19 @@ export class DrizzleSessionStore {
       tokenHash: input.tokenHash,
       issuedAt: input.issuedAt,
       expiresAt: input.expiresAt,
+      ...(input.userId === undefined ? {} : { userId: input.userId }),
     });
     return id;
+  }
+
+  /** Revokes every live session a person holds: a disabled or deprovisioned person is out now. */
+  async revokeForUser(userId: string, now: Date): Promise<number> {
+    const rows = await this.db
+      .update(sessions)
+      .set({ revokedAt: now })
+      .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)))
+      .returning({ id: sessions.id });
+    return rows.length;
   }
 
   /**

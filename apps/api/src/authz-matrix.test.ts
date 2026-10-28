@@ -80,6 +80,15 @@ beforeAll(async () => {
   projectRoutes = (
     projects.createProjectsRoutes({} as never) as unknown as { routes: RegisteredRoute[] }
   ).routes;
+  const workspacesModule = await import('./routes/workspaces.js');
+  projectRoutes = [
+    ...projectRoutes,
+    ...(
+      workspacesModule.createWorkspacesRoutes({} as never) as unknown as {
+        routes: RegisteredRoute[];
+      }
+    ).routes,
+  ];
   committed = (
     JSON.parse(readFileSync(path.join(root, 'docs/quality/authz-matrix.json'), 'utf8')) as {
       routes: Row[];

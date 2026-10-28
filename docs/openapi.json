@@ -73,6 +73,30 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "getApiV1Audit",
+        "tags": ["audit"],
+        "x-source": "apps/api/src/routes/audit.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/audit/export": {
+      "get": {
+        "operationId": "getApiV1AuditExport",
+        "tags": ["audit"],
+        "x-source": "apps/api/src/routes/audit.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/audit/verify": {
+      "get": {
+        "operationId": "getApiV1AuditVerify",
+        "tags": ["audit"],
+        "x-source": "apps/api/src/routes/audit.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "operationId": "postApiV1AuthLogin",
@@ -86,6 +110,22 @@
         "operationId": "postApiV1AuthLogout",
         "tags": ["auth"],
         "x-source": "apps/api/src/routes/auth.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/auth/oidc/callback": {
+      "get": {
+        "operationId": "getApiV1AuthOidcCallback",
+        "tags": ["auth"],
+        "x-source": "apps/api/src/routes/oidc.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/auth/oidc/start": {
+      "get": {
+        "operationId": "getApiV1AuthOidcStart",
+        "tags": ["auth"],
+        "x-source": "apps/api/src/routes/oidc.ts",
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
@@ -435,6 +475,40 @@
         "operationId": "postApiV1Mcp",
         "tags": ["mcp"],
         "x-source": "apps/api/src/routes/mcp.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/members": {
+      "get": {
+        "operationId": "getApiV1Members",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1Members",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/members/{userId}": {
+      "delete": {
+        "operationId": "deleteApiV1MembersUserId",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "patch": {
+        "operationId": "patchApiV1MembersUserId",
+        "tags": ["members"],
+        "x-source": "apps/api/src/routes/members.ts",
+        "parameters": [
+          { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
@@ -1496,6 +1570,31 @@
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },
+    "/api/v1/scim-tokens": {
+      "get": {
+        "operationId": "getApiV1ScimTokens",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1ScimTokens",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/scim-tokens/{id}": {
+      "delete": {
+        "operationId": "deleteApiV1ScimTokensId",
+        "tags": ["scim-tokens"],
+        "x-source": "apps/api/src/routes/scim.ts",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
     "/api/v1/triage-labels": {
       "delete": {
         "operationId": "deleteApiV1TriageLabels",
@@ -1521,6 +1620,28 @@
         "operationId": "postApiV1WebhooksGithub",
         "tags": ["webhooks"],
         "x-source": "apps/api/src/routes/github-webhook.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/workspaces": {
+      "get": {
+        "operationId": "getApiV1Workspaces",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      },
+      "post": {
+        "operationId": "postApiV1Workspaces",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
+        "responses": { "default": { "description": "Defined by the route handler." } }
+      }
+    },
+    "/api/v1/workspaces/select": {
+      "post": {
+        "operationId": "postApiV1WorkspacesSelect",
+        "tags": ["workspaces"],
+        "x-source": "apps/api/src/routes/workspaces.ts",
         "responses": { "default": { "description": "Defined by the route handler." } }
       }
     },

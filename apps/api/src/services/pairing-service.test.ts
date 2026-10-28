@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { pairingCodes } from '@automate/db';
 import { migratedDatabase } from '../test-support/migrated-database.js';
 import { authenticateToken, listAccessTokens } from './access-service.js';
 import { issuePairingCode, redeemPairingCode } from './pairing-service.js';
@@ -65,17 +66,40 @@ describe('pairing codes', () => {
     });
   });
 
-  it('a code redeems only in the workspace that issued it', async () => {
+  it('a code mints its device token in the workspace that issued it, wherever it is redeemed', async () => {
+    // A device has no credential yet, so it is served by the default workspace's routes: the
+    // code is found across the installation, and the token is the issuing workspace's.
     const { options } = await setup();
+    const issued = await issuePairingCode(
+      { ...options, workspaceId: 'ws-2' },
+      { deviceName: 'Phone', role: 'viewer' },
+      'session',
+    );
+    const redeemed = await redeemPairingCode(options, issued.code);
+    expect(redeemed.workspaceId).toBe('ws-2');
+    expect(
+      await authenticateToken({ ...options, workspaceId: 'ws-2' }, redeemed.token),
+    ).toMatchObject({ role: 'viewer' });
+    expect(await authenticateToken(options, redeemed.token)).toBeNull();
+    expect(await listAccessTokens(options)).toEqual([]);
+  });
+
+  it('refuses a code two workspaces both hold live, rather than guess whose it is', async () => {
+    const { db, options } = await setup();
     const issued = await issuePairingCode(
       options,
       { deviceName: 'Phone', role: 'viewer' },
       'session',
     );
-    await expect(
-      redeemPairingCode({ ...options, workspaceId: 'ws-2' }, issued.code),
-    ).rejects.toMatchObject({ code: 'INVALID_PAIRING_CODE' });
-    expect((await redeemPairingCode(options, issued.code)).role).toBe('viewer');
+    // Issuing draws a value no live code holds anywhere; two from before that rule could.
+    const [row] = await db.select().from(pairingCodes);
+    const { id: _id, ...copy } = row as typeof pairingCodes.$inferSelect;
+    await db.insert(pairingCodes).values({ ...copy, workspaceId: 'ws-2' });
+    await expect(redeemPairingCode(options, issued.code)).rejects.toMatchObject({
+      code: 'INVALID_PAIRING_CODE',
+    });
+    const spent = await db.select({ usedAt: pairingCodes.usedAt }).from(pairingCodes);
+    expect(spent).toEqual([{ usedAt: null }, { usedAt: null }]);
   });
 
   it('a revoked device token stops working', async () => {

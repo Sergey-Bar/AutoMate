@@ -67,6 +67,7 @@ export default defineConfig({
         items: [
           { text: 'Guide', link: '/guide/' },
           { text: 'Install', link: '/guide/install' },
+          { text: 'Choose a profile', link: '/guide/profiles' },
           { text: 'Getting started', link: '/guide/getting-started' },
           { text: 'Core concepts', link: '/guide/concepts' },
           { text: 'Sending results', link: '/guide/sending-results' },
@@ -80,6 +81,7 @@ export default defineConfig({
           { text: 'How AutoMate compares', link: '/guide/compare' },
           { text: 'Ask your editor (MCP)', link: '/guide/mcp' },
           { text: 'Serve your network (LAN mode)', link: '/guide/lan-mode' },
+          { text: 'Reach it from anywhere (Cloudflare)', link: '/guide/remote-cloudflare' },
           { text: 'Scheduled reports', link: '/guide/notifications' },
           { text: 'How this repository tests itself', link: '/guide/testing-strategy' },
           { text: 'How this project is maintained', link: '/guide/maintenance' },

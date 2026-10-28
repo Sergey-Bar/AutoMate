@@ -97,6 +97,7 @@
     "openapi:generate": "never-in-ci",
     "dev:all": "never-in-ci",
     "db:migrate": "never-in-ci",
+    "audit:verify": "never-in-ci",
     "migrate:verify": "nightly",
     "smoke:local:json": "nightly",
     "security:scan": "pr-blocking",

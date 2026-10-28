@@ -18,3 +18,15 @@
 678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:700
 678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:701
 678112773ee7e6814f02538f79ef1a5e6b36f2ac:packages/projects/src/health/agent-config-scan.test.ts:generic-api-key:702
+
+# e5c09cf (feat(deploy): profiles from solo to enterprise, PR #111) committed a Cloudflare
+# Access audience tag fixture, `aud-0123456789`, beside `CF_ACCESS_AUD`. An audience tag is an
+# application identifier, not a credential, and this one names no application. The commit is
+# pushed; the follow-up commit replaces the value with a short word the rule cannot match.
+# Reviewed 2026-10-28. Ledger: PRO-6.
+e5c09cfd206c29288dc10ebc526e35b3f1fba92a:packages/config/src/remote.test.ts:generic-api-key:60
+
+# 0cc2ca4 (fix(ci), PR #111) quoted the same fixture value in ledger row PRO-6's summary, and
+# the rule matched it there too. The next commit removes the value from the row. Reviewed
+# 2026-10-28. Ledger: PRO-6.
+0cc2ca45f14a40e3ee86e7f82258c1d9253e7f2c:docs/quality/findings-ledger.json:generic-api-key:6633

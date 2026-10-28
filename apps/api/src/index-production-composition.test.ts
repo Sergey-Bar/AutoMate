@@ -321,6 +321,8 @@ describe('a valid production configuration', () => {
 
   let client: PGlite | undefined;
   let composed: typeof import('./index.js') | undefined;
+  /** How many times a browser session was read from the database. */
+  let sessionReads = 0;
 
   beforeAll(async () => {
     client = new PGlite();
@@ -332,8 +334,16 @@ describe('a valid production configuration', () => {
     vi.doMock('@hono/node-server', () => ({ serve: () => undefined }));
     vi.doMock('@automate/db', async (importOriginal) => {
       const actual = await importOriginal<typeof import('@automate/db')>();
+      // The real store, counted: each read is a SELECT and a `last_used_at` write.
+      class CountedSessionStore extends actual.DrizzleSessionStore {
+        override async findValid(tokenHash: string, now: Date) {
+          sessionReads += 1;
+          return super.findValid(tokenHash, now);
+        }
+      }
       return {
         ...actual,
+        DrizzleSessionStore: CountedSessionStore,
         createDbResources: () => ({
           db: drizzle(database, { schema: dbSchema }),
           close: async () => undefined,
@@ -385,6 +395,25 @@ describe('a valid production configuration', () => {
     });
     expect(response?.status, await response?.clone().text()).toBe(200);
     expect(response?.headers.get('set-cookie') ?? '').toMatch(/Max-Age=3600(;|$)/);
+  });
+
+  it('reads a browser session once per request, however many checks ask who it is', async () => {
+    // The workspace dispatch, the person check and the installation check each asked, and
+    // each read is a SELECT and a `last_used_at` write on the same row: three per request,
+    // contending for one row when a page sends its requests in parallel.
+    const login = await composed?.app.request('/api/v1/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ apiKey: VALID_SECRETS.AUTOMATE_INSTALLATION_KEY }),
+    });
+    const cookie = /automate_session=[^;]+/u.exec(login?.headers.get('set-cookie') ?? '')?.[0];
+    expect(cookie, 'the login set no session cookie').toBeDefined();
+    sessionReads = 0;
+    const response = await composed?.app.request('/api/v1/access-tokens', {
+      headers: { cookie: String(cookie) },
+    });
+    expect(response?.status, await response?.clone().text()).toBe(200);
+    expect(sessionReads).toBe(1);
   });
 
   it('composes, and exports a fetchable app and a durable execution store', () => {

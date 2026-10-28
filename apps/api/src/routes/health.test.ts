@@ -353,6 +353,28 @@ describe('what a readiness response is allowed to say', () => {
 });
 
 describe('the capability manifest', () => {
+  it('names the deployment profile it was composed with, and solo when none is given', async () => {
+    const solo = (await (await createHealthRoutes().request('/api/v1/features')).json()) as {
+      profile: string;
+    };
+    expect(solo.profile).toBe('solo');
+    const team = (await (
+      await createHealthRoutes({ profile: 'team' }).request('/api/v1/features')
+    ).json()) as { profile: string };
+    expect(team.profile).toBe('team');
+  });
+
+  it('says which sign-in methods a browser is offered, so the client can show the SSO button', async () => {
+    const plain = (await (await createHealthRoutes().request('/api/v1/features')).json()) as {
+      signIn: { oidc: boolean };
+    };
+    expect(plain.signIn).toEqual({ oidc: false });
+    const sso = (await (
+      await createHealthRoutes({ signIn: { oidc: true } }).request('/api/v1/features')
+    ).json()) as { signIn: { oidc: boolean } };
+    expect(sso.signIn).toEqual({ oidc: true });
+  });
+
   it('answers publicly, with the version and a derived feature set', async () => {
     const response = await createHealthRoutes().request('/api/v1/features');
 

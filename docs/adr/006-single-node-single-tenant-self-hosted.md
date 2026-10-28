@@ -34,6 +34,12 @@ recorded 2026-10-21).
 
 ## Consequences
 
+- **Amended by [ADR-014](./014-deployment-profiles-and-remote-access.md) on identity and
+  exposure only.** Deployment profiles (`solo`, `startup`, `team`, `enterprise`) add
+  users, single sign-on, several workspaces per install and remote access through
+  Cloudflare. One node, self-hosted and English only still hold, and `solo` is the
+  posture this record describes.
+
 - **The rendering gate compares on a runner it was not recorded on, and says so.**
   The ceilings come from the reference install; the required check runs on the CI
   runner, which read the same bundle about 1.7-2x slower. `CEILING_RULES` in

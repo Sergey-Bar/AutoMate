@@ -116,6 +116,34 @@ const WORKSPACE_SCOPED_FAMILIES: ReadonlyArray<{
     family: 'triage labels',
     files: ['services/triage-label-service.ts', 'routes/triage-labels.ts'],
   },
+  // People and their roles: a membership is read and written on `workspace_members` filtered
+  // by `workspace_id`, and `oidc.test.ts` proves a person with a role in ws-1 has none in ws-2;
+  // `cloudflare-people.test.ts` proves the same for a person Cloudflare Access lets in.
+  {
+    family: 'people and memberships',
+    files: ['services/user-service.ts', 'routes/oidc.ts', 'http/cloudflare-people.ts'],
+  },
+  // The audit trail: every read, the export and the chain check filter `audit_events` on
+  // `workspace_id`, and `audit.test.ts` proves another workspace's rows are not exported.
+  { family: 'audit trail', files: ['routes/audit.ts'] },
+  // Members: every read and write filters `workspace_members` on `workspace_id`, and
+  // `members.test.ts` proves a person in another workspace is a 404.
+  { family: 'members', files: ['routes/members.ts'] },
+  // SCIM: every read and write is scoped to the SCIM token's own workspace, and
+  // `scim.test.ts` proves another workspace's token cannot read a person here.
+  { family: 'scim provisioning', files: ['routes/scim.ts'] },
+  // Which workspace a request belongs to: read only from a trusted credential (a token row,
+  // a job row, a membership), and `workspace-dispatch.test.ts` proves a token cannot be
+  // pointed at another workspace and a person cannot enter one they are not a member of;
+  // `workspace-lookups.test.ts` proves the rows behind it on the real migration graph.
+  {
+    family: 'workspace dispatch',
+    files: ['http/workspace-dispatch.ts', 'http/workspace-lookups.ts'],
+  },
+  // Listing, choosing and creating workspaces: what a caller may enter is read from their
+  // token row, their memberships or the installation session, and `workspaces.test.ts` proves
+  // a person cannot choose a workspace they are not a member of, nor a token another.
+  { family: 'workspace management', files: ['routes/workspaces.ts'] },
   // The coverage and health history. Every query filters on `workspace_id` before the
   // project, and `projects.test.ts` proves a second workspace reads nothing back.
   { family: 'scan history', files: ['services/scan-history-service.ts'] },

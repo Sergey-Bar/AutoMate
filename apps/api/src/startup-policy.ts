@@ -145,18 +145,89 @@ export function checkProductionPolicy(config: AppConfig): void {
  * log; they repeat it early, they do not decide it.
  */
 export function checkExposurePolicy(config: AppConfig): void {
+  checkProfileContradictions(config);
+  const bind = config.exposedBind ?? config.host ?? '127.0.0.1';
+  if (config.remote === 'cloudflare') checkTunnel(config);
+  if (!isLoopbackBind(bind) && (config.accessControl ?? 'open') === 'open') {
+    throw new Error(
+      `Automate would be reachable from other machines (${bind}) with no login in front of it. ` +
+        'Set AUTOMATE_LAN_MODE=1 to serve your local network with sign-in, device pairing and ' +
+        'a client allowlist, or bind to 127.0.0.1 to keep it on this machine.',
+    );
+  }
+  if (config.profile === 'solo' && (config.lanMode === true || !isLoopbackBind(bind))) {
+    throw new Error(
+      `AUTOMATE_PROFILE=solo keeps Automate on this machine, and ${
+        config.lanMode === true ? 'AUTOMATE_LAN_MODE is on' : `it would be reachable on ${bind}`
+      }. Set AUTOMATE_PROFILE=startup to serve other people with sign-in, or bind to 127.0.0.1.`,
+    );
+  }
+  checkSsoSource(config);
+}
+
+/**
+ * The combinations that contradict themselves, checked before the bind so the message names
+ * the setting that is wrong: LAN mode with access control open, and a profile that serves
+ * several people with access control open (ADR-014).
+ */
+function checkProfileContradictions(config: AppConfig): void {
   if (config.lanMode === true && config.accessControl === 'open') {
     throw new Error(
       'AUTOMATE_LAN_MODE is on and ACCESS_CONTROL=open is set. LAN mode serves other machines ' +
         'and needs a login: remove ACCESS_CONTROL (LAN mode turns it on) or set it to enforced.',
     );
   }
-  const bind = config.exposedBind ?? config.host ?? '127.0.0.1';
-  if (!isLoopbackBind(bind) && (config.accessControl ?? 'open') === 'open') {
+  if (
+    (config.profile === 'team' || config.profile === 'enterprise') &&
+    config.accessControl === 'open'
+  ) {
     throw new Error(
-      `Automate would be reachable from other machines (${bind}) with no login in front of it. ` +
-        'Set AUTOMATE_LAN_MODE=1 to serve your local network with sign-in, device pairing and ' +
-        'a client allowlist, or bind to 127.0.0.1 to keep it on this machine.',
+      `AUTOMATE_PROFILE=${config.profile} serves several people and ACCESS_CONTROL=open would ` +
+        'let anyone who can reach it act as the admin. Remove ACCESS_CONTROL (the profile turns ' +
+        'it on), or set AUTOMATE_PROFILE=solo for a single-person install on this machine.',
+    );
+  }
+}
+
+/** Enforced SSO with nothing to sign in through would leave break-glass as the only door. */
+function checkSsoSource(config: AppConfig): void {
+  const ssoSource =
+    config.oidc !== undefined ||
+    (config.remote === 'cloudflare' && config.cloudflareAccess !== undefined);
+  if (config.ssoEnforced === true && !ssoSource) {
+    throw new Error(
+      'AUTH_SSO_ENFORCED is on (the enterprise profile turns it on) and there is no single ' +
+        'sign-on to enforce. Configure OIDC_ISSUER, OIDC_CLIENT_ID and OIDC_CLIENT_SECRET, or ' +
+        'AUTOMATE_REMOTE=cloudflare with Cloudflare Access, or set AUTH_SSO_ENFORCED=0.',
+    );
+  }
+}
+
+/**
+ * A Cloudflare tunnel is exposure that the bind cannot see: `cloudflared` dials out, so an
+ * install bound to 127.0.0.1 is reachable from the internet. It needs a login, and it needs
+ * both Access settings, because without them nothing can tell a request Cloudflare let in
+ * from one that only carries the header.
+ */
+function checkTunnel(config: AppConfig): void {
+  if (config.profile === 'solo') {
+    throw new Error(
+      'AUTOMATE_PROFILE=solo keeps Automate on this machine, and AUTOMATE_REMOTE=cloudflare ' +
+        'publishes it through a tunnel. Set AUTOMATE_PROFILE=startup to serve other people.',
+    );
+  }
+  if ((config.accessControl ?? 'open') === 'open') {
+    throw new Error(
+      'AUTOMATE_REMOTE=cloudflare makes Automate reachable from the internet, and ' +
+        'ACCESS_CONTROL=open would let anyone who gets through act as the admin. Remove ' +
+        'ACCESS_CONTROL (the tunnel turns it on) or set it to enforced.',
+    );
+  }
+  if (config.cloudflareAccess === undefined) {
+    throw new Error(
+      'AUTOMATE_REMOTE=cloudflare needs both CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD: the ' +
+        "Access team and the application's audience tag, so a request Cloudflare let in can " +
+        'be told from one that only carries its header.',
     );
   }
 }
@@ -246,4 +317,27 @@ export function resolveAuthSecrets(
         ? presented
         : (config.apiKey ?? DEVELOPMENT_INSTALLATION_KEY),
   };
+}
+
+/**
+ * OIDC that admits anyone the identity provider signs in (ADR-014, team). With no
+ * `OIDC_ALLOWED_DOMAINS` and a default role, every account the provider will authenticate
+ * becomes a member of the default workspace on its first sign-in — a Google client open to
+ * outside users makes that every Google account. A warning rather than a refusal, because a
+ * provider that only signs in the organisation's own people is a configuration this cannot see.
+ *
+ * @returns the warning, or `undefined` when a domain allowlist or `OIDC_DEFAULT_ROLE=none`
+ *   narrows who gets in, or OIDC is off
+ */
+export function identityWarning(config: AppConfig): string | undefined {
+  const oidc = config.oidc;
+  if (oidc === undefined || oidc.allowedDomains.length > 0 || oidc.defaultRole === null) {
+    return undefined;
+  }
+  return (
+    `OIDC admits anyone ${oidc.issuer} signs in, as ${oidc.defaultRole} of the default ` +
+    'workspace. If that provider signs in people outside your organisation, set ' +
+    'OIDC_ALLOWED_DOMAINS to your email domains, or OIDC_DEFAULT_ROLE=none to admit only the ' +
+    'people OIDC_ROLE_MAP or SCIM names.'
+  );
 }

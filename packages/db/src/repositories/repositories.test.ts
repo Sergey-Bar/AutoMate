@@ -115,6 +115,46 @@ describe('DrizzleSessionStore', () => {
     expect(await sessions.findValid(tokenHash, ISSUED)).toBeUndefined();
   });
 
+  it('revokes every live session one person holds, and no one else’s', async () => {
+    // A disabled or deprovisioned person is out at once (ADR-014): every session they hold
+    // stops validating, while the installation's own session and another person's do not.
+    const installationId = '00000000-0000-4000-8000-000000000105';
+    const people = await db
+      .insert(schema.users)
+      .values([
+        { email: 'gone@example.com', displayName: 'Gone', createdAt: ISSUED, updatedAt: ISSUED },
+        { email: 'kept@example.com', displayName: 'Kept', createdAt: ISSUED, updatedAt: ISSUED },
+      ])
+      .returning({ id: schema.users.id });
+    const [gone, kept] = people.map((row) => String(row.id));
+    const hashes = {
+      a: 'c'.repeat(64),
+      b: 'd'.repeat(64),
+      kept: 'e'.repeat(64),
+      own: 'f'.repeat(64),
+    };
+    const issue = (tokenHash: string, userId?: string) =>
+      sessions.create({
+        installationId,
+        tokenHash,
+        issuedAt: ISSUED,
+        expiresAt: EXPIRES,
+        ...(userId === undefined ? {} : { userId }),
+      });
+    await issue(hashes.a, gone);
+    await issue(hashes.b, gone);
+    await issue(hashes.kept, kept);
+    await issue(hashes.own);
+
+    expect(await sessions.revokeForUser(String(gone), ISSUED)).toBe(2);
+    expect(await sessions.findValid(hashes.a, ISSUED)).toBeUndefined();
+    expect(await sessions.findValid(hashes.b, ISSUED)).toBeUndefined();
+    expect(await sessions.findValid(hashes.kept, ISSUED)).toBeDefined();
+    expect(await sessions.findValid(hashes.own, ISSUED)).toBeDefined();
+    // Already revoked: a second call revokes nothing.
+    expect(await sessions.revokeForUser(String(gone), ISSUED)).toBe(0);
+  });
+
   it('records when a session was last used, so idleness is observable', async () => {
     // Ledger S-5. `last_used_at` was in the schema, absent from the insert, selected
     // and then dropped by the mapping — so nothing could read a session's idleness,

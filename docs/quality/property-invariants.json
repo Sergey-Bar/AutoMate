@@ -434,6 +434,14 @@
       "testFile": "packages/reporting/src/report.property.test.ts",
       "seed": 20261025,
       "shownToFail": "The harness refutes an unescaped renderer in the suite itself; trimming the escaped text instead of the raw text cuts &amp; and fails the pinned examples."
+    },
+    {
+      "id": "CFA-1",
+      "statement": "A Cloudflare Access token changed anywhere after it was signed never verifies: every single-character change to header, payload or signature that changes the decoded bytes is refused, and an email rewritten to an administrator is refused.",
+      "package": "apps/api",
+      "testFile": "apps/api/src/http/cloudflare-access.property.test.ts",
+      "seed": 20261027,
+      "shownToFail": "The harness refutes a verifier that trusts the payload in the suite itself; skipping the signature check in createCloudflareAccessVerifier fails the property on the first payload change."
     }
   ]
 }

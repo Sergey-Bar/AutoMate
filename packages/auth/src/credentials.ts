@@ -70,6 +70,8 @@ export interface SessionRecord {
   issuedAt: Date;
   expiresAt: Date;
   revokedAt?: Date;
+  /** The person this session signs in (ADR-014). Absent: the installation's own session. */
+  userId?: string;
 }
 
 export class InMemorySessionService {

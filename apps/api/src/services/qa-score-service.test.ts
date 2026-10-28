@@ -318,6 +318,7 @@ describe('a real score over a real database, with a coverage document attached',
       };
       const created = await createProjectsRoutes({
         ...registry,
+        defaultWorkspace: 'ws-1',
         startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
       }).request('/api/v1/projects', {
         method: 'POST',
@@ -401,6 +402,7 @@ describe('a real score over a real database, with a coverage document attached',
       };
       const created = await createProjectsRoutes({
         ...registry,
+        defaultWorkspace: 'ws-1',
         startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
       }).request('/api/v1/projects', {
         method: 'POST',

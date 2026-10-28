@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from 'drizzle-orm';
 import { accessTokens, auditEvents, projects } from '@automate/db';
 import { z } from 'zod/v4';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
+import { requestAuditFields } from '../observability/request-context.js';
 import type { ProjectRegistryServiceOptions } from './project-registry-service.js';
 
 /**
@@ -183,13 +184,21 @@ export async function audit(
     await options.db.insert(auditEvents).values({
       timestamp: now,
       actorId: entry.actor,
-      actorType: entry.actor.startsWith('token:') ? 'service' : 'user',
+      // A token, a Cloudflare service token and a SCIM connection are machines.
+      actorType:
+        entry.actor.startsWith('token:') ||
+        entry.actor.startsWith('cf-service:') ||
+        entry.actor.startsWith('scim:')
+          ? 'service'
+          : 'user',
       action: entry.action,
       resourceType: entry.resourceType,
       resourceId: entry.resourceId,
       details: entry.details ?? {},
       workspaceId: options.workspaceId,
       createdAt: now,
+      // Where the decision came from. The chain columns are the database's to write.
+      ...requestAuditFields(),
     });
   } catch {
     // The decision stands; an audit table that refuses a row is an operations problem.

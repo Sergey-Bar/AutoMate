@@ -171,6 +171,23 @@ describe('createHealthClient', () => {
     ]);
   });
 
+  it('reads every credential source the API reports, so a person signed in by SSO gets in', async () => {
+    // The API answers `source: 'user'` for an OIDC session; a schema without it threw on
+    // whoami and left every single-sign-on user on the sign-in screen.
+    for (const source of ['token', 'user', 'cloudflare', 'installation', 'anonymous']) {
+      const { client } = server({
+        'GET /api/v1/auth/whoami': {
+          actor: 'user:u1',
+          role: 'viewer',
+          mode: 'enforced',
+          profile: 'team',
+          source,
+        },
+      });
+      expect((await client.whoami()).source, source).toBe(source);
+    }
+  });
+
   it('signs out even when the key session is already gone', async () => {
     const { client } = server({ 'POST /api/v1/auth/token-logout': { ok: true } });
     await expect(client.signOut()).resolves.toBeUndefined();

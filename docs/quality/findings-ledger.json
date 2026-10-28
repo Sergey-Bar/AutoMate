@@ -6525,6 +6525,400 @@
         }
       ],
       "resolution": "Both migrations now add the column and then a named constraint (`ADD CONSTRAINT <name> FOREIGN KEY …`) matching the schema. The migrations are unreleased on this branch, so they were edited rather than followed by a rename migration."
+    },
+    {
+      "id": "PRO-1",
+      "title": "The release stack never passed the OIDC and enforced sign-on settings to the API container",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "`site/guide/profiles.md` tells a `team` or `enterprise` operator to put `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_ALLOWED_DOMAINS`, `OIDC_ROLE_MAP` and `OIDC_DEFAULT_ROLE` in `.env`, and `AUTH_SSO_ENFORCED` and `AUTOMATE_BREAK_GLASS` decide enforced sign-on. The api service in `infra/compose/docker-compose.unified.yml` listed none of them, so on the shipped stack the container never saw them: no single sign-on button on `team`, and an `enterprise` install refused to start for lack of an identity provider the operator had configured. Every test of OIDC ran in-process with the settings passed directly, so nothing exercised the compose file's environment.",
+      "confirmedBy": "Read the api service environment against the config schema; the new test in `scripts/lib/start-scripts.test.mjs` listed exactly those eight names as missing before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "Every OIDC_ and CF_ACCESS_ setting, AUTH_SSO_ENFORCED, AUTOMATE_BREAK_GLASS, AUTOMATE_PROFILE and AUTOMATE_REMOTE in the config schema is passed to the api service; derived from the schema, so a new identity setting that is not passed through fails."
+        }
+      ],
+      "resolution": "The api service passes each of them through as `${NAME:-}`; `parseConfig` drops empty values, so unset stays unset."
+    },
+    {
+      "id": "PRO-2",
+      "title": "An apostrophe in a comment inside GUARDED_ACCESS broke the authz matrix meta-test",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "`scripts/lib/authz-matrix.test.mjs` reads the guard classes out of `apps/api/src/http/access.ts` by their single quotes. A comment added beside `'scim-token'` read `An identity provider's SCIM connection`, so the quotes paired wrongly, the test read a class list without `admin`, and it failed with `/api/v1/access-tokens: unknown class admin`. The API's own authz tests passed throughout, because they import the array rather than reading its source.",
+      "confirmedBy": "Ran `pnpm test:integration`; the failure named `admin` as an unknown class.",
+      "evidence": [
+        {
+          "path": "scripts/lib/authz-matrix.test.mjs",
+          "asserts": "The committed matrix uses only classes declared in GUARDED_ACCESS; it failed on the apostrophe and passes without it."
+        }
+      ],
+      "resolution": "The comment no longer contains an apostrophe, and a second comment beside it says why the list must not."
+    },
+    {
+      "id": "PRO-3",
+      "title": "The edge proxy sent /scim/v2 to the web container, so SCIM could not reach the API",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "SCIM is served by the API at `/scim/v2` (`apps/api/src/routes/scim.ts`), and the profiles guide gives an identity provider `https://<host>/scim/v2` as its base URL. `infra/nginx/edge.conf` and the HTTPS server `40-automate-tls.sh` writes proxied only `/api/` to the API and everything else to the web container, so on the shipped stack every SCIM request was answered with the dashboard's HTML. The SCIM tests call the routes in-process, so nothing exercised the proxy.",
+      "confirmedBy": "Read both nginx servers against every route outside /api/ in docs/quality/authz-matrix.json; the new test failed on edge.conf before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/edge-tls.test.mjs",
+          "asserts": "Every API route outside /api/ that is not a container probe has a location proxying it to the API, in the plain-HTTP server and in the HTTPS server; derived from the authz matrix, so a new outside path fails until it is proxied."
+        }
+      ],
+      "resolution": "Both servers proxy `/scim/v2/` to the API."
+    },
+    {
+      "id": "PRO-4",
+      "title": "On team and enterprise, a person Cloudflare Access let in was never an account, so SCIM and per-workspace roles did not reach them",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-27",
+      "summary": "ADR-014 makes Cloudflare Access the product's SAML path, and `site/guide/profiles.md` documents SAML through Access and SCIM side by side for `enterprise`. `createCloudflareCallerSource` read every Access identity through `CF_ACCESS_ROLE_MAP` alone and wrote no `users` row. So for everyone arriving through Access: a person SCIM deactivated kept the role map's role until their Access session expired, although the guide says deactivation signs them out at once; a SCIM group or an admin's role change did not apply; nobody could hold a role in a workspace other than the default, because the dispatch routes a person by memberships they could not have; and none of them appeared on the Members page. Every SCIM and members test used OIDC people, so nothing exercised the combination.",
+      "confirmedBy": "Read `createCloudflareCallerSource` (role from `roleForIdentity` only) against `callerForUser` and the dispatch lookups. Restoring the role-map-only caller for people fails five of the new suite's eleven tests.",
+      "evidence": [
+        {
+          "path": "apps/api/src/http/cloudflare-people.test.ts",
+          "asserts": "A person Access lets in becomes one account with the role map's role in the default workspace and their membership's elsewhere; a SCIM-provisioned row is linked by email and keeps its role and name; a deactivated person is refused on the next request; an email another identity holds is refused, not merged; a service token stays a machine; one verification per request; and the dispatch sends a person only to a workspace they are a member of."
+        }
+      ],
+      "resolution": "From `team`, with a database, `apps/api/src/http/cloudflare-people.ts` signs the Access identity in on every request through the same `signInPerson` an OIDC sign-in uses, with the row rewritten at most every five minutes when nothing changed; each workspace resolves the caller from the membership, and the dispatch reads the same account. `startup` keeps the role map alone."
+    },
+    {
+      "id": "PRO-5",
+      "title": "start.cmd backup and restore failed when run from a PowerShell 7 terminal, because Windows PowerShell 5.1 could not load Get-FileHash",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`start.ps1` hashed each backup part with `Get-FileHash`. In Windows PowerShell 5.1 that is a function in the `Microsoft.PowerShell.Utility` script module, loaded on first use from `PSModulePath`. A PowerShell 7 terminal puts its own module directories first in `PSModulePath`, and `start.cmd` and the 5.1 process it launches inherit them, so 5.1 found PowerShell 7's edition of the module, could not load it, and answered that `Get-FileHash` does not exist: `backup` stopped after copying the artifacts, and `restore` refused every backup. Locally the suite passed because the shell that launched it was 5.1; the CI job `Start scripts on Windows` runs it from `pwsh`, which is the condition a PowerShell 7 user has.",
+      "confirmedBy": "CI run 40652947656, job `Start scripts on Windows`: three `start.ps1` backup and restore tests failed with \"The term 'Get-FileHash' is not recognized\". Reproduced on a development host by running the same tests under Windows PowerShell 5.1 from `pwsh`.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "The start.ps1 backup, backup --keep and restore tests pass under Windows PowerShell 5.1 started from PowerShell 7, the CI job's condition; before the fix all three failed on Get-FileHash."
+        }
+      ],
+      "resolution": "`Get-FileSha256` hashes with `System.Security.Cryptography.SHA256` over a file stream, which needs no module, as `Get-TextSha256` beside it already did."
+    },
+    {
+      "id": "PRO-6",
+      "title": "A Cloudflare Access audience-tag fixture in a pushed commit reads to gitleaks as an API key",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`packages/config/src/remote.test.ts:60` in e5c09cf set `CF_ACCESS_AUD` to a fixture tag of letters and digits. gitleaks' `generic-api-key` matched it: `ACCESS` in the name, ten or more characters after it, entropy above 3.5. An audience tag identifies an Access application and is not a credential, and this one names no application. The dependency-free `security:secrets` floor does not carry that rule, so the finding first appeared in CI, after the branch was pushed.",
+      "confirmedBy": "CI run 40652947656, job `Security and license audit`: gitleaks reported one leak in history. Matched to this line by applying the rule's pattern and entropy threshold to the lines the branch added.",
+      "evidence": [
+        {
+          "path": "packages/config/src/remote.test.ts",
+          "asserts": "The audience fixture is a short word the rule cannot match, so no later commit can repeat the finding."
+        }
+      ],
+      "resolution": "The tip uses `aud-test`. The pushed commit keeps the old value, so its single finding is exempted by exact fingerprint in `.gitleaksignore`, the shape `scripts/static-analysis-config-check.mjs` allows. Rewriting a pushed branch is the owner's decision, not this row's."
+    },
+    {
+      "id": "PRO-7",
+      "title": "A workspace's admin or SCIM token could disable, re-enable or re-address any person in the installation",
+      "band": "Critical",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`users` rows are installation-wide while members routes and SCIM tokens are workspace-scoped. `POST /api/v1/members` and SCIM `POST /Users` attached any existing person by email, and the writes that followed — `disabled_at`, every session revoked, and through SCIM the email, name and external id — reached the whole installation, while the last-admin rule only counted the current workspace. An admin of one workspace could lock another workspace's only admin out, undo another workspace's deprovisioning, or re-address a provisioned person who had not signed in yet so that whoever held the new address inherited their memberships on first sign-in.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/members.test.ts",
+          "asserts": "A shared person is added, given a role and removed by any workspace admin but disabled only by the installation admin or an admin of the default workspace, never while they are the last admin of any workspace; a removal leaves their sessions alone."
+        },
+        {
+          "path": "apps/api/src/routes/scim.test.ts",
+          "asserts": "A connection that only shares a person cannot deactivate or re-address them (SCIM 403), including the takeover sequence; the default workspace's connection can."
+        }
+      ],
+      "resolution": "A person's account is decided by the installation admin, the default workspace's admins and its SCIM connection, and by another workspace only for a person who belongs to no other (ADR-014, amended). Removal ends the membership only."
+    },
+    {
+      "id": "PRO-8",
+      "title": "Sign-in recomputed the default workspace's membership, so a removal did not stick and a default role of none locked people out",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`signInPerson` applied the default role whenever the person had no default-workspace membership, on every OIDC sign-in and on every Cloudflare Access request, so removing someone from the default workspace was undone at once. With `OIDC_DEFAULT_ROLE` or `CF_ACCESS_DEFAULT_ROLE` set to none, a person whose memberships were all in other workspaces, SCIM-provisioned ones included, was refused `not-invited` everywhere.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/oidc.test.ts",
+          "asserts": "A person removed from the default workspace stays removed at their next sign-in, and a person who is a member elsewhere signs in when the default role is none."
+        },
+        {
+          "path": "apps/api/src/http/cloudflare-people.test.ts",
+          "asserts": "The same two behaviours for a person Cloudflare Access lets in."
+        }
+      ],
+      "resolution": "The default role applies only when a new person row is made; a role-map rule still sets the default-workspace role; an existing person with no role here is admitted on any membership."
+    },
+    {
+      "id": "PRO-9",
+      "title": "A SCIM group rename demoted every holder of that role",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "The group PATCH handler read any operation without a `members[...]` path as a member list, so Okta's rename (a value object with `displayName`) or Entra's `Replace` of `displayName` became a replace with no members, and against `/Groups/admin` demoted every admin of the workspace. `GET /Groups` also ignored its filter.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/scim.test.ts",
+          "asserts": "A rename in either dialect leaves the group's members as they were, and `displayName eq` finds one group."
+        }
+      ],
+      "resolution": "Only operations that name members act on members; `GET /Groups` honours `displayName eq`."
+    },
+    {
+      "id": "PRO-10",
+      "title": "Break-glass did not work behind the tunnel, enforced SSO left browser doors open, and token sign-in and pairing failed outside the default workspace",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`callerOf` read a verified Cloudflare Access identity before the installation session, and behind the tunnel every request carries one, so a break-glass sign-in was never read. Under enforced SSO the browser token cookie, an earlier installation session and device pairing still signed a browser in. Token sign-in and pairing carry their credential in the body, which the workspace dispatch cannot see, so a token or pairing code issued in any workspace but the default was always refused.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/http/roles.test.ts",
+          "asserts": "The installation session comes before the Access identity; under enforced SSO the token cookie and the installation session are ignored, and count again under break-glass."
+        },
+        {
+          "path": "apps/api/src/routes/access.test.ts",
+          "asserts": "A token of any workspace signs a browser in, in its own workspace; every workspace's token is refused under enforced SSO."
+        },
+        {
+          "path": "apps/api/src/services/pairing-service.test.ts",
+          "asserts": "A code mints its device token in the workspace that issued it, and a value two workspaces both hold live is refused."
+        }
+      ],
+      "resolution": "The installation session is read before Access; browser credentials count under enforced SSO only with break-glass, and pairing is refused; token sign-in and pairing find their own workspace across the installation."
+    },
+    {
+      "id": "PRO-11",
+      "title": "A restore into a newer schema failed and left the install stopped, and the restore advice locked the database out",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`pg_restore --clean` only drops objects the dump holds, so any table added after the backup with a key onto a dumped table blocked the restore, which rolled back and exited with every service stopped; the documented rollback depended on it. The vault-mismatch message told the operator to copy the backup's env over `.env`, which brings a `POSTGRES_PASSWORD` the database volume does not follow. A failed backup left a folder `--keep` counted, and turning remote access off left the `cloudflared` container running.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "A restore loads into a fresh database and swaps it in, and one that fails before the swap starts the install again; the vault advice names only VAULT_SECRET; a failed backup leaves nothing --keep counts; a start without the tunnel removes it; .env stays owner-only and UTF-8 on every rewrite. Each in both shells, and under Windows PowerShell 5.1."
+        }
+      ],
+      "resolution": "The restore loads into `automate_restore`, swaps it in by rename, keeps the replaced database as `automate_previous`, and restarts on any failure before the swap. A backup is written under a hidden name and renamed when complete. Stop and uninstall always reach the tunnel."
+    },
+    {
+      "id": "PRO-12",
+      "title": "The audit trail accepted a DELETE and a TRUNCATE, a deleted prefix verified as intact, and the export held the whole trail in memory",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`0050_audit_chain.sql` refused only an UPDATE, and `audit_chain_breaks` never checked the first surviving chained row, so deleting a workspace's first rows left the chain reading as intact while the guides said deletes were refused. The export read every page inside the stream's `start()` without waiting for the reader, so a slow client made the API hold the trail, and its head came from a separate read that could name a row the file did not hold.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "tests/integration/src/audit-chain.test.ts",
+          "asserts": "DELETE and TRUNCATE are refused, and a chain whose first rows are gone is reported, on the real migration graph."
+        },
+        {
+          "path": "packages/db/src/audit-verify.test.ts",
+          "asserts": "audit:verify fails on a trail whose first row was deleted behind the guard."
+        },
+        {
+          "path": "apps/api/src/routes/audit.test.ts",
+          "asserts": "The export reads a page at a time as the client takes it, and ends with the head of the last row it streamed."
+        }
+      ],
+      "resolution": "`0052_audit_append_only.sql` adds DELETE and TRUNCATE guards and holds the first chained row to position 1 with no previous hash; the export is pull-based."
+    },
+    {
+      "id": "PRO-13",
+      "title": "Workspace dispatch, workspace routes, OTLP shutdown and sign-in had edge cases that answered wrongly",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "A revoked token cookie pinned a person to the default workspace; a malformed job id escape was a 500 before any credential was read; an installation-wide credential sent with a person's cookies landed in that person's chosen workspace; a default-workspace admin token beside anyone's session could create a workspace and make that person its admin; a default `WORKSPACE_ID` outside the id pattern could not be chosen back; the OTLP exporter's stop could outlast the 8 s shutdown budget; concurrent first sign-ins answered 409; and OIDC start answered 500 when discovery failed.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, each finding traced through the code; the test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/http/workspace-dispatch.test.ts",
+          "asserts": "A stale token falls through, a malformed job path does not throw, and an installation-wide credential is always the default workspace."
+        },
+        {
+          "path": "apps/api/src/routes/workspaces.test.ts",
+          "asserts": "Creating a workspace reads the person's own default-workspace admin membership, and the default can be chosen back whatever its id."
+        },
+        {
+          "path": "apps/api/src/observability/otlp-traces.test.ts",
+          "asserts": "stop() returns within its own short deadline when the collector never answers."
+        },
+        {
+          "path": "apps/api/src/services/user-service.test.ts",
+          "asserts": "Two first sign-ins at once make one person and one membership, and a returning email collision is refused as email-taken."
+        }
+      ],
+      "resolution": "Each is fixed where it was found, with the test above."
+    },
+    {
+      "id": "PRO-14",
+      "title": "Outside the default workspace no runner scan could start, and every workspace's AI usage was recorded in the default",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "Runners are one pool the installation shares, and every runner registers in the default workspace, but the health scan read runner capabilities in the asking workspace: outside the default every scanner read as not configured. The chat and test-proposal gateways were built once for the process and wrote every span under the default workspace, so a workspace's `GET /api/v1/chat/runtime` showed none of its own completions and the default's showed everyone's. The hourly span sweep pruned the default workspace alone.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, traced through `index.ts` and `routes/agent-quality.ts`; the tests named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/services/runner-pool.test.ts",
+          "asserts": "Every live runner's capabilities are offered whichever workspace's scan asks, and an offline runner's are not."
+        },
+        {
+          "path": "apps/api/src/services/genai-span-service.test.ts",
+          "asserts": "A workspace's gateway records its completions in that workspace under the agent name it was given, the default workspace reads none of them, and the hourly sweep prunes every workspace."
+        }
+      ],
+      "resolution": "`poolCapabilities` reads the installation's pool without a workspace filter. Each workspace composition builds its own gateways with `selfInstrumented`, and the sweep prunes one workspace at a time with `pruneExpiredSpansEverywhere`."
+    },
+    {
+      "id": "PRO-15",
+      "title": "OIDC admitted every account of an open provider without a word, and passed an email_verified of \"false\" sent as a string",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "With no `OIDC_ALLOWED_DOMAINS` and the default role `viewer`, a provider open to outside accounts made every account it signs in a viewer of the default workspace, and nothing at startup said so. Sign-in refused only a boolean `false` in `email_verified`, so the string some providers send read as verified.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, traced through `routes/oidc.ts` and `packages/config`; the tests named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "apps/api/src/startup-policy.test.ts",
+          "asserts": "identityWarning names OIDC with no allowed domains and a default role, and is quiet when either narrows who gets in."
+        },
+        {
+          "path": "apps/api/src/routes/oidc.test.ts",
+          "asserts": "An email_verified of false, or of the string \"false\", is refused as unverified."
+        }
+      ],
+      "resolution": "Startup logs a warning naming the two settings that narrow an open OIDC. It is not a refusal, because a provider registered for one organisation is the same configuration. The string is refused. An absent `email_verified` is still accepted, because Entra sends none, and the profiles guide says the email the provider asserts is trusted and that the app must be registered for one organisation."
+    },
+    {
+      "id": "PRO-16",
+      "title": "Behind the Cloudflare tunnel every request has the tunnel's address, so sign-in limits are shared and the audit trail records the tunnel",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "The edge appends its TCP peer to `X-Forwarded-For`, and the API keys the per-address sign-in limits and the audit row's address on that last hop. Behind the tunnel the peer is always the `cloudflared` container, so any person Access lets in can use up the sign-in limits for every remote user, and every remote audit row carries the same address.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, from `infra/nginx/edge.conf` and `defaultClientKey` in `routes/auth.ts`.",
+      "owner": "The repository owner.",
+      "removalCondition": "Closed when a request that reached the edge through the tunnel is keyed on the `CF-Connecting-IP` Cloudflare sets, a request from any other peer never is, and a test shows two remote visitors with separate sign-in limits and their own audit addresses.",
+      "resolution": "Recorded as debt, not fixed. Trusting the header safely needs the edge to accept it only on the tunnel's own connection and never from a client that sets it, which is a design of its own. Until then the remote guide says what is shared, and Access stands in front of every limit: nobody it refuses reaches them."
+    },
+    {
+      "id": "PRO-17",
+      "title": "Disabling or deprovisioning a person leaves the access tokens they created working",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "SCIM deactivation and disabling on _Members_ revoke the person's sessions and nothing else. Access tokens belong to the workspace and record who created them as free text, so a token a departed person made for CI keeps its role until an admin revokes it.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, traced through `routes/scim.ts`, `routes/members.ts` and `access_tokens.created_by`.",
+      "owner": "The repository owner.",
+      "removalCondition": "Closed when an access token records the person who created it by user id, and disabling or deprovisioning that person revokes it or makes an admin choose to keep it, with a test that a deprovisioned person's token is refused.",
+      "resolution": "Recorded as debt. Revoking a workspace's CI tokens because one person left would stop that workspace's pipelines without warning, so it stays the admin's decision: the profiles and remote guides say that disabling revokes no token, and where to revoke them."
+    },
+    {
+      "id": "PRO-18",
+      "title": "Scheduled backups never ran on an install with no backup yet, rewriting .env lost its mode or its non-ASCII text, and the guide overstated the trail",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "The cron and Task Scheduler recipes redirected into `backups/backup.log` before anything had made `backups/`, so on an install with no backup yet the shell could not open the log and the backup never started; on macOS cron's PATH has no docker either. Rewriting `.env` left it world-readable under umask 022 (sh) and turned non-ASCII text into `?` (ps1). The guide did not say that four audit columns are outside the hash, that the CSV export has no head, or that the artifact copy is taken while uploads may arrive, and it named `pnpm audit:verify`, which a release install does not have.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, from the recipes, the start scripts and `0050_audit_chain.sql`; the start-script test named in evidence failed before the fix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "Every rewrite of .env keeps it owner-only, without a BOM, and keeps text in any language."
+        },
+        {
+          "path": "site/guide/operations-enterprise.md",
+          "asserts": "The recipes create backups/ before the log is opened and set a PATH with docker on macOS; the guide names what the chain, the CSV export and the artifact copy do not cover, and checks the chain from the migrate image."
+        }
+      ],
+      "resolution": "The scripts write `.env` owner-only and as UTF-8 without a BOM. The guide's fixes are prose: nothing tests a recipe, so they hold only as long as the page is read before it is changed."
+    },
+    {
+      "id": "PRO-19",
+      "title": "Minor edges of several workspaces, enforced SSO and restore that the review found and this wave left open",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "open",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "Two admins demoting each other at once can both pass the last-admin check. The web create-workspace form shows for any admin of the current workspace, while the API allows only the installation's admin and the default workspace's. Under enforced SSO the workspace dispatch still reads a browser's token cookie and `GET /api/v1/auth/session` still reports an installation session, though neither signs anyone in. A restore skips the release check when `AUTOMATE_VERSION` was never written, leaving the migration count. GitHub webhooks reach the default workspace's projects only, which the profiles guide says.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed."
     }
   ]
 }

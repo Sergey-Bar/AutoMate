@@ -10,11 +10,15 @@ import { usage } from './errors.js';
  *   the clear.
  * - `AUTOMATE_TOKEN` — an `amt_` access token: `uploader` pinned to the project for CI.
  * - `AUTOMATE_PROJECT` — the project id, unless `--project` names it.
+ * - `AUTOMATE_CF_ACCESS_CLIENT_ID` and `AUTOMATE_CF_ACCESS_CLIENT_SECRET` — a Cloudflare
+ *   Access service token, for an install reached through a tunnel (ADR-014). Both or neither:
+ *   Access lets the request through, and the access token still decides what it may do.
  */
 export interface Target {
   origin: URL;
   token: string;
   project: string;
+  cloudflareAccess?: { clientId: string; clientSecret: string };
 }
 
 /**
@@ -67,7 +71,18 @@ export function resolveTarget(
       `Refusing ${origin.protocol}//${origin.host}: use https://, or http:// only to a loopback host, because the token would cross the network in the clear.`,
     );
   }
-  return { origin, token, project };
+  const clientId = env['AUTOMATE_CF_ACCESS_CLIENT_ID']?.trim() ?? '';
+  const clientSecret = env['AUTOMATE_CF_ACCESS_CLIENT_SECRET']?.trim() ?? '';
+  if ((clientId === '') !== (clientSecret === '')) {
+    throw usage(
+      `A Cloudflare Access service token has two halves; set ${
+        clientId === '' ? 'AUTOMATE_CF_ACCESS_CLIENT_ID' : 'AUTOMATE_CF_ACCESS_CLIENT_SECRET'
+      } too, or neither.`,
+    );
+  }
+  return clientId === ''
+    ? { origin, token, project }
+    : { origin, token, project, cloudflareAccess: { clientId, clientSecret } };
 }
 
 /** `/api/v1/projects/<id><suffix>`, with the id encoded. */

@@ -37,6 +37,38 @@ test('the entrypoint writes exactly the includes the config reads, and only with
   assert.match(ENTRYPOINT, /return 308 https:\/\//);
 });
 
+test('every API path an outside client calls is proxied to the API, over HTTP and HTTPS', () => {
+  // An identity provider calls SCIM at /scim/v2 (ADR-014). The edge proxied only /api/ to
+  // the API and everything else to the web container, so on the shipped stack SCIM answered
+  // with the dashboard's HTML. Derived from the authz matrix: a route outside /api/ that is
+  // not a container probe must have a location that reaches the API in both servers.
+  const matrix = JSON.parse(read('docs/quality/authz-matrix.json'));
+  const PROBES = new Set(['/health', '/ready', '/metrics']);
+  const prefixes = [
+    ...new Set(
+      matrix.routes
+        .map((/** @type {{ path: string }} */ route) => route.path)
+        .filter((/** @type {string} */ route) => !route.startsWith('/api/') && !PROBES.has(route))
+        .map((/** @type {string} */ route) => `/${route.split('/').slice(1, 3).join('/')}/`),
+    ),
+  ];
+  assert.deepEqual(prefixes, ['/scim/v2/']);
+  for (const [name, text] of [
+    ['edge.conf', EDGE_CONF],
+    ['40-automate-tls.sh', ENTRYPOINT],
+  ]) {
+    for (const prefix of prefixes) {
+      assert.match(
+        text,
+        new RegExp(
+          `location ${prefix.replaceAll('/', '\\/')} \\{\\s*proxy_pass http:\\/\\/automate_api;`,
+        ),
+        `${name} does not proxy ${prefix} to the API`,
+      );
+    }
+  }
+});
+
 test('the certificate script keeps an existing CA and issues a leaf an iPhone accepts', () => {
   // A new CA would have to be trusted again on every device; it is only replaced on request.
   assert.match(

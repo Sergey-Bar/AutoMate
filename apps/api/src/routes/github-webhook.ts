@@ -67,7 +67,8 @@ export function createGitHubWebhookRoutes(options: GitHubWebhookRouteOptions): H
     if (options.lanMode !== true || secret === undefined || secret.length === 0) {
       throw new DomainError(
         ErrorCode.WEBHOOK_NOT_CONFIGURED,
-        'The GitHub webhook receiver is off: it needs AUTOMATE_LAN_MODE=1 and GITHUB_WEBHOOK_SECRET',
+        'The GitHub webhook receiver is off: it needs AUTOMATE_LAN_MODE=1 or ' +
+          'AUTOMATE_REMOTE=cloudflare, and GITHUB_WEBHOOK_SECRET',
       );
     }
     await next();

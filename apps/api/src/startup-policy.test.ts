@@ -6,6 +6,7 @@ import {
   checkExposurePolicy,
   checkProductionPolicy,
   exposureWarning,
+  identityWarning,
   isProduction,
   resolveAuthSecrets,
 } from './startup-policy.js';
@@ -150,6 +151,126 @@ describe('checkExposurePolicy', () => {
         config({ exposedBind: '127.0.0.1', accessControl: 'open', lanMode: true }),
       ),
     ).toThrow(/ACCESS_CONTROL=open/);
+  });
+});
+
+describe('checkExposurePolicy and the deployment profile (ADR-014)', () => {
+  const parsed = (env: Record<string, string>): AppConfig =>
+    parseConfig({ NODE_ENV: 'development', ...env }, { requireProductionSecrets: false });
+
+  it('refuses team and enterprise with access control opened, naming both settings', () => {
+    for (const profile of ['team', 'enterprise']) {
+      expect(() =>
+        checkExposurePolicy(parsed({ AUTOMATE_PROFILE: profile, ACCESS_CONTROL: 'open' })),
+      ).toThrow(new RegExp(`AUTOMATE_PROFILE=${profile}.*ACCESS_CONTROL=open`, 'u'));
+    }
+  });
+
+  it('refuses solo on a reachable bind, even with a login, and names the profile that fits', () => {
+    expect(() =>
+      checkExposurePolicy(
+        parsed({ AUTOMATE_PROFILE: 'solo', AUTOMATE_BIND: '0.0.0.0', ACCESS_CONTROL: 'enforced' }),
+      ),
+    ).toThrow(/AUTOMATE_PROFILE=startup/u);
+  });
+
+  it('refuses solo beside LAN mode', () => {
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_PROFILE: 'solo', AUTOMATE_LAN_MODE: '1' })),
+    ).toThrow(/AUTOMATE_PROFILE=solo/u);
+  });
+
+  it('starts every profile in its own default shape', () => {
+    expect(() => checkExposurePolicy(parsed({}))).not.toThrow();
+    expect(() => checkExposurePolicy(parsed({ AUTOMATE_PROFILE: 'solo' }))).not.toThrow();
+    // Enterprise needs a single sign-on to enforce: the SSO block below covers it.
+    for (const profile of ['startup', 'team']) {
+      expect(() => checkExposurePolicy(parsed({ AUTOMATE_PROFILE: profile }))).not.toThrow();
+      expect(() =>
+        checkExposurePolicy(parsed({ AUTOMATE_PROFILE: profile, AUTOMATE_BIND: '0.0.0.0' })),
+      ).not.toThrow();
+    }
+  });
+
+  it('keeps an install from before profiles starting: LAN mode with no profile is startup', () => {
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_LAN_MODE: '1', AUTOMATE_BIND: '0.0.0.0' })),
+    ).not.toThrow();
+  });
+});
+
+describe('checkExposurePolicy and a Cloudflare tunnel (ADR-014)', () => {
+  const parsed = (env: Record<string, string>): AppConfig =>
+    parseConfig({ NODE_ENV: 'development', ...env }, { requireProductionSecrets: false });
+  const remote = {
+    AUTOMATE_REMOTE: 'cloudflare',
+    CF_ACCESS_TEAM_DOMAIN: 'acme',
+    CF_ACCESS_AUD: 'aud-1',
+  };
+
+  it('starts a tunnel with both Access settings and a login', () => {
+    expect(() => checkExposurePolicy(parsed(remote))).not.toThrow();
+    expect(() =>
+      checkExposurePolicy(parsed({ ...remote, AUTOMATE_PROFILE: 'team' })),
+    ).not.toThrow();
+  });
+
+  it('refuses a tunnel with access control opened, though the bind is loopback', () => {
+    // The bind check cannot see a tunnel: it dials out, and the bind stays 127.0.0.1.
+    expect(() => checkExposurePolicy(parsed({ ...remote, ACCESS_CONTROL: 'open' }))).toThrow(
+      /AUTOMATE_REMOTE=cloudflare.*ACCESS_CONTROL=open/u,
+    );
+  });
+
+  it('refuses a tunnel that cannot verify who Cloudflare let in, naming what is missing', () => {
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_REMOTE: 'cloudflare', CF_ACCESS_TEAM_DOMAIN: 'acme' })),
+    ).toThrow(/CF_ACCESS_AUD/u);
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_REMOTE: 'cloudflare', CF_ACCESS_AUD: 'aud-1' })),
+    ).toThrow(/CF_ACCESS_TEAM_DOMAIN/u);
+  });
+
+  it('refuses a solo install behind a tunnel', () => {
+    expect(() => checkExposurePolicy(parsed({ ...remote, AUTOMATE_PROFILE: 'solo' }))).toThrow(
+      /AUTOMATE_PROFILE=solo.*AUTOMATE_REMOTE/u,
+    );
+  });
+});
+
+describe('checkExposurePolicy and enforced single sign-on (ADR-014)', () => {
+  const parsed = (env: Record<string, string>): AppConfig =>
+    parseConfig({ NODE_ENV: 'development', ...env }, { requireProductionSecrets: false });
+
+  it('refuses enforced SSO with no single sign-on to enforce, naming both ways to add one', () => {
+    // Otherwise the only browser sign-in left would be break-glass.
+    expect(() => checkExposurePolicy(parsed({ AUTOMATE_PROFILE: 'enterprise' }))).toThrow(
+      /AUTH_SSO_ENFORCED.*OIDC_ISSUER.*AUTOMATE_REMOTE=cloudflare/u,
+    );
+  });
+
+  it('starts enterprise with OIDC, or with Cloudflare Access, or with SSO turned off', () => {
+    const oidc = {
+      OIDC_ISSUER: 'https://idp.example.com',
+      OIDC_CLIENT_ID: 'automate',
+      OIDC_CLIENT_SECRET: ['s', 'e', 'c', 'r', 'e', 't'].join(''),
+    };
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_PROFILE: 'enterprise', ...oidc })),
+    ).not.toThrow();
+    expect(() =>
+      checkExposurePolicy(
+        parsed({
+          AUTOMATE_PROFILE: 'enterprise',
+          AUTOMATE_REMOTE: 'cloudflare',
+          CF_ACCESS_TEAM_DOMAIN: 'acme',
+          CF_ACCESS_AUD: 'aud-1',
+        }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      checkExposurePolicy(parsed({ AUTOMATE_PROFILE: 'enterprise', AUTH_SSO_ENFORCED: '0' })),
+    ).not.toThrow();
   });
 });
 
@@ -328,5 +449,35 @@ describe('resolveAuthSecrets', () => {
       apiKey: 'a'.repeat(32),
     });
     expect(() => checkProductionPolicy(placeholder)).toThrow(/must not be a placeholder/);
+  });
+});
+
+describe('identityWarning (ADR-014)', () => {
+  const parsed = (env: Record<string, string>): AppConfig =>
+    parseConfig(
+      {
+        NODE_ENV: 'development',
+        OIDC_ISSUER: 'https://idp.example.com',
+        OIDC_CLIENT_ID: 'automate',
+        OIDC_CLIENT_SECRET: ['s', 'e', 'c', 'r', 'e', 't'].join(''),
+        ...env,
+      },
+      { requireProductionSecrets: false },
+    );
+
+  it('names OIDC that admits anyone the provider signs in, with the two settings that narrow it', () => {
+    // A Google client open to outside users, with no allowed domains and the default role,
+    // makes every Google account a viewer of the default workspace.
+    expect(identityWarning(parsed({}))).toMatch(/OIDC_ALLOWED_DOMAINS.*OIDC_DEFAULT_ROLE=none/u);
+  });
+
+  it('is quiet when a domain allowlist or a default role of none narrows who gets in', () => {
+    expect(identityWarning(parsed({ OIDC_ALLOWED_DOMAINS: 'example.com' }))).toBeUndefined();
+    expect(identityWarning(parsed({ OIDC_DEFAULT_ROLE: 'none' }))).toBeUndefined();
+    expect(
+      identityWarning(
+        parseConfig({ NODE_ENV: 'development' }, { requireProductionSecrets: false }),
+      ),
+    ).toBeUndefined();
   });
 });

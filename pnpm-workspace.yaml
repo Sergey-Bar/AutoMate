@@ -201,6 +201,10 @@ catalog:
   # Pinned exactly: it carries its own transitive tree (express, hono, ajv, jose), so a
   # minor bump is a reviewed change rather than one that arrives with an install.
   '@modelcontextprotocol/sdk': 1.32.2
+  # OIDC sign-in for the team profile (apps/api/src/services/oidc-service.ts, ADR-014).
+  # Certified, by the author of the jose the MCP SDK already brings; pinned exactly so an
+  # authentication library never changes with an install.
+  openid-client: 6.8.8
   pg: ^8.23.1
   prettier: ^3.9.10
   react: ^19.3.1

@@ -99,6 +99,32 @@ services:
       # install with no login refuses to start; AUTOMATE_LAN_MODE=1 turns sign-in on.
       AUTOMATE_BIND: ${AUTOMATE_BIND:-127.0.0.1}
       AUTOMATE_LAN_MODE: ${AUTOMATE_LAN_MODE:-0}
+      # solo, startup, team or enterprise (ADR-014). Empty is unset: solo, or startup with LAN mode.
+      AUTOMATE_PROFILE: ${AUTOMATE_PROFILE:-}
+      # Remote access through the `cloudflared` service below. The API verifies each request's
+      # Cf-Access-Jwt-Assertion against the team's keys and refuses to start a tunnel without
+      # access control and both Access settings (apps/api/src/startup-policy.ts).
+      AUTOMATE_REMOTE: ${AUTOMATE_REMOTE:-}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      CF_ACCESS_ROLE_MAP: ${CF_ACCESS_ROLE_MAP:-}
+      CF_ACCESS_DEFAULT_ROLE: ${CF_ACCESS_DEFAULT_ROLE:-}
+      # Single sign-on for `team` and `enterprise` (site/guide/profiles.md). The redirect URI
+      # the provider must register is PUBLIC_APP_URL above + /api/v1/auth/oidc/callback.
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ALLOWED_DOMAINS: ${OIDC_ALLOWED_DOMAINS:-}
+      OIDC_ROLE_MAP: ${OIDC_ROLE_MAP:-}
+      OIDC_DEFAULT_ROLE: ${OIDC_DEFAULT_ROLE:-}
+      # Empty is the profile's default: enforced on `enterprise`. Break-glass is audited.
+      AUTH_SSO_ENFORCED: ${AUTH_SSO_ENFORCED:-}
+      AUTOMATE_BREAK_GLASS: ${AUTOMATE_BREAK_GLASS:-}
+      # The API's request traces to your OTLP/HTTP collector. Empty is off: no outbound call.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-}
       ALLOWED_CLIENT_CIDRS: ${ALLOWED_CLIENT_CIDRS:-}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     depends_on:
@@ -261,6 +287,26 @@ services:
       MODE: native
     volumes:
       - signal_data:/home/.local/share/signal-cli
+    restart: unless-stopped
+
+  cloudflared:
+    # Optional: `start --remote cloudflare` (ADR-014). Cloudflare Tunnel dials out to
+    # Cloudflare, so nothing here is published and no router port is opened; the tunnel's
+    # public hostname points at `http://edge:8080`. A tunnel is still exposure, which is why
+    # the API refuses to start one without a login and both CF_ACCESS_* settings. The token
+    # comes from the Zero Trust dashboard and lives in .env, never in this file.
+    profiles: ['cloudflare']
+    image: cloudflare/cloudflared:2026.10.1
+    command: ['tunnel', '--no-autoupdate', 'run']
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      edge:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
 
 networks:

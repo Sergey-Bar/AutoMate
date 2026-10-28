@@ -46,13 +46,13 @@ its source, then run `pnpm site:generate`.
 | 5     | `not_configured` | not_configured: complexity ceiling is at most 10; not_configured: duplication is at most 3% on changed code; not_configured: every performance budget is measured in CI | `pnpm complexity && pnpm duplication && pnpm coverage:ratchet`             |
 | 6     | `not_configured` | not_configured: the instrumented product runs                                                                                                                           | `pnpm test:runner`                                                         |
 | 7     | `not_configured` | not_configured: every register row names a passing evidence command                                                                                                     | `pnpm capability:evidence`                                                 |
-| 8     | `not_configured` | not_configured: the evidence and audit chain is complete and immutable                                                                                                  | `pnpm --filter @automate/api test src/infrastructure/vault-crypto.test.ts` |
+| 8     | `pass`           | every clause checked and held                                                                                                                                           | `pnpm --filter @automate/api test src/infrastructure/vault-crypto.test.ts` |
 | 9     | `not_configured` | not_configured: the migration graph is proven on a real database                                                                                                        | `pnpm migrate:validate`                                                    |
 | 10    | `not_configured` | not_configured: `pnpm docs:check` is green                                                                                                                              | `pnpm docs:check`                                                          |
 | 11    | `not_configured` | not_configured: the gate runs against a diff                                                                                                                            | `pnpm review:pr --base main`                                               |
 | 12    | `not_configured` | not_configured: the site is live and passes its ten checks                                                                                                              | `SITE_DOCTOR_BUILT=1 pnpm site:doctor`                                     |
 
-**0 pass · 0 fail · 12 not_configured**
+**1 pass · 0 fail · 11 not_configured**
 
 - `fail` — checked, and it did not hold. Named.
 - `not_configured` — not checked, with a printed reason for why and for which parts did run.

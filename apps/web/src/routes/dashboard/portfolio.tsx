@@ -7,6 +7,9 @@ import { createHealthClient } from '../../lib/health-client.js';
 import { createAiCodeClient } from '../../lib/ai-code-client.js';
 import { createDeliveryClient } from '../../lib/delivery-client.js';
 import { AccessGate, AccessPage } from '../../components/Access.js';
+import { DeploymentPage } from '../../components/Deployment.js';
+import { AuditPage, MembersPage } from '../../components/People.js';
+import { createAdminClient } from '../../lib/admin-client.js';
 import { PairPage } from '../../components/Pairing.js';
 
 /** The landing page: every repository's grade, worst first. */
@@ -49,6 +52,27 @@ export const AccessRoute = createRoute({
   getParentRoute: () => dashboardRoute,
   path: '/access',
   component: () => <AccessPage health={createHealthClient()} />,
+});
+
+/** The people who signed in with single sign-on, and their roles here. An admin's page. */
+export const MembersRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/members',
+  component: () => <MembersPage health={createHealthClient()} admin={createAdminClient()} />,
+});
+
+/** The audit trail, whether its chain is intact, and its exports. An admin's page. */
+export const AuditRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/audit',
+  component: () => <AuditPage health={createHealthClient()} admin={createAdminClient()} />,
+});
+
+/** What this install is for (its deployment profile), who it lets in, and how to change it. */
+export const DeploymentRoute = createRoute({
+  getParentRoute: () => dashboardRoute,
+  path: '/deployment',
+  component: () => <DeploymentPage health={createHealthClient()} admin={createAdminClient()} />,
 });
 
 /** Where a pairing QR code lands. Spends the code, then opens the dashboard as that device. */

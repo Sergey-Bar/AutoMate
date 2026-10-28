@@ -1,5 +1,17 @@
 import { z } from 'zod/v4';
-import { DEFAULT_CLIENT_CIDRS, isWildcardBind, parseCidr } from './network.js';
+import { DEFAULT_CLIENT_CIDRS, isLoopbackBind, isWildcardBind, parseCidr } from './network.js';
+import { PROFILES, resolveProfileDefaults, type Profile } from './profiles.js';
+import {
+  ACCESS_ROLES,
+  REMOTE_MODES,
+  normalizeCloudflareTeamDomain,
+  parseCloudflareRoleMap,
+  parseRoleMap,
+  type AccessRole,
+  type CloudflareAccessConfig,
+  type RemoteMode,
+  type RoleRule,
+} from './remote.js';
 
 /** A comma-separated environment value as its trimmed, non-empty entries. */
 function splitList(value: string | undefined): string[] {
@@ -247,6 +259,47 @@ const EnvironmentSchema = z.object({
    */
   ACCESS_CONTROL: z.enum(['open', 'enforced']).optional(),
   /**
+   * The deployment profile (ADR-014). Unset, it is `solo` — unless LAN mode or an explicit
+   * `ACCESS_CONTROL=enforced` says the install already serves other people, which is
+   * `startup`. A profile sets defaults only; an explicit variable beside it wins.
+   */
+  AUTOMATE_PROFILE: z.enum(PROFILES).optional(),
+  /**
+   * `cloudflare`: the install is reached through Cloudflare Tunnel, and a verified Cloudflare
+   * Access identity is a credential (ADR-014). A tunnel is exposure even on a loopback bind,
+   * so the startup policy requires enforced access control and both settings below.
+   */
+  AUTOMATE_REMOTE: z.enum(REMOTE_MODES).optional(),
+  /** The Access team: `acme`, `acme.cloudflareaccess.com`, or its URL. */
+  CF_ACCESS_TEAM_DOMAIN: z.string().min(1).optional(),
+  /** The Access application's audience (AUD) tag. */
+  CF_ACCESS_AUD: z.string().min(1).optional(),
+  /** `role:who` rules; see `parseCloudflareRoleMap`. */
+  CF_ACCESS_ROLE_MAP: z.string().optional(),
+  /** The role of an Access identity no rule names. `none` admits only the named. */
+  CF_ACCESS_DEFAULT_ROLE: z.enum([...ACCESS_ROLES, 'none']).default('viewer'),
+  /** OIDC sign-in for the team profile (ADR-014): the provider's issuer URL. */
+  AUTH_SSO_ENFORCED: z
+    .enum(['1', 'true', 'yes', '0', 'false', 'no'])
+    .optional()
+    .transform((value) =>
+      value === undefined ? undefined : value === '1' || value === 'true' || value === 'yes',
+    ),
+  /** Lets the installation key sign a browser in while SSO is enforced. Audited every time. */
+  AUTOMATE_BREAK_GLASS: z
+    .enum(['1', 'true', 'yes', '0', 'false', 'no'])
+    .optional()
+    .transform((value) => value === '1' || value === 'true' || value === 'yes'),
+  OIDC_ISSUER: z.string().url().optional(),
+  OIDC_CLIENT_ID: z.string().min(1).optional(),
+  OIDC_CLIENT_SECRET: z.string().min(1).optional(),
+  /** Comma-separated email domains allowed to sign in. Unset: any the provider vouches for. */
+  OIDC_ALLOWED_DOMAINS: z.string().optional(),
+  /** `role:who` rules, the grammar of `CF_ACCESS_ROLE_MAP`. */
+  OIDC_ROLE_MAP: z.string().optional(),
+  /** The role of a person no rule names, on their first sign-in. `none` admits only the named. */
+  OIDC_DEFAULT_ROLE: z.enum([...ACCESS_ROLES, 'none']).default('viewer'),
+  /**
    * The one switch for serving other machines on the local network: access control on, the
    * client allowlist applied, and the start scripts allowed to publish beyond loopback.
    */
@@ -347,6 +400,18 @@ export type AppConfig = {
   trustProxy: boolean;
   /** `ACCESS_CONTROL`: whether the role guards refuse a caller with no credential. */
   accessControl: 'open' | 'enforced';
+  /** `AUTOMATE_PROFILE`, or the profile the other settings imply. */
+  profile: Profile;
+  /** `AUTOMATE_REMOTE`: how the install is reached from outside its network, if it is. */
+  remote?: RemoteMode;
+  /** Present when both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are set. */
+  cloudflareAccess?: CloudflareAccessConfig;
+  /** Present when `OIDC_ISSUER` and `OIDC_CLIENT_ID` are set. */
+  oidc?: OidcConfig;
+  /** `AUTH_SSO_ENFORCED`, or the profile's default: browsers sign in through SSO only. */
+  ssoEnforced: boolean;
+  /** `AUTOMATE_BREAK_GLASS`: the installation key may sign a browser in under enforced SSO. */
+  breakGlass: boolean;
   /** `AUTOMATE_LAN_MODE`: serve other machines on the local network. */
   lanMode: boolean;
   /**
@@ -419,7 +484,9 @@ export function parseConfig(
     ollamaBaseUrl: parsed.OLLAMA_BASE_URL,
     sessionTtlHours: parsed.SESSION_TTL_HOURS,
     trustProxy: parsed.TRUST_PROXY === 'true',
-    accessControl: parsed.ACCESS_CONTROL ?? (parsed.AUTOMATE_LAN_MODE ? 'enforced' : 'open'),
+    ...profileAndAccess(parsed),
+    ...remoteAccess(parsed),
+    ...oidcSignIn(parsed),
     lanMode: parsed.AUTOMATE_LAN_MODE,
     exposedBind: parsed.AUTOMATE_BIND ?? (isWildcardBind(parsed.HOST) ? DEFAULT_HOST : parsed.HOST),
     bindUndeclared: parsed.AUTOMATE_BIND === undefined && isWildcardBind(parsed.HOST),
@@ -434,6 +501,112 @@ export function parseConfig(
     retentionSweepIntervalSeconds: parsed.RETENTION_SWEEP_INTERVAL_SECONDS,
     deliverySyncIntervalMs: parsed.DELIVERY_SYNC_INTERVAL_MS,
     projectRoot: parsed.AUTOMATE_PROJECT_ROOT,
+  };
+}
+
+/**
+ * The profile, and the access control it defaults.
+ *
+ * An unset profile is derived rather than assumed: an install from before profiles that
+ * turned LAN mode or access control on already serves other people, and reading it as
+ * `solo` would make the startup policy refuse an install that was working.
+ */
+function profileAndAccess(
+  parsed: z.infer<typeof EnvironmentSchema>,
+): Pick<AppConfig, 'profile' | 'accessControl' | 'ssoEnforced' | 'breakGlass'> {
+  // An install that already serves other people: LAN mode, a tunnel, or a login turned on.
+  const serves =
+    parsed.AUTOMATE_LAN_MODE ||
+    parsed.AUTOMATE_REMOTE !== undefined ||
+    parsed.ACCESS_CONTROL === 'enforced';
+  const profile: Profile = parsed.AUTOMATE_PROFILE ?? (serves ? 'startup' : 'solo');
+  const defaults = resolveProfileDefaults(profile);
+  return {
+    profile,
+    accessControl:
+      parsed.ACCESS_CONTROL ??
+      (parsed.AUTOMATE_LAN_MODE || parsed.AUTOMATE_REMOTE !== undefined
+        ? 'enforced'
+        : defaults.accessControl),
+    ssoEnforced: parsed.AUTH_SSO_ENFORCED ?? defaults.ssoEnforced,
+    breakGlass: parsed.AUTOMATE_BREAK_GLASS,
+  };
+}
+
+/**
+ * Remote access settings. The team domain and role map are validated here so a malformed
+ * value stops the process at startup; a missing half leaves `cloudflareAccess` out, and the
+ * startup policy names what is missing when `AUTOMATE_REMOTE` asks for it.
+ */
+function remoteAccess(
+  parsed: z.infer<typeof EnvironmentSchema>,
+): Pick<AppConfig, 'remote' | 'cloudflareAccess'> {
+  const remote: Pick<AppConfig, 'remote' | 'cloudflareAccess'> = {};
+  if (parsed.AUTOMATE_REMOTE !== undefined) remote.remote = parsed.AUTOMATE_REMOTE;
+  const teamDomain =
+    parsed.CF_ACCESS_TEAM_DOMAIN === undefined
+      ? undefined
+      : normalizeCloudflareTeamDomain(parsed.CF_ACCESS_TEAM_DOMAIN);
+  const roleMap = parseCloudflareRoleMap(parsed.CF_ACCESS_ROLE_MAP);
+  if (teamDomain !== undefined && parsed.CF_ACCESS_AUD !== undefined) {
+    remote.cloudflareAccess = {
+      teamDomain,
+      audience: parsed.CF_ACCESS_AUD,
+      roleMap,
+      defaultRole: parsed.CF_ACCESS_DEFAULT_ROLE === 'none' ? null : parsed.CF_ACCESS_DEFAULT_ROLE,
+    };
+  }
+  return remote;
+}
+
+/** OIDC sign-in settings (ADR-014, the team profile). */
+export interface OidcConfig {
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  /** `PUBLIC_APP_URL` + `/api/v1/auth/oidc/callback`: what the provider must have registered. */
+  redirectUri: string;
+  /** Lowercased email domains allowed to sign in; empty allows any. */
+  allowedDomains: string[];
+  roleMap: RoleRule[];
+  /** The role of a person no rule names, on their first sign-in; `null` admits only the named. */
+  defaultRole: AccessRole | null;
+}
+
+/**
+ * OIDC sign-in. Off unless the issuer and the client id are both set. A client id without a
+ * secret is refused rather than read as a public client, and the issuer must be HTTPS unless
+ * it is on this machine: its keys sign every identity, and keys fetched in the clear prove
+ * nothing.
+ */
+function oidcSignIn(parsed: z.infer<typeof EnvironmentSchema>): Pick<AppConfig, 'oidc'> {
+  if (parsed.OIDC_ISSUER === undefined || parsed.OIDC_CLIENT_ID === undefined) return {};
+  const issuer = new URL(parsed.OIDC_ISSUER);
+  if (
+    issuer.protocol !== 'https:' &&
+    !(issuer.protocol === 'http:' && isLoopbackBind(issuer.hostname))
+  ) {
+    throw new Error(
+      `OIDC_ISSUER must use https:// (or http:// on this machine only); got ${parsed.OIDC_ISSUER}`,
+    );
+  }
+  if (parsed.OIDC_CLIENT_SECRET === undefined) {
+    throw new Error(
+      'OIDC_CLIENT_SECRET is required with OIDC_CLIENT_ID: register Automate with your identity ' +
+        'provider as a confidential web application and copy its client secret.',
+    );
+  }
+  const publicUrl = parsed.PUBLIC_APP_URL.replace(/\/+$/u, '');
+  return {
+    oidc: {
+      issuer: parsed.OIDC_ISSUER.replace(/\/+$/u, ''),
+      clientId: parsed.OIDC_CLIENT_ID,
+      clientSecret: parsed.OIDC_CLIENT_SECRET,
+      redirectUri: `${publicUrl}/api/v1/auth/oidc/callback`,
+      allowedDomains: splitList(parsed.OIDC_ALLOWED_DOMAINS).map((domain) => domain.toLowerCase()),
+      roleMap: parseRoleMap('OIDC_ROLE_MAP', parsed.OIDC_ROLE_MAP),
+      defaultRole: parsed.OIDC_DEFAULT_ROLE === 'none' ? null : parsed.OIDC_DEFAULT_ROLE,
+    },
   };
 }
 
