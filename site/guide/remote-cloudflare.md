@@ -75,7 +75,10 @@ unless you set it. Set `CF_ACCESS_DEFAULT_ROLE=none` to admit only the people th
 everyone else is refused with _forbidden_ rather than asked to sign in again.
 
 Access tokens and paired devices keep working beside Access, and a token presented with a
-request wins over the Cloudflare identity on it.
+request wins over the Cloudflare identity on it. So does the installation key's sign-in, which
+is how break-glass gets an admin in while your identity provider is down. With single sign-on
+enforced, a pasted token and a paired device no longer sign a browser in; CI's tokens still
+work.
 
 ## On team and enterprise, people are accounts
 
@@ -85,19 +88,30 @@ first time they arrive, just as an OIDC sign-in makes one. That gives you three 
 
 - **They appear on _Map → Members_**, where an admin changes their role, disables them or
   adds them to another workspace. Their role in each workspace is their membership there.
+  Removing them from a workspace ends that membership and nothing else. Disabling them is
+  their whole account, so a workspace's own admins can do it only for people who are in no
+  other workspace; the installation's admin and the default workspace's admins can for anyone.
 - **The role map still decides the default workspace.** A person a rule names gets that
   rule's role there on every request, so a change in your identity provider takes effect
-  straight away. Anyone else gets `CF_ACCESS_DEFAULT_ROLE` the first time, and keeps what an
-  admin gives them after that. Every other workspace is membership only.
+  straight away. Anyone else gets `CF_ACCESS_DEFAULT_ROLE` on their first visit, when their
+  account is made, and keeps what an admin gives them after that, including no role there once
+  an admin removes them: they are still let in to the workspaces they are a member of. Every
+  other workspace is membership only.
 - **SCIM reaches them.** A person your identity provider provisions is linked by email on
   their first visit and keeps the provisioned role. Deactivate them in the provider and
-  Automate refuses their next request, without waiting for their Access session to end. Set
-  `CF_ACCESS_DEFAULT_ROLE=none` to admit only the people SCIM or the map names.
+  Automate refuses their next request, without waiting for their Access session to end. Access
+  tokens they issued are the workspace's and keep working: revoke those on the Access page.
+  Set `CF_ACCESS_DEFAULT_ROLE=none` to admit only the people SCIM or the map names.
 
 A person is the Access team and its user id, never the email alone. So a person who already
 signed in through OIDC with the same email is refused through Access rather than merged with
 that account: use one of the two for people. A service token stays a machine on every
 profile, with the role map's role in every workspace.
+
+Automate does trust the email Access asserts: the role map's email rules are checked against
+it, and it is what links a person SCIM provisioned to their first visit. So let your own
+organisation's identity provider into the Access application, in a single-organisation
+configuration, and not a login that anyone can make an account with.
 
 ## CI through the tunnel
 
@@ -135,6 +149,32 @@ this tunnel.
 - **A LAN certificate and a tunnel do not mix on one port.** With `lan-cert` issued, the edge
   redirects plain HTTP to HTTPS. Point the tunnel at `https://edge:8443` with _No TLS Verify_
   instead, or skip the LAN certificate.
+
+## One address for everyone behind the tunnel
+
+Every request through the tunnel reaches Automate from the `cloudflared` container, so every
+remote user has the same address as far as Automate can tell. Until Automate reads the
+visitor's address that Cloudflare forwards, two things follow:
+
+- **Sign-in limits are shared.** The per-address limits on signing in count every remote user
+  together, so one person Access lets in can use them up for everyone until the window passes.
+  Nobody Access refuses ever reaches them.
+- **The audit trail records the tunnel's address**, not the visitor's. The actor, the time and
+  the request id are still each person's, and Cloudflare's Access logs keep the visitor's
+  address.
+
+## Turning it off
+
+1. Remove `AUTOMATE_REMOTE` and `TUNNEL_TOKEN` from `.env`, and from your shell if you
+   exported them.
+2. Run `./start.sh` (`.\start.cmd` on Windows). A start without the tunnel removes the
+   `cloudflared` container an earlier one left running; it restarts itself otherwise. `stop`
+   and `uninstall` reach it either way.
+3. Delete the tunnel in the Zero Trust dashboard, under _Networks → Tunnels_, so its token no
+   longer connects anything, and the Access application if nothing else uses it.
+
+`CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` can stay in `.env`: Automate reads them only while
+`AUTOMATE_REMOTE=cloudflare` is set.
 
 ## What has and has not been tested
 

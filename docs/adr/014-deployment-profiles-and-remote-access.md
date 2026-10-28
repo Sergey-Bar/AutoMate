@@ -43,15 +43,32 @@ control and both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, and `solo` refuses
 
 1. an access token (bearer or the `automate_token` cookie);
 2. a user session;
-3. a verified `Cf-Access-Jwt-Assertion`, only with `AUTOMATE_REMOTE=cloudflare`;
-4. the installation session (admin), which is break-glass only under enforced SSO;
+3. the installation session (admin), which is break-glass only under enforced SSO;
+4. a verified `Cf-Access-Jwt-Assertion`, only with `AUTOMATE_REMOTE=cloudflare`;
 5. access control `open`: the anonymous operator ADR-006 describes;
 6. otherwise nobody.
+
+The installation session comes before Access (amended 2026-10-28): behind the tunnel every
+request carries an Access identity, so read after it a break-glass sign-in was never read.
+Under enforced SSO without break-glass, the `automate_token` cookie and the installation
+session are not read at all; a bearer token is a pipeline's and still is.
 
 **Several workspaces per install.** The workspace comes from each request — a token's own
 workspace, or a user's membership — and `WORKSPACE_ID` becomes the default. `WORKSPACE_ID`
 stays the only tenancy _boundary_: there is still no row-level security, and every
 workspace-scoped read or write still needs a cross-workspace isolation test.
+
+**A person is one account across the installation; a membership is one workspace's**
+(amended 2026-10-28, after review). A workspace's admins and its SCIM connection manage that
+workspace's memberships: they add an existing person, set their role there and remove them,
+and a removal ends that membership and nothing else. The account itself — whether the person
+is disabled, their email, name and external id, all their sessions — is decided by the
+installation's own admin, the default workspace's admins and its SCIM connection, and by
+another workspace only for a person who belongs to no other. Otherwise any workspace admin
+could add a person by email and lock them out of every workspace, or re-address a provisioned
+person so that whoever holds the new address signs in as them. Installation-wide credentials
+(the reporter secret, the runner registration secret, runner and SCIM tokens) are always
+served by the default workspace.
 
 **SAML only through Cloudflare Access.** Cloudflare speaks SAML to the identity provider and
 the application verifies a JWT, so there is no XML signature handling in this codebase. The
@@ -86,7 +103,9 @@ token stays a machine on every profile.
   request to its workspace's composition. The workspace is read only from a credential the
   server trusts. Every store keeps the construction-time binding that the isolation tests
   already reason about, so no per-request value can be missed, and no ratchet is needed.
-  Runners are one pool the installation shares.
+  Runners are one pool the installation shares, so a scan in any workspace is offered every live
+  runner; the installation's own chat and test-proposal spans are recorded in the workspace
+  whose composition made the call (amended 2026-10-28, after review).
 - **`solo` behaves exactly as an install did before this record.** No variable is required
   that was not required before.
 
