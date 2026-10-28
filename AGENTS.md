@@ -294,9 +294,10 @@ pnpm --filter @automate/api exec vitest run src/routes/agents.test.ts -t "specif
 **E2E tests (Playwright):**
 
 ```bash
-pnpm test:e2e                # All projects
+pnpm test:e2e                # Every project but the two with a mode of their own: the rendering budget and the profile matrix
 pnpm test:e2e:api            # The API slice (vertical-slice project, "API" tests)
 pnpm test:e2e:vertical       # The vertical slice in full
+pnpm test:e2e:profiles       # The four deployment profiles, each booted from the API's entry point. pr-reporting until three stable runs
 npx playwright test e2e/some-file.spec.ts
 ```
 
