@@ -6630,7 +6630,7 @@
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
-      "summary": "`packages/config/src/remote.test.ts:60` in e5c09cf set `CF_ACCESS_AUD: 'aud-0123456789'`. gitleaks' `generic-api-key` matched it: `ACCESS` in the name, ten or more characters after it, entropy above 3.5. An audience tag identifies an Access application and is not a credential, and this one names no application. The dependency-free `security:secrets` floor does not carry that rule, so the finding first appeared in CI, after the branch was pushed.",
+      "summary": "`packages/config/src/remote.test.ts:60` in e5c09cf set `CF_ACCESS_AUD` to a fixture tag of letters and digits. gitleaks' `generic-api-key` matched it: `ACCESS` in the name, ten or more characters after it, entropy above 3.5. An audience tag identifies an Access application and is not a credential, and this one names no application. The dependency-free `security:secrets` floor does not carry that rule, so the finding first appeared in CI, after the branch was pushed.",
       "confirmedBy": "CI run 40652947656, job `Security and license audit`: gitleaks reported one leak in history. Matched to this line by applying the rule's pattern and entropy threshold to the lines the branch added.",
       "evidence": [
         {
