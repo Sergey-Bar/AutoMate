@@ -12,7 +12,7 @@ import {
   type CloudflareAccessVerifier,
 } from './cloudflare-access.js';
 import { createCloudflarePeople } from './cloudflare-people.js';
-import { WORKSPACE_COOKIE, resolveRequestWorkspace } from './workspace-dispatch.js';
+import { WORKSPACE_CHOICE, resolveRequestWorkspace } from './workspace-dispatch.js';
 import { createDatabaseWorkspaceLookups } from './workspace-lookups.js';
 
 /**
@@ -297,7 +297,7 @@ describe('the workspace dispatch', () => {
     const ask = async () =>
       (
         await app.request('/api/v1/runs', {
-          headers: { [CF_ACCESS_HEADER]: await h.header(ANA), cookie: `${WORKSPACE_COOKIE}=ws-2` },
+          headers: { [CF_ACCESS_HEADER]: await h.header(ANA), cookie: `${WORKSPACE_CHOICE}=ws-2` },
         })
       ).text();
     expect(await ask()).toBe('ws-1');

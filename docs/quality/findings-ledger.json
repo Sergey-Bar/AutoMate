@@ -6601,6 +6601,44 @@
         }
       ],
       "resolution": "From `team`, with a database, `apps/api/src/http/cloudflare-people.ts` signs the Access identity in on every request through the same `signInPerson` an OIDC sign-in uses, with the row rewritten at most every five minutes when nothing changed; each workspace resolves the caller from the membership, and the dispatch reads the same account. `startup` keeps the role map alone."
+    },
+    {
+      "id": "PRO-5",
+      "title": "start.cmd backup and restore failed when run from a PowerShell 7 terminal, because Windows PowerShell 5.1 could not load Get-FileHash",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`start.ps1` hashed each backup part with `Get-FileHash`. In Windows PowerShell 5.1 that is a function in the `Microsoft.PowerShell.Utility` script module, loaded on first use from `PSModulePath`. A PowerShell 7 terminal puts its own module directories first in `PSModulePath`, and `start.cmd` and the 5.1 process it launches inherit them, so 5.1 found PowerShell 7's edition of the module, could not load it, and answered that `Get-FileHash` does not exist: `backup` stopped after copying the artifacts, and `restore` refused every backup. Locally the suite passed because the shell that launched it was 5.1; the CI job `Start scripts on Windows` runs it from `pwsh`, which is the condition a PowerShell 7 user has.",
+      "confirmedBy": "CI run 40652947656, job `Start scripts on Windows`: three `start.ps1` backup and restore tests failed with \"The term 'Get-FileHash' is not recognized\". Reproduced on a development host by running the same tests under Windows PowerShell 5.1 from `pwsh`.",
+      "evidence": [
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "The start.ps1 backup, backup --keep and restore tests pass under Windows PowerShell 5.1 started from PowerShell 7, the CI job's condition; before the fix all three failed on Get-FileHash."
+        }
+      ],
+      "resolution": "`Get-FileSha256` hashes with `System.Security.Cryptography.SHA256` over a file stream, which needs no module, as `Get-TextSha256` beside it already did."
+    },
+    {
+      "id": "PRO-6",
+      "title": "A Cloudflare Access audience-tag fixture in a pushed commit reads to gitleaks as an API key",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`packages/config/src/remote.test.ts:60` in e5c09cf set `CF_ACCESS_AUD: 'aud-0123456789'`. gitleaks' `generic-api-key` matched it: `ACCESS` in the name, ten or more characters after it, entropy above 3.5. An audience tag identifies an Access application and is not a credential, and this one names no application. The dependency-free `security:secrets` floor does not carry that rule, so the finding first appeared in CI, after the branch was pushed.",
+      "confirmedBy": "CI run 40652947656, job `Security and license audit`: gitleaks reported one leak in history. Matched to this line by applying the rule's pattern and entropy threshold to the lines the branch added.",
+      "evidence": [
+        {
+          "path": "packages/config/src/remote.test.ts",
+          "asserts": "The audience fixture is a short word the rule cannot match, so no later commit can repeat the finding."
+        }
+      ],
+      "resolution": "The tip uses `aud-test`. The pushed commit keeps the old value, so its single finding is exempted by exact fingerprint in `.gitleaksignore`, the shape `scripts/static-analysis-config-check.mjs` allows. Rewriting a pushed branch is the owner's decision, not this row's."
     }
   ]
 }

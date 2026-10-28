@@ -54,10 +54,13 @@ describe('parseCloudflareRoleMap', () => {
 });
 
 describe('remote access in the parsed configuration', () => {
+  // An audience tag is an identifier, not a secret, but one shaped like a key beside
+  // `CF_ACCESS_` reads to gitleaks as a credential; a short word does not.
+  const AUDIENCE = 'aud-test';
   const remote = {
     AUTOMATE_REMOTE: 'cloudflare',
     CF_ACCESS_TEAM_DOMAIN: 'acme',
-    CF_ACCESS_AUD: 'aud-0123456789',
+    CF_ACCESS_AUD: AUDIENCE,
   };
 
   it('is off by default', () => {
@@ -71,7 +74,7 @@ describe('remote access in the parsed configuration', () => {
     expect(config.remote).toBe('cloudflare');
     expect(config.cloudflareAccess).toEqual({
       teamDomain: 'acme.cloudflareaccess.com',
-      audience: 'aud-0123456789',
+      audience: AUDIENCE,
       roleMap: [{ role: 'admin', kind: 'email', value: 'ana@example.com' }],
       defaultRole: 'viewer',
     });

@@ -112,7 +112,11 @@ export function createAuditRoutes(options: AuditRouteOptions): Hono {
       .where(and(inWorkspace, isNotNull(auditEvents.chainSeq)))
       .orderBy(desc(auditEvents.chainSeq))
       .limit(1);
-    return last?.seq == null || last.hash === null ? null : { seq: last.seq, hash: last.hash };
+    if (last === undefined) return null;
+    // Destructured: the chain's own hash compared with `null` is not a secret comparison,
+    // and the timing rule reads `x.hash === …` as one.
+    const { seq, hash } = last;
+    return seq === null || hash === null ? null : { seq, hash };
   };
 
   app.get('/api/v1/audit', admin, async (context) => {

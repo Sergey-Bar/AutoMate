@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  WORKSPACE_COOKIE,
+  WORKSPACE_CHOICE,
   createWorkspaceDispatch,
   resolveRequestWorkspace,
   type WorkspaceLookups,
@@ -42,13 +42,13 @@ async function resolve(
 describe('the request’s workspace', () => {
   it('is the default with no credential, whatever the request asks for', async () => {
     expect(await resolve({})).toBe(DEFAULT);
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=ws-b` })).toBe(DEFAULT);
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=ws-b` })).toBe(DEFAULT);
   });
 
   it('is a token’s own workspace, and a token cannot be pointed elsewhere', async () => {
     expect(await resolve({ authorization: 'Bearer amt_b' })).toBe('ws-b');
     expect(
-      await resolve({ authorization: 'Bearer amt_b', cookie: `${WORKSPACE_COOKIE}=ws-c` }),
+      await resolve({ authorization: 'Bearer amt_b', cookie: `${WORKSPACE_CHOICE}=ws-c` }),
     ).toBe('ws-b');
     expect(await resolve({ cookie: 'automate_token=amt_b' })).toBe('ws-b');
     // An unknown token stays at the default, where it is refused as unknown.
@@ -69,9 +69,9 @@ describe('the request’s workspace', () => {
       sessionUser: vi.fn(async () => 'u1'),
       memberships: vi.fn(async () => ['ws-b', DEFAULT]),
     };
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=ws-b` }, person)).toBe('ws-b');
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=ws-b` }, person)).toBe('ws-b');
     // Not a member of ws-c: the choice is ignored, not honoured.
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=ws-c` }, person)).toBe(DEFAULT);
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=ws-c` }, person)).toBe(DEFAULT);
   });
 
   it('is a person’s only workspace when they made no choice and are not in the default', async () => {
@@ -85,13 +85,13 @@ describe('the request’s workspace', () => {
 
   it('is whichever existing workspace the installation’s admin chose', async () => {
     const admin = { installationLevel: vi.fn(async () => true) };
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=ws-c` }, admin)).toBe('ws-c');
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=nowhere` }, admin)).toBe(DEFAULT);
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=ws-c` }, admin)).toBe('ws-c');
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=nowhere` }, admin)).toBe(DEFAULT);
   });
 
   it('ignores a cookie that is not a workspace id', async () => {
     const admin = { installationLevel: vi.fn(async () => true) };
-    expect(await resolve({ cookie: `${WORKSPACE_COOKIE}=..%2Fx` }, admin)).toBe(DEFAULT);
+    expect(await resolve({ cookie: `${WORKSPACE_CHOICE}=..%2Fx` }, admin)).toBe(DEFAULT);
   });
 });
 

@@ -8,7 +8,7 @@ import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { guard } from '../http/access.js';
 import { bearerToken } from '../http/bearer-token.js';
 import { BROWSER_SIGN_IN, isInstallationAdmin } from '../http/roles.js';
-import { WORKSPACE_COOKIE, WORKSPACE_ID_PATTERN } from '../http/workspace-dispatch.js';
+import { WORKSPACE_CHOICE, WORKSPACE_ID_PATTERN } from '../http/workspace-dispatch.js';
 import { isSecureFor, type SecureCookies } from '../http/secure-cookies.js';
 import { audit, hashToken, type Caller, type Role } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
@@ -142,7 +142,7 @@ export function createWorkspacesRoutes(options: WorkspacesRouteOptions): Hono {
     if (!entries.some((entry) => entry.id === parsed.data.workspaceId)) {
       throw new DomainError(ErrorCode.FORBIDDEN, 'You are not a member of that workspace');
     }
-    setCookie(context, WORKSPACE_COOKIE, parsed.data.workspaceId, {
+    setCookie(context, WORKSPACE_CHOICE, parsed.data.workspaceId, {
       httpOnly: true,
       sameSite: 'Lax',
       secure: isSecureFor(options.secureCookies, context),

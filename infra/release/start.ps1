@@ -300,8 +300,20 @@ function New-LanCertificate {
   Write-Output 'How to trust it on Windows, macOS, Linux, iPhone and Android: docs on LAN mode.'
 }
 
+# A file's sha256, through .NET rather than Get-FileHash. In Windows PowerShell 5.1,
+# Get-FileHash is a script-module function that has to be autoloaded, and started from a
+# PowerShell 7 terminal (which is what start.cmd inherits there), 5.1 finds 7's module first,
+# cannot load it, and reports that Get-FileHash does not exist.
 function Get-FileSha256([string]$Path) {
-  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+  $sha = [System.Security.Cryptography.SHA256]::Create()
+  $stream = [System.IO.File]::OpenRead((Resolve-Path -LiteralPath $Path).ProviderPath)
+  try {
+    $bytes = $sha.ComputeHash($stream)
+  } finally {
+    $stream.Dispose()
+    $sha.Dispose()
+  }
+  return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
 # A string's sha256. Used for the vault key, so a backup can say which key it needs without
