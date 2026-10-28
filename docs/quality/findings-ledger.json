@@ -6919,6 +6919,33 @@
       "confirmedOn": "2026-10-28",
       "summary": "Two admins demoting each other at once can both pass the last-admin check. The web create-workspace form shows for any admin of the current workspace, while the API allows only the installation's admin and the default workspace's. Under enforced SSO the workspace dispatch still reads a browser's token cookie and `GET /api/v1/auth/session` still reports an installation session, though neither signs anyone in. A restore skips the release check when `AUTOMATE_VERSION` was never written, leaving the migration count. GitHub webhooks reach the default workspace's projects only, which the profiles guide says.",
       "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed."
+    },
+    {
+      "id": "MNT-152",
+      "title": "The nightly mutation ratchet failed on main: shared-contracts and orchestration below their floors",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "The nightly run of 2026-10-28 on `5dd838e` failed `pnpm mutation:ratchet`: `packages/shared-contracts` 90.95 against a floor of 91.43, and `packages/orchestration` 96.46 against 96.53. They fell for different reasons. Schemas added to `shared-contracts` since the floor was set took it from 1,763 mutants to 3,206, and `src/schemas/health.ts` alone had 45 survivors. The refinements' issue paths and messages, the dimension label table, the trimming of administrator-typed names and four repository-URL rules (a trailing dash, an anchored scp form, an empty ssh host, DEL) were never asserted. `orchestration` gained no survivor at all: four killed mutants went with code removed from `state-machine.ts`, so the same seven equivalent survivors that MNT-91 left in place weighed more.",
+      "confirmedBy": "The nightly log, and the report it uploaded: 288 survived and 2 without coverage in `shared-contracts`, 7 survived in `orchestration`, each read by file and line.",
+      "evidence": [
+        {
+          "path": "packages/shared-contracts/src/schemas/health.test.ts",
+          "asserts": "The issue a grade and a triage decision fail with names its field and says why; every dimension label is readable and distinct; administrator-typed names are trimmed; and a repository URL is refused by the rule that names it, a trailing dash is not a leading one, an scp-style URL is the whole value, and an ssh URL needs a host."
+        },
+        {
+          "path": "packages/orchestration/src/phase-outcome.ts",
+          "asserts": "Membership is the set's alone: the guards in front of `has` that only repeated it are gone, which removes six of the seven equivalent mutants rather than disabling them."
+        },
+        {
+          "path": "docs/quality/mutation-baseline.json",
+          "asserts": "The floors are raised to the new readings, 92.29 and 99.43, so the gain cannot be spent silently."
+        }
+      ],
+      "resolution": "Measured with StrykerJS on Windows on 2026-10-28. `health.ts` went from 45 survivors to 2, and both are equivalent: `<=` against `<` for a space, which the whitespace test catches anyway, and an empty `catch` block whose `undefined` refuses the same as its `false`. That took `shared-contracts` to 92.29 (2,959 killed of 3,206). `orchestration` reads 99.43, and its one survivor is the equivalent hour guard in `schedule.ts`, left as MNT-91 left it. No mutant was excluded and no `// Stryker disable` was added."
     }
   ]
 }

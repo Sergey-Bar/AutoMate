@@ -2,11 +2,11 @@
   "target": 75,
   "packages": {
     "packages/shared-contracts": {
-      "score": 91.43,
-      "measuredOn": "2026-10-22",
-      "killed": 1611,
-      "timeout": 1,
-      "survived": 150,
+      "score": 92.29,
+      "measuredOn": "2026-10-28",
+      "killed": 2959,
+      "timeout": 0,
+      "survived": 246,
       "noCoverage": 1
     },
     "packages/reporting": {
@@ -26,11 +26,11 @@
       "noCoverage": 0
     },
     "packages/orchestration": {
-      "score": 96.53,
-      "measuredOn": "2026-10-22",
-      "killed": 195,
+      "score": 99.43,
+      "measuredOn": "2026-10-28",
+      "killed": 176,
       "timeout": 0,
-      "survived": 7,
+      "survived": 1,
       "noCoverage": 0
     },
     "packages/runner-sdk": {

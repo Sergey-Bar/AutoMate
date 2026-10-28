@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AiGovernancePolicySchema,
   BUILT_IN_REPORT_FORMATS,
   CORE_HEALTH_DIMENSIONS,
   EVAL_UPLOAD_FORMATS,
@@ -12,6 +13,7 @@ import {
   HEALTH_REPORT_FORMATS,
   LINE_COVERAGE_REPORT_FORMATS,
   MAX_TRACE_RETENTION_DAYS,
+  ModelPriceSchema,
   OPT_IN_HEALTH_DIMENSIONS,
   isEvalUploadFormat,
   isFindingReportFormat,
@@ -57,8 +59,11 @@ function grade(overrides: Partial<HealthGrade> = {}): HealthGrade {
 }
 
 describe('the health grade contract', () => {
-  it('labels every dimension', () => {
+  it('labels every dimension, with a label a reader can see and no two alike', () => {
     expect(Object.keys(HEALTH_DIMENSION_LABELS).sort()).toEqual([...HEALTH_DIMENSIONS].sort());
+    const labels = Object.values(HEALTH_DIMENSION_LABELS);
+    for (const label of labels) expect(label).toMatch(/^[A-Z][A-Za-z ]+$/u);
+    expect(new Set(labels).size).toBe(labels.length);
   });
 
   it('splits the dimensions into seven core and five opt-in, with no overlap', () => {
@@ -72,7 +77,14 @@ describe('the health grade contract', () => {
 
   it('requires a complete grade to name what limited it, and lets an incomplete one name nothing', () => {
     expect(HealthGradeSchema.safeParse(grade()).success).toBe(true);
-    expect(HealthGradeSchema.safeParse(grade({ cappedBy: null })).success).toBe(false);
+    // The issue names the field, so a client can say what is wrong rather than that something is.
+    expect(HealthGradeSchema.safeParse(grade({ cappedBy: null })).error?.issues).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        path: ['cappedBy'],
+        message: 'a complete grade always names what limited it',
+      }),
+    ]);
     expect(
       HealthGradeSchema.safeParse(
         grade({
@@ -147,6 +159,25 @@ describe('TriageFindingBodySchema', () => {
   ])('%j → %s', (body, valid) => {
     expect(TriageFindingBodySchema.safeParse(body).success).toBe(valid);
   });
+
+  it('names the field a decision is missing, and trims the owner', () => {
+    const issues = (body: unknown) => TriageFindingBodySchema.safeParse(body).error?.issues;
+    expect(issues({ state: 'suppressed' })).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        path: ['reason'],
+        message: 'a triage decision needs a reason',
+      }),
+    ]);
+    expect(issues({ state: 'accepted', reason: 'vendor fix due' })).toEqual([
+      expect.objectContaining({
+        code: 'custom',
+        path: ['expiresAt'],
+        message: 'an accepted risk needs an expiry',
+      }),
+    ]);
+    expect(TriageFindingBodySchema.parse({ state: 'open', owner: '  ana  ' }).owner).toBe('ana');
+  });
 });
 
 describe('GitRepositoryUrlSchema', () => {
@@ -166,8 +197,26 @@ describe('GitRepositoryUrlSchema', () => {
     ['https://github.com/o/r.git\n', false],
     ['https://github.com/o/r\u0000.git', false],
     ['not a url at all', false],
+    // A dash is refused only where git would read the value as an option.
+    ['https://github.com/o/r-', true],
+    // An scp-style URL is the whole value, not a part of it.
+    ['!git@github.com:o/r.git', false],
+    ['git@github.com:o/r.git!', false],
+    ['ssh:///o/r.git', false],
   ])('%j → %s', (url, valid) => {
     expect(GitRepositoryUrlSchema.safeParse(url).success).toBe(valid);
+  });
+
+  it('says which rule refused a URL', () => {
+    const shape = 'a repository URL has no whitespace, control characters or leading dash';
+    const transport =
+      'only https://, ssh:// or git@host:owner/repo URLs without credentials can be cloned';
+    const messages = (url: string) =>
+      GitRepositoryUrlSchema.safeParse(url).error?.issues.map((issue) => issue.message);
+    expect(messages('-uhttps://x')).toContain(shape);
+    // By code point: DEL is a control character the URL parser would percent-encode and keep.
+    expect(messages('https://github.com/o/r\u007f.git')).toEqual([shape]);
+    expect(messages('file:///etc/passwd')).toEqual([transport]);
   });
 });
 
@@ -230,5 +279,25 @@ describe('the health report formats', () => {
     expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: 80 } }).success).toBe(true);
     expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: 101 } }).success).toBe(false);
     expect(HealthPolicySchema.safeParse({ gate: { minDiffCoverage: -1 } }).success).toBe(false);
+  });
+});
+
+describe('the names an administrator types into a policy', () => {
+  it('are trimmed, so a label or a model matches what a provider sends', () => {
+    expect(
+      AiGovernancePolicySchema.parse({ agentLabels: [' agent '], assistedLabels: ['  ai  '] }),
+    ).toMatchObject({ agentLabels: ['agent'], assistedLabels: ['ai'] });
+    expect(
+      ModelPriceSchema.parse({
+        provider: ' openai ',
+        model: ' gpt-4o ',
+        inputPerMillionUsd: 2.5,
+        outputPerMillionUsd: 10,
+      }),
+    ).toMatchObject({ provider: 'openai', model: 'gpt-4o' });
+    expect(
+      HealthPolicySchema.parse({ delivery: { productionEnvironments: [' production '] } }).delivery
+        ?.productionEnvironments,
+    ).toEqual(['production']);
   });
 });
