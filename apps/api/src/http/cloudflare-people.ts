@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import type { CloudflareAccessConfig } from '@automate/config';
+import { perRequest } from './per-request.js';
 import type { Caller } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 import { callerForUser, signInPerson } from '../services/user-service.js';
@@ -65,7 +66,6 @@ export const CLOUDFLARE_TOUCH_AFTER_MS = 5 * 60_000;
 export function createCloudflarePeople(options: CloudflarePeopleOptions): CloudflarePeople {
   const issuer = `https://${options.access.teamDomain}`;
   const now = options.now ?? (() => new Date());
-  const seenOn = new WeakMap<Request, Promise<Seen | null>>();
 
   /** The account, provisioned on first sight; `null` for a machine or a refusal. */
   const signIn = async (identity: CloudflareIdentity): Promise<string | null> => {
@@ -86,18 +86,10 @@ export function createCloudflarePeople(options: CloudflarePeopleOptions): Cloudf
     return outcome.ok ? outcome.userId : null;
   };
 
-  const read = (context: Context): Promise<Seen | null> => {
-    const request = context.req.raw;
-    let seen = seenOn.get(request);
-    if (seen === undefined) {
-      seen = (async () => {
-        const identity = await verifiedIdentity(options.verifier, context, options.log);
-        return identity === null ? null : { identity, userId: await signIn(identity) };
-      })();
-      seenOn.set(request, seen);
-    }
-    return seen;
-  };
+  const read = perRequest(async (context): Promise<Seen | null> => {
+    const identity = await verifiedIdentity(options.verifier, context, options.log);
+    return identity === null ? null : { identity, userId: await signIn(identity) };
+  });
 
   return {
     userId: async (context) => (await read(context))?.userId ?? null,

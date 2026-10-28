@@ -14,6 +14,7 @@ import {
   createCloudflareCallerSource,
 } from './http/cloudflare-access.js';
 import { createCloudflarePeople } from './http/cloudflare-people.js';
+import { perRequest } from './http/per-request.js';
 import { createReporterRoutes } from './routes/reporter.js';
 import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
 import { createOidcRoutes } from './routes/oidc.js';
@@ -589,6 +590,16 @@ if (runtimeConfig.ssoEnforced === true && runtimeConfig.breakGlass === true) {
 }
 
 /**
+ * The browser session this request carries, read once per request (`http/per-request.ts`):
+ * the dispatch, the person check and the installation check all ask, and each read is a
+ * SELECT and a `last_used_at` write on the same row.
+ */
+const sessionOf = perRequest(async (context: Context) => {
+  const token = getCookie(context, 'automate_session');
+  return token === undefined ? undefined : authRoutes.sessions.validate(token);
+});
+
+/**
  * Origins allowed to make credentialed cross-origin requests.
  *
  * `PUBLIC_APP_URL` is the web client, which is where almost every install puts
@@ -852,9 +863,7 @@ function buildWorkspace(workspaceId: string) {
       ? {}
       : {
           authenticateSession: async (context: Context) => {
-            const session = getCookie(context, 'automate_session');
-            if (session === undefined) return null;
-            const record = await authRoutes.sessions.validate(session);
+            const record = await sessionOf(context);
             if (record?.userId === undefined) return null;
             // A disabled or deleted person's session is nobody, not the installation's.
             return (
@@ -870,9 +879,7 @@ function buildWorkspace(workspaceId: string) {
         }),
     // The installation's own session only: a person's session is never the admin by default.
     hasSession: async (context) => {
-      const session = getCookie(context, 'automate_session');
-      if (session === undefined) return false;
-      const record = await authRoutes.sessions.validate(session);
+      const record = await sessionOf(context);
       return record !== undefined && record.userId === undefined;
     },
   };
@@ -1387,12 +1394,8 @@ if (databaseResources !== undefined) {
     // A person's session, or — on team and enterprise behind Cloudflare Access — the account
     // Access signs in, so a person's memberships decide which workspace they may enter. The
     // order is `callerOf`'s: a person's session before an Access identity.
-    sessionUser: async (context) => {
-      const session = getCookie(context, 'automate_session');
-      const record =
-        session === undefined ? undefined : await authRoutes.sessions.validate(session);
-      return record?.userId ?? (await cloudflarePeople?.userId(context)) ?? null;
-    },
+    sessionUser: async (context) =>
+      (await sessionOf(context))?.userId ?? (await cloudflarePeople?.userId(context)) ?? null,
     installationLevel: async (context) =>
       isInstallationAdmin(await callerOf(context, accessResolver)),
   });
