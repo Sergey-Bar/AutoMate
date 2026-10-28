@@ -52,7 +52,13 @@ export const RUN_PHASES: readonly RunPhase[] = [
   'partial',
 ] as const satisfies readonly RunPhase[];
 
-const RUN_PHASE_SET: ReadonlySet<string> = new Set<string>(RUN_PHASES);
+/**
+ * Membership for any value: anything that is not one of the strings in the set, `null` and
+ * `undefined` included, is simply not in it. So no type check stands in front of `has`: a
+ * guard that only repeats what the set already answers is a second rule that can drift from
+ * it, and removing it changes nothing a test could see.
+ */
+const RUN_PHASE_SET: ReadonlySet<unknown> = new Set<unknown>(RUN_PHASES);
 
 /** Phases after which no further progress is possible. */
 export const TERMINAL_PHASES: readonly RunPhase[] = [
@@ -66,15 +72,15 @@ export const TERMINAL_PHASES: readonly RunPhase[] = [
   'partial',
 ] as const;
 
-const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set<string>(TERMINAL_PHASES);
+const TERMINAL_PHASE_SET: ReadonlySet<unknown> = new Set<unknown>(TERMINAL_PHASES);
 
 export function isTerminalPhase(phase: RunPhase | null | undefined): boolean {
-  return phase !== null && phase !== undefined && TERMINAL_PHASE_SET.has(phase);
+  return TERMINAL_PHASE_SET.has(phase);
 }
 
 /** True when a runner may name this phase in a `run.phase` event. */
 export function isRequestablePhase(phase: unknown): phase is RunPhase {
-  return typeof phase === 'string' && RUN_PHASE_SET.has(phase);
+  return RUN_PHASE_SET.has(phase);
 }
 
 /** The outcome each terminal phase implies, when the payload does not name one. */
@@ -102,7 +108,7 @@ export const COMPLETE_OUTCOMES: readonly Exclude<RunOutcome, null>[] = [
   'blocked',
 ] as const;
 
-const COMPLETE_OUTCOME_SET: ReadonlySet<string> = new Set<string>(COMPLETE_OUTCOMES);
+const COMPLETE_OUTCOME_SET: ReadonlySet<unknown> = new Set<unknown>(COMPLETE_OUTCOMES);
 
 /**
  * Run statuses, from the contract.
@@ -151,10 +157,9 @@ export function deriveRunState(requestedPhase: RunPhase, claimedOutcome: unknown
     return { phase: requestedPhase, outcome: implied, status: 'interrupted', terminal: true };
   }
 
-  const claimed =
-    typeof claimedOutcome === 'string' && COMPLETE_OUTCOME_SET.has(claimedOutcome)
-      ? (claimedOutcome as RunOutcome)
-      : undefined;
+  const claimed = COMPLETE_OUTCOME_SET.has(claimedOutcome)
+    ? (claimedOutcome as RunOutcome)
+    : undefined;
 
   const outcome: RunOutcome = claimed ?? implied ?? 'unknown';
   const status: RunStatus = outcome === 'passed' ? 'passed' : 'failed';
