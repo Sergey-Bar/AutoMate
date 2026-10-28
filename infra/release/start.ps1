@@ -29,6 +29,9 @@ $Project = if ($env:AUTOMATE_PROJECT) { $env:AUTOMATE_PROJECT } else { 'automate
 $ReleasesUrl = if ($env:AUTOMATE_RELEASES_URL) { $env:AUTOMATE_RELEASES_URL } else { 'https://api.github.com/repos/Sergey-Bar/AutoMate/releases/latest' }
 $ReadyTimeout = if ($env:AUTOMATE_READY_TIMEOUT) { [int]$env:AUTOMATE_READY_TIMEOUT } else { 180 }
 $EnvFile = Join-Path $PSScriptRoot '.env'
+# .env is UTF-8 without a byte-order mark, read and written: Compose reads a BOM as part of the
+# first name, and a comment or a value in another language has to survive a rewrite.
+$EnvEncoding = New-Object System.Text.UTF8Encoding $false
 
 function Fail([string]$Message) {
   [Console]::Error.WriteLine("automate: $Message")
@@ -79,34 +82,88 @@ function Initialize-EnvFile {
     "OBJECT_STORE_ACCESS_KEY_ID=$accessKey",
     "OBJECT_STORE_SECRET_ACCESS_KEY=$(New-Secret)"
   )
-  # ASCII without a byte-order mark: Compose reads a BOM as part of the first name.
-  [System.IO.File]::WriteAllText($EnvFile, (($lines -join "`n") + "`n"), (New-Object System.Text.ASCIIEncoding))
+  Write-EnvLines $lines
   Write-Output 'Created .env with new random secrets.'
+}
+
+function Read-EnvLines {
+  return [System.IO.File]::ReadAllLines($EnvFile, $EnvEncoding)
+}
+
+function Write-EnvLines([string[]]$Lines) {
+  [System.IO.File]::WriteAllText($EnvFile, (($Lines -join "`n") + "`n"), $EnvEncoding)
 }
 
 # A value from the environment first, then .env, then the default.
 function Get-Setting([string]$Name, [string]$Default) {
   $value = [Environment]::GetEnvironmentVariable($Name)
   if (-not $value -and (Test-Path -LiteralPath $EnvFile)) {
-    $line = Get-Content -LiteralPath $EnvFile | Where-Object { $_ -like "$Name=*" } | Select-Object -Last 1
+    $line = Read-EnvLines | Where-Object { $_ -like "$Name=*" } | Select-Object -Last 1
     if ($line) { $value = $line.Substring($Name.Length + 1) }
   }
   if ($value) { return $value } else { return $Default }
 }
 
+# The compose command line. The tunnel's profile is there while this install is remote, so
+# start, status and logs include it, and always with -AllProfiles: stop and uninstall have to
+# reach a tunnel an earlier --remote cloudflare started, which has `restart: unless-stopped`.
+function Get-ComposeArgs([switch]$AllProfiles) {
+  $composeArgs = @('compose', '-p', $Project, '--env-file', $EnvFile, '-f', (Join-Path $PSScriptRoot 'compose.yml'))
+  if ($AllProfiles -or (Get-Setting 'AUTOMATE_REMOTE' '') -eq 'cloudflare') { $composeArgs += @('--profile', 'cloudflare') }
+  return $composeArgs
+}
+
 function Invoke-Compose {
-  # The tunnel's profile, when this install is remote, so start/stop/status include it.
-  $profileArgs = if ((Get-Setting 'AUTOMATE_REMOTE' '') -eq 'cloudflare') { @('--profile', 'cloudflare') } else { @() }
-  & $Docker compose -p $Project --env-file $EnvFile -f (Join-Path $PSScriptRoot 'compose.yml') @profileArgs @args
+  $composeArgs = Get-ComposeArgs
+  & $Docker @composeArgs @args
   if ($LASTEXITCODE -ne 0) { Fail "docker compose $($args -join ' ') failed." }
+}
+
+function Invoke-ComposeAll {
+  $composeArgs = Get-ComposeArgs -AllProfiles
+  & $Docker @composeArgs @args
+  if ($LASTEXITCODE -ne 0) { Fail "docker compose $($args -join ' ') failed." }
+}
+
+# A compose step whose failure the caller handles: $true when it succeeded. Its output goes to
+# the console, so it cannot be mistaken for the answer.
+function Test-Compose {
+  $composeArgs = Get-ComposeArgs
+  & $Docker @composeArgs @args | Out-Host
+  return ($LASTEXITCODE -eq 0)
+}
+
+# Cleanup that may find nothing to clean: no output, and no failure. 'Continue' because Windows
+# PowerShell 5.1 turns a redirected stderr line into a terminating error under 'Stop'.
+function Invoke-ComposeQuietly {
+  $ErrorActionPreference = 'Continue'
+  $composeArgs = Get-ComposeArgs -AllProfiles
+  & $Docker @composeArgs @args *> $null
+}
+
+# SQL against the maintenance database, for what cannot run inside the database it changes:
+# creating, dropping and renaming databases. PostgreSQL refuses those while anyone else is
+# connected, so other sessions on the three a restore touches are ended first. Stops at the
+# first error.
+$AdminSql = @('exec', '-T', 'postgres', 'psql', '-U', 'automate', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1', '-tAq',
+  '-c', 'SET client_min_messages = warning',
+  '-c', "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('automate', 'automate_restore', 'automate_previous') AND pid <> pg_backend_pid()")
+
+# $true when every statement ran.
+function Invoke-AdminSql {
+  $sql = $AdminSql
+  foreach ($statement in $args) { $sql += @('-c', [string]$statement) }
+  $composeArgs = Get-ComposeArgs
+  & $Docker @composeArgs @sql | Out-Null
+  return ($LASTEXITCODE -eq 0)
 }
 
 # Sets NAME=VALUE in .env, replacing the line that is there. The value is written as given,
 # so a tunnel token's `/`, `+` and `=` are kept exactly.
 function Set-EnvValue([string]$Name, [string]$Value) {
-  $lines = @(Get-Content -LiteralPath $EnvFile | Where-Object { $_ -notlike "$Name=*" })
+  $lines = @(Read-EnvLines | Where-Object { $_ -notlike "$Name=*" })
   $lines += "$Name=$Value"
-  [System.IO.File]::WriteAllText($EnvFile, (($lines -join "`n") + "`n"), (New-Object System.Text.ASCIIEncoding))
+  Write-EnvLines $lines
 }
 
 # `--remote cloudflare`: the three values a tunnel needs, from the environment or .env, kept
@@ -180,9 +237,7 @@ function Assert-ProfileName([string]$Name) {
 function Set-Profile([string]$Name) {
   if (-not $Name) { Fail '--profile needs a value: solo, startup, team or enterprise.' }
   Assert-ProfileName $Name
-  $lines = @(Get-Content -LiteralPath $EnvFile | Where-Object { $_ -notlike 'AUTOMATE_PROFILE=*' })
-  $lines += "AUTOMATE_PROFILE=$Name"
-  [System.IO.File]::WriteAllText($EnvFile, (($lines -join "`n") + "`n"), (New-Object System.Text.ASCIIEncoding))
+  Set-EnvValue 'AUTOMATE_PROFILE' $Name
 }
 
 # What to do next, per profile. Printed after a start so the first run ends with an action.
@@ -224,6 +279,9 @@ function Start-Automate([string[]]$Options = @()) {
     Set-Remote $remoteWanted
   }
   Assert-Exposure
+  # Remote access turned off: the tunnel an earlier start left running is removed, or it would
+  # go on publishing the install. Nothing to remove is the usual case, so it is quiet.
+  if ((Get-Setting 'AUTOMATE_REMOTE' '') -ne 'cloudflare') { Invoke-ComposeQuietly rm --stop --force cloudflared }
   $port = Get-Setting 'AUTOMATE_PORT' '8080'
   $base = "http://localhost:$port"
   Write-Output 'Downloading the Automate images (the first run takes a few minutes)...'
@@ -245,9 +303,7 @@ function Start-Automate([string[]]$Options = @()) {
 }
 
 function Set-Version([string]$Version) {
-  $lines = @(Get-Content -LiteralPath $EnvFile | Where-Object { $_ -notlike 'AUTOMATE_VERSION=*' })
-  $lines += "AUTOMATE_VERSION=$Version"
-  [System.IO.File]::WriteAllText($EnvFile, (($lines -join "`n") + "`n"), (New-Object System.Text.ASCIIEncoding))
+  Set-EnvValue 'AUTOMATE_VERSION' $Version
 }
 
 function Update-Automate([string[]]$Rest) {
@@ -326,9 +382,13 @@ function Get-TextSha256([string]$Text) {
   return (($bytes | ForEach-Object { $_.ToString('x2') }) -join '')
 }
 
-# How many migrations the database has applied: the schema a backup was taken at.
+# How many migrations the database has applied: the schema a backup was taken at. 'Continue'
+# because Docker says on stderr that the stack is down, and Windows PowerShell 5.1 turns a
+# redirected stderr line into a terminating error under 'Stop'.
 function Get-MigrationCount {
-  $out = & $Docker compose -p $Project --env-file $EnvFile -f (Join-Path $PSScriptRoot 'compose.yml') exec -T postgres psql -U automate -d automate -tAc 'SELECT count(*) FROM drizzle.__drizzle_migrations' 2>$null
+  $ErrorActionPreference = 'Continue'
+  $composeArgs = Get-ComposeArgs
+  $out = & $Docker @composeArgs exec -T postgres psql -U automate -d automate -tAc 'SELECT count(*) FROM drizzle.__drizzle_migrations' 2>$null
   if ($LASTEXITCODE -ne 0) { return '' }
   return ((@($out) -join '') -replace '\s', '')
 }
@@ -384,36 +444,53 @@ function Backup-Automate([string[]]$Rest) {
   Assert-Docker
   $count = Get-MigrationCount
   if ($count -notmatch '^\d+$') { Fail "Could not read the database's migrations. Is Automate running? (.\start.cmd status)" }
-  $relative = 'backups/automate-' + (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+  $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+  $relative = "backups/automate-$stamp"
   $folder = Join-Path $PSScriptRoot $relative
-  New-Item -ItemType Directory -Force -Path $folder | Out-Null
-  Write-Output 'Backing up the database...'
-  Invoke-Compose exec -T postgres pg_dump -U automate -d automate -Fc -f /tmp/automate-backup.dump
-  Invoke-Compose cp postgres:/tmp/automate-backup.dump "$relative/database.dump"
-  Invoke-Compose exec -T postgres rm -f /tmp/automate-backup.dump
-  Write-Output 'Backing up stored artifacts...'
-  Invoke-Compose exec -T objectstore tar -C /data -cf /tmp/automate-objects.tar .
-  Invoke-Compose cp objectstore:/tmp/automate-objects.tar "$relative/objects.tar"
-  Invoke-Compose exec -T objectstore rm -f /tmp/automate-objects.tar
-  Copy-Item -LiteralPath $EnvFile -Destination (Join-Path $folder 'env')
-  $sums = foreach ($part in 'database.dump', 'objects.tar', 'env') {
-    "$(Get-FileSha256 (Join-Path $folder $part))  $part"
+  if (Test-Path -LiteralPath $folder) { Fail "$relative already exists. Run the backup again in a second." }
+  # Written under a hidden name and renamed once the manifest is in it, so a backup that fails
+  # part-way never leaves a folder that --keep counts. A failed one is removed: it holds a
+  # copy of the database.
+  $work = "backups/.automate-$stamp.partial"
+  $workPath = Join-Path $PSScriptRoot $work
+  if (Test-Path -LiteralPath $workPath) { Remove-Item -LiteralPath $workPath -Recurse -Force }
+  New-Item -ItemType Directory -Force -Path $workPath | Out-Null
+  $written = $false
+  try {
+    Write-Output 'Backing up the database...'
+    Invoke-Compose exec -T postgres pg_dump -U automate -d automate -Fc -f /tmp/automate-backup.dump
+    Invoke-Compose cp postgres:/tmp/automate-backup.dump "$work/database.dump"
+    Invoke-Compose exec -T postgres rm -f /tmp/automate-backup.dump
+    Write-Output 'Backing up stored artifacts...'
+    Invoke-Compose exec -T objectstore tar -C /data -cf /tmp/automate-objects.tar .
+    Invoke-Compose cp objectstore:/tmp/automate-objects.tar "$work/objects.tar"
+    Invoke-Compose exec -T objectstore rm -f /tmp/automate-objects.tar
+    Copy-Item -LiteralPath $EnvFile -Destination (Join-Path $workPath 'env')
+    $sums = foreach ($part in 'database.dump', 'objects.tar', 'env') {
+      "$(Get-FileSha256 (Join-Path $workPath $part))  $part"
+    }
+    Write-AsciiLines (Join-Path $workPath 'SHA256SUMS') $sums
+    Write-AsciiLines (Join-Path $workPath 'manifest.env') @(
+      'format=1',
+      "created=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))",
+      "version=$(Get-Setting 'AUTOMATE_VERSION' '')",
+      "migrations=$count",
+      "vault=$(Get-TextSha256 (Get-Setting 'VAULT_SECRET' ''))"
+    )
+    Move-Item -LiteralPath $workPath -Destination $folder
+    $written = $true
+  } finally {
+    # Fail exits through here too.
+    if (-not $written) { Remove-Item -LiteralPath $workPath -Recurse -Force -ErrorAction SilentlyContinue }
   }
-  Write-AsciiLines (Join-Path $folder 'SHA256SUMS') $sums
-  Write-AsciiLines (Join-Path $folder 'manifest.env') @(
-    'format=1',
-    "created=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))",
-    "version=$(Get-Setting 'AUTOMATE_VERSION' '')",
-    "migrations=$count",
-    "vault=$(Get-TextSha256 (Get-Setting 'VAULT_SECRET' ''))"
-  )
   Write-Output "Backup written to $relative"
   Write-Output 'It holds your secrets (the env file): store it like a password, and off this machine.'
   if ($null -ne $keep) { Remove-OldBackups ([int]$keep) }
 }
 
 # Removes the oldest backups beyond the newest N. Only folders named the way Backup-Automate
-# names them are counted or removed; anything else in backups\ is left alone.
+# names them are counted or removed, never a hidden .partial one; anything else in backups\ is
+# left alone.
 function Remove-OldBackups([int]$Keep) {
   $root = Join-Path $PSScriptRoot 'backups'
   # The names sort by time, so the newest are last.
@@ -427,15 +504,26 @@ function Remove-OldBackups([int]$Keep) {
   }
 }
 
+# A restore that stopped before the swap. This install's own database was never touched, so the
+# copy is dropped and Automate starts again on its own data rather than staying down.
+function Restore-Failed([string]$Message) {
+  Invoke-ComposeQuietly exec -T postgres rm -f /tmp/automate-restore.dump
+  Invoke-ComposeQuietly @AdminSql -c 'DROP DATABASE IF EXISTS automate_restore'
+  if (-not (Test-Compose up -d)) { Fail "$Message Nothing was replaced, but Automate could not be started again: run .\start.cmd." }
+  Fail "$Message Nothing was replaced: Automate is started again on its own data. The output above says why."
+}
+
 # Checks everything before it changes anything: every digest, the vault key, the release
-# and the schema. Then the install stops, the data is replaced, and it starts again.
+# and the schema. Then the install stops, the backup's database is loaded beside this one and
+# swapped in, the objects are replaced, and it starts again. An older backup is fine: the
+# newer release's migrations run forward on start.
 function Restore-Automate([string[]]$Rest) {
   $given = if ($Rest.Count -ge 1) { $Rest[0] } else { '' }
   $folder = if ($given -and [System.IO.Path]::IsPathRooted($given)) { $given } elseif ($given) { Join-Path $PSScriptRoot $given } else { '' }
   if (-not $folder -or -not (Test-Path -LiteralPath (Join-Path $folder 'manifest.env')) -or -not (Test-Path -LiteralPath (Join-Path $folder 'SHA256SUMS'))) {
     Fail "There is no backup at '$given'. Pass the folder '.\start.cmd backup' wrote, like backups\automate-20261027T120000Z."
   }
-  if (-not (Test-Path -LiteralPath $EnvFile)) { Fail "Restore into an install: copy $given\env to .env, then run this again." }
+  if (-not (Test-Path -LiteralPath $EnvFile)) { Fail "Restore into an install: copy $given\env to .env before its first start, start it (.\start.cmd), then run this again." }
   $manifest = Read-Manifest $folder
   if ($manifest['format'] -ne '1') { Fail "$given was written by a newer start script. Update first: .\start.cmd update" }
   $sums = Get-Content -LiteralPath (Join-Path $folder 'SHA256SUMS')
@@ -447,8 +535,10 @@ function Restore-Automate([string[]]$Rest) {
       Fail "$given\$part does not match its digest in SHA256SUMS: the backup is damaged. Nothing was restored."
     }
   }
+  # Only the vault key: this install's database keeps the POSTGRES_PASSWORD it was first started
+  # with and the dump carries no roles, so the backup's whole env over .env locks it out.
   if ($manifest['vault'] -ne (Get-TextSha256 (Get-Setting 'VAULT_SECRET' ''))) {
-    Fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. Keep a copy of .env, copy $given\env over it, then run the restore again."
+    Fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. On this install, keep a copy of .env, then set only VAULT_SECRET in it to the value in $given\env and run the restore again; the rest of .env stays, because this install's database keeps the POSTGRES_PASSWORD it was first started with. On a new host, copy $given\env to .env before the first start."
   }
   $taken = [string]$manifest['version']
   $current = Get-Setting 'AUTOMATE_VERSION' ''
@@ -464,13 +554,26 @@ function Restore-Automate([string[]]$Rest) {
     Fail "This backup has $wanted migrations and this install has ${have}: its schema is newer. Update first: .\start.cmd update"
   }
   Write-Output "Restoring $given. Automate stops while it runs."
-  Invoke-Compose stop api worker runner web edge objectstore
-  Invoke-Compose cp (Join-Path $folder 'database.dump') postgres:/tmp/automate-restore.dump
-  # One transaction: a restore that fails part-way leaves the database as it was.
-  Invoke-Compose exec -T postgres pg_restore -U automate -d automate --clean --if-exists --no-owner --single-transaction /tmp/automate-restore.dump
-  Invoke-Compose exec -T postgres rm -f /tmp/automate-restore.dump
+  if (-not (Test-Compose stop api worker runner web edge objectstore)) { Restore-Failed 'Automate could not be stopped for the restore.' }
+  # Into automate_restore, a new database beside this install's, so no table a newer release
+  # added here can block it. One transaction, so a load that fails part-way leaves it empty.
+  $loaded = (Invoke-AdminSql 'DROP DATABASE IF EXISTS automate_restore' 'CREATE DATABASE automate_restore') -and
+    (Test-Compose cp (Join-Path $folder 'database.dump') postgres:/tmp/automate-restore.dump) -and
+    (Test-Compose exec -T postgres pg_restore -U automate -d automate_restore --no-owner --single-transaction /tmp/automate-restore.dump)
+  if (-not $loaded) { Restore-Failed "The database in $given could not be restored." }
+  Invoke-ComposeQuietly exec -T postgres rm -f /tmp/automate-restore.dump
+  # Both renames in one statement, so in one transaction: either the restored database is
+  # automate, or nothing moved.
+  if (-not (Invoke-AdminSql 'DROP DATABASE IF EXISTS automate_previous' 'ALTER DATABASE automate RENAME TO automate_previous; ALTER DATABASE automate_restore RENAME TO automate')) {
+    Restore-Failed 'The restored database could not be swapped in.'
+  }
+  Write-Output 'The database it replaced is kept as automate_previous, until the next restore. Once this one is right, drop it from this folder:'
+  Write-Output "  docker compose -p $Project exec postgres psql -U automate -d postgres -c `"DROP DATABASE automate_previous`""
+  # The objects belong to the restored database, so they are replaced only once it is in.
   $mount = (Resolve-Path -LiteralPath $folder).Path + ':/backup:ro'
-  Invoke-Compose run --rm --no-deps -T -v $mount --entrypoint sh objectstore -c 'find /data -mindepth 1 -delete && tar -C /data -xf /backup/objects.tar'
+  if (-not (Test-Compose run --rm --no-deps -T -v $mount --entrypoint sh objectstore -c 'find /data -mindepth 1 -delete && tar -C /data -xf /backup/objects.tar')) {
+    Fail "The database is restored from $given, but its stored artifacts could not be put back, so Automate is left stopped. The output above says why."
+  }
   Invoke-Compose up -d
   $port = Get-Setting 'AUTOMATE_PORT' '8080'
   Wait-Ready "http://127.0.0.1:$port"
@@ -481,11 +584,11 @@ function Uninstall-Automate([string[]]$Rest) {
   Assert-Docker
   if (-not (Test-Path -LiteralPath $EnvFile)) { [System.IO.File]::WriteAllText($EnvFile, '') }
   if ($Rest.Count -ge 1 -and $Rest[0] -eq '--purge') {
-    Invoke-Compose down -v --remove-orphans
+    Invoke-ComposeAll down -v --remove-orphans
     Remove-Item -LiteralPath $EnvFile -Force
     Write-Output 'Automate is removed, with all of its data.'
   } else {
-    Invoke-Compose down --remove-orphans
+    Invoke-ComposeAll down --remove-orphans
     Write-Output 'Automate is removed. Your data and .env are kept; run .\start.cmd to start again.'
   }
 }
@@ -495,7 +598,7 @@ $rest = if ($args.Count -gt 1) { [string[]]$args[1..($args.Count - 1)] } else { 
 switch ($command) {
   'start' { Start-Automate $rest }
   { $_ -like '--profile*' -or $_ -like '--remote*' } { Start-Automate (@($command) + $rest) }
-  'stop' { Assert-Docker; Invoke-Compose stop }
+  'stop' { Assert-Docker; Invoke-ComposeAll stop }
   'status' { Assert-Docker; Invoke-Compose ps }
   'logs' { Assert-Docker; Invoke-Compose logs --tail 200 -f }
   'update' { Update-Automate $rest }

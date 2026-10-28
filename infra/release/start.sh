@@ -92,7 +92,7 @@ setting() {
 }
 
 compose() {
-  # The tunnel's profile, when this install is remote, so start/stop/status include it.
+  # The tunnel's profile, when this install is remote, so start, status and logs include it.
   if [ "$(setting AUTOMATE_REMOTE '')" = cloudflare ]; then
     "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml --profile cloudflare "$@"
   else
@@ -100,11 +100,22 @@ compose() {
   fi
 }
 
+# The tunnel's profile always, for stop and uninstall: a tunnel an earlier --remote cloudflare
+# started has `restart: unless-stopped`, so it outlives the setting until a command names it.
+compose_all() {
+  "$DOCKER" compose -p "$PROJECT" --env-file .env -f compose.yml --profile cloudflare "$@"
+}
+
 # Sets NAME=VALUE in .env, replacing the line that is there. Written without sed so a value
-# carrying `/`, `&` or `=` — a tunnel token does — is kept exactly.
+# carrying `/`, `&` or `=` — a tunnel token does — is kept exactly. The new file is owner-only,
+# as the first write made .env: it holds every secret, and the tunnel token.
 set_env_value() {
-  grep -v "^$1=" .env > .env.tmp || true
-  printf '%s=%s\n' "$1" "$2" >> .env.tmp
+  rm -f .env.tmp
+  (
+    umask 077
+    grep -v "^$1=" .env > .env.tmp || true
+    printf '%s=%s\n' "$1" "$2" >> .env.tmp
+  )
   mv .env.tmp .env
 }
 
@@ -196,11 +207,7 @@ next_step() {
 set_profile() {
   check_profile_name "$1"
   [ -n "$1" ] || fail "--profile needs a value: solo, startup, team or enterprise."
-  if grep -q '^AUTOMATE_PROFILE=' .env; then
-    sed "s/^AUTOMATE_PROFILE=.*/AUTOMATE_PROFILE=$1/" .env > .env.tmp && mv .env.tmp .env
-  else
-    printf 'AUTOMATE_PROFILE=%s\n' "$1" >> .env
-  fi
+  set_env_value AUTOMATE_PROFILE "$1"
 }
 
 # A reachable install with no login is refused, not warned about. The API refuses the same
@@ -252,6 +259,11 @@ start() {
     set_remote "$remote_wanted"
   fi
   check_exposure
+  # Remote access turned off: the tunnel an earlier start left running is removed, or it would
+  # go on publishing the install. Nothing to remove is the usual case, so it is quiet.
+  if [ "$(setting AUTOMATE_REMOTE '')" != cloudflare ]; then
+    compose_all rm --stop --force cloudflared >/dev/null 2>&1 || true
+  fi
   port="$(setting AUTOMATE_PORT 8080)"
   base="http://localhost:$port"
   say "Downloading the Automate images (the first run takes a few minutes)..."
@@ -281,11 +293,7 @@ latest_version() {
 }
 
 set_version() {
-  if grep -q '^AUTOMATE_VERSION=' .env; then
-    sed "s/^AUTOMATE_VERSION=.*/AUTOMATE_VERSION=$1/" .env > .env.tmp && mv .env.tmp .env
-  else
-    printf 'AUTOMATE_VERSION=%s\n' "$1" >> .env
-  fi
+  set_env_value AUTOMATE_VERSION "$1"
 }
 
 update() {
@@ -359,6 +367,36 @@ manifest_value() {
   sed -n "s/^$2=//p" "$1/manifest.env" | tail -n 1
 }
 
+# SQL against the maintenance database, for what cannot run inside the database it changes:
+# creating, dropping and renaming databases. PostgreSQL refuses those while anyone else is
+# connected, so other sessions on the three a restore touches are ended first. Stops at the
+# first error.
+admin_sql() {
+  compose exec -T postgres psql -U automate -d postgres -v ON_ERROR_STOP=1 -tAq \
+    -c 'SET client_min_messages = warning' \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname IN ('automate', 'automate_restore', 'automate_previous') AND pid <> pg_backend_pid()" \
+    "$@" >/dev/null
+}
+
+# The backup's database, loaded into automate_restore: a new database beside this install's,
+# so no table a newer release added here can block it. One transaction, so a load that fails
+# part-way leaves it empty.
+load_database() {
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_restore' -c 'CREATE DATABASE automate_restore' \
+    && compose cp "$1/database.dump" postgres:/tmp/automate-restore.dump \
+    && compose exec -T postgres pg_restore -U automate -d automate_restore --no-owner \
+      --single-transaction /tmp/automate-restore.dump
+}
+
+# A restore that stopped before the swap. This install's own database was never touched, so
+# the copy is dropped and Automate starts again on its own data rather than staying down.
+restore_failed() {
+  compose exec -T postgres rm -f /tmp/automate-restore.dump >/dev/null 2>&1 || true
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_restore' 2>/dev/null || true
+  compose up -d || fail "$1 Nothing was replaced, but Automate could not be started again: run ./start.sh."
+  fail "$1 Nothing was replaced: Automate is started again on its own data. The output above says why."
+}
+
 # The database, the stored artifacts and .env, each with a digest, into backups/. The
 # database is dumped consistently by pg_dump; artifact bytes are written once and never
 # changed, so a copy taken while the install runs is whole for every finished upload.
@@ -384,27 +422,37 @@ backup() {
     ''|*[!0-9]*) fail "Could not read the database's migrations. Is Automate running? (./start.sh status)" ;;
   esac
   umask 077
-  folder="backups/automate-$(date -u +%Y%m%dT%H%M%SZ)"
-  mkdir -p "$folder"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  folder="backups/automate-$stamp"
+  [ ! -e "$folder" ] || fail "$folder already exists. Run the backup again in a second."
+  # Written under a hidden name and renamed once the manifest is in it, so a backup that fails
+  # part-way never leaves a folder that --keep counts. A failed one is removed: it holds a
+  # copy of the database.
+  work="backups/.automate-$stamp.partial"
+  rm -rf -- "$work"
+  mkdir -p "$work"
+  trap 'rm -rf -- "$work"' EXIT
   say "Backing up the database..."
   compose exec -T postgres pg_dump -U automate -d automate -Fc -f /tmp/automate-backup.dump
-  compose cp postgres:/tmp/automate-backup.dump "$folder/database.dump"
+  compose cp postgres:/tmp/automate-backup.dump "$work/database.dump"
   compose exec -T postgres rm -f /tmp/automate-backup.dump
   say "Backing up stored artifacts..."
   compose exec -T objectstore tar -C /data -cf /tmp/automate-objects.tar .
-  compose cp objectstore:/tmp/automate-objects.tar "$folder/objects.tar"
+  compose cp objectstore:/tmp/automate-objects.tar "$work/objects.tar"
   compose exec -T objectstore rm -f /tmp/automate-objects.tar
-  cp .env "$folder/env"
+  cp .env "$work/env"
   for part in database.dump objects.tar env; do
-    printf '%s  %s\n' "$(sha256_of "$folder/$part")" "$part"
-  done > "$folder/SHA256SUMS"
+    printf '%s  %s\n' "$(sha256_of "$work/$part")" "$part"
+  done > "$work/SHA256SUMS"
   {
     say "format=1"
     say "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     say "version=$(setting AUTOMATE_VERSION '')"
     say "migrations=$count"
     say "vault=$(sha256_text "$(setting VAULT_SECRET '')")"
-  } > "$folder/manifest.env"
+  } > "$work/manifest.env"
+  mv "$work" "$folder"
+  trap - EXIT
   say "Backup written to $folder"
   say "It holds your secrets (the env file): store it like a password, and off this machine."
   [ -n "$keep" ] && prune_backups "$keep"
@@ -412,7 +460,8 @@ backup() {
 }
 
 # Removes the oldest backups beyond the newest N. Only folders named the way backup names
-# them are counted or removed; anything else in backups/ is left alone.
+# them are counted or removed, never a hidden .partial one; anything else in backups/ is left
+# alone.
 prune_backups() {
   # The names sort by time, so the newest are last.
   old="$(find backups -mindepth 1 -maxdepth 1 -type d -name 'automate-[0-9]*T[0-9]*Z' 2>/dev/null \
@@ -427,12 +476,14 @@ prune_backups() {
 }
 
 # Checks everything before it changes anything: every digest, the vault key, the release
-# and the schema. Then the install stops, the data is replaced, and it starts again.
+# and the schema. Then the install stops, the backup's database is loaded beside this one and
+# swapped in, the objects are replaced, and it starts again. An older backup is fine: the
+# newer release's migrations run forward on start.
 restore() {
   folder="${1:-}"
   { [ -n "$folder" ] && [ -f "$folder/manifest.env" ] && [ -f "$folder/SHA256SUMS" ]; } \
     || fail "There is no backup at '$folder'. Pass the folder './start.sh backup' wrote, like backups/automate-20261027T120000Z."
-  [ -f .env ] || fail "Restore into an install: copy $folder/env to .env, then run this again."
+  [ -f .env ] || fail "Restore into an install: copy $folder/env to .env before its first start, start it (./start.sh), then run this again."
   [ "$(manifest_value "$folder" format)" = 1 ] \
     || fail "$folder was written by a newer start script. Update first: ./start.sh update"
   for part in database.dump objects.tar env; do
@@ -441,8 +492,10 @@ restore() {
     [ -n "$expected" ] && [ "$(sha256_of "$folder/$part")" = "$expected" ] \
       || fail "$folder/$part does not match its digest in SHA256SUMS: the backup is damaged. Nothing was restored."
   done
+  # Only the vault key: this install's database keeps the POSTGRES_PASSWORD it was first started
+  # with and the dump carries no roles, so the backup's whole env over .env locks it out.
   [ "$(manifest_value "$folder" vault)" = "$(sha256_text "$(setting VAULT_SECRET '')")" ] \
-    || fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. Keep a copy of .env, copy $folder/env over it, then run the restore again."
+    || fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. On this install, keep a copy of .env, then set only VAULT_SECRET in it to the value in $folder/env and run the restore again; the rest of .env stays, because this install's database keeps the POSTGRES_PASSWORD it was first started with. On a new host, copy $folder/env to .env before the first start."
   taken="$(manifest_value "$folder" version)"
   current="$(setting AUTOMATE_VERSION '')"
   if [ -n "$taken" ] && [ -n "$current" ] && version_newer "$taken" "$current"; then
@@ -458,14 +511,21 @@ restore() {
   [ "$wanted" -le "$have" ] \
     || fail "This backup has $wanted migrations and this install has $have: its schema is newer. Update first: ./start.sh update"
   say "Restoring $folder. Automate stops while it runs."
-  compose stop api worker runner web edge objectstore
-  compose cp "$folder/database.dump" postgres:/tmp/automate-restore.dump
-  # One transaction: a restore that fails part-way leaves the database as it was.
-  compose exec -T postgres pg_restore -U automate -d automate --clean --if-exists --no-owner \
-    --single-transaction /tmp/automate-restore.dump
-  compose exec -T postgres rm -f /tmp/automate-restore.dump
+  compose stop api worker runner web edge objectstore \
+    || restore_failed "Automate could not be stopped for the restore."
+  load_database "$folder" || restore_failed "The database in $folder could not be restored."
+  compose exec -T postgres rm -f /tmp/automate-restore.dump >/dev/null 2>&1 || true
+  # Both renames in one statement, so in one transaction: either the restored database is
+  # automate, or nothing moved.
+  admin_sql -c 'DROP DATABASE IF EXISTS automate_previous' \
+    -c 'ALTER DATABASE automate RENAME TO automate_previous; ALTER DATABASE automate_restore RENAME TO automate' \
+    || restore_failed "The restored database could not be swapped in."
+  say "The database it replaced is kept as automate_previous, until the next restore. Once this one is right, drop it from this folder:"
+  say "  docker compose -p $PROJECT exec postgres psql -U automate -d postgres -c \"DROP DATABASE automate_previous\""
+  # The objects belong to the restored database, so they are replaced only once it is in.
   compose run --rm --no-deps -T -v "$(cd "$folder" && pwd):/backup:ro" --entrypoint sh objectstore \
-    -c 'find /data -mindepth 1 -delete && tar -C /data -xf /backup/objects.tar'
+    -c 'find /data -mindepth 1 -delete && tar -C /data -xf /backup/objects.tar' \
+    || fail "The database is restored from $folder, but its stored artifacts could not be put back, so Automate is left stopped. The output above says why."
   compose up -d
   port="$(setting AUTOMATE_PORT 8080)"
   wait_ready "http://127.0.0.1:$port"
@@ -476,11 +536,11 @@ uninstall() {
   require_docker
   [ -f .env ] || : > .env
   if [ "${1:-}" = "--purge" ]; then
-    compose down -v --remove-orphans
+    compose_all down -v --remove-orphans
     rm -f .env
     say "Automate is removed, with all of its data."
   else
-    compose down --remove-orphans
+    compose_all down --remove-orphans
     say "Automate is removed. Your data and .env are kept; run ./start.sh to start again."
   fi
 }
@@ -490,7 +550,7 @@ command="${1:-start}"
 case "$command" in
   start) start "$@" ;;
   --profile|--profile=*|--remote|--remote=*) start "$command" "$@" ;;
-  stop) require_docker; compose stop ;;
+  stop) require_docker; compose_all stop ;;
   status) require_docker; compose ps ;;
   logs) require_docker; compose logs --tail 200 -f ;;
   update) update "$@" ;;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  appendFileSync,
   chmodSync,
   cpSync,
   existsSync,
@@ -10,6 +11,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { createServer } from 'node:http';
@@ -75,6 +77,14 @@ appendFileSync(process.env.FAKE_DOCKER_LOG, JSON.stringify(args) + '\\n');
 const state = process.env.FAKE_DOCKER_STATE || 'running';
 if (args[0] === 'info' && state === 'stopped') process.exit(1);
 if (args[0] === 'compose' && args[1] === 'version' && state === 'no-compose') process.exit(1);
+// FAKE_DOCKER_FAIL fails the compose call one of whose arguments begins with it ('tar',
+// 'pg_restore', 'ALTER DATABASE'), the way a step inside a container fails: a line on stderr
+// and a non-zero status.
+const failing = process.env.FAKE_DOCKER_FAIL;
+if (failing && args[0] === 'compose' && args.some((arg) => arg.startsWith(failing))) {
+  process.stderr.write('fake docker: ' + failing + ' failed\\n');
+  process.exit(1);
+}
 // 'compose cp service:/path local' leaves a file behind, so a backup has bytes to digest.
 const cp = args.indexOf('cp');
 if (args[0] === 'compose' && cp !== -1) {
@@ -208,6 +218,57 @@ function readEnv(file) {
           ]),
       ),
   );
+}
+
+/** The three settings a tunnel needs. Assembled, not a literal: a tunnel token is a credential. */
+function tunnelSettings() {
+  return {
+    TUNNEL_TOKEN: ['eyJh', 'IjoiZmFrZSJ9', '/+='].join(''),
+    CF_ACCESS_TEAM_DOMAIN: 'acme',
+    CF_ACCESS_AUD: 'aud-0123',
+  };
+}
+
+/** @param {string} text @returns {(argv: string[]) => boolean} a psql call running `text` */
+function sql(text) {
+  return (argv) => argv.includes('psql') && argv.some((part) => part.includes(text));
+}
+
+/** @param {string[][]} all @param {(argv: string[]) => boolean} match @returns {number} */
+function lastCall(all, match) {
+  for (let at = all.length - 1; at >= 0; at -= 1) if (match(all[at])) return at;
+  return -1;
+}
+
+/** @param {string[]} argv */
+function startsAgain(argv) {
+  return argv[0] === 'compose' && argv.includes('up') && argv.includes('-d');
+}
+
+/** @param {string[]} argv */
+function replacesObjects(argv) {
+  return argv.includes('objectstore') && argv.some((part) => part.includes('objects.tar'));
+}
+
+/**
+ * An install that has started once and written one backup, for the restore tests.
+ *
+ * @param {'sh' | 'ps'} kind
+ * @param {{ dir: string, bin: string, log: string }} where
+ * @param {Record<string, string>} env
+ * @returns {Promise<string>} the backup's folder, relative to the install
+ */
+async function installWithBackup(kind, where, env) {
+  assert.equal((await run(kind, where, [], env)).status, 0);
+  assert.equal((await run(kind, where, ['backup'], env)).status, 0);
+  const [name] = readdirSync(path.join(where.dir, 'backups'));
+  assert.ok(name?.startsWith('automate-'), 'no backup to restore');
+  return path.join('backups', name ?? '');
+}
+
+/** @param {number} at milliseconds @returns {string} the folder name a backup started then gets */
+function backupName(at) {
+  return `automate-${new Date(at).toISOString().replace(/[-:]|\.\d{3}/gu, '')}`;
 }
 
 test('the cloudflare profile runs a tunnel that publishes nothing and is off by default', () => {
@@ -513,6 +574,16 @@ for (const [kind, shell] of /** @type {const} */ ([
         assert.notEqual(nothing.status, 0, nothing.output);
         assert.match(nothing.output, /nothing to back up/i);
         assert.equal((await run(kind, where, [], env)).status, 0);
+        // The database cannot be read, because the stack is down: Docker says so on stderr,
+        // and the script still answers in its own words. Windows PowerShell 5.1 turns a
+        // redirected stderr line into a terminating error under 'Stop'.
+        const down = await run(kind, where, ['backup'], {
+          ...env,
+          FAKE_DOCKER_FAIL: 'SELECT count(*)',
+        });
+        assert.notEqual(down.status, 0, down.output);
+        assert.match(down.output, /Is Automate running\?/u);
+        assert.equal(existsSync(path.join(where.dir, 'backups')), false, 'wrote a folder anyway');
         const created = await run(kind, where, ['backup'], env);
         assert.equal(created.status, 0, created.output);
         const backups = path.join(where.dir, 'backups');
@@ -598,6 +669,63 @@ for (const [kind, shell] of /** @type {const} */ ([
   );
 
   test(
+    `${label}: a backup that fails part-way leaves nothing --keep counts, and never writes into another`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const env = {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_VERSION: '3.2.0',
+          FAKE_MIGRATIONS: '34',
+        };
+        assert.equal((await run(kind, where, [], env)).status, 0);
+        const backups = path.join(where.dir, 'backups');
+        const good = 'automate-20260101T000000Z';
+        mkdirSync(path.join(backups, good), { recursive: true });
+        writeFileSync(path.join(backups, good, 'SHA256SUMS'), '');
+        // The artifacts step fails after the database has been copied out.
+        const failed = await run(kind, where, ['backup'], { ...env, FAKE_DOCKER_FAIL: 'tar' });
+        assert.notEqual(failed.status, 0, failed.output);
+        assert.deepEqual(
+          readdirSync(backups),
+          [good],
+          'a failed backup left a folder behind, with a copy of the database in it',
+        );
+        const kept = await run(kind, where, ['backup', '--keep', '2'], env);
+        assert.equal(kept.status, 0, kept.output);
+        const left = readdirSync(backups).sort();
+        assert.equal(left.length, 2, left.join(', '));
+        assert.equal(left[0], good, 'a good backup was pruned to make room for a failed one');
+        assert.doesNotMatch(kept.output, /Removed/u);
+
+        // Two backups in one second would share a name: the second refuses, rather than
+        // writing into the first.
+        const now = Date.now();
+        const taken = Array.from({ length: 30 }, (_, second) =>
+          backupName(now + second * 1000),
+        ).filter((name) => !existsSync(path.join(backups, name)));
+        for (const name of taken) mkdirSync(path.join(backups, name));
+        const clash = await run(kind, where, ['backup'], env);
+        assert.notEqual(clash.status, 0, clash.output);
+        assert.match(clash.output, /already exists/u);
+        for (const name of taken) {
+          assert.deepEqual(readdirSync(path.join(backups, name)), [], `${name} was written into`);
+        }
+        assert.deepEqual(
+          readdirSync(backups).filter((name) => !name.startsWith('automate-')),
+          [],
+          'a refused backup left something behind',
+        );
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
     `${label}: restore refuses a damaged, newer or foreign backup, and restores a good one`,
     { skip },
     async () => {
@@ -609,10 +737,7 @@ for (const [kind, shell] of /** @type {const} */ ([
           AUTOMATE_VERSION: '3.2.0',
           FAKE_MIGRATIONS: '34',
         };
-        assert.equal((await run(kind, where, [], base)).status, 0);
-        assert.equal((await run(kind, where, ['backup'], base)).status, 0);
-        const [name] = readdirSync(path.join(where.dir, 'backups'));
-        const folder = path.join('backups', name ?? '');
+        const folder = await installWithBackup(kind, where, base);
         const full = path.join(where.dir, folder);
         writeFileSync(where.log, '');
         const restored = () => calls(where.log).some((argv) => argv.includes('pg_restore'));
@@ -649,6 +774,16 @@ for (const [kind, shell] of /** @type {const} */ ([
         assert.notEqual(foreign.status, 0, foreign.output);
         assert.match(foreign.output, /VAULT_SECRET/);
         assert.equal(restored(), false, 'data was restored under a different vault key');
+        // The backup's whole env over this .env would bring its POSTGRES_PASSWORD too, which
+        // the database volume here does not follow: the one value to take is the vault key.
+        assert.match(foreign.output, /set only VAULT_SECRET/u);
+        assert.match(foreign.output, /new host.*before the first start/u);
+        assert.doesNotMatch(foreign.output, /over it/u);
+        // No install here yet: the backup's env goes in before the first start, not after.
+        rmSync(envFile);
+        const fresh = await run(kind, where, ['restore', folder], base);
+        assert.notEqual(fresh.status, 0, fresh.output);
+        assert.match(fresh.output, /before (its|the) first start/u);
         writeFileSync(envFile, original);
 
         // One byte changed in one part.
@@ -665,14 +800,37 @@ for (const [kind, shell] of /** @type {const} */ ([
         assert.equal(good.status, 0, good.output);
         const all = calls(where.log);
         assert.ok(restored(), 'the database was not restored');
+        // Into a new database, never over this install's: a table a newer release added here,
+        // with a foreign key onto a restored one, cannot block it, and a failure part-way
+        // leaves this install's data as it was.
+        const load = all.findIndex((argv) => argv.includes('pg_restore'));
+        const loadArgv = all[load];
+        assert.equal(loadArgv[loadArgv.indexOf('-d') + 1], 'automate_restore', loadArgv.join(' '));
+        assert.ok(loadArgv.includes('--single-transaction'), loadArgv.join(' '));
+        assert.equal(loadArgv.includes('--clean'), false, 'restored over the existing database');
+        const created = all.findIndex(sql('CREATE DATABASE automate_restore'));
+        assert.ok(created !== -1 && created < load, 'the database was not created fresh first');
         assert.ok(
-          all.some(
-            (argv) =>
-              argv.includes('objectstore') && argv.some((part) => part.includes('objects.tar')),
-          ),
-          'the objects were not restored',
+          all[created].includes('DROP DATABASE IF EXISTS automate_restore'),
+          'a copy left by an earlier restore is not dropped first',
         );
-        assert.ok(composeCall(all, 'up')?.includes('-d'), 'the install was not started again');
+        // Swapped in by two renames in one statement, so one cannot happen without the other.
+        const swap = all.findIndex(sql('RENAME TO'));
+        assert.ok(swap > load, 'the restored database was not swapped in after it loaded');
+        assert.ok(all[swap].includes('DROP DATABASE IF EXISTS automate_previous'));
+        assert.ok(
+          all[swap].includes(
+            'ALTER DATABASE automate RENAME TO automate_previous; ' +
+              'ALTER DATABASE automate_restore RENAME TO automate',
+          ),
+          all[swap].join(' '),
+        );
+        // The objects belong to the restored database, so they are replaced only after it.
+        const objects = all.findIndex(replacesObjects);
+        assert.ok(objects > swap, 'the objects were not restored after the swap');
+        assert.ok(lastCall(all, startsAgain) > objects, 'the install was not started again');
+        assert.match(good.output, /kept as automate_previous/u);
+        assert.match(good.output, /DROP DATABASE automate_previous/u);
       } finally {
         await server.close();
         where.cleanup();
@@ -688,12 +846,7 @@ for (const [kind, shell] of /** @type {const} */ ([
       const server = await readyServer();
       try {
         const base = { AUTOMATE_PORT: String(server.port) };
-        const tunnel = {
-          // Assembled, not a literal: a tunnel token is a credential.
-          TUNNEL_TOKEN: ['eyJh', 'IjoiZmFrZSJ9', '/+='].join(''),
-          CF_ACCESS_TEAM_DOMAIN: 'acme',
-          CF_ACCESS_AUD: 'aud-0123',
-        };
+        const tunnel = tunnelSettings();
         const half = await run(kind, where, ['--remote', 'cloudflare'], {
           ...base,
           CF_ACCESS_TEAM_DOMAIN: 'acme',
@@ -737,6 +890,156 @@ for (const [kind, shell] of /** @type {const} */ ([
         const again = await run(kind, where, [], base);
         assert.equal(again.status, 0, again.output);
         assert.ok(composeCall(calls(where.log), 'up')?.includes('cloudflare'), 'tunnel dropped');
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: a restore that fails before the swap drops its copy and starts the install again`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = {
+          AUTOMATE_PORT: String(server.port),
+          AUTOMATE_VERSION: '3.2.0',
+          FAKE_MIGRATIONS: '34',
+        };
+        const folder = await installWithBackup(kind, where, base);
+        // The load fails, then the swap. Either way this install's own database was never
+        // touched, so stopping here would be an outage that protects nothing.
+        for (const step of ['pg_restore', 'ALTER DATABASE']) {
+          writeFileSync(where.log, '');
+          const failed = await run(kind, where, ['restore', folder], {
+            ...base,
+            FAKE_DOCKER_FAIL: step,
+          });
+          assert.notEqual(failed.status, 0, failed.output);
+          const all = calls(where.log);
+          const at = all.findIndex((argv) => argv.some((part) => part.startsWith(step)));
+          assert.ok(at !== -1, `${step} never ran: ${failed.output}`);
+          const after = all.slice(at + 1);
+          assert.ok(after.some(startsAgain), `${step} failed and the install was left stopped`);
+          assert.ok(
+            after.some(sql('DROP DATABASE IF EXISTS automate_restore')),
+            `${step} failed and the half-restored copy was kept`,
+          );
+          assert.equal(all.some(replacesObjects), false, `${step} failed, objects were replaced`);
+          if (step === 'pg_restore') {
+            assert.equal(all.some(sql('RENAME')), false, 'a database was renamed after a failure');
+          }
+          assert.match(failed.output, /Nothing was replaced/u);
+        }
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: turning remote access off removes the tunnel, and stop and uninstall always reach it`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port) };
+        const remote = await run(kind, where, ['--profile', 'startup', '--remote', 'cloudflare'], {
+          ...base,
+          ...tunnelSettings(),
+        });
+        assert.equal(remote.status, 0, remote.output);
+        /** @param {string[]} argv */
+        const removal = (argv) => argv.includes('rm') && argv.includes('cloudflared');
+        assert.equal(calls(where.log).some(removal), false, 'a remote start removed its tunnel');
+
+        // Turned off the way the guide says: both lines out of .env, then a plain start. The
+        // container has `restart: unless-stopped`, so a start that leaves it alone leaves the
+        // install published.
+        const envFile = path.join(where.dir, '.env');
+        const lines = readFileSync(envFile, 'utf8').split('\n');
+        writeFileSync(
+          envFile,
+          lines.filter((line) => !/^(AUTOMATE_REMOTE|TUNNEL_TOKEN)=/u.test(line)).join('\n'),
+        );
+        writeFileSync(where.log, '');
+        const local = await run(kind, where, [], base);
+        assert.equal(local.status, 0, local.output);
+        const all = calls(where.log);
+        const removed = all.find(removal);
+        assert.ok(removed, 'the tunnel an earlier start left running was not removed');
+        assert.equal(removed[removed.indexOf('--profile') + 1], 'cloudflare', removed.join(' '));
+        assert.ok(removed.includes('--stop') && removed.includes('--force'), removed.join(' '));
+        assert.equal(composeCall(all, 'up')?.includes('cloudflare'), false, 'tunnel started');
+
+        for (const [verb, expected] of [
+          ['stop', 'stop'],
+          ['uninstall', 'down'],
+        ]) {
+          writeFileSync(where.log, '');
+          const result = await run(kind, where, [verb], {});
+          assert.equal(result.status, 0, result.output);
+          const call = composeCall(calls(where.log), expected);
+          assert.ok(call, `${verb} did not run compose ${expected}`);
+          assert.equal(
+            call[call.indexOf('--profile') + 1],
+            'cloudflare',
+            `${verb} cannot reach a tunnel left running: ${call.join(' ')}`,
+          );
+        }
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
+    `${label}: every rewrite of .env keeps it owner-only, without a BOM, and keeps text in any language`,
+    { skip },
+    async () => {
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port), ...tunnelSettings() };
+        assert.equal((await run(kind, where, [], base)).status, 0);
+        const envFile = path.join(where.dir, '.env');
+        // A comment and a value an operator added by hand, in UTF-8.
+        const note = '# Équipe QA : ne pas modifier — 東京';
+        const domains = 'OIDC_ALLOWED_DOMAINS=bücher.example';
+        appendFileSync(envFile, `${note}\n${domains}\n`, 'utf8');
+        for (const args of [
+          ['--profile', 'team'],
+          ['--profile', 'startup'],
+          ['--remote', 'cloudflare'],
+          ['update', '--version', '3.1.4'],
+          ['update', '--version', '3.1.5'],
+        ]) {
+          const what = args.join(' ');
+          const result = await run(kind, where, args, base);
+          assert.equal(result.status, 0, result.output);
+          const bytes = readFileSync(envFile);
+          assert.notDeepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf], `${what} wrote a BOM`);
+          const text = bytes.toString('utf8');
+          assert.ok(
+            text.includes(note) && text.includes(domains),
+            `${what} mangled .env:\n${text}`,
+          );
+          // Owner-only, as the first write made it: .env holds every secret, and the tunnel
+          // token. A Windows file system has no mode bits to read.
+          if (kind === 'sh' && process.platform !== 'win32') {
+            const mode = statSync(envFile).mode & 0o777;
+            assert.equal(mode, 0o600, `${what} left .env at ${mode.toString(8)}`);
+          }
+        }
+        assert.equal(readEnv(envFile).get('AUTOMATE_PROFILE'), 'startup');
+        assert.equal(readEnv(envFile).get('AUTOMATE_VERSION'), '3.1.5');
+        assert.equal(readEnv(envFile).get('TUNNEL_TOKEN'), tunnelSettings().TUNNEL_TOKEN);
       } finally {
         await server.close();
         where.cleanup();
