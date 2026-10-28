@@ -6965,6 +6965,25 @@
         }
       ],
       "resolution": "The limit is raised to 60 minutes. Running the suite once would be faster, but the two runs answer different questions (per-package coverage and a workspace-wide count), and folding them is a change to what the baseline measures, not to its budget. The next nightly is what shows the job finishing."
+    },
+    {
+      "id": "MNT-154",
+      "title": "The nightly mutation job was cancelled at its 90-minute limit before the ratchet ran",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "`pnpm mutation` runs Stryker over five packages in one job. On the two-core runner the job took 82 and 85 minutes on 2026-10-28, `packages/reporting` alone about 70 of them with 5,642 mutants, against a limit of 90. The run dispatched on `d48e416` was cancelled at 90 minutes with `reporting` 94% tested, so no report was uploaded and `mutation:ratchet` never ran: a floor that regressed that night would not have been seen. The comment beside the limit still read 'about 15 minutes on a developer laptop'.",
+      "confirmedBy": "The job logs of runs 40705965488 (82 minutes, success), 40664476015 (85 minutes) and 40731942729 (cancelled at 90 minutes, `Mutation testing 94%` the last progress line).",
+      "evidence": [
+        {
+          "path": ".github/workflows/nightly.yml",
+          "asserts": "The mutation job has 150 minutes, with the measured durations beside it."
+        }
+      ],
+      "resolution": "The limit is raised to 150 minutes. Splitting the job per package would finish sooner but is a change to how the ratchet reads its reports, not to its budget. The next nightly is what shows the job finishing."
     }
   ]
 }
