@@ -221,10 +221,12 @@ jobs:
   mutation:
     name: Mutation testing
     runs-on: ubuntu-24.04
-    # Five packages, one Stryker run each, `coverageAnalysis: perTest`. About 15 minutes on a
-    # developer laptop (shared-contracts alone is 6); a two-core runner is slower, and 90
-    # leaves room without letting a hung Vitest worker hold the runner for the default 6 hours.
-    timeout-minutes: 90
+    # Five packages, one Stryker run each, `coverageAnalysis: perTest`. 150, not 90: on the
+    # two-core runner the five took 82 and 85 minutes on 2026-10-28, `reporting` alone about
+    # 70 of them (5,642 mutants), and a third run was cancelled at 90 minutes with `reporting`
+    # 94% done, so its report and the ratchet never ran (MNT-154). 150 leaves the room the
+    # suite's growth needs without letting a hung Vitest worker hold the runner for 6 hours.
+    timeout-minutes: 150
     # `continue-on-error` until this job has run once on a GitHub runner: the floors in
     # `docs/quality/mutation-baseline.json` were measured on Windows, and a first run that
     # turns the whole nightly red for a platform difference is how a gate gets switched off.
