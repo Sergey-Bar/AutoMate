@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
-import { and, asc, eq, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, isNull, type SQL } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import type { AccessRole } from '@automate/config';
 import { DrizzleSessionStore, scimTokens, users, workspaceMembers } from '@automate/db';
@@ -10,6 +10,7 @@ import { bearerToken } from '../http/bearer-token.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
 import { audit } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
+import { memberElsewhere } from '../services/user-service.js';
 
 /**
  * SCIM 2.0 provisioning (RFC 7643/7644; ADR-014, enterprise): an identity provider creates
@@ -22,15 +23,27 @@ import type { ProjectRegistryServiceOptions } from '../services/project-registry
  * - **Groups are the three roles**, `automate-viewer`, `automate-operator` and `automate-admin`
  *   (ids `viewer`, `operator`, `admin`). Adding a person to one gives them that role; removing
  *   them returns them to the default role. Assign the groups in the identity provider's app.
+ *   Their names are fixed, so a rename changes nothing, and `displayName eq` finds one.
+ * - **A person is one account across the installation; a membership is one workspace's.** A
+ *   connection manages its own workspace's memberships: it adds a person (new, or one who
+ *   exists, by email), sets their group and removes them. The account — whether they are
+ *   active, their email, name and external id — is the default workspace's connection's to
+ *   change, and another workspace's only for a person who is a member nowhere else; anything
+ *   else is a 403. Otherwise a connection could re-address a person another workspace
+ *   provisioned, and whoever held the new address would sign in as them.
  *
  * A provisioned person has no issuer or subject until their first single sign-on, which links
- * the row by email (`signInPerson`). Disabling a person is installation-wide.
+ * the row by email (`signInPerson`). Removing a person ends their membership here; one left
+ * with no membership anywhere is disabled and signed out, so a later sign-in cannot recreate
+ * them.
  */
 export interface ScimRouteOptions extends Pick<
   ProjectRegistryServiceOptions,
   'db' | 'workspaceId'
 > {
   access: CallerResolver;
+  /** The installation's default workspace, whose connection decides every person's account. */
+  defaultWorkspace: string;
   /** The role a provisioned person starts with, and returns to when removed from a group. */
   defaultRole?: AccessRole;
 }
@@ -145,11 +158,55 @@ function patchFields(operation: { path?: string; value?: unknown }): Record<stri
     : {};
 }
 
+/**
+ * Whether one user patch attribute would change the account rather than repeat it: the three
+ * `applyUserField` sets, read the same way.
+ */
+function changesAccount(row: Row, path: string, value: unknown): boolean {
+  if (path.toLowerCase() === 'active') {
+    const active = booleanOf(value);
+    return active !== undefined && active !== (row.disabledAt === null);
+  }
+  if (path === 'displayName') return typeof value === 'string' && value !== row.displayName;
+  if (path === 'externalId') return typeof value === 'string' && value !== row.externalId;
+  return false;
+}
+
 /** The member ids in a group patch's value: `[{ value: id }, …]`. Anything else is none. */
 function memberIdsIn(value: unknown): string[] {
   return (Array.isArray(value) ? value : [])
     .map((entry: unknown) => (entry as { value?: unknown } | null)?.value)
     .filter((id): id is string => typeof id === 'string');
+}
+
+/**
+ * The member ids one group patch operation is about, or `null` when it is about something
+ * else. Only an operation on `members` names them: the path `members` (in any case), a path
+ * naming one member (`members[value eq "…"]`), or — the shape Okta sends — a value object
+ * with a `members` list. A rename, by path or in a value object, is not about members, and
+ * reading it as an empty member list demoted everyone in the group.
+ */
+function groupMembersIn(operation: { path?: string; value?: unknown }): string[] | null {
+  const path = operation.path?.trim() ?? '';
+  if (path === '') {
+    const members =
+      typeof operation.value === 'object' && operation.value !== null
+        ? (operation.value as { members?: unknown }).members
+        : undefined;
+    return Array.isArray(members) ? memberIdsIn(members) : null;
+  }
+  if (/^members$/iu.test(path)) return memberIdsIn(operation.value);
+  const one = /^members\[value eq "([^"]+)"\]$/iu.exec(path)?.[1];
+  return one === undefined ? null : [one];
+}
+
+/** The groups a `displayName eq "…"` filter names, every group with none, `null` for others. */
+function groupsFiltered(filter: string | undefined): AccessRole[] | null {
+  if (filter === undefined || filter.trim() === '') return [...ROLES];
+  const match = /^\s*displayName\s+eq\s+"([^"]*)"\s*$/iu.exec(filter);
+  if (match === null) return null;
+  const name = (match[1] ?? '').toLowerCase();
+  return ROLES.filter((role) => `automate-${role}` === name);
 }
 
 const UserBodySchema = z.object({
@@ -264,6 +321,24 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     audit(
       { db: options.db, workspaceId: scope.workspaceId },
       { actor: `scim:${scope.tokenId}`, action, resourceType: 'user', resourceId: userId, details },
+    );
+
+  /**
+   * Whether this connection decides the person's account, rather than only their membership
+   * in its workspace: the default workspace's connection always, another's only for a person
+   * who is a member of no other workspace.
+   */
+  const decidesAccount = async (scope: ScimScope, userId: string): Promise<boolean> =>
+    scope.workspaceId === options.defaultWorkspace ||
+    !(await memberElsewhere({ db: options.db, workspaceId: scope.workspaceId }, userId));
+
+  const notYours = (context: Context) =>
+    scimError(
+      context,
+      403,
+      'This person also belongs to another workspace: only the provisioning connection of the ' +
+        'installation (its default workspace) can change their account. This one can change ' +
+        'their group here, or remove them from this workspace.',
     );
 
   const setActive = async (scope: ScimScope, userId: string, active: boolean) => {
@@ -453,18 +528,29 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     const parsed = UserBodySchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return scimError(context, 400, 'The user is not valid', 'invalidValue');
     const email = emailOf(parsed.data);
-    await options.db
-      .update(users)
-      .set({
-        email,
-        displayName: displayNameOf(parsed.data, email),
-        externalId: parsed.data.externalId ?? row.externalId,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, row.id));
+    const next = {
+      email,
+      displayName: displayNameOf(parsed.data, email),
+      externalId: parsed.data.externalId ?? row.externalId,
+    };
     const active = booleanOf(parsed.data.active);
-    if (active !== undefined && active !== (row.disabledAt === null))
-      await setActive(scope, row.id, active);
+    // Set only when the replace moves the person between active and not.
+    const activeChange = active === (row.disabledAt === null) ? undefined : active;
+    const rewrites =
+      next.email !== row.email ||
+      next.displayName !== row.displayName ||
+      next.externalId !== row.externalId;
+    // A replace that repeats the account is answered; one that changes it needs the account.
+    if ((rewrites || activeChange !== undefined) && !(await decidesAccount(scope, row.id))) {
+      return notYours(context);
+    }
+    if (rewrites) {
+      await options.db
+        .update(users)
+        .set({ ...next, updatedAt: new Date() })
+        .where(eq(users.id, row.id));
+    }
+    if (activeChange !== undefined) await setActive(scope, row.id, activeChange);
     return scimJson(
       context,
       userResource((await one(scope.workspaceId, row.id)) as Row, base(context)),
@@ -477,11 +563,13 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     if (row === undefined) return scimError(context, 404, 'No such user');
     const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return scimError(context, 400, 'The patch is not valid', 'invalidSyntax');
-    for (const operation of parsed.data.Operations) {
-      if (!/^(replace|add)$/iu.test(operation.op)) continue;
-      for (const [path, value] of Object.entries(patchFields(operation))) {
-        await applyUserField(scope, row.id, path, value);
-      }
+    const fields = parsed.data.Operations.filter((operation) =>
+      /^(replace|add)$/iu.test(operation.op),
+    ).flatMap((operation) => Object.entries(patchFields(operation)));
+    // A patch that only repeats the account changes nothing, and is answered as it stands.
+    if (fields.some(([path, value]) => changesAccount(row, path, value))) {
+      if (!(await decidesAccount(scope, row.id))) return notYours(context);
+      for (const [path, value] of fields) await applyUserField(scope, row.id, path, value);
     }
     return scimJson(
       context,
@@ -501,19 +589,17 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
           eq(workspaceMembers.userId, row.id),
         ),
       );
-    const [elsewhere] = await options.db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(workspaceMembers)
-      .where(eq(workspaceMembers.userId, row.id));
-    const now = new Date();
-    // A person with no role anywhere is disabled, so a later sign-in cannot recreate them.
-    if ((elsewhere?.n ?? 0) === 0) {
+    // The membership here, and nothing else while the person has one elsewhere: roles are read
+    // per request. A person with no role anywhere is disabled and signed out, so a later
+    // sign-in cannot recreate them.
+    if (!(await memberElsewhere({ db: options.db, workspaceId: scope.workspaceId }, row.id))) {
+      const now = new Date();
       await options.db
         .update(users)
         .set({ disabledAt: now, updatedAt: now })
         .where(eq(users.id, row.id));
+      await sessions.revokeForUser(row.id, now);
     }
-    await sessions.revokeForUser(row.id, now);
     await record(scope, 'scim.user.delete', row.id);
     return context.body(null, 204);
   });
@@ -531,8 +617,14 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
 
   app.get('/scim/v2/Groups', scim, async (context) => {
     const scope = scopeOf(context);
+    // A provider looks a group up by name before it links or pushes it, and takes the first
+    // answer: every group for any filter would have linked automate-admin to the viewers.
+    const roles = groupsFiltered(context.req.query('filter'));
+    if (roles === null) {
+      return scimError(context, 400, 'Only displayName eq filters are supported', 'invalidFilter');
+    }
     const resources = await Promise.all(
-      ROLES.map((role) => groupResource(scope.workspaceId, role, context)),
+      roles.map((role) => groupResource(scope.workspaceId, role, context)),
     );
     return scimJson(context, {
       schemas: [LIST],
@@ -556,9 +648,9 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
     const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return scimError(context, 400, 'The patch is not valid', 'invalidSyntax');
     for (const operation of parsed.data.Operations) {
-      const inPath = /^members\[value eq "([^"]+)"\]$/iu.exec(operation.path ?? '')?.[1];
-      const ids = inPath === undefined ? memberIdsIn(operation.value) : [inPath];
-      await applyGroupOperation(scope, role, operation.op.toLowerCase(), ids);
+      const ids = groupMembersIn(operation);
+      // Anything else — a rename — changes nothing: the three groups' names are fixed.
+      if (ids !== null) await applyGroupOperation(scope, role, operation.op.toLowerCase(), ids);
     }
     return context.body(null, 204);
   });

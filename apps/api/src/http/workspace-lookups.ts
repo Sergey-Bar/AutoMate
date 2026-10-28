@@ -2,7 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 import { accessTokens, executionJobs, workspaceMembers, workspaces } from '@automate/db';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 import { hashToken } from '../services/access-service.js';
-import type { WorkspaceLookups } from './workspace-dispatch.js';
+import { JOB_ID_PATTERN, type WorkspaceLookups } from './workspace-dispatch.js';
 
 export interface DatabaseWorkspaceLookupsOptions extends Pick<ProjectRegistryServiceOptions, 'db'> {
   defaultWorkspace: string;
@@ -10,13 +10,11 @@ export interface DatabaseWorkspaceLookupsOptions extends Pick<ProjectRegistrySer
   installationLevel: WorkspaceLookups['installationLevel'];
 }
 
-/** A job id is a uuid; anything else is no job, and is answered without a query. */
-const JOB_ID = /^[0-9a-f-]{36}$/iu;
-
 /**
  * The rows a request's workspace is read from (ADR-014, team): a live token's own workspace, a
  * job's, a person's memberships oldest first, and whether a workspace exists. The session and
- * the installation-admin check are the composition's own, passed in.
+ * the installation-admin check are the composition's own, passed in. A job id that is not a
+ * uuid is no job, and is answered without a query: PostgreSQL would refuse it as malformed.
  */
 export function createDatabaseWorkspaceLookups(
   options: DatabaseWorkspaceLookupsOptions,
@@ -33,7 +31,7 @@ export function createDatabaseWorkspaceLookups(
           .limit(1)
       )[0]?.workspaceId ?? null,
     jobWorkspace: async (jobId) =>
-      JOB_ID.test(jobId)
+      JOB_ID_PATTERN.test(jobId)
         ? ((
             await db
               .select({ workspaceId: executionJobs.workspaceId })

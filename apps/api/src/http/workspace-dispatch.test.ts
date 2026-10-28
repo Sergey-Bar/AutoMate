@@ -10,16 +10,20 @@ import {
 /**
  * Which workspace a request belongs to (ADR-014, team): read from a credential the server
  * trusts, never from the request alone. A token belongs to its own workspace; a runner's job
- * call to the job's; a person to a workspace they are a member of; the installation's own
- * admin to whichever workspace they choose. Anything else is the default.
+ * call to the job's; an installation-wide credential to the default; a person to a workspace
+ * they are a member of; the installation's own admin to whichever workspace they choose.
+ * Anything else is the default.
  */
 const DEFAULT = 'default-workspace';
+/** Job ids are uuids, and a runner's call names one in its path. */
+const JOB_B = '7f0e2c1a-0000-4000-8000-00000000000b';
+const UNKNOWN_JOB = '00000000-0000-4000-8000-000000000000';
 
 function lookups(overrides: Partial<WorkspaceLookups> = {}): WorkspaceLookups {
   return {
     defaultWorkspace: DEFAULT,
     tokenWorkspace: vi.fn(async (token: string) => (token === 'amt_b' ? 'ws-b' : null)),
-    jobWorkspace: vi.fn(async (jobId: string) => (jobId === 'job-b' ? 'ws-b' : null)),
+    jobWorkspace: vi.fn(async (jobId: string) => (jobId === JOB_B ? 'ws-b' : null)),
     sessionUser: vi.fn(async () => null),
     memberships: vi.fn(async () => []),
     installationLevel: vi.fn(async () => false),
@@ -51,17 +55,103 @@ describe('the request’s workspace', () => {
       await resolve({ authorization: 'Bearer amt_b', cookie: `${WORKSPACE_CHOICE}=ws-c` }),
     ).toBe('ws-b');
     expect(await resolve({ cookie: 'automate_token=amt_b' })).toBe('ws-b');
-    // An unknown token stays at the default, where it is refused as unknown.
+    // An unknown token is no credential: with nothing beside it the request is the default's,
+    // where it is refused as unknown.
     expect(await resolve({ authorization: 'Bearer amt_unknown' })).toBe(DEFAULT);
+  });
+
+  it('passes over a token nobody holds any more to the person who also signed in', async () => {
+    // A browser still carrying the sign-in cookie of a revoked token, beside a person's session:
+    // the caller resolver passes over the token to the person, and so does the workspace.
+    const person = {
+      sessionUser: vi.fn(async () => 'u1'),
+      memberships: vi.fn(async () => ['ws-b', DEFAULT]),
+    };
+    expect(
+      await resolve({ cookie: `automate_token=amt_revoked; ${WORKSPACE_CHOICE}=ws-b` }, person),
+    ).toBe('ws-b');
+    expect(
+      await resolve(
+        { authorization: 'Bearer amt_revoked', cookie: `${WORKSPACE_CHOICE}=ws-b` },
+        person,
+      ),
+    ).toBe('ws-b');
   });
 
   it('is a job’s workspace for a runner’s call about that job', async () => {
     expect(
-      await resolve({ authorization: 'Bearer runner-token' }, {}, '/api/v1/jobs/job-b/complete'),
+      await resolve({ authorization: 'Bearer runner-token' }, {}, `/api/v1/jobs/${JOB_B}/complete`),
     ).toBe('ws-b');
     expect(
-      await resolve({ authorization: 'Bearer runner-token' }, {}, '/api/v1/jobs/other/events'),
+      await resolve(
+        { authorization: 'Bearer runner-token' },
+        {},
+        `/api/v1/jobs/${UNKNOWN_JOB}/events`,
+      ),
     ).toBe(DEFAULT);
+  });
+
+  it('does not throw on a job path that is not a well-formed escape', async () => {
+    // A path anyone can send before signing in: an answer, not a 500 and an error report.
+    expect(
+      await resolve({ authorization: 'Bearer runner-token' }, {}, '/api/v1/jobs/%ZZ/events'),
+    ).toBe(DEFAULT);
+  });
+
+  it('reads a job only from a path that names a uuid', async () => {
+    const jobWorkspace = vi.fn(async () => 'ws-b');
+    // Thirty-six dashes are a uuid's length and not a uuid: no job, and no lookup.
+    expect(
+      await resolve(
+        { authorization: 'Bearer runner-token' },
+        { jobWorkspace },
+        `/api/v1/jobs/${'-'.repeat(36)}/events`,
+      ),
+    ).toBe(DEFAULT);
+    expect(jobWorkspace).not.toHaveBeenCalled();
+    // The canonical shape is one, in either case.
+    expect(
+      await resolve(
+        { authorization: 'Bearer runner-token' },
+        { jobWorkspace },
+        `/api/v1/jobs/${JOB_B.toUpperCase()}/events`,
+      ),
+    ).toBe('ws-b');
+  });
+
+  it('is the default for an installation-wide credential, which no cookie can steer', async () => {
+    const person = {
+      sessionUser: vi.fn(async () => 'u1'),
+      memberships: vi.fn(async () => ['ws-b', DEFAULT]),
+    };
+    const steer = { cookie: `${WORKSPACE_CHOICE}=ws-b` };
+    // The reporter secret, the registration secret as a bearer, a runner's or a SCIM token: a
+    // bearer that is not an access token belongs to the installation, not to a workspace.
+    for (const bearer of ['reporter-secret', 'runner-token', 'scim_x']) {
+      expect(await resolve({ authorization: `Bearer ${bearer}`, ...steer }, person), bearer).toBe(
+        DEFAULT,
+      );
+    }
+    // The registration secret in its own header.
+    expect(await resolve({ 'x-runner-registration-secret': 'shared', ...steer }, person)).toBe(
+      DEFAULT,
+    );
+    // Nor does the installation admin's choice steer one.
+    const admin = { installationLevel: vi.fn(async () => true) };
+    expect(
+      await resolve(
+        { authorization: 'Bearer reporter-secret', cookie: `${WORKSPACE_CHOICE}=ws-c` },
+        admin,
+      ),
+    ).toBe(DEFAULT);
+    // A runner's call about a job is still the job's workspace's.
+    expect(
+      await resolve(
+        { authorization: 'Bearer runner-token', cookie: `${WORKSPACE_CHOICE}=ws-c` },
+        admin,
+        `/api/v1/jobs/${JOB_B}/complete`,
+      ),
+    ).toBe('ws-b');
   });
 
   it('is the workspace a person chose, only if they are a member of it', async () => {

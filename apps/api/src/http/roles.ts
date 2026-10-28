@@ -12,11 +12,17 @@ import { satisfies } from '../services/access-service.js';
  *
  * Credentials, in order (ADR-014): an `Authorization: Bearer` access token, then the
  * `automate_token` cookie a browser sign-in with a token sets, then a person's session
- * (OIDC), then a verified Cloudflare
- * Access identity when the install is remote, then the `automate_session` cookie the
- * installation key's sign-in sets (which is the admin). With `ACCESS_CONTROL=open` a caller
- * with none of them is the operator ADR-006 describes, and is admin; with `enforced` they are
- * nobody, and every guard refuses them.
+ * (OIDC), then the `automate_session` cookie the installation key's sign-in sets (which is the
+ * admin), then a verified Cloudflare Access identity when the install is remote. The
+ * installation session comes before Access because behind the tunnel every request carries an
+ * Access identity: read after it, a break-glass sign-in would never be read at all. With
+ * `ACCESS_CONTROL=open` a caller with none of them is the operator ADR-006 describes, and is
+ * admin; with `enforced` they are nobody, and every guard refuses them.
+ *
+ * Under enforced single sign-on a browser signs in through the identity provider, so the token
+ * cookie and the installation session are ignored — whatever a browser kept from before, or a
+ * paired device — and count again only under break-glass. A bearer token is a pipeline's, and
+ * always counts.
  */
 /**
  * The name of the cookie a token sign-in sets. Not a secret: its value is set per browser
@@ -32,9 +38,16 @@ export interface CallerResolver {
   profile?: Profile;
   /**
    * Enforced single sign-on (ADR-014, enterprise): a browser signs in through the identity
-   * provider only, so the token sign-in refuses. A token sent as a bearer still works.
+   * provider only, so the token sign-in refuses, and a browser's token cookie and the
+   * installation session are ignored. A token sent as a bearer still works.
    */
   ssoEnforced?: boolean;
+  /**
+   * Break-glass (`AUTOMATE_BREAK_GLASS=1`): under enforced single sign-on, the installation
+   * session and a browser's token cookie count again, so the installation key can get an admin
+   * in while the identity provider is down.
+   */
+  breakGlass?: boolean;
   authenticateToken: (token: string) => Promise<Caller | null>;
   /**
    * A person's session (ADR-014, team): the caller it signs in, with their role in this
@@ -79,21 +92,31 @@ export function isInstallationAdmin(caller: Caller): boolean {
   );
 }
 
+/**
+ * Whether a browser's own credentials count: the token cookie and the installation session.
+ * Not under enforced single sign-on, unless break-glass is on.
+ */
+export function browserCredentialsCount(resolver: CallerResolver): boolean {
+  return resolver.ssoEnforced !== true || resolver.breakGlass === true;
+}
+
 export async function callerOf(context: Context, resolver: CallerResolver): Promise<Caller> {
   const cached = context.get(CALLER as never) as Caller | undefined;
   if (cached !== undefined) return cached;
+  const browser = browserCredentialsCount(resolver);
   const presented =
-    bearerToken(context.req.header('authorization')) ?? getCookie(context, BROWSER_SIGN_IN);
+    bearerToken(context.req.header('authorization')) ??
+    (browser ? getCookie(context, BROWSER_SIGN_IN) : undefined);
   let caller: Caller | null = null;
   if (presented !== undefined) caller = await resolver.authenticateToken(presented);
   if (caller === null && resolver.authenticateSession !== undefined) {
     caller = await resolver.authenticateSession(context);
   }
+  if (caller === null && browser && (await resolver.hasSession(context))) {
+    caller = { actor: 'session', role: 'admin', uploaderFor: null };
+  }
   if (caller === null && resolver.authenticateRemote !== undefined) {
     caller = await resolver.authenticateRemote(context);
-  }
-  if (caller === null && (await resolver.hasSession(context))) {
-    caller = { actor: 'session', role: 'admin', uploaderFor: null };
   }
   if (caller === null) {
     caller =

@@ -237,6 +237,80 @@ describe('the exporter', () => {
       vi.useRealTimers();
     }
   });
+
+  it('stops within its own short deadline when the collector never answers', async () => {
+    vi.useFakeTimers();
+    try {
+      const signals: AbortSignal[] = [];
+      // A collector that takes the connection and never answers, behind a fetch that does not
+      // even honour its signal: stopping must not depend on a send ever settling.
+      const fetchImpl = vi.fn((_input: unknown, init?: RequestInit) => {
+        if (init?.signal) signals.push(init.signal);
+        return new Promise<Response>(() => undefined);
+      });
+      const exporter = createOtlpExporter(settings, { fetch: fetchImpl, stopTimeoutMs: 2_000 });
+      exporter.record(span());
+      void exporter.flush();
+      let stopped = false;
+      void exporter.stop().then(() => {
+        stopped = true;
+      });
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(stopped).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      // Well inside the API's 8 s shutdown budget, which the 10 s send timeout was not.
+      expect(stopped).toBe(true);
+      // The send in flight is cut off at the same moment, not at its own ten seconds.
+      expect(signals).toHaveLength(1);
+      expect(signals[0]?.aborted).toBe(true);
+      // And a second stop does not wait again for a send that will never settle.
+      let again = false;
+      void exporter.stop().then(() => {
+        again = true;
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(again).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cuts the sends it issues off at that deadline, and says what it left unsent', async () => {
+    vi.useFakeTimers();
+    try {
+      const warn = vi.fn();
+      // A fetch that honours its signal, as the platform's does.
+      const fetchImpl = vi.fn(
+        (_input: unknown, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+              once: true,
+            });
+          }),
+      );
+      const exporter = createOtlpExporter(settings, {
+        fetch: fetchImpl,
+        maxBatch: 1,
+        stopTimeoutMs: 2_000,
+        warn,
+      });
+      for (let index = 0; index < 3; index++) exporter.record(span());
+      let stopped = false;
+      void exporter.stop().then(() => {
+        stopped = true;
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(stopped).toBe(true);
+      // One send, cut off, and nothing sent into a deadline that has already passed.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(exporter.stats()).toEqual({ queued: 2, exported: 0, dropped: 0, failed: 1 });
+      expect(warn.mock.calls.map(([message]) => String(message))).toContainEqual(
+        expect.stringMatching(/2 span\(s\) unsent/u),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('a request span', () => {

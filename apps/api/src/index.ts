@@ -4,7 +4,7 @@ import {
   requireRequestId,
 } from './observability/request-context.js';
 import { randomUUID } from 'node:crypto';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { createErrorBoundary } from './errors/boundary.js';
 import { withClassifiedErrors } from './errors/db-errors.js';
@@ -20,7 +20,12 @@ import { createAuthRoutes, defaultClientKey } from './routes/auth.js';
 import { createOidcRoutes } from './routes/oidc.js';
 import { callerForUser } from './services/user-service.js';
 import { isLoopbackBind } from '@automate/config';
-import { callerOf, isInstallationAdmin, type CallerResolver } from './http/roles.js';
+import {
+  browserCredentialsCount,
+  callerOf,
+  isInstallationAdmin,
+  type CallerResolver,
+} from './http/roles.js';
 import {
   createWorkspaceDispatch,
   resolveRequestWorkspace,
@@ -72,10 +77,10 @@ import {
   createDbResources,
   DrizzleInstallationKeyStore,
   DrizzleSessionStore,
-  runners,
   workspaces,
 } from '@automate/db';
 import { ingestScanArtifact } from './services/repo-health-service.js';
+import { poolCapabilities } from './services/runner-pool.js';
 import { readGitToken } from './services/git-credential-service.js';
 import { rotateVaultSecrets } from './services/vault-secrets.js';
 import { audit, authenticateToken } from './services/access-service.js';
@@ -107,10 +112,11 @@ import type { RealtimeBus } from './realtime/realtime-bus.js';
 import { DurableRealtimeBus } from './realtime/durable-realtime-bus.js';
 import { DrizzleRealtimeFeed } from './infrastructure/drizzle-realtime-feed.js';
 import { startOutboxRetentionSweep } from './infrastructure/outbox-retention.js';
-import { instrumentedGateway } from '@automate/automation';
+import type { AiGateway } from '@automate/automation';
 import {
-  pruneExpiredSpans,
-  recordSelfSpan,
+  pruneExpiredSpansEverywhere,
+  SELF_AGENT_NAME,
+  selfInstrumented,
   TEST_PROPOSAL_AGENT_NAME,
 } from './services/genai-span-service.js';
 import { Lifecycle, closeHttpServer, installShutdownHandlers } from './bootstrap/lifecycle.js';
@@ -144,6 +150,7 @@ import {
   checkExposurePolicy,
   checkProductionPolicy,
   exposureWarning,
+  identityWarning,
   resolveAuthSecrets,
 } from './startup-policy.js';
 import {
@@ -225,6 +232,8 @@ const app = new Hono();
 const logger = createLogger({ service: 'automate-api' });
 const unknownExposure = exposureWarning(runtimeConfig);
 if (unknownExposure !== undefined) logger.warn(unknownExposure);
+const openIdentity = identityWarning(runtimeConfig);
+if (openIdentity !== undefined) logger.warn(openIdentity);
 /**
  * The API's own request traces to the operator's OTLP collector (ADR-014, enterprise). Off
  * unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set; a wrong setting is logged and leaves it off
@@ -262,58 +271,31 @@ if (gatewayResolution.kind === 'none') {
 
 /**
  * Self-instrumentation: with a database and a provider, every chat completion is recorded as
- * one GenAI `chat` span — model, tokens, duration, outcome; never content — under the
- * installation's workspace with no project (`source = 'self'`, agent `automate-chat`), read by
- * `GET /api/v1/chat/runtime`. The adapters are unchanged: the decorator wraps whichever one
- * was chosen. Unconfigured chat refuses every request, so there is nothing to measure.
+ * one GenAI `chat` span — model, tokens, duration, outcome; never content — with no project
+ * (`source = 'self'`, agent `automate-chat`), read by `GET /api/v1/chat/runtime`. A test
+ * proposal asks the same provider, instrumented the same way, under the agent name
+ * `automate-test-proposals` so the runtime page tells them from chat. The adapters are
+ * unchanged: the decorator wraps whichever one was chosen.
+ *
+ * **Built per workspace** (ADR-014), so a workspace's spans are written in that workspace,
+ * where its runtime page reads them; module-level gateways wrote every workspace's usage into
+ * the default. Unconfigured chat refuses every request, so there is nothing to measure, and
+ * test proposals are `null` — the route answers `NOT_CONFIGURED`.
  */
-const chatGateway =
-  databaseResources === undefined || gatewayResolution.kind === 'none'
-    ? aiGateway
-    : instrumentedGateway(
-        aiGateway,
-        {
-          record: (span) =>
-            recordSelfSpan(
-              {
-                db: databaseResources.db as never,
-                workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-              },
-              span,
-            ).catch((error: unknown) =>
-              logger.warn('chat span could not be recorded', { error: String(error) }),
-            ),
-        },
-        { provider: gatewayResolution.kind },
-      );
-
-/**
- * The gateway a test proposal asks: the same provider, instrumented the same way, but its
- * spans carry the agent name `automate-test-proposals` so the runtime page tells them from
- * chat. `null` when no provider is configured — the route answers `NOT_CONFIGURED`.
- */
-const testProposalGateway =
-  gatewayResolution.kind === 'none'
-    ? null
-    : databaseResources === undefined
-      ? aiGateway
-      : instrumentedGateway(
-          aiGateway,
-          {
-            record: (span) =>
-              recordSelfSpan(
-                {
-                  db: databaseResources.db as never,
-                  workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-                },
-                span,
-                TEST_PROPOSAL_AGENT_NAME,
-              ).catch((error: unknown) =>
-                logger.warn('test proposal span could not be recorded', { error: String(error) }),
-              ),
-          },
-          { provider: gatewayResolution.kind },
-        );
+function selfGateways(workspaceId: string): { chat: AiGateway; testProposals: AiGateway | null } {
+  if (gatewayResolution.kind === 'none') return { chat: aiGateway, testProposals: null };
+  if (databaseResources === undefined) return { chat: aiGateway, testProposals: aiGateway };
+  const spans = { db: databaseResources.db as never, workspaceId };
+  const provider = gatewayResolution.kind;
+  return {
+    chat: selfInstrumented(spans, aiGateway, provider, SELF_AGENT_NAME, (error) =>
+      logger.warn('chat span could not be recorded', { error: String(error) }),
+    ),
+    testProposals: selfInstrumented(spans, aiGateway, provider, TEST_PROPOSAL_AGENT_NAME, (error) =>
+      logger.warn('test proposal span could not be recorded', { error: String(error) }),
+    ),
+  };
+}
 
 /**
  * One error boundary for the whole app.
@@ -434,21 +416,13 @@ function mountLegacyProcessLocalRoutes(target: Hono): void {
 const realtimeFeed = databaseResources ? new DrizzleRealtimeFeed(databaseResources.db) : undefined;
 const retentionSweep = realtimeFeed ? startOutboxRetentionSweep(realtimeFeed) : undefined;
 /**
- * GenAI span retention, hourly, through the same sweep the outbox uses. Spans are also pruned
- * on every OTLP write; this is what removes a project's last window after it stops exporting.
+ * GenAI span retention, hourly, through the same sweep the outbox uses — in every workspace,
+ * one at a time. Spans are also pruned on every OTLP write; this is what removes a project's
+ * last window after it stops exporting.
  */
 const spanRetentionSweep = databaseResources
   ? startOutboxRetentionSweep(
-      {
-        purgeExpired: (now) =>
-          pruneExpiredSpans(
-            {
-              db: databaseResources.db as never,
-              workspaceId: runtimeConfig.workspaceId ?? DEFAULT_WORKSPACE_ID,
-            },
-            now,
-          ),
-      },
+      { purgeExpired: (now) => pruneExpiredSpansEverywhere(databaseResources.db as never, now) },
       3_600_000,
       (error) => logger.warn('genai span retention sweep failed', { error: String(error) }),
     )
@@ -803,6 +777,7 @@ function buildWorkspace(workspaceId: string) {
     requireIdempotencyKey: runtimeConfig.nodeEnv === 'production',
   });
   const agentCatalog = createAgentCatalog(agentRegistry);
+  const gateways = selfGateways(workspaceId);
   let reporterStore: ReporterResultStore | undefined;
 
   function resolveReporterStore(): ReporterResultStore {
@@ -844,6 +819,9 @@ function buildWorkspace(workspaceId: string) {
     mode: runtimeConfig.accessControl ?? 'open',
     profile: runtimeConfig.profile ?? 'solo',
     ssoEnforced: runtimeConfig.ssoEnforced === true,
+    // Under enforced SSO, the installation key's session and a browser's token cookie count
+    // again only with AUTOMATE_BREAK_GLASS on (`http/roles.ts`).
+    breakGlass: runtimeConfig.breakGlass === true,
     // A verified Cloudflare Access identity, only on an install reached through the tunnel
     // (ADR-014). The startup policy has already refused a tunnel without both Access settings.
     ...remoteCallerSource(workspaceId),
@@ -975,7 +953,7 @@ function buildWorkspace(workspaceId: string) {
             }),
       }),
     );
-    target.route('/', createChatRoutes({ gateway: chatGateway }));
+    target.route('/', createChatRoutes({ gateway: gateways.chat }));
 
     /**
      * The project registry and the derived QA score.
@@ -1017,6 +995,7 @@ function buildWorkspace(workspaceId: string) {
         '/',
         createProjectsRoutes({
           ...registry,
+          defaultWorkspace,
           vaultSecret: runtimeConfig.vaultSecret,
           // The built-in eval runner uses the raw gateway: its runs are eval runs, not chat.
           agents: {
@@ -1040,7 +1019,7 @@ function buildWorkspace(workspaceId: string) {
           access: access,
           issues: { jira: jiraAdapter, github: githubAdapter, detailsUrl: dashboardUrl },
           testProposals: {
-            gateway: testProposalGateway,
+            gateway: gateways.testProposals,
             provider: chatProvider,
           },
           // The runs `automate test` records are the history a shard plan reads.
@@ -1089,19 +1068,9 @@ function buildWorkspace(workspaceId: string) {
             },
             reporterSecret: runtimeConfig.reporterSecret,
             requireReporterSecret: runtimeConfig.nodeEnv === 'production',
-            // Scanners a live runner advertises. A runner declares them in RUNNER_CAPABILITIES.
-            scannerCapabilities: async () => {
-              const rows = await databaseResources.db
-                .select({ capabilities: runners.capabilities })
-                .from(runners)
-                .where(
-                  and(
-                    eq(runners.workspaceId, registry.workspaceId),
-                    inArray(runners.health, ['healthy', 'degraded']),
-                  ),
-                );
-              return new Set(rows.flatMap((row) => row.capabilities));
-            },
+            // Scanners a live runner advertises, in RUNNER_CAPABILITIES. The pool is the
+            // installation's, so every workspace's scan is offered the same runners.
+            scannerCapabilities: () => poolCapabilities({ db: databaseResources.db as never }),
             // One run per scanner, claimable only by a runner that has the binary.
             startScanJob: async (job) => {
               const created = await executionStore.create(
@@ -1392,10 +1361,15 @@ if (databaseResources !== undefined) {
     db: db as never,
     defaultWorkspace,
     // A person's session, or — on team and enterprise behind Cloudflare Access — the account
-    // Access signs in, so a person's memberships decide which workspace they may enter. The
-    // order is `callerOf`'s: a person's session before an Access identity.
-    sessionUser: async (context) =>
-      (await sessionOf(context))?.userId ?? (await cloudflarePeople?.userId(context)) ?? null,
+    // Access signs in, so a person's memberships decide which workspace they may enter. In
+    // `callerOf`'s order: the installation's own session, where it counts, comes before an
+    // Access identity, and the installation admin it signs in is routed by their choice.
+    sessionUser: async (context) => {
+      const record = await sessionOf(context);
+      if (record?.userId !== undefined) return record.userId;
+      if (record !== undefined && browserCredentialsCount(accessResolver)) return null;
+      return (await cloudflarePeople?.userId(context)) ?? null;
+    },
     installationLevel: async (context) =>
       isInstallationAdmin(await callerOf(context, accessResolver)),
   });

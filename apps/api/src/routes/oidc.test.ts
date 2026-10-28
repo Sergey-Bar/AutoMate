@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { serve, type ServerType } from '@hono/node-server';
 import { Hono } from 'hono';
 import { sign } from 'hono/jwt';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as schema from '@automate/db';
 import { DrizzleSessionStore } from '@automate/db';
@@ -92,7 +92,7 @@ async function provider(): Promise<Provider> {
   };
 }
 
-async function harness(overrides: Partial<OidcConfig> = {}) {
+async function harness(overrides: Partial<OidcConfig> = {}, issuerPath = '') {
   const idp = await provider();
   closers.push(idp.close);
   const { db, close } = await migratedDatabase();
@@ -104,7 +104,7 @@ async function harness(overrides: Partial<OidcConfig> = {}) {
     86_400_000,
   );
   const oidc: OidcConfig = {
-    issuer: idp.issuer,
+    issuer: `${idp.issuer}${issuerPath}`,
     clientId: 'automate',
     clientSecret: CLIENT_SECRET,
     redirectUri: 'https://automate.example.com/api/v1/auth/oidc/callback',
@@ -208,6 +208,8 @@ describe('OIDC sign-in', () => {
     ['an ID token for another sign-in', { nonce: 'not-the-nonce' }, {}, 'failed'],
     ['an email outside the allowed domains', {}, { email: 'eve@elsewhere.org' }, 'domain'],
     ['an unverified email', {}, { email_verified: false }, 'unverified'],
+    // Some providers send the claim as a string. Absent stays accepted: Entra omits it.
+    ['an unverified email, said as a string', {}, { email_verified: 'false' }, 'unverified'],
   ])('refuses %s, and signs nobody in', async (_name, tamper, claims, reason) => {
     const h = await harness();
     const result = await signIn(h, { ...BO, ...claims }, tamper);
@@ -223,6 +225,70 @@ describe('OIDC sign-in', () => {
     expect(await h.db.select().from(schema.workspaceMembers)).toEqual([]);
   });
 
+  it('keeps a person removed from this workspace removed, and signs them in where they are', async () => {
+    const h = await harness();
+    const id = String(await sessionUser(h, (await signIn(h, BO)).cookies));
+    await h.db
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: 'ws-2', userId: id, role: 'operator' });
+    await h.db
+      .delete(schema.workspaceMembers)
+      .where(
+        and(
+          eq(schema.workspaceMembers.workspaceId, 'ws-1'),
+          eq(schema.workspaceMembers.userId, id),
+        ),
+      );
+    const again = await signIn(h, BO);
+    expect(again.location).toBe('/');
+    expect(await sessionUser(h, again.cookies)).toBe(id);
+    // The default role is a first sign-in's: the removal stands.
+    expect((await callerForUser({ db: h.db as never, workspaceId: 'ws-1' }, id))?.role).toBeNull();
+    expect((await callerForUser({ db: h.db as never, workspaceId: 'ws-2' }, id))?.role).toBe(
+      'operator',
+    );
+    // A member of no workspace at all is nobody's to sign in.
+    await h.db.delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, id));
+    expect((await signIn(h, BO)).location).toBe('/?signin=not-invited');
+  });
+
+  it('gives a person the map names its role here at every sign-in, removed or not', async () => {
+    const h = await harness();
+    const id = String(await sessionUser(h, (await signIn(h, ANA)).cookies));
+    await h.db.delete(schema.workspaceMembers).where(eq(schema.workspaceMembers.userId, id));
+    await signIn(h, ANA);
+    expect((await callerForUser({ db: h.db as never, workspaceId: 'ws-1' }, id))?.role).toBe(
+      'admin',
+    );
+  });
+
+  it('signs in a person who is a member elsewhere when the default role is none', async () => {
+    const h = await harness({ defaultRole: null });
+    const now = new Date();
+    const [bo] = await h.db
+      .insert(schema.users)
+      .values({
+        email: 'bo@example.com',
+        displayName: 'Bo',
+        issuer: h.idp.issuer,
+        subject: 'sub-bo',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: schema.users.id });
+    await h.db
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: 'ws-2', userId: String(bo?.id), role: 'operator' });
+    const result = await signIn(h, BO);
+    expect(result.location).toBe('/');
+    expect(await sessionUser(h, result.cookies)).toBe(bo?.id);
+    // Nothing is made for them here: their workspaces are the ones they are in.
+    const memberships = await h.db
+      .select({ workspaceId: schema.workspaceMembers.workspaceId })
+      .from(schema.workspaceMembers);
+    expect(memberships).toEqual([{ workspaceId: 'ws-2' }]);
+  });
+
   it('refuses a disabled person, and their existing session stops working', async () => {
     const h = await harness();
     const first = await signIn(h, BO);
@@ -236,6 +302,13 @@ describe('OIDC sign-in', () => {
     const h = await harness();
     const response = await h.app.request('/api/v1/auth/oidc/callback?code=x&state=y');
     expect(response.headers.get('location')).toBe('/?signin=expired');
+  });
+
+  it('sends the browser back to sign in when the provider cannot be discovered', async () => {
+    const h = await harness({}, '/nowhere');
+    const start = await h.app.request('/api/v1/auth/oidc/start');
+    expect(start.status).toBe(302);
+    expect(start.headers.get('location')).toBe('/?signin=failed');
   });
 
   it('answers a coded 404 when OIDC is not configured', async () => {

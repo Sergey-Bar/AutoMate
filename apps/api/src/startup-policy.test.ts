@@ -6,6 +6,7 @@ import {
   checkExposurePolicy,
   checkProductionPolicy,
   exposureWarning,
+  identityWarning,
   isProduction,
   resolveAuthSecrets,
 } from './startup-policy.js';
@@ -448,5 +449,35 @@ describe('resolveAuthSecrets', () => {
       apiKey: 'a'.repeat(32),
     });
     expect(() => checkProductionPolicy(placeholder)).toThrow(/must not be a placeholder/);
+  });
+});
+
+describe('identityWarning (ADR-014)', () => {
+  const parsed = (env: Record<string, string>): AppConfig =>
+    parseConfig(
+      {
+        NODE_ENV: 'development',
+        OIDC_ISSUER: 'https://idp.example.com',
+        OIDC_CLIENT_ID: 'automate',
+        OIDC_CLIENT_SECRET: ['s', 'e', 'c', 'r', 'e', 't'].join(''),
+        ...env,
+      },
+      { requireProductionSecrets: false },
+    );
+
+  it('names OIDC that admits anyone the provider signs in, with the two settings that narrow it', () => {
+    // A Google client open to outside users, with no allowed domains and the default role,
+    // makes every Google account a viewer of the default workspace.
+    expect(identityWarning(parsed({}))).toMatch(/OIDC_ALLOWED_DOMAINS.*OIDC_DEFAULT_ROLE=none/u);
+  });
+
+  it('is quiet when a domain allowlist or a default role of none narrows who gets in', () => {
+    expect(identityWarning(parsed({ OIDC_ALLOWED_DOMAINS: 'example.com' }))).toBeUndefined();
+    expect(identityWarning(parsed({ OIDC_DEFAULT_ROLE: 'none' }))).toBeUndefined();
+    expect(
+      identityWarning(
+        parseConfig({ NODE_ENV: 'development' }, { requireProductionSecrets: false }),
+      ),
+    ).toBeUndefined();
   });
 });

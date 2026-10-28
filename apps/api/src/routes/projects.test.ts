@@ -124,6 +124,7 @@ function harness(
     createProjectsRoutes({
       db: db as never,
       workspaceId: 'ws-1',
+      defaultWorkspace: 'ws-1',
       viewFor: () => view,
       startRun: async (input) => {
         started.push(input.commandId);
@@ -148,6 +149,7 @@ describe('registering a repository by git URL', () => {
         createProjectsRoutes({
           db: db as never,
           workspaceId: 'ws-1',
+          defaultWorkspace: 'ws-1',
           viewFor: () => literalView(NODE_REPO),
           vaultSecret: 'v'.repeat(40),
           startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
@@ -347,6 +349,7 @@ describe('starting a run takes a command id, never an executable', () => {
         createProjectsRoutes({
           db: db as never,
           workspaceId: 'ws-1',
+          defaultWorkspace: 'ws-1',
           viewFor: () => literalView(NODE_REPO),
           startRun: async (input) => {
             started.push(input.commandId);
@@ -382,6 +385,7 @@ describe('starting a run takes a command id, never an executable', () => {
         createProjectsRoutes({
           db: db as never,
           workspaceId: 'ws-1',
+          defaultWorkspace: 'ws-1',
           viewFor: () => literalView(NODE_REPO),
           startRun: async (input) => {
             commands.push(input.command);
@@ -460,6 +464,7 @@ describe('starting a run takes a command id, never an executable', () => {
         createProjectsRoutes({
           db: db as never,
           workspaceId: 'ws-1',
+          defaultWorkspace: 'ws-1',
           viewFor: () => literalView(NODE_REPO),
           startRun: async (input) => {
             started.push(input.commandId);
@@ -958,6 +963,7 @@ describe('every remaining endpoint of the group is reachable and validated', () 
         createProjectsRoutes({
           db: drizzle(client, { schema }) as never,
           workspaceId: 'ws-1',
+          defaultWorkspace: 'ws-1',
           viewFor: () => literalView(NODE_REPO),
           startRun: async (input) => {
             started.push(input.commandId);
@@ -1007,6 +1013,7 @@ describe('history and readiness', () => {
       createProjectsRoutes({
         db: db as never,
         workspaceId: options.workspaceId ?? 'ws-1',
+        defaultWorkspace: 'ws-1',
         viewFor: () => literalView(REPORTED),
         // A scanner with no cache, so two scans in one test read the view twice.
         startRun: async () => ({ runId: 'run-1', jobId: 'job-1', phase: 'queued' }),

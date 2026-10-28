@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNull, lt, lte } from 'drizzle-orm';
-import { genaiSpans, type GenAiSpanRow } from '@automate/db';
-import type { CompletionSpan } from '@automate/automation';
+import { genaiSpans, workspaces, type GenAiSpanRow } from '@automate/db';
+import { instrumentedGateway, type AiGateway, type CompletionSpan } from '@automate/automation';
 import {
   DEFAULT_MAX_GENAI_SPANS,
   HealthReportError,
@@ -49,8 +49,9 @@ import type { AgentRuntimeReading } from './repo-health-service.js';
  * ## The installation's own spans
  *
  * `source = 'self'` rows belong to no project: chat is an installation feature, not a
- * project's agent. They are still written under the installation's workspace — the only
- * tenancy boundary — and are read by `GET /api/v1/chat/runtime`, never by a project's route.
+ * project's agent. They are still written under a workspace — the only tenancy boundary — the
+ * one whose composition made the call (ADR-014, {@link selfInstrumented}), and are read by that
+ * workspace's `GET /api/v1/chat/runtime`, never by a project's route.
  */
 export type SpanOptions = EvalOptions;
 
@@ -200,6 +201,21 @@ export async function pruneExpiredSpans(options: SpanOptions, now = new Date()):
   return deleted.length;
 }
 
+/**
+ * The hourly sweep (`index.ts`): every workspace's expired spans, one workspace at a time, so
+ * each delete is still scoped by the only tenancy boundary. Pruning the default workspace alone
+ * left another workspace's spans until that workspace's next OTLP write.
+ */
+export async function pruneExpiredSpansEverywhere(
+  db: SpanOptions['db'],
+  now = new Date(),
+): Promise<number> {
+  const rows = await db.select({ id: workspaces.id }).from(workspaces);
+  let pruned = 0;
+  for (const row of rows) pruned += await pruneExpiredSpans({ db, workspaceId: row.id }, now);
+  return pruned;
+}
+
 /** The agent name an installation test-proposal completion's span carries. */
 export const TEST_PROPOSAL_AGENT_NAME = 'automate-test-proposals';
 
@@ -241,6 +257,26 @@ export async function recordSelfSpan(
       expiresAt: new Date(now.getTime() + DEFAULT_TRACE_RETENTION_DAYS * DAY_MS),
     })
     .onConflictDoNothing();
+}
+
+/**
+ * The installation's gateway, recording every completion as a `self` span in
+ * `options.workspaceId` under `agentName`. Built once per workspace composition (ADR-014), so a
+ * workspace's chat and test proposals are recorded in, and read from, that workspace only. A
+ * span that cannot be written goes to `onError`; the completion is never changed by it.
+ */
+export function selfInstrumented(
+  options: SpanOptions,
+  gateway: AiGateway,
+  provider: string,
+  agentName: string,
+  onError: (error: unknown) => void,
+): AiGateway {
+  return instrumentedGateway(
+    gateway,
+    { record: (span) => recordSelfSpan(options, span, agentName).catch(onError) },
+    { provider, now: () => (options.now?.() ?? new Date()).getTime() },
+  );
 }
 
 // ─── Reading ─────────────────────────────────────────────────────────────────

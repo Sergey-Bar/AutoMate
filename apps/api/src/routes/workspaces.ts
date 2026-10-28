@@ -3,14 +3,20 @@ import { getCookie, setCookie } from 'hono/cookie';
 import { and, asc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import type { Profile } from '@automate/config';
-import { accessTokens, workspaceMembers, workspaces } from '@automate/db';
+import { accessTokens, users, workspaceMembers, workspaces } from '@automate/db';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { guard } from '../http/access.js';
 import { bearerToken } from '../http/bearer-token.js';
 import { BROWSER_SIGN_IN, isInstallationAdmin } from '../http/roles.js';
 import { WORKSPACE_CHOICE, WORKSPACE_ID_PATTERN } from '../http/workspace-dispatch.js';
 import { isSecureFor, type SecureCookies } from '../http/secure-cookies.js';
-import { audit, hashToken, type Caller, type Role } from '../services/access-service.js';
+import {
+  TOKEN_PREFIX,
+  audit,
+  hashToken,
+  type Caller,
+  type Role,
+} from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 
 /**
@@ -19,11 +25,15 @@ import type { ProjectRegistryServiceOptions } from '../services/project-registry
  *
  * - `GET /api/v1/workspaces` — the workspaces this caller may enter, with their role in each,
  *   and the one this request is in. The installation's own admin may enter every one; a person
- *   the ones they are a member of; a token only its own.
+ *   the ones they are a member of; a live token only its own. An unknown or revoked token is
+ *   no credential, and is passed over to the person or admin beside it, as the caller resolver
+ *   and the dispatch pass over it.
  * - `POST /api/v1/workspaces/select` — remembers a choice in an `httpOnly` cookie. A choice
  *   is only ever a request to enter: the dispatch checks the credential again on every request.
  * - `POST /api/v1/workspaces` — creates one, on `team` and `enterprise`. The installation's
- *   admin, or an admin of the default workspace, may; a person who creates one is its admin.
+ *   admin, or a person who is an enabled admin of the default workspace by their own
+ *   membership, may; a person who creates one is its admin. A token never may, nor lends that
+ *   right to a person whose session it rides beside.
  */
 export interface WorkspacesRouteOptions extends Pick<ProjectRegistryServiceOptions, 'db'> {
   defaultWorkspace: string;
@@ -47,7 +57,20 @@ const CreateSchema = z.object({
   id: z.string().regex(WORKSPACE_ID_PATTERN, 'lowercase letters, digits and hyphens'),
   name: z.string().trim().min(1).max(100),
 });
-const SelectSchema = z.object({ workspaceId: z.string().regex(WORKSPACE_ID_PATTERN) });
+
+/**
+ * A workspace id, or the default whatever its shape: `WORKSPACE_ID` may be any non-empty
+ * string, and a person who switched away from a default outside the pattern could otherwise
+ * never switch back while the cookie lived. The dispatch reads such a cookie as no choice,
+ * which places them in the default — the one chosen.
+ */
+function selectSchema(defaultWorkspace: string) {
+  return z.object({
+    workspaceId: z
+      .string()
+      .refine((id) => id === defaultWorkspace || WORKSPACE_ID_PATTERN.test(id), 'a workspace id'),
+  });
+}
 
 function invalid(context: Context, message: string, details: unknown) {
   return context.json({ error: { code: ErrorCode.INVALID_REQUEST_BODY, message, details } }, 400);
@@ -55,26 +78,30 @@ function invalid(context: Context, message: string, details: unknown) {
 
 export function createWorkspacesRoutes(options: WorkspacesRouteOptions): Hono {
   const app = new Hono();
+  const SelectSchema = selectSchema(options.defaultWorkspace);
+
+  /** A live token's own workspace, with its role there; `null` for a token nobody holds. */
+  const tokenEntries = async (presented: string): Promise<Entry[] | null> => {
+    const rows = await options.db
+      .select({ id: workspaces.id, name: workspaces.name, role: accessTokens.role })
+      .from(accessTokens)
+      .innerJoin(workspaces, eq(workspaces.id, accessTokens.workspaceId))
+      .where(and(eq(accessTokens.tokenHash, hashToken(presented)), isNull(accessTokens.revokedAt)))
+      .limit(1);
+    if (rows.length === 0) return null;
+    return rows
+      .filter((row) => row.role !== 'uploader')
+      .map((row) => ({ id: row.id, name: row.name, role: row.role as Role }));
+  };
 
   /** Every workspace this caller may enter, with their role there, oldest first. */
   const accessible = async (context: Context): Promise<{ entries: Entry[]; byToken: boolean }> => {
     const presented =
       bearerToken(context.req.header('authorization')) ?? getCookie(context, BROWSER_SIGN_IN);
-    if (presented?.startsWith('amt_') === true) {
-      const rows = await options.db
-        .select({ id: workspaces.id, name: workspaces.name, role: accessTokens.role })
-        .from(accessTokens)
-        .innerJoin(workspaces, eq(workspaces.id, accessTokens.workspaceId))
-        .where(
-          and(eq(accessTokens.tokenHash, hashToken(presented)), isNull(accessTokens.revokedAt)),
-        )
-        .limit(1);
-      return {
-        byToken: true,
-        entries: rows
-          .filter((row) => row.role !== 'uploader')
-          .map((row) => ({ id: row.id, name: row.name, role: row.role as Role })),
-      };
+    if (presented?.startsWith(TOKEN_PREFIX) === true) {
+      // An unknown or revoked token is no credential: the person or admin beside it decides.
+      const live = await tokenEntries(presented);
+      if (live !== null) return { byToken: true, entries: live };
     }
     const userId = await options.sessionUser(context);
     if (userId !== null) {
@@ -104,15 +131,33 @@ export function createWorkspacesRoutes(options: WorkspacesRouteOptions): Hono {
     await next();
   });
 
-  /** The installation's admin, or an admin of the default workspace. */
+  /**
+   * Whether a person is an admin of the default workspace by their own membership, and not
+   * disabled. Read from the person alone: a token beside their session is the token's role,
+   * never theirs, so it cannot make whoever signed in an admin of what they create.
+   */
+  const adminOfDefault = async (userId: string): Promise<boolean> =>
+    (
+      await options.db
+        .select({ userId: workspaceMembers.userId })
+        .from(workspaceMembers)
+        .innerJoin(users, eq(users.id, workspaceMembers.userId))
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, options.defaultWorkspace),
+            eq(workspaceMembers.userId, userId),
+            eq(workspaceMembers.role, 'admin'),
+            isNull(users.disabledAt),
+          ),
+        )
+        .limit(1)
+    ).length === 1;
+
+  /** The installation's admin, or a person who is an admin of the default workspace. */
   const installationAdmin: MiddlewareHandler = guard('admin', async (context, next) => {
     const caller = await options.defaultCaller(context);
     const userId = await options.sessionUser(context);
-    const defaultAdmin =
-      userId !== null &&
-      (await accessible(context)).entries.some(
-        (entry) => entry.id === options.defaultWorkspace && entry.role === 'admin',
-      );
+    const defaultAdmin = userId !== null && (await adminOfDefault(userId));
     if (!isInstallationAdmin(caller) && !defaultAdmin) {
       if (caller.role === null && userId === null) {
         throw new DomainError(ErrorCode.UNAUTHENTICATED, 'Sign in, or send an access token');

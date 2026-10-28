@@ -25,8 +25,9 @@ import { defaultClientKey } from './auth.js';
  *   person in through `signInPerson`, and issues a session that names them.
  *
  * Both answer a coded 404 until OIDC is configured with a database, as the GitHub receiver
- * does, so an install that never opted in has nothing to probe. A failed callback redirects
- * to `/?signin=<reason>` rather than answering JSON, because a browser is on the other end.
+ * does, so an install that never opted in has nothing to probe. A failed start (the provider
+ * cannot be discovered) or callback redirects to `/?signin=<reason>` rather than answering
+ * JSON, because a browser is on the other end.
  */
 export interface OidcRouteOptions extends Partial<Pick<ProjectRegistryServiceOptions, 'db'>> {
   oidc?: OidcConfig;
@@ -78,6 +79,15 @@ function groupsOf(claims: Record<string, unknown>): string[] {
   return Array.isArray(groups)
     ? groups.filter((group): group is string => typeof group === 'string')
     : [];
+}
+
+/**
+ * Whether the provider says the email is not verified: `false`, or the string `"false"` some
+ * providers send. An absent claim is accepted, because Entra omits it: the email is then the
+ * one the provider asserts, which is the trust the guide states.
+ */
+function unverified(claim: unknown): boolean {
+  return claim === false || (typeof claim === 'string' && claim.trim().toLowerCase() === 'false');
 }
 
 export function createOidcRoutes(options: OidcRouteOptions): Hono {
@@ -132,7 +142,16 @@ export function createOidcRoutes(options: OidcRouteOptions): Hono {
   app.get('/api/v1/auth/oidc/start', async (context) => {
     const { oidc } = configured();
     throttle(context);
-    const config = await configuration(oidc);
+    let config: client.Configuration;
+    try {
+      config = await configuration(oidc);
+    } catch (error) {
+      // The provider is down or misconfigured: back to the sign-in screen, as a failed
+      // callback goes, rather than a 500 page in the middle of signing in.
+      return redirectWith(context, 'failed', {
+        error: error instanceof Error ? error.name : 'error',
+      });
+    }
     const flow: Flow = {
       state: client.randomState(),
       nonce: client.randomNonce(),
@@ -184,7 +203,7 @@ export function createOidcRoutes(options: OidcRouteOptions): Hono {
     const email = typeof claims['email'] === 'string' ? claims['email'].toLowerCase() : '';
     const subject = typeof claims['sub'] === 'string' ? claims['sub'] : '';
     if (email === '' || subject === '') return redirectWith(context, 'failed');
-    if (claims['email_verified'] === false) return redirectWith(context, 'unverified');
+    if (unverified(claims['email_verified'])) return redirectWith(context, 'unverified');
     const domain = email.slice(email.lastIndexOf('@') + 1);
     if (oidc.allowedDomains.length > 0 && !oidc.allowedDomains.includes(domain)) {
       return redirectWith(context, 'domain', { domain });
@@ -208,6 +227,7 @@ export function createOidcRoutes(options: OidcRouteOptions): Hono {
       action: 'user.sign-in',
       resourceType: 'user',
       resourceId: outcome.userId,
+      // `null` for a person signed in on a membership of another workspace: no role here.
       details: { method: 'oidc', role: outcome.role },
     });
     deleteCookie(context, SIGN_IN_FLOW, { path: '/api/v1/auth/oidc' });

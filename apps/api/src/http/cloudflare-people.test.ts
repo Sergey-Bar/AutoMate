@@ -220,6 +220,49 @@ describe('a person Cloudflare Access lets in', () => {
     expect((await h.as(ANA)).caller?.role).toBe('admin');
   });
 
+  it('stays out of the default workspace once removed, and keeps the workspaces they are in', async () => {
+    const h = await harness();
+    const id = String((await h.as(BO)).userId);
+    await member(h.db, 'ws-2', id, 'operator');
+    await h.db
+      .delete(schema.workspaceMembers)
+      .where(
+        and(
+          eq(schema.workspaceMembers.workspaceId, 'ws-1'),
+          eq(schema.workspaceMembers.userId, id),
+        ),
+      );
+    // Every request is a sign-in, so the default role must not quietly undo the removal.
+    expect(await h.as(BO)).toEqual({
+      caller: { actor: `user:${id}`, role: null, uploaderFor: null },
+      userId: id,
+    });
+    expect(await h.roleIn('ws-1', id)).toBeUndefined();
+    expect((await h.as(BO, 'ws-2')).caller?.role).toBe('operator');
+  });
+
+  it('is admitted on a membership elsewhere when the default role is none', async () => {
+    const h = await harness({ defaultRole: null });
+    const [bo] = await h.db
+      .insert(schema.users)
+      .values({
+        email: 'bo@example.com',
+        displayName: 'Bo',
+        issuer: ISSUER,
+        subject: 'user-bo',
+        createdAt: START,
+        updatedAt: START,
+      })
+      .returning({ id: schema.users.id });
+    const id = String(bo?.id);
+    await member(h.db, 'ws-2', id, 'operator');
+    expect(await h.as(BO, 'ws-2')).toEqual({
+      caller: { actor: `user:${id}`, role: 'operator', uploaderFor: null },
+      userId: id,
+    });
+    expect(await h.roleIn('ws-1', id)).toBeUndefined();
+  });
+
   it('is refused, not merged, when another identity already holds their email', async () => {
     const h = await harness();
     await h.db.insert(schema.users).values({

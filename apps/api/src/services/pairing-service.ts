@@ -38,6 +38,12 @@ function hashCode(pepper: string, code: string): string {
   return createHmac('sha256', pepper).update(`pairing:${code}`).digest('hex');
 }
 
+/**
+ * The live codes holding this value, in every workspace. A device has no credential when it
+ * pairs, so the default workspace serves its request whichever workspace issued the code; the
+ * code's own row says where the token belongs. The pepper is the installation's, so a value
+ * hashes alike everywhere, and issuing draws one that no live code holds anywhere.
+ */
 function liveCodes(options: Options, codeHash: string) {
   const now = options.now?.() ?? new Date();
   return options.db
@@ -45,7 +51,6 @@ function liveCodes(options: Options, codeHash: string) {
     .from(pairingCodes)
     .where(
       and(
-        eq(pairingCodes.workspaceId, options.workspaceId),
         eq(pairingCodes.codeHash, codeHash),
         isNull(pairingCodes.usedAt),
         gt(pairingCodes.expiresAt, now),
@@ -101,6 +106,8 @@ export interface RedeemedPairing {
   tokenId: string;
   role: 'viewer' | 'operator';
   deviceName: string;
+  /** The workspace that issued the code, which the device's token belongs to. */
+  workspaceId: string;
 }
 
 const refused = (): DomainError =>
@@ -109,8 +116,11 @@ const refused = (): DomainError =>
 export async function redeemPairingCode(options: Options, code: string): Promise<RedeemedPairing> {
   if (!/^\d{6}$/u.test(code)) throw refused();
   const codeHash = hashCode(options.pepper, code);
-  const [row] = await liveCodes(options, codeHash);
-  if (row === undefined) throw refused();
+  const live = await liveCodes(options, codeHash);
+  // Two live codes with one value — issued in two workspaces before issuing checked them all —
+  // are refused rather than guessed between: either guess could seat a device in the wrong one.
+  const [row] = live;
+  if (row === undefined || live.length > 1) throw refused();
   // Equal by construction of the query; compared in constant time anyway, so the one
   // comparison that decides a credential is not the one place that takes a shortcut.
   if (!timingSafeEqual(Buffer.from(row.codeHash), Buffer.from(codeHash))) throw refused();
@@ -124,7 +134,7 @@ export async function redeemPairingCode(options: Options, code: string): Promise
   if (spent.length === 0) throw refused();
   const role = row.role as 'viewer' | 'operator';
   const created = await createAccessToken(
-    options,
+    { db: options.db, workspaceId: row.workspaceId },
     { name: `device: ${row.deviceName}`, role },
     `pairing:${row.id}`,
   );
@@ -132,5 +142,11 @@ export async function redeemPairingCode(options: Options, code: string): Promise
     .update(pairingCodes)
     .set({ tokenId: created.summary.id })
     .where(eq(pairingCodes.id, row.id));
-  return { token: created.token, tokenId: created.summary.id, role, deviceName: row.deviceName };
+  return {
+    token: created.token,
+    tokenId: created.summary.id,
+    role,
+    deviceName: row.deviceName,
+    workspaceId: row.workspaceId,
+  };
 }

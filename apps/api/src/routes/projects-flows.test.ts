@@ -71,6 +71,7 @@ async function harness(health: Record<string, unknown> = {}) {
     createProjectsRoutes({
       db: db as never,
       workspaceId: 'ws-1',
+      defaultWorkspace: 'ws-1',
       viewFor: () => literalView({}),
       startRun: () => Promise.reject(new Error('no run is started by these flows')),
       access,

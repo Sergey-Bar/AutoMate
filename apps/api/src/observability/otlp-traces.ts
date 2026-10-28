@@ -23,6 +23,12 @@ import { currentRequestId } from './request-context.js';
  * counts past its size; export happens on a timer, one flush at a time, and a refused or
  * failed export is counted and logged without its headers, and never retried into a backlog.
  * Off entirely unless an endpoint is set, so an install makes no outbound call by default.
+ *
+ * **Nor a shutdown.** The API gives every finalizer 8 s together, and a send's own timeout is
+ * 10 s, so `stop()` has a deadline of its own (`stopTimeoutMs`, 2 s by default): it waits for
+ * a send already in flight no longer than that, the sends it issues are cut off at the same
+ * moment, and what is still queued then is logged as unsent rather than waited for. A stalled
+ * collector costs a stop two seconds, not the budget the database pool closes in.
  */
 export const OTLP_VARIABLES = {
   endpoint: 'OTEL_EXPORTER_OTLP_ENDPOINT',
@@ -176,6 +182,11 @@ export interface OtlpExporterOptions {
   /** Spans per request to the collector. */
   maxBatch?: number;
   timeoutMs?: number;
+  /**
+   * How long `stop()` may take in all: the send in flight is waited for no longer, and every
+   * send still running then is cut off. Short, because it runs inside the API's shutdown budget.
+   */
+  stopTimeoutMs?: number;
   serviceVersion?: string;
   warn?: (message: string) => void;
 }
@@ -185,9 +196,17 @@ export interface OtlpExporter {
   /** Sends everything queued, one batch at a time. Concurrent calls share one flush. */
   flush: () => Promise<void>;
   start: (intervalMs: number) => void;
-  /** Stops the timer and sends what is left. */
+  /** Stops the timer and sends what is left, within `stopTimeoutMs`. */
   stop: () => Promise<void>;
   stats: () => { queued: number; exported: number; dropped: number; failed: number };
+}
+
+/** Settles when the signal aborts, at once if it already has. */
+function aborted(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    signal.addEventListener('abort', () => resolve(), { once: true });
+  });
 }
 
 export function createOtlpExporter(
@@ -198,6 +217,7 @@ export function createOtlpExporter(
   const maxQueue = options.maxQueue ?? 2048;
   const maxBatch = options.maxBatch ?? 512;
   const timeoutMs = options.timeoutMs ?? 10_000;
+  const stopTimeoutMs = options.stopTimeoutMs ?? 2_000;
   const warn = options.warn ?? ((message: string) => console.warn(message));
   const resource = {
     serviceName: settings.serviceName,
@@ -207,6 +227,8 @@ export function createOtlpExporter(
   const counts = { exported: 0, dropped: 0, failed: 0 };
   let inFlight: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  /** Aborted when a stop runs out of time: every send then running is cut off, and no more start. */
+  const halted = new AbortController();
 
   const send = async (batch: ServerSpan[]): Promise<void> => {
     try {
@@ -214,7 +236,7 @@ export function createOtlpExporter(
         method: 'POST',
         headers: { ...settings.headers, 'content-type': 'application/json' },
         body: JSON.stringify(encodeTraces(batch, resource)),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), halted.signal]),
       });
       if (!response.ok) {
         counts.failed += batch.length;
@@ -233,7 +255,7 @@ export function createOtlpExporter(
   };
 
   const drain = async (): Promise<void> => {
-    while (queue.length > 0) await send(queue.splice(0, maxBatch));
+    while (queue.length > 0 && !halted.signal.aborted) await send(queue.splice(0, maxBatch));
   };
 
   const flush = (): Promise<void> => {
@@ -241,6 +263,12 @@ export function createOtlpExporter(
       inFlight = undefined;
     });
     return inFlight;
+  };
+
+  /** The send in flight, then whatever is still queued. */
+  const finish = async (): Promise<void> => {
+    await inFlight;
+    await flush();
   };
 
   return {
@@ -260,8 +288,18 @@ export function createOtlpExporter(
     stop: async () => {
       if (timer !== undefined) clearInterval(timer);
       timer = undefined;
-      await inFlight;
-      await flush();
+      const deadline = setTimeout(
+        () => halted.abort(new Error(`the exporter stopped after ${String(stopTimeoutMs)} ms`)),
+        stopTimeoutMs,
+      );
+      try {
+        await Promise.race([finish(), aborted(halted.signal)]);
+      } finally {
+        clearTimeout(deadline);
+      }
+      if (halted.signal.aborted && queue.length > 0) {
+        warn(`otlp: stopped after ${String(stopTimeoutMs)} ms with ${queue.length} span(s) unsent`);
+      }
     },
     stats: () => ({ queued: queue.length, ...counts }),
   };

@@ -28,8 +28,11 @@ import {
  *   rule an OIDC sign-in follows. A person SCIM provisioned is linked by email on their first
  *   request, and only while their row names no identity yet.
  * - **The role map decides the default workspace**, as OIDC's does: a person a rule names gets
- *   its role there; anyone else gets `CF_ACCESS_DEFAULT_ROLE` the first time and whatever an
- *   admin gives them after. Every other workspace is membership only.
+ *   its role there on every request; anyone else gets `CF_ACCESS_DEFAULT_ROLE` when their first
+ *   request makes their account, and whatever an admin gives them after — no role there, once
+ *   removed, which the default role does not undo. A person with no role in the default
+ *   workspace is let in while they are a member of another. Every other workspace is
+ *   membership only.
  * - **Every request is a sign-in**, because Access has no sign-in event. So a disabled person
  *   is refused on their next request, which is what makes SCIM deactivation immediate. An
  *   unchanged person's row is rewritten at most every few minutes, not on every request.

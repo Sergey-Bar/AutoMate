@@ -1,17 +1,27 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@automate/db';
+import type { CompletionChunk, CompletionSpan } from '@automate/automation';
 import { AgentRuntimeReportSchema } from '@automate/shared-contracts';
 import { REDACTED } from '@automate/reporter';
 import { migratedDatabase } from '../test-support/migrated-database.js';
-import { agentProject, encode, otlpExport, type SpanSpec } from '../test-support/agent-fixtures.js';
+import {
+  agentProject,
+  encode,
+  otlpExport,
+  stubGateway,
+  type SpanSpec,
+} from '../test-support/agent-fixtures.js';
 import {
   SELF_AGENT_NAME,
+  TEST_PROPOSAL_AGENT_NAME,
   agentRuntimeReading,
   ingestOtlpTraces,
   projectAgentRuntime,
   pruneExpiredSpans,
+  pruneExpiredSpansEverywhere,
   recordSelfSpan,
   selfAgentRuntime,
+  selfInstrumented,
 } from './genai-span-service.js';
 import { healthGate } from './repo-health-service.js';
 
@@ -255,5 +265,86 @@ describe('workspace isolation', () => {
     expect((await selfAgentRuntime(other, 7)).runtime.overall.current.runs).toBe(0);
     expect(await pruneExpiredSpans(other, new Date(NOW.getTime() + 100 * DAY))).toBe(0);
     expect(await db.select().from(schema.genaiSpans)).toHaveLength(3);
+  });
+});
+
+/** One installation completion, as the gateway decorator reports it. */
+function selfSpan(id: string): CompletionSpan {
+  return {
+    traceId: id.repeat(32),
+    spanId: id.repeat(16),
+    operation: 'chat',
+    provider: 'ollama',
+    requestModel: 'llama3',
+    responseModel: null,
+    inputTokens: 1,
+    outputTokens: 1,
+    finishReasons: ['stop'],
+    startedAt: new Date(at(-HOUR)).toISOString(),
+    durationMs: 1,
+    status: 'ok',
+    errorType: null,
+  };
+}
+
+async function drain(stream: AsyncIterable<CompletionChunk>): Promise<CompletionChunk[]> {
+  const chunks: CompletionChunk[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return chunks;
+}
+
+/**
+ * Every workspace has its own composition (ADR-014), and the installation's gateways were
+ * module-level: each workspace's chat and test proposals were recorded in the default
+ * workspace, so the default read every workspace's usage and the others read none.
+ */
+describe('the installation gateway, per workspace', () => {
+  it("records a workspace's completions in that workspace, under the agent name it was given", async () => {
+    const { options } = await setup();
+    const other = { ...options, workspaceId: 'ws-2' };
+    const errors: unknown[] = [];
+    const gateway = selfInstrumented(
+      other,
+      stubGateway(() => 'a test'),
+      'ollama',
+      TEST_PROPOSAL_AGENT_NAME,
+      (error) => errors.push(error),
+    );
+    const chunks = await drain(gateway.streamCompletion({ model: 'llama3', messages: [] }));
+    expect(chunks.at(-1)).toEqual({ type: 'done', finishReason: 'stop' });
+    await vi.waitFor(async () => {
+      expect((await selfAgentRuntime(other, 7)).runtime.overall.current.runs).toBe(1);
+    });
+    const runtime = (await selfAgentRuntime(other, 7)).runtime;
+    expect(runtime.agents.map((agent) => agent.key)).toEqual([TEST_PROPOSAL_AGENT_NAME]);
+    expect((await selfAgentRuntime(options, 7)).runtime.overall.current.runs).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports a span it cannot write, and leaves the completion as it was', async () => {
+    const { options } = await setup();
+    const errors: unknown[] = [];
+    // No such workspace: the restrict key onto `workspaces` refuses the row.
+    const gateway = selfInstrumented(
+      { ...options, workspaceId: 'ws-9' },
+      stubGateway(() => 'an answer'),
+      'ollama',
+      SELF_AGENT_NAME,
+      (error) => errors.push(error),
+    );
+    const chunks = await drain(gateway.streamCompletion({ model: 'llama3', messages: [] }));
+    expect(chunks.map((chunk) => chunk.type)).toEqual(['text', 'usage', 'done']);
+    await vi.waitFor(() => {
+      expect(errors).toHaveLength(1);
+    });
+  });
+
+  it("is pruned hourly in every workspace, not only the default's", async () => {
+    const { db, options } = await setup();
+    await recordSelfSpan(options, selfSpan('1'));
+    await recordSelfSpan({ ...options, workspaceId: 'ws-2' }, selfSpan('2'));
+    const later = new Date(NOW.getTime() + 100 * DAY);
+    expect(await pruneExpiredSpansEverywhere(db as never, later)).toBe(2);
+    expect(await db.select().from(schema.genaiSpans)).toEqual([]);
   });
 });

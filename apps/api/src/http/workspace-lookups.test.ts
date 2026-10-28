@@ -64,8 +64,12 @@ describe('the workspace lookups', () => {
     const { db, lookups } = await harness();
     const id = await job(db, 'ws-2');
     expect(await lookups.jobWorkspace(id)).toBe('ws-2');
+    expect(await lookups.jobWorkspace(id.toUpperCase())).toBe('ws-2');
     expect(await lookups.jobWorkspace('00000000-0000-4000-8000-000000000000')).toBeNull();
     expect(await lookups.jobWorkspace("x' or 1=1 --")).toBeNull();
+    // A uuid's length is not a uuid: PostgreSQL would refuse this one as malformed, a 400 for
+    // what is a job nobody has.
+    expect(await lookups.jobWorkspace('-'.repeat(36))).toBeNull();
   });
 
   it('lists a person’s memberships oldest first, and knows which workspaces exist', async () => {
@@ -115,5 +119,40 @@ describe('the workspace lookups', () => {
       await ask({ authorization: `Bearer ${two.token}`, cookie: 'automate_workspace=ws-1' }),
     ).toBe('ws-2');
     expect(await ask({})).toBe('ws-1');
+  });
+
+  it('sends the reporter secret to the default workspace, whichever one the person beside it chose', async () => {
+    const { db, lookups } = await harness();
+    const now = new Date();
+    const [user] = await db
+      .insert(schema.users)
+      .values({ email: 'bo@example.com', displayName: 'Bo', createdAt: now, updatedAt: now })
+      .returning({ id: schema.users.id });
+    const bo = String(user?.id);
+    await db
+      .insert(schema.workspaceMembers)
+      .values({ workspaceId: 'ws-2', userId: bo, role: 'viewer' });
+    const app = new Hono();
+    app.use(
+      '*',
+      createWorkspaceDispatch({
+        lookups,
+        compose: (workspaceId) =>
+          new Hono().post('/api/v1/reporter/upload', (context) => context.text(workspaceId)),
+      }),
+    );
+    app.post('/api/v1/reporter/upload', (context) => context.text('ws-1'));
+    const upload = async (headers: Record<string, string>) =>
+      (
+        await app.request('/api/v1/reporter/upload', {
+          method: 'POST',
+          headers: { 'x-test-user': bo, cookie: 'automate_workspace=ws-2', ...headers },
+        })
+      ).text();
+    // Bo is a viewer of ws-2 and chose it, so his own requests are served there.
+    expect(await upload({})).toBe('ws-2');
+    // The installation's reporter secret is not his to point anywhere: it writes to the default.
+    expect(await upload({ authorization: 'Bearer reporter-secret' })).toBe('ws-1');
+    expect(await upload({ 'x-runner-registration-secret': 'shared' })).toBe('ws-1');
   });
 });

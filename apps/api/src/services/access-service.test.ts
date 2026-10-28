@@ -85,6 +85,7 @@ async function setup(
     createProjectsRoutes({
       db: db as never,
       workspaceId: 'ws-1',
+      defaultWorkspace: 'ws-1',
       viewFor: () => literalView({ 'package.json': '{"name":"x"}' }),
       startRun: async () => ({ runId: 'r', jobId: 'j', phase: 'queued' }),
       access,

@@ -151,6 +151,13 @@ export interface ProjectsRouteOptions extends ProjectRegistryServiceOptions {
   /** The role a person provisioned over SCIM starts with: `OIDC_DEFAULT_ROLE`, or viewer. */
   scimDefaultRole?: 'viewer' | 'operator' | 'admin';
   /**
+   * The installation's default workspace (ADR-014). A person is one account across the
+   * installation, and the members and SCIM routes let only this workspace's admins and its
+   * SCIM connection change an account another workspace shares. Never this composition's own
+   * workspace by fallback: then every workspace would count as the default.
+   */
+  defaultWorkspace: string;
+  /**
    * The built-in eval runner's model access: the configured gateway (`null` when no provider
    * is configured, and runs are refused `NOT_CONFIGURED`) and its provider name.
    */
@@ -301,13 +308,22 @@ export function createProjectsRoutes(options: ProjectsRouteOptions): Hono {
   // The audit trail, its export and its chain (ADR-014, enterprise). Admin only.
   app.route('/', createAuditRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
   // The people who signed in with single sign-on, and their roles here. Admin only.
-  app.route('/', createMembersRoutes({ db: options.db, workspaceId: options.workspaceId, access }));
+  app.route(
+    '/',
+    createMembersRoutes({
+      db: options.db,
+      workspaceId: options.workspaceId,
+      defaultWorkspace: options.defaultWorkspace,
+      access,
+    }),
+  );
   // SCIM provisioning (ADR-014, enterprise): scoped to each SCIM token's own workspace.
   app.route(
     '/',
     createScimRoutes({
       db: options.db,
       workspaceId: options.workspaceId,
+      defaultWorkspace: options.defaultWorkspace,
       access,
       ...(options.scimDefaultRole === undefined ? {} : { defaultRole: options.scimDefaultRole }),
     }),

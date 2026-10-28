@@ -1,29 +1,48 @@
 import { Hono, type Context } from 'hono';
-import { and, asc, eq, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod/v4';
 import { DrizzleSessionStore, users, workspaceMembers } from '@automate/db';
 import { DomainError, ErrorCode } from '../errors/domain-error.js';
-import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
-import { audit } from '../services/access-service.js';
+import {
+  callerOf,
+  isInstallationAdmin,
+  requireRole,
+  sourceOf,
+  type CallerResolver,
+} from '../http/roles.js';
+import { audit, type Caller } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
+import { isEnabledAdmin, memberElsewhere } from '../services/user-service.js';
 
 /**
  * Members (ADR-014, team): the people who signed in with single sign-on, and what each may do
  * in this workspace. Admin only, and every change is an audit row.
  *
  * - `GET /api/v1/members` — everyone with a role here.
+ * - `POST /api/v1/members` — `{ email, role }`: a person who has signed in before, added here.
  * - `PATCH /api/v1/members/:userId` — `{ role }` and/or `{ disabled }`. Disabling a person
  *   revokes every session they hold, at once; they cannot sign in again until enabled.
- * - `DELETE /api/v1/members/:userId` — removes the role here and revokes their sessions.
+ * - `DELETE /api/v1/members/:userId` — removes the role here, and nothing else. Roles are read
+ *   per request, so the person has none here from their next one, and their sessions still
+ *   serve the workspaces they remain in.
  *
- * The workspace's last enabled admin can be neither demoted, disabled nor removed, so an
- * install cannot lock its own admins out. A person in another workspace is a 404.
+ * **A person is one account across the installation; a membership is one workspace's.** The
+ * role here is this workspace's admins' to change. The account — whether the person is
+ * disabled — is decided by the installation's own admin and the default workspace's admins,
+ * and by this workspace's admins only for a person who is a member of no other workspace.
+ * Otherwise an admin of any workspace could add someone by email and lock them out of all.
+ *
+ * The workspace's last enabled admin can be neither demoted nor removed, and nobody can be
+ * disabled while they are the last enabled admin of any workspace, so an install cannot lock
+ * its own admins out. A person in another workspace only is a 404.
  */
 export interface MembersRouteOptions extends Pick<
   ProjectRegistryServiceOptions,
   'db' | 'workspaceId'
 > {
   access: CallerResolver;
+  /** The installation's default workspace, whose admins decide every person's account. */
+  defaultWorkspace: string;
 }
 
 const PatchSchema = z
@@ -67,23 +86,78 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
     return row;
   };
 
-  /** Refuses a change that would leave the workspace with no enabled admin. */
+  /** Whether the workspace has an enabled admin other than this person. */
+  const anotherAdminIn = async (workspaceId: string, userId: string): Promise<boolean> => {
+    const [another] = await options.db
+      .select({ id: workspaceMembers.userId })
+      .from(workspaceMembers)
+      .innerJoin(users, eq(users.id, workspaceMembers.userId))
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.role, 'admin'),
+          ne(workspaceMembers.userId, userId),
+          isNull(users.disabledAt),
+        ),
+      )
+      .limit(1);
+    return another !== undefined;
+  };
+
+  /** Refuses a demotion or a removal that would leave this workspace with no enabled admin. */
   const keepAnAdmin = async (
     userId: string,
     current: { role: string; disabledAt: Date | null },
   ) => {
     if (current.role !== 'admin' || current.disabledAt !== null) return;
-    const others = await options.db
-      .select({ id: workspaceMembers.userId, disabledAt: users.disabledAt })
-      .from(workspaceMembers)
-      .innerJoin(users, eq(users.id, workspaceMembers.userId))
-      .where(and(here, eq(workspaceMembers.role, 'admin'), ne(workspaceMembers.userId, userId)));
-    if (!others.some((other) => other.disabledAt === null)) {
+    if (!(await anotherAdminIn(options.workspaceId, userId))) {
       throw new DomainError(
         'LAST_ADMIN',
         'This is the last admin here: make someone else an admin first',
       );
     }
+  };
+
+  /**
+   * Refuses disabling the last enabled admin of any workspace, not only this one: the account
+   * is installation-wide, so disabling it empties every workspace the person runs.
+   */
+  const keepEveryAdmin = async (userId: string, current: { disabledAt: Date | null }) => {
+    if (current.disabledAt !== null) return;
+    const adminOf = await options.db
+      .select({ workspaceId: workspaceMembers.workspaceId })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.userId, userId), eq(workspaceMembers.role, 'admin')));
+    for (const { workspaceId } of adminOf) {
+      if (await anotherAdminIn(workspaceId, userId)) continue;
+      throw new DomainError(
+        'LAST_ADMIN',
+        workspaceId === options.workspaceId
+          ? 'This is the last admin here: make someone else an admin first'
+          : `This person is the last admin of ${workspaceId}: make someone else an admin there first`,
+        { details: { workspaceId } },
+      );
+    }
+  };
+
+  /** Whether the caller is a person who is an enabled admin of the default workspace. */
+  const isDefaultAdmin = async (caller: Caller): Promise<boolean> => {
+    const userId = sourceOf(caller) === 'user' ? caller.actor.slice('user:'.length) : '';
+    if (!UserIdSchema.safeParse(userId).success) return false;
+    return isEnabledAdmin({ db: options.db, workspaceId: options.defaultWorkspace }, userId);
+  };
+
+  /** Refuses a change to the person's account from a caller who decides only the membership. */
+  const mayChangeAccount = async (context: Context, userId: string): Promise<void> => {
+    const caller = await callerOf(context, options.access);
+    if (isInstallationAdmin(caller)) return;
+    if (!(await memberElsewhere(options, userId))) return;
+    if (await isDefaultAdmin(caller)) return;
+    throw new DomainError(
+      ErrorCode.FORBIDDEN,
+      'This person also belongs to another workspace: only the admin of the installation or ' +
+        'of the default workspace can disable or enable them',
+    );
   };
 
   const record = async (context: Context, action: string, userId: string, details = {}) =>
@@ -94,6 +168,17 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
       resourceId: userId,
       details,
     });
+
+  /** Disables or enables the account. Disabling signs the person out of every session at once. */
+  const setDisabled = async (context: Context, userId: string, disabled: boolean) => {
+    const now = new Date();
+    await options.db
+      .update(users)
+      .set({ disabledAt: disabled ? now : null, updatedAt: now })
+      .where(eq(users.id, userId));
+    if (disabled) await sessions.revokeForUser(userId, now);
+    await record(context, disabled ? 'member.disable' : 'member.enable', userId);
+  };
 
   app.get('/api/v1/members', admin, async (context) => {
     const rows = await options.db
@@ -156,25 +241,20 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
     const userId = context.req.param('userId');
     const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
     if (!parsed.success) return invalid(context, 'Invalid member change', parsed.error.issues);
+    const { role, disabled } = parsed.data;
     const current = await membership(userId);
-    const demoted = parsed.data.role !== undefined && parsed.data.role !== 'admin';
-    if (demoted || parsed.data.disabled === true) await keepAnAdmin(userId, current);
-    if (parsed.data.role !== undefined && parsed.data.role !== current.role) {
+    // Every check before any write, so a change refused in part is refused whole.
+    if (disabled !== undefined) await mayChangeAccount(context, userId);
+    if (role !== undefined && role !== 'admin') await keepAnAdmin(userId, current);
+    if (disabled === true) await keepEveryAdmin(userId, current);
+    if (role !== undefined && role !== current.role) {
       await options.db
         .update(workspaceMembers)
-        .set({ role: parsed.data.role })
+        .set({ role })
         .where(and(here, eq(workspaceMembers.userId, userId)));
-      await record(context, 'member.role', userId, { from: current.role, to: parsed.data.role });
+      await record(context, 'member.role', userId, { from: current.role, to: role });
     }
-    if (parsed.data.disabled !== undefined) {
-      const now = new Date();
-      await options.db
-        .update(users)
-        .set({ disabledAt: parsed.data.disabled ? now : null, updatedAt: now })
-        .where(eq(users.id, userId));
-      if (parsed.data.disabled) await sessions.revokeForUser(userId, now);
-      await record(context, parsed.data.disabled ? 'member.disable' : 'member.enable', userId);
-    }
+    if (disabled !== undefined) await setDisabled(context, userId, disabled);
     return context.json({ ok: true });
   });
 
@@ -182,8 +262,8 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
     const userId = context.req.param('userId');
     const current = await membership(userId);
     await keepAnAdmin(userId, current);
+    // The membership and nothing else: the person's sessions and account are not ours to end.
     await options.db.delete(workspaceMembers).where(and(here, eq(workspaceMembers.userId, userId)));
-    await sessions.revokeForUser(userId, new Date());
     await record(context, 'member.remove', userId, { role: current.role });
     return context.json({ ok: true });
   });

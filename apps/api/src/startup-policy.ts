@@ -318,3 +318,26 @@ export function resolveAuthSecrets(
         : (config.apiKey ?? DEVELOPMENT_INSTALLATION_KEY),
   };
 }
+
+/**
+ * OIDC that admits anyone the identity provider signs in (ADR-014, team). With no
+ * `OIDC_ALLOWED_DOMAINS` and a default role, every account the provider will authenticate
+ * becomes a member of the default workspace on its first sign-in — a Google client open to
+ * outside users makes that every Google account. A warning rather than a refusal, because a
+ * provider that only signs in the organisation's own people is a configuration this cannot see.
+ *
+ * @returns the warning, or `undefined` when a domain allowlist or `OIDC_DEFAULT_ROLE=none`
+ *   narrows who gets in, or OIDC is off
+ */
+export function identityWarning(config: AppConfig): string | undefined {
+  const oidc = config.oidc;
+  if (oidc === undefined || oidc.allowedDomains.length > 0 || oidc.defaultRole === null) {
+    return undefined;
+  }
+  return (
+    `OIDC admits anyone ${oidc.issuer} signs in, as ${oidc.defaultRole} of the default ` +
+    'workspace. If that provider signs in people outside your organisation, set ' +
+    'OIDC_ALLOWED_DOMAINS to your email domains, or OIDC_DEFAULT_ROLE=none to admit only the ' +
+    'people OIDC_ROLE_MAP or SCIM names.'
+  );
+}

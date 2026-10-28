@@ -1,5 +1,6 @@
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { TOKEN_PREFIX } from '../services/access-service.js';
 import { bearerToken } from './bearer-token.js';
 import { BROWSER_SIGN_IN } from './roles.js';
 
@@ -9,16 +10,24 @@ import { BROWSER_SIGN_IN } from './roles.js';
  *
  * **The workspace comes from a credential the server trusts**, in this order:
  *
- * 1. an access token (`amt_…`): the token row's own workspace, whatever else the request says;
- * 2. a runner's call about a job (`/api/v1/jobs/:jobId/…`): the job's workspace, because
- *    runners are a pool the installation shares;
- * 3. a person — their session, or on team and enterprise the account Cloudflare Access signs in:
+ * 1. a live access token (`amt_…`): the token row's own workspace, whatever else the request
+ *    says. An unknown or revoked one is no credential, and the rules below decide, as the
+ *    caller resolver passes over it to the next credential;
+ * 2. a runner's call about a job (`/api/v1/jobs/:jobId/…`, the id a uuid): the job's
+ *    workspace, because runners are a pool the installation shares;
+ * 3. an installation-wide credential — a bearer that is not an access token (the reporter
+ *    secret, the runner registration secret, a runner's or a SCIM token) or the registration
+ *    secret's own header: the default workspace. Each is checked by the route it opens and none
+ *    belongs to a workspace, so nothing beside it can point it at another: `REPORTER_SECRET`
+ *    uploads land in the default, a SCIM token is scoped by its own row, and a runner's
+ *    registration, heartbeat and claim reach the shared pool there;
+ * 4. a person — their session, or on team and enterprise the account Cloudflare Access signs in:
  *    the workspace they chose (the `automate_workspace` cookie) if they are a member of it, else
  *    the default if they are a member there, else their first;
- * 4. the installation's own admin (the installation session, an open install, or a Cloudflare
+ * 5. the installation's own admin (the installation session, an open install, or a Cloudflare
  *    identity the role map makes an admin and that is not an account): any workspace that
  *    exists, as chosen;
- * 5. everything else: the default workspace.
+ * 6. everything else: the default workspace.
  *
  * A choice is a request to enter, never a grant: every credential is then checked again by the
  * workspace's own resolver, so a person who is not a member gets no role there.
@@ -36,8 +45,11 @@ import { BROWSER_SIGN_IN } from './roles.js';
  */
 export const WORKSPACE_CHOICE = 'automate_workspace';
 
-/** A workspace id: what `WORKSPACE_ID` and the create route accept. */
+/** A workspace id: what the create route accepts. `WORKSPACE_ID`, the default, may be any. */
 export const WORKSPACE_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/u;
+
+/** A job id: a uuid in its canonical shape, in either case. Nothing else is a job. */
+export const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 export interface WorkspaceLookups {
   defaultWorkspace: string;
@@ -56,33 +68,75 @@ export interface WorkspaceLookups {
 
 const JOB_PATH = /^\/api\/v1\/jobs\/([^/]+)\//u;
 
+/**
+ * The header a runner may present the registration secret in, rather than as a bearer: the
+ * one `registrationAuthorized` in `routes/execution/shared.ts` reads first.
+ */
+const REGISTRATION_HEADER = 'x-runner-registration-secret';
+
+/**
+ * The workspace a person chose, when the cookie holds a workspace id. A default `WORKSPACE_ID`
+ * outside the pattern reads as no choice, which places the request in the default: the
+ * workspace that was chosen.
+ */
 function chosen(context: Context): string | null {
   const value = getCookie(context, WORKSPACE_CHOICE);
   return value !== undefined && WORKSPACE_ID_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * The job a call is about: the id in its path, when that is a job id. Read as it arrives and
+ * never decoded — a uuid has nothing to decode, and decoding `%ZZ` throws before any credential
+ * has been asked for.
+ */
+function jobOf(path: string): string | undefined {
+  const id = JOB_PATH.exec(path)?.[1];
+  return id !== undefined && JOB_ID_PATTERN.test(id) ? id : undefined;
+}
+
+/** Rule 3: a credential that belongs to the installation rather than to any workspace. */
+function installationWide(context: Context, bearer: string | undefined): boolean {
+  return (
+    (bearer !== undefined && !bearer.startsWith(TOKEN_PREFIX)) ||
+    context.req.header(REGISTRATION_HEADER) !== undefined
+  );
+}
+
+/** Rules 1 to 3: the workspace a credential decides by itself, or `null` when none does. */
+async function credentialWorkspace(
+  context: Context,
+  lookups: WorkspaceLookups,
+): Promise<string | null> {
+  const bearer = bearerToken(context.req.header('authorization'));
+  const presented = bearer ?? getCookie(context, BROWSER_SIGN_IN);
+  if (presented?.startsWith(TOKEN_PREFIX) === true) {
+    const own = await lookups.tokenWorkspace(presented);
+    if (own !== null) return own;
+  }
+  const job = jobOf(context.req.path);
+  if (job !== undefined && presented !== undefined) {
+    return (await lookups.jobWorkspace(job)) ?? lookups.defaultWorkspace;
+  }
+  return installationWide(context, bearer) ? lookups.defaultWorkspace : null;
+}
+
+/** Rule 4, over a person's memberships. */
+function personWorkspace(member: string[], choice: string | null, fallback: string): string {
+  if (choice !== null && member.includes(choice)) return choice;
+  if (member.includes(fallback) || member.length === 0) return fallback;
+  return member[0] ?? fallback;
 }
 
 export async function resolveRequestWorkspace(
   context: Context,
   lookups: WorkspaceLookups,
 ): Promise<string> {
-  const presented =
-    bearerToken(context.req.header('authorization')) ?? getCookie(context, BROWSER_SIGN_IN);
-  if (presented?.startsWith('amt_') === true) {
-    return (await lookups.tokenWorkspace(presented)) ?? lookups.defaultWorkspace;
-  }
-  const job = JOB_PATH.exec(context.req.path)?.[1];
-  if (job !== undefined && presented !== undefined) {
-    return (await lookups.jobWorkspace(decodeURIComponent(job))) ?? lookups.defaultWorkspace;
-  }
+  const decided = await credentialWorkspace(context, lookups);
+  if (decided !== null) return decided;
   const choice = chosen(context);
   const userId = await lookups.sessionUser(context);
   if (userId !== null) {
-    const member = await lookups.memberships(userId);
-    if (choice !== null && member.includes(choice)) return choice;
-    if (member.includes(lookups.defaultWorkspace) || member.length === 0) {
-      return lookups.defaultWorkspace;
-    }
-    return member[0] ?? lookups.defaultWorkspace;
+    return personWorkspace(await lookups.memberships(userId), choice, lookups.defaultWorkspace);
   }
   if (
     choice !== null &&

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createErrorBoundary } from '../errors/boundary.js';
 import type { Caller } from '../services/access-service.js';
 import {
+  BROWSER_SIGN_IN,
   callerOf,
   isInstallationAdmin,
   requireRole,
@@ -11,8 +12,10 @@ import {
 } from './roles.js';
 
 /**
- * The credential order (ADR-014): a token, then a Cloudflare Access identity, then the
- * installation session, then open or nobody. One resolver decides it for every guard.
+ * The credential order (ADR-014): a token, then a person's session, then the installation
+ * session, then a Cloudflare Access identity, then open or nobody. One resolver decides it for
+ * every guard. Under enforced single sign-on a browser's token cookie and the installation
+ * session count only under break-glass; a bearer token always does.
  */
 const TOKEN_CALLER: Caller = { actor: 'token:t1', role: 'viewer', uploaderFor: null };
 const CF_CALLER: Caller = { actor: 'cf:ana@example.com', role: 'operator', uploaderFor: null };
@@ -55,11 +58,16 @@ describe('the credential order', () => {
     expect(authenticateRemote).not.toHaveBeenCalled();
   });
 
-  it('puts a Cloudflare identity ahead of the installation session', async () => {
-    const hasSession = vi.fn(async () => true);
-    const access = resolver({ authenticateRemote: vi.fn(async () => CF_CALLER), hasSession });
-    expect(await (await app(access).request('/who')).json()).toEqual(CF_CALLER);
-    expect(hasSession).not.toHaveBeenCalled();
+  it('puts the installation session ahead of the Cloudflare identity every tunnelled request carries', async () => {
+    // Behind the tunnel every request has an Access identity, so an installation session read
+    // after it — break-glass, when single sign-on is down — would never be read at all.
+    const authenticateRemote = vi.fn(async () => CF_CALLER);
+    const access = resolver({ authenticateRemote, hasSession: vi.fn(async () => true) });
+    expect(await (await app(access).request('/who')).json()).toMatchObject({
+      actor: 'session',
+      role: 'admin',
+    });
+    expect(authenticateRemote).not.toHaveBeenCalled();
   });
 
   it('falls through to the session, then to nobody, when Cloudflare has no identity', async () => {
@@ -94,6 +102,50 @@ describe('the credential order', () => {
       })),
     });
     expect((await app(access).request('/op')).status).toBe(403);
+  });
+});
+
+describe('enforced single sign-on', () => {
+  const tokenCookie = { cookie: `${BROWSER_SIGN_IN}=amt_good` };
+
+  it('ignores a browser’s token cookie and the installation session, and keeps a bearer token', async () => {
+    const access = resolver({ ssoEnforced: true, hasSession: vi.fn(async () => true) });
+    expect(await (await app(access).request('/who', { headers: tokenCookie })).json()).toEqual({
+      actor: 'anonymous',
+      role: null,
+      uploaderFor: null,
+    });
+    expect((await app(access).request('/op', { headers: tokenCookie })).status).toBe(401);
+    // CI's credential is a bearer token, and it keeps working.
+    const bearer = await app(access).request('/who', {
+      headers: { authorization: 'Bearer amt_good' },
+    });
+    expect(await bearer.json()).toEqual(TOKEN_CALLER);
+    // A person signs in through the identity provider, so Access still counts.
+    const remote = resolver({
+      ssoEnforced: true,
+      hasSession: vi.fn(async () => true),
+      authenticateRemote: vi.fn(async () => CF_CALLER),
+    });
+    expect(await (await app(remote).request('/who', { headers: tokenCookie })).json()).toEqual(
+      CF_CALLER,
+    );
+  });
+
+  it('counts the installation session and the token cookie again under break-glass', async () => {
+    const access = resolver({
+      ssoEnforced: true,
+      breakGlass: true,
+      hasSession: vi.fn(async () => true),
+      authenticateRemote: vi.fn(async () => CF_CALLER),
+    });
+    expect(await (await app(access).request('/who')).json()).toMatchObject({
+      actor: 'session',
+      role: 'admin',
+    });
+    expect(await (await app(access).request('/who', { headers: tokenCookie })).json()).toEqual(
+      TOKEN_CALLER,
+    );
   });
 });
 
