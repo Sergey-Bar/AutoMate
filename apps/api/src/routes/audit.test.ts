@@ -1,10 +1,11 @@
+import type { QueryOptions, Results } from '@electric-sql/pglite';
 import { sql } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@automate/db';
 import type { CallerResolver } from '../http/roles.js';
 import { audit, type Caller } from '../services/access-service.js';
 import { withErrorBoundary } from '../test-support/error-boundary-app.js';
-import { migratedDatabase } from '../test-support/migrated-database.js';
+import { migratedDatabase, type MigratedDb } from '../test-support/migrated-database.js';
 import { createAuditRoutes } from './audit.js';
 
 /**
@@ -42,6 +43,45 @@ async function harness(workspaceId = 'ws-1') {
   const get = (path: string, token = 'amt_admin') =>
     app.request(path, { headers: { authorization: `Bearer ${token}` } });
   return { db, get };
+}
+
+/** One line of the NDJSON export: a row, or the head the file ends with. */
+interface ExportLine {
+  seq?: number;
+  hash?: string;
+  action?: string;
+  head?: { seq: number; hash: string } | null;
+}
+
+const ndjson = (text: string) =>
+  text
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as ExportLine);
+
+/**
+ * The export's page reads, counted at the database client as they are sent. `afterPage` runs
+ * once a page has been read and before the route sees it, which is the moment a concurrent
+ * writer can land between a page and whatever the route does next.
+ */
+function watchPages(
+  db: MigratedDb,
+  afterPage: (page: number) => Promise<void> = async () => undefined,
+) {
+  const client = db.$client;
+  const query = client.query.bind(client);
+  const reads = { pages: 0 };
+  vi.spyOn(client, 'query').mockImplementation(
+    async <T>(text: string, params?: unknown[], options?: QueryOptions): Promise<Results<T>> => {
+      const isPage = /order by "audit_events"\."chain_seq" asc/u.test(text);
+      if (isPage) reads.pages += 1;
+      const page = reads.pages;
+      const result = await query<T>(text, params, options);
+      if (isPage) await afterPage(page);
+      return result;
+    },
+  );
+  return reads;
 }
 
 describe('the audit trail', () => {
@@ -87,6 +127,56 @@ describe('the audit trail', () => {
     expect(head.head.seq).toBe(4);
     expect(head.head.hash).toMatch(/^[0-9a-f]{64}$/u);
     expect(lines.some((line) => line['action'] === 'elsewhere')).toBe(false);
+  });
+
+  it('ends the export with the head of the last row it streamed, not of a row written after', async () => {
+    const { db, get } = await harness();
+    // A decision recorded once the last page has been read. It is not in this copy, so the
+    // head this copy ends with must not name it: a filed head has to be a row of its file.
+    const reads = watchPages(db, async (page) => {
+      if (page !== 1) return;
+      await audit(
+        { db: db as never, workspaceId: 'ws-1' },
+        { actor: 'token:admin', action: 'late.write', resourceType: 't', resourceId: 'late' },
+      );
+    });
+    const lines = ndjson(await (await get('/api/v1/audit/export')).text());
+    const rows = lines.slice(0, -1);
+    expect(rows.map((row) => row.action)).toEqual([
+      'token.create',
+      'policy.set',
+      'token.revoke',
+      'audit.export',
+    ]);
+    const last = rows.at(-1);
+    expect(lines.at(-1)).toEqual({ head: { seq: last?.seq, hash: last?.hash } });
+    // Not vacuous: the late row was written while the export ran, and is in the trail.
+    expect(reads.pages).toBe(1);
+    const actions = await db.select({ action: schema.auditEvents.action }).from(schema.auditEvents);
+    expect(actions.map((row) => row.action)).toContain('late.write');
+  });
+
+  it('reads the trail a page at a time, as the client takes it', async () => {
+    const { db, get } = await harness();
+    // Three pages: the three seeded rows, 1,100 more, and the export's own row.
+    await db.execute(sql`
+      INSERT INTO audit_events (timestamp, actor_id, actor_type, action, workspace_id, created_at)
+      SELECT now(), 'token:admin', 'service', 'bulk.write', 'ws-1', now()
+        FROM generate_series(1, 1100)`);
+    const reads = watchPages(db);
+    const response = await get('/api/v1/audit/export');
+    // Nothing read yet: the stream fetches the one page it keeps ready, and then no more,
+    // however long the client leaves it.
+    await vi.waitFor(() => expect(reads.pages).toBeGreaterThanOrEqual(1), { timeout: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(reads.pages).toBe(1);
+    const lines = ndjson(await response.text());
+    expect(reads.pages).toBe(3);
+    const rows = lines.slice(0, -1);
+    expect(rows.map((row) => row.seq)).toEqual(
+      Array.from({ length: 1104 }, (_unused, index) => index + 1),
+    );
+    expect(lines.at(-1)).toEqual({ head: { seq: 1104, hash: rows.at(-1)?.hash } });
   });
 
   it('exports CSV with a header row, quoting what needs quoting', async () => {

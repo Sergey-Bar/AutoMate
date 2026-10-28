@@ -65,6 +65,19 @@ describe('audit:verify', () => {
     expect(await verifyAuditTrail(seam)).toBe(1);
     expect(lines.error).toEqual(['audit:verify: ws-a row 1 is edited']);
   });
+
+  it('fails on a trail whose first row was deleted behind the guard, naming the row left first', async () => {
+    const client = await migrated();
+    opened.push(client);
+    // The rest of the chain still links up; only its start is gone.
+    await client.exec(`
+      ALTER TABLE audit_events DISABLE TRIGGER audit_events_append_only_delete;
+      DELETE FROM audit_events WHERE action = 'one';
+    `);
+    const { lines, io: seam } = io(client);
+    expect(await verifyAuditTrail(seam)).toBe(1);
+    expect(lines.error).toEqual(['audit:verify: ws-a row 2 is missing-before']);
+  });
 });
 
 describe('the audit:verify command', () => {

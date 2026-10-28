@@ -12,11 +12,13 @@ import type { ProjectRegistryServiceOptions } from '../services/project-registry
  *
  * - `GET /api/v1/audit` — newest first, `limit` (1–200) with a `before` cursor on the chain
  *   position, filtered by `action` or `actor`.
- * - `GET /api/v1/audit/export` — every row oldest first, as NDJSON ending with the chain's
- *   `head`, or as CSV; streamed in pages so a long trail is not held in memory. Recording the
- *   head somewhere else is what makes a rewrite of the whole tail visible later.
- * - `GET /api/v1/audit/verify` — `audit_chain_breaks` (`0050_audit_chain.sql`): every row
- *   edited, missing, or relinked, and the head.
+ * - `GET /api/v1/audit/export` — every row oldest first, as NDJSON ending with the `head` (the
+ *   last row the file holds), or as CSV, which has no head; read a page at a time as the client
+ *   takes it, so a long trail is not held in memory. Recording the head somewhere else is what
+ *   makes a rewrite of the whole tail visible later.
+ * - `GET /api/v1/audit/verify` — `audit_chain_breaks` (`0050_audit_chain.sql`, replaced in
+ *   `0052_audit_append_only.sql` to read a chain's first row too): every row edited, missing,
+ *   or relinked, and the head.
  */
 export interface AuditRouteOptions extends Pick<
   ProjectRegistryServiceOptions,
@@ -100,6 +102,17 @@ function csvLine(row: Row): string {
     .join(',');
 }
 
+/** A chain position and its hash as a head, or `null` when there is no chained row. */
+function headOf(
+  row: { seq: number | null; hash: string | null } | undefined,
+): { seq: number; hash: string } | null {
+  if (row === undefined) return null;
+  // Destructured: the chain's own hash compared with `null` is not a secret comparison,
+  // and the timing rule reads `x.hash === …` as one.
+  const { seq, hash } = row;
+  return seq === null || hash === null ? null : { seq, hash };
+}
+
 export function createAuditRoutes(options: AuditRouteOptions): Hono {
   const app = new Hono();
   const admin = requireRole('admin', options.access);
@@ -112,11 +125,7 @@ export function createAuditRoutes(options: AuditRouteOptions): Hono {
       .where(and(inWorkspace, isNotNull(auditEvents.chainSeq)))
       .orderBy(desc(auditEvents.chainSeq))
       .limit(1);
-    if (last === undefined) return null;
-    // Destructured: the chain's own hash compared with `null` is not a secret comparison,
-    // and the timing rule reads `x.hash === …` as one.
-    const { seq, hash } = last;
-    return seq === null || hash === null ? null : { seq, hash };
+    return headOf(last);
   };
 
   app.get('/api/v1/audit', admin, async (context) => {
@@ -151,32 +160,44 @@ export function createAuditRoutes(options: AuditRouteOptions): Hono {
     });
     const encoder = new TextEncoder();
     const db = options.db;
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        if (format === 'csv') controller.enqueue(encoder.encode(`${CSV_COLUMNS.join(',')}\n`));
-        let after = 0;
-        for (;;) {
+    const line = (row: Row) => `${format === 'csv' ? csvLine(row) : JSON.stringify(view(row))}\n`;
+    // The position the next page starts after, and the last row streamed. The head the file
+    // ends with is that row, so it can only name a row the file holds: a separate read of the
+    // head after the last page could name a row written since, which the file does not have.
+    let after = 0;
+    let last: Row | undefined;
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        start(controller) {
+          if (format === 'csv') controller.enqueue(encoder.encode(`${CSV_COLUMNS.join(',')}\n`));
+        },
+        // One page per pull. The stream asks for the next page only once the reader has taken
+        // the one it holds, so a slow client slows the reads rather than the API holding the
+        // trail for it.
+        async pull(controller) {
           const rows = await db
             .select()
             .from(auditEvents)
             .where(and(inWorkspace, gt(auditEvents.chainSeq, after)))
             .orderBy(asc(auditEvents.chainSeq))
             .limit(PAGE);
-          for (const row of rows) {
-            controller.enqueue(
-              encoder.encode(`${format === 'csv' ? csvLine(row) : JSON.stringify(view(row))}\n`),
-            );
+          if (rows.length > 0) controller.enqueue(encoder.encode(rows.map(line).join('')));
+          last = rows.at(-1) ?? last;
+          const position = rows.at(-1)?.chainSeq;
+          if (rows.length === PAGE && position != null) {
+            after = position;
+            return;
           }
-          const last = rows.at(-1)?.chainSeq;
-          if (rows.length < PAGE || last == null) break;
-          after = last;
-        }
-        if (format === 'ndjson') {
-          controller.enqueue(encoder.encode(`${JSON.stringify({ head: await head() })}\n`));
-        }
-        controller.close();
+          if (format === 'ndjson') {
+            const tail = last === undefined ? undefined : { seq: last.chainSeq, hash: last.hash };
+            controller.enqueue(encoder.encode(`${JSON.stringify({ head: headOf(tail) })}\n`));
+          }
+          controller.close();
+        },
       },
-    });
+      // One page ready ahead of the reader, and no more.
+      { highWaterMark: 1 },
+    );
     const stamp = new Date().toISOString().replaceAll(':', '').slice(0, 15);
     return new Response(stream, {
       headers: {

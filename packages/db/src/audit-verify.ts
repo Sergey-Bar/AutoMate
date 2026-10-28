@@ -4,9 +4,13 @@ import { assertMigrationDatabaseUrl, isDirectInvocation } from './migrate.js';
 /**
  * `pnpm audit:verify` — every break in every workspace's audit chain (ADR-014, enterprise).
  *
- * The check is `audit_chain_breaks` in `0050_audit_chain.sql`, so this, the API's
+ * The check is `audit_chain_breaks`, defined in `0050_audit_chain.sql` and replaced in
+ * `0052_audit_append_only.sql` to read a chain's first row too, so this, the API's
  * `GET /api/v1/audit/verify` and the integration suite all read one definition of an intact
  * chain. Exits 1 on a break, 2 when the database cannot be read, 0 on an intact trail.
+ *
+ * A release install runs it from the migrate image as `dist/audit-verify.js`, the command
+ * `site/guide/operations-enterprise.md` gives, so moving this file moves that command too.
  */
 export interface AuditBreak {
   workspaceId: string;
