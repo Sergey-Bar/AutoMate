@@ -570,6 +570,67 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  profile-matrix:
+    name: Profile matrix (reporting)
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Plan task 19: the four deployment profiles, each booted from the API's own entry point
+    # against this job's PostgreSQL, checking what each serves and what each refuses to start
+    # with. `pr-reporting` (scripts/gate-tooling.json), so a failure is reported and does not
+    # fail the job. It graduates to `pr-blocking` in one commit that moves the tier and drops
+    # the step's `continue-on-error`, once three consecutive runs on main record `success` in
+    # the job summary. No Chromium: every case is HTTP.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: automate
+          POSTGRES_DB: automate
+          # trust, not a password. The service port is bound to the runner only, and a
+          # password here would be a credential committed to the repository, which
+          # pnpm security:secrets refuses, correctly. The database is destroyed with the job.
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U automate -d automate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://automate@127.0.0.1:5432/automate
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Profile matrix (reporting)
+        id: matrix
+        continue-on-error: true
+        run: pnpm test:e2e:profiles
+      - name: Record the outcome
+        if: always()
+        run: |
+          echo "Profile matrix: ${{ steps.matrix.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload profile-matrix results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: profile-matrix-results
+          path: test-results
+          if-no-files-found: ignore
+          retention-days: 14
+
   integration:
     name: Local integration gates
     needs: quality

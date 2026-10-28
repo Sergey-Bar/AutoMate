@@ -120,3 +120,23 @@ export const RUNNER_REGISTRATION_HEADERS = {
 
 /** The session cookie the API sets on a successful login. */
 export const SESSION_COOKIE = 'automate_session';
+
+/**
+ * The cookie-signing secret the suite's API is booted with.
+ *
+ * `playwright.config.ts` imports it, and so does the profile matrix, whose APIs boot against
+ * the same database: one value, for the reason {@link INSTALLATION_KEY} is one value. Assembled
+ * from parts for the same reason as the key.
+ */
+export const COOKIE_SECRET = ['e2e', 'cookie', 'secret', '32', 'characters', 'long'].join('-');
+
+/**
+ * The port the profile matrix boots its own API on, one profile at a time
+ * (`tests/e2e/profiles/profile-matrix.spec.ts`). Beside the suite's API rather than instead of
+ * it, and overridable for the reason the other two are.
+ */
+export const PROFILE_API_PORT = port(
+  process.env['E2E_PROFILE_API_PORT'],
+  3100,
+  'E2E_PROFILE_API_PORT',
+);

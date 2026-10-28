@@ -74,6 +74,7 @@
     "test:e2e": "pr-blocking",
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
+    "test:e2e:profiles": "pr-reporting",
     "test:render": "pr-blocking",
     "status:10": "pr-blocking",
     "review:pr": "pr-reporting",
@@ -195,6 +196,10 @@
       "requires": [],
       "why": "Playwright is a devDependency; the browser needs `playwright install`."
     },
+    "test:e2e:profiles": {
+      "requires": [],
+      "why": "**`pr-reporting` until three stable runs** (plan task 19, `.kilo/plans/1793102400000-profiles-and-remote-plan.md`). The matrix boots the API's own entry point once per deployment profile against the job's PostgreSQL, beside the suite's server, and checks what each profile serves and what each refuses to start with. It is new and it starts processes, so the first runs are what show whether it is stable on the runner: a required check that flakes teaches reviewers to read red as noise. It graduates in **one commit** that moves this tier to `pr-blocking` and drops the step's `continue-on-error` in `unified-ci.yml`, once the job summary of three consecutive runs on main reads `success`. No browser: every case is HTTP, so the job installs none. Not in `verify`: it needs a database."
+    },
     "test:render": {
       "requires": [],
       "why": "**Graduated to `pr-blocking` on 2026-10-21, in the commit that recorded the baseline (PERF-1).** The rendering budget reads `PerformanceObserver` in a real browser, so it needs no binary beyond the Playwright one `test:e2e` already installs. `pnpm test:render` builds the web bundle and measures it under `vite preview` (`scripts/lib/render-run.mjs`); until 2026-10-21 it measured the Vite dev server, which charged the first route 8952 ms of LCP for on-demand compilation. The ceilings in `tests/performance/rendering-budget.json` are recorded on the reference install and compared on the CI runner, which reads the same bundle about 1.7-2x slower, so each ceiling is `ceilingFor(observed)` from `scripts/lib/rendering-budget.mjs` (3x for LCP and INP with floors, +2 long tasks) rather than the reading itself. **The tier is derived rather than chosen**: `scripts/lib/render-gate-phase.mjs` requires `pr-blocking` whenever the baseline says `recorded: true`, and `gate-tooling.test.mjs` fails until this manifest agrees. Deliberately not in `verify`: it needs a browser and a database, and `verify` has a 20-step budget (D6)."
@@ -303,6 +308,7 @@
         "test:e2e",
         "test:e2e:api",
         "test:e2e:vertical",
+        "test:e2e:profiles",
         "test:render",
         "render:baseline"
       ],
