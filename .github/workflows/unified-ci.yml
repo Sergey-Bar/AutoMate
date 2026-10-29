@@ -112,6 +112,33 @@ jobs:
       - name: Boot the production stack
         run: node ./scripts/compose-boot.mjs
 
+  runner-images:
+    name: Runner images
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # `oci:build` builds the three runner images and `oci:verify` inspects them; neither
+    # starts one, and the ZAP image exited 1 on every start with both green (MNT-157).
+    # `oci:smoke` starts each under the isolation its manifest declares. The ubuntu
+    # image ships Docker, so there is nothing to install beyond Node.
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          run_install: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Build the runner images
+        run: pnpm oci:build
+      - name: Inspect the runner images
+        run: pnpm oci:verify
+      - name: Start the runner images
+        run: pnpm oci:smoke
+
   start-scripts-windows:
     name: Start scripts on Windows
     needs: quality

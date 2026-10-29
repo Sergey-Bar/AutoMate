@@ -7110,6 +7110,29 @@
       "resolution": "The Dockerfile adds a passwd entry for 65532 with home `/automation/home`, copies the upstream Firefox profile there, and points ZAP's state at `/tmp/zap` with `-dir`, so a read-only root needs only a `/tmp` tmpfs. The test reads the Dockerfile; it failed before the change. No CI job runs the runner images, so a regression in ZAP's startup itself would still be seen only by running one."
     },
     {
+      "id": "MNT-158",
+      "title": "No gate started the runner images, so an image that could not start passed every check",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "`oci:build` builds the three runner images and `oci:verify` inspects them (image id, configured user, manifest agreement); neither starts one, and only `release-gate.yml` ran them at all. MNT-157's ZAP image exited 1 on every start with both green, and nothing in a pull request built the images.",
+      "confirmedBy": "`pnpm oci:smoke` against the ZAP Dockerfile from before MNT-157 failed with `zap: exited 1` and `Unable to create home directory: /zap/?/.ZAP/`; against main it passed for all three (playwright, k6 v2.3.0, ZAP 2.17.0 in 12.6 s).",
+      "evidence": [
+        {
+          "path": "scripts/lib/oci-smoke.test.mjs",
+          "asserts": "Each image is started under its manifest's user, network, read-only root, memory, pids and CPU with every capability dropped, and fails on a non-zero exit, a hang past 180 s, a signal, or no output."
+        },
+        {
+          "path": ".github/workflows/unified-ci.yml",
+          "asserts": "The `Runner images` job runs `oci:build`, `oci:verify` and `oci:smoke` on every pull request."
+        }
+      ],
+      "resolution": "`scripts/oci-smoke.mjs` starts each built image with the isolation its manifest declares, and the new `Runner images` job runs build, verify and smoke on every pull request. It is `pr-blocking` because it was watched failing on the defect and passing on the fix before it was wired."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
