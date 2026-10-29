@@ -120,6 +120,42 @@ describe('SCIM users', () => {
     expect(((await okta.json()) as { active: boolean }).active).toBe(true);
   });
 
+  it('revokes the tokens a deprovisioned person made, and leaves everyone else alone (PRO-17)', async () => {
+    const h = await harness();
+    const ana = await create(h);
+    const bo = await create(h, {
+      ...ANA,
+      userName: 'bo@example.com',
+      externalId: 'entra-0002',
+      emails: [{ value: 'bo@example.com', primary: true }],
+    });
+    const token = (createdBy: string, name: string) =>
+      h.db.insert(schema.accessTokens).values({
+        workspaceId: 'ws-1',
+        name,
+        role: 'operator',
+        tokenHash: `hash-${name}`,
+        displayPrefix: 'amt_xx',
+        createdBy,
+      });
+    await token(`user:${ana.id}`, 'ana-ci');
+    await token(`user:${bo.id}`, 'bo-ci');
+    await token('token:admin', 'workspace-ci');
+    const live = async () =>
+      (await h.db.select().from(schema.accessTokens))
+        .filter((row) => row.revokedAt === null)
+        .map((row) => row.name)
+        .sort();
+    const deactivated = await h.scim('PATCH', `/scim/v2/Users/${ana.id}`, {
+      schemas: [PATCH_SCHEMA],
+      Operations: [{ op: 'replace', path: 'active', value: false }],
+    });
+    expect(deactivated.status).toBe(200);
+    expect(await live()).toEqual(['bo-ci', 'workspace-ci']);
+    expect((await h.scim('DELETE', `/scim/v2/Users/${bo.id}`)).status).toBe(204);
+    expect(await live()).toEqual(['workspace-ci']);
+  });
+
   it('removes a person from this workspace on DELETE, and signs them out', async () => {
     const h = await harness();
     const created = await create(h);

@@ -61,8 +61,10 @@ workspace-scoped read or write still needs a cross-workspace isolation test.
 **A person is one account across the installation; a membership is one workspace's**
 (amended 2026-10-28, after review). A workspace's admins and its SCIM connection manage that
 workspace's memberships: they add an existing person, set their role there and remove them,
-and a removal ends that membership and nothing else. The account itself — whether the person
-is disabled, their email, name and external id, all their sessions — is decided by the
+and a removal ends that membership and revokes the access tokens the person made in that
+workspace, and nothing else (amended 2026-10-29, `PRO-17`). The account itself — whether the
+person is disabled, which revokes every token they made, their email, name and external id, all
+their sessions — is decided by the
 installation's own admin, the default workspace's admins and its SCIM connection, and by
 another workspace only for a person who belongs to no other. Otherwise any workspace admin
 could add a person by email and lock them out of every workspace, or re-address a provisioned

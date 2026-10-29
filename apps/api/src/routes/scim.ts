@@ -8,7 +8,7 @@ import { DomainError, ErrorCode } from '../errors/domain-error.js';
 import { guard } from '../http/access.js';
 import { bearerToken } from '../http/bearer-token.js';
 import { callerOf, requireRole, type CallerResolver } from '../http/roles.js';
-import { audit } from '../services/access-service.js';
+import { audit, revokeTokensMadeBy } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 import { memberElsewhere } from '../services/user-service.js';
 
@@ -347,8 +347,11 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
       .update(users)
       .set({ disabledAt: active ? null : now, updatedAt: now })
       .where(eq(users.id, userId));
-    if (!active) await sessions.revokeForUser(userId, now);
-    await record(scope, active ? 'scim.user.activate' : 'scim.user.deactivate', userId);
+    if (active) return record(scope, 'scim.user.activate', userId);
+    // Deprovisioned: signed out, and every access token they made revoked (PRO-17).
+    await sessions.revokeForUser(userId, now);
+    const tokensRevoked = await revokeTokensMadeBy(options.db, userId, 'everywhere', now);
+    return record(scope, 'scim.user.deactivate', userId, { tokensRevoked });
   };
 
   const setRole = async (scope: ScimScope, userId: string, role: AccessRole) => {
@@ -591,16 +594,26 @@ export function createScimRoutes(options: ScimRouteOptions): Hono {
       );
     // The membership here, and nothing else while the person has one elsewhere: roles are read
     // per request. A person with no role anywhere is disabled and signed out, so a later
-    // sign-in cannot recreate them.
-    if (!(await memberElsewhere({ db: options.db, workspaceId: scope.workspaceId }, row.id))) {
-      const now = new Date();
+    // sign-in cannot recreate them. The tokens they made go with their place: this workspace's
+    // on removal, every one when the account is disabled (PRO-17).
+    const now = new Date();
+    let tokensRevoked: number;
+    if (await memberElsewhere({ db: options.db, workspaceId: scope.workspaceId }, row.id)) {
+      tokensRevoked = await revokeTokensMadeBy(
+        options.db,
+        row.id,
+        { workspaceId: scope.workspaceId },
+        now,
+      );
+    } else {
       await options.db
         .update(users)
         .set({ disabledAt: now, updatedAt: now })
         .where(eq(users.id, row.id));
       await sessions.revokeForUser(row.id, now);
+      tokensRevoked = await revokeTokensMadeBy(options.db, row.id, 'everywhere', now);
     }
-    await record(scope, 'scim.user.delete', row.id);
+    await record(scope, 'scim.user.delete', row.id, { tokensRevoked });
     return context.body(null, 204);
   });
 

@@ -10,7 +10,7 @@ import {
   sourceOf,
   type CallerResolver,
 } from '../http/roles.js';
-import { audit, type Caller } from '../services/access-service.js';
+import { audit, revokeTokensMadeBy, type Caller } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 import { isEnabledAdmin, memberElsewhere } from '../services/user-service.js';
 
@@ -169,15 +169,20 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
       details,
     });
 
-  /** Disables or enables the account. Disabling signs the person out of every session at once. */
+  /**
+   * Disables or enables the account. Disabling signs the person out of every session at once
+   * and revokes every access token they made, in every workspace (PRO-17).
+   */
   const setDisabled = async (context: Context, userId: string, disabled: boolean) => {
     const now = new Date();
     await options.db
       .update(users)
       .set({ disabledAt: disabled ? now : null, updatedAt: now })
       .where(eq(users.id, userId));
-    if (disabled) await sessions.revokeForUser(userId, now);
-    await record(context, disabled ? 'member.disable' : 'member.enable', userId);
+    if (!disabled) return record(context, 'member.enable', userId);
+    await sessions.revokeForUser(userId, now);
+    const tokensRevoked = await revokeTokensMadeBy(options.db, userId, 'everywhere', now);
+    return record(context, 'member.disable', userId, { tokensRevoked });
   };
 
   app.get('/api/v1/members', admin, async (context) => {
@@ -262,9 +267,13 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
     const userId = context.req.param('userId');
     const current = await membership(userId);
     await keepAnAdmin(userId, current);
-    // The membership and nothing else: the person's sessions and account are not ours to end.
+    // The membership, and the tokens they made here: their sessions and account are not ours
+    // to end, but a credential they made for this workspace should not outlive their place in it.
     await options.db.delete(workspaceMembers).where(and(here, eq(workspaceMembers.userId, userId)));
-    await record(context, 'member.remove', userId, { role: current.role });
+    const tokensRevoked = await revokeTokensMadeBy(options.db, userId, {
+      workspaceId: options.workspaceId,
+    });
+    await record(context, 'member.remove', userId, { role: current.role, tokensRevoked });
     return context.json({ ok: true });
   });
 
