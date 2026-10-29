@@ -1,0 +1,561 @@
+/* Lupin public-site identity. Product tokens remain imported as the semantic foundation.
+   These overrides are intentionally website-only; no console styles are changed. */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Geist-Variable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/GeistMono-Variable.woff2') format('woff2');
+}
+:root {
+  --lupin-canvas: #fafaf9;
+  --lupin-surface: #ffffff;
+  --lupin-text: #15161a;
+  --lupin-muted: #6b6d76;
+  --lupin-border: #e7e7e8;
+  --lupin-accent: #6754ae;
+  --lupin-soft: #f0ecf8;
+  --lupin-on-accent: #ffffff;
+  --lupin-sans: 'Geist', Arial, sans-serif;
+  --lupin-mono: 'Geist Mono', Consolas, monospace;
+  --lupin-width: 1248px;
+  --lupin-radius: 8px;
+  --lupin-space: 8px;
+}
+html.dark,
+html[data-theme='dark'] {
+  --lupin-canvas: #101114;
+  --lupin-surface: #191a1f;
+  --lupin-text: #f4f4f6;
+  --lupin-muted: #a0a2ac;
+  --lupin-border: #2d2f36;
+  --lupin-accent: #b0a1ea;
+  --lupin-soft: #242030;
+  --lupin-on-accent: #101114;
+}
+html,
+html[data-theme],
+html:not([data-theme='light']) {
+  --automate-font-sans: var(--lupin-sans);
+  --automate-font-mono: var(--lupin-mono);
+  --automate-surface-sunken: var(--lupin-canvas);
+  --automate-surface: var(--lupin-surface);
+  --automate-surface-muted: var(--lupin-canvas);
+  --automate-surface-raised: var(--lupin-surface);
+  --automate-fg: var(--lupin-text);
+  --automate-fg-muted: var(--lupin-muted);
+  --automate-border: var(--lupin-border);
+  --automate-border-strong: var(--lupin-muted);
+  --automate-accent: var(--lupin-accent);
+  --automate-on-fill: var(--lupin-on-accent);
+  --vp-font-family-base: var(--lupin-sans);
+  --vp-font-family-mono: var(--lupin-mono);
+  --vp-c-bg: var(--lupin-canvas);
+  --vp-c-bg-alt: var(--lupin-surface);
+  --vp-c-bg-soft: var(--lupin-surface);
+  --vp-c-bg-elv: var(--lupin-surface);
+  --vp-c-text-1: var(--lupin-text);
+  --vp-c-text-2: var(--lupin-muted);
+  --vp-c-brand-1: var(--lupin-accent);
+  --vp-c-brand-2: var(--lupin-accent);
+  --vp-c-brand-3: var(--lupin-accent);
+  --vp-c-brand-soft: var(--lupin-soft);
+  --vp-c-divider: var(--lupin-border);
+  --vp-nav-bg-color: var(--lupin-canvas);
+  --vp-layout-max-width: var(--lupin-width);
+  color-scheme: light;
+}
+html.dark,
+html[data-theme='dark'] {
+  color-scheme: dark;
+}
+body {
+  font-family: var(--lupin-sans);
+}
+.VPNavBarTitle .title {
+  font-size: 22px;
+  letter-spacing: -0.045em;
+  text-transform: none;
+  font-weight: 650;
+}
+.VPNavBarMenuLink {
+  font-size: 13px;
+  font-weight: 500;
+}
+.VPNavBarMenuLink:last-child {
+  border-radius: 6px;
+  height: 38px;
+  padding-inline: 16px;
+  line-height: 36px;
+}
+.VPNav {
+  border-block-end: 1px solid var(--lupin-border);
+}
+.VPNavBarSearch {
+  flex-grow: 0 !important;
+  padding-inline: 12px !important;
+}
+.VPNavBar .menu {
+  margin-inline-start: auto;
+}
+.VPNavBar .content-body {
+  gap: 4px;
+}
+.VPNavBar .container {
+  max-width: var(--lupin-width);
+}
+.language-dialog {
+  border-radius: 8px !important;
+}
+.lupin-home {
+  max-width: var(--lupin-width);
+  margin-inline: auto;
+  padding-inline: 32px;
+}
+.lupin-home h1,
+.lupin-home h2,
+.lupin-home h3 {
+  font-family: var(--lupin-sans);
+  color: var(--lupin-text);
+  font-weight: 550;
+}
+.lupin-hero {
+  padding-block: 100px 72px;
+  max-width: 980px;
+  margin-inline: auto;
+  text-align: center;
+}
+.lupin-kicker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--lupin-muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+.lupin-hero .lupin-kicker,
+.lupin-closing .lupin-kicker {
+  justify-content: center;
+}
+.lupin-kicker > span {
+  width: 6px;
+  height: 6px;
+  background: var(--lupin-accent);
+  border-radius: 50%;
+}
+.lupin-hero h1 {
+  font-size: clamp(38px, 5.4vw, 76px);
+  line-height: 1.07;
+  letter-spacing: -0.055em;
+  margin: 0;
+  text-wrap: balance;
+}
+.lupin-hero h1 span {
+  color: var(--lupin-accent);
+}
+.lupin-lead {
+  max-width: 620px;
+  margin: 28px auto 0;
+  color: var(--lupin-muted);
+  font-size: 18px;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+.lupin-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-block-start: 28px;
+}
+.lupin-hero .lupin-actions,
+.lupin-closing .lupin-actions {
+  justify-content: center;
+}
+.lupin-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--lupin-muted);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  color: var(--lupin-text);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+.lupin-button.primary {
+  color: var(--lupin-on-accent);
+  background: var(--lupin-accent);
+  border-color: var(--lupin-accent);
+}
+.lupin-button:hover {
+  background: var(--lupin-soft);
+  color: var(--lupin-accent);
+}
+.lupin-hero-note {
+  color: var(--lupin-muted);
+  margin-block-start: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.lupin-section-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-block-end: 20px;
+}
+.lupin-section-line h2 {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.lupin-home a:not(.lupin-button) {
+  color: var(--lupin-accent);
+}
+.lupin-section-line a,
+.lupin-text-link {
+  font-size: 14px;
+}
+.lupin-home a:hover:not(.lupin-button),
+.lupin-footer a:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.lupin-showcase figure {
+  margin: 0;
+}
+.lupin-showcase img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--lupin-border);
+  border-radius: var(--lupin-radius);
+}
+.lupin-showcase figcaption {
+  font-size: 12px;
+  color: var(--lupin-muted);
+  line-height: 1.7;
+  margin-block-start: 12px;
+}
+.lupin-showcase-notes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 32px;
+  padding-block: 32px 0;
+}
+.lupin-showcase-notes p {
+  font-size: 14px;
+  color: var(--lupin-muted);
+  line-height: 1.7;
+}
+.lupin-showcase-notes strong {
+  display: block;
+  color: var(--lupin-text);
+  font-weight: 550;
+  margin-block-end: 6px;
+}
+.lupin-section {
+  padding-block: 96px;
+  border-block-end: 1px solid var(--lupin-border);
+  scroll-margin-top: 88px;
+}
+.lupin-section-heading {
+  max-width: 720px;
+  margin-block-end: 48px;
+}
+.lupin-section h2,
+.lupin-closing h2 {
+  font-size: clamp(30px, 3.5vw, 48px);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  text-wrap: balance;
+  margin: 0 0 20px;
+}
+.lupin-section-heading > p:last-child,
+.lupin-install p,
+.lupin-open p {
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--lupin-muted);
+}
+.lupin-steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 40px;
+  padding: 0;
+}
+.lupin-index {
+  font: 12px var(--lupin-mono);
+  color: var(--lupin-accent);
+}
+.lupin-steps h3,
+.lupin-capabilities h3 {
+  font-size: 22px;
+  line-height: 1.4;
+  letter-spacing: -0.025em;
+  margin-block: 20px 12px;
+}
+.lupin-steps p,
+.lupin-capabilities p {
+  font-size: 16px;
+  line-height: 1.75;
+  color: var(--lupin-muted);
+}
+.lupin-steps a {
+  display: inline-block;
+  margin-block-start: 20px;
+  font-size: 14px;
+}
+.lupin-capabilities {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 40px;
+}
+.lupin-capabilities article {
+  border-block-start: 1px solid var(--lupin-border);
+  padding-block: 28px 36px;
+}
+.lupin-capabilities h3 a {
+  color: var(--lupin-text) !important;
+}
+.lupin-capabilities h3 span {
+  color: var(--lupin-accent);
+  font-size: 16px;
+}
+.lupin-integrations {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-block: 1px solid var(--lupin-border);
+  margin-block-end: 24px;
+}
+.lupin-integrations li {
+  padding: 28px 12px 28px 0;
+}
+.lupin-integrations strong {
+  display: block;
+  font-size: 19px;
+  font-weight: 550;
+  margin-block-end: 12px;
+}
+.lupin-integrations span {
+  color: var(--lupin-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  display: block;
+}
+.lupin-install,
+.lupin-open {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 80px;
+  align-items: center;
+}
+.lupin-install-panel {
+  background: var(--lupin-surface);
+  padding: 32px;
+  border: 1px solid var(--lupin-border);
+  border-radius: 8px;
+}
+.lupin-install-panel > p:first-child {
+  font-size: 13px;
+  margin: 0 0 24px;
+}
+.lupin-install-panel dl {
+  margin: 0;
+}
+.lupin-install-panel dl > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding-block: 20px;
+  border-block-start: 1px solid var(--lupin-border);
+}
+.lupin-install-panel dt {
+  font-size: 13px;
+  color: var(--lupin-muted);
+}
+.lupin-install-panel code {
+  font: 14px var(--lupin-mono);
+  color: var(--lupin-text);
+}
+.lupin-install-panel .lupin-technical-note {
+  font-size: 12px;
+  line-height: 1.8;
+  margin-block: 16px 0;
+}
+.lupin-technical-note code {
+  font-size: inherit;
+}
+.lupin-closing {
+  text-align: center;
+  padding-block: 112px;
+}
+.lupin-footer {
+  width: 100%;
+  max-width: var(--lupin-width);
+  padding: 40px 32px 48px;
+  margin-inline: auto;
+  display: flex;
+  gap: 40px;
+  justify-content: space-between;
+  border-block-start: 1px solid var(--lupin-border);
+}
+.lupin-wordmark {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.05em;
+}
+.lupin-wordmark span {
+  color: var(--lupin-accent);
+}
+.lupin-footer p,
+.lupin-footer small {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--lupin-muted);
+  margin-block: 8px;
+  display: block;
+}
+.lupin-footer nav {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 24px;
+  font-size: 13px;
+}
+.lupin-home :is(a, button):focus-visible,
+.lupin-footer a:focus-visible {
+  outline: 2px solid var(--lupin-accent);
+  outline-offset: 4px;
+}
+.localized-home {
+  max-width: var(--lupin-width) !important;
+}
+.localized-home h1 {
+  font-family: var(--lupin-sans);
+  font-size: clamp(36px, 5vw, 72px) !important;
+  letter-spacing: -0.035em;
+}
+.localized-home img {
+  border-radius: 8px;
+}
+@media (max-width: 960px) {
+  .lupin-install,
+  .lupin-open {
+    gap: 40px;
+  }
+  .lupin-integrations {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .lupin-capabilities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lupin-footer {
+    flex-direction: column;
+  }
+  .lupin-steps {
+    gap: 24px;
+  }
+}
+@media (max-width: 767px) {
+  .lupin-home {
+    padding-inline: 24px;
+  }
+  .lupin-hero {
+    padding-block: 64px 48px;
+  }
+  .lupin-hero h1 {
+    letter-spacing: -0.045em;
+  }
+  .lupin-lead {
+    font-size: 16px;
+  }
+  .lupin-section {
+    padding-block: 64px;
+  }
+  .lupin-steps,
+  .lupin-capabilities,
+  .lupin-install,
+  .lupin-open {
+    grid-template-columns: 1fr;
+  }
+  .lupin-steps {
+    gap: 32px;
+  }
+  .lupin-section-heading {
+    margin-block-end: 32px;
+  }
+  .lupin-showcase-notes {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  .lupin-section-line {
+    align-items: start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .lupin-integrations {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lupin-closing {
+    padding-block: 72px;
+  }
+  .lupin-install-panel {
+    padding: 24px;
+  }
+  .lupin-footer {
+    padding-inline: 24px;
+  }
+  .lupin-footer nav {
+    gap: 20px;
+  }
+  .VPNavBarSearch {
+    padding-inline: 0 !important;
+  }
+  .VPNavBarTitle .title {
+    font-size: 22px;
+  }
+  .VPNavBar .content-body {
+    gap: 0;
+  }
+}
+/* Wide technical tables scroll locally instead of widening the document. */
+.vp-doc table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lupin-button {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .lupin-button {
+    border: 1px solid ButtonText;
+  }
+  .lupin-home :is(a, button):focus-visible {
+    outline-color: Highlight;
+  }
+}

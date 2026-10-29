@@ -257,6 +257,13 @@ test('the cited path check reaches the documents it claims to', () => {
 });
 
 test('no site navigation entry points at a page that does not exist', () => {
+  const theme = path.join(REPO_ROOT, 'site', '.vitepress', 'theme');
+  const themeSource = readdirSync(theme)
+    .filter((name) => name.endsWith('.vue'))
+    .map((name) => readFileSync(path.join(theme, name), 'utf8'))
+    .join('\n');
+  /** @param {string} id */
+  const anchorExists = (id) => themeSource.includes(`id="${id}"`);
   // VitePress does not validate `themeConfig` links, so a nav entry pointing at an
   // unwritten page builds green and ships a 404. The first version of the site had
   // seven of them, which is how a stub site starts making claims it cannot back.
@@ -272,7 +279,11 @@ test('no site navigation entry points at a page that does not exist', () => {
     // `/` is the home page, which is `site/index.md`.
     .filter((link) => link !== '/')
     .filter((link) => {
-      const page = link.replace(/^\//, '').replace(/\/$/, '');
+      // `/#product` is a section of a page: the page must exist, and so must an
+      // element carrying that id, in the page itself or in a theme component.
+      const [pagePart = '', fragment] = link.split('#');
+      if (fragment !== undefined && !anchorExists(fragment)) return true;
+      const page = pagePart.replace(/^\//, '').replace(/\/$/, '');
       if (page === '') return false;
       // A section landing page is `index.md` inside the directory, which is what
       // `/guide/` means under `cleanUrls`. Resolving it to `guide.md` was correct

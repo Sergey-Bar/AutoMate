@@ -45,6 +45,7 @@
  */
 @import '../../../packages/ui/src/tokens/fonts.css';
 @import '../../../packages/ui/src/tokens/theme.css';
+@import '../../../packages/ui/src/tokens/motion.css';
 
 /* The plane, and the accent, behind every VitePress surface. */
 :root {
@@ -154,18 +155,219 @@ html:not([data-theme='light']) {
  * and whose size comes from a value two files own.
  */
 .vp-doc h1 {
-  font-size: 2rem;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  font-size: clamp(2.25rem, 4vw, 3.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
   font-weight: 700;
 }
 
 .vp-doc h2 {
-  font-size: 1.375rem;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
   font-weight: 600;
+  margin-top: 3.5rem;
+}
+
+/* Keep the documentation readable and give the product a restrained site chrome. */
+.VPNavBarTitle .title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.VPNavBarMenuLink {
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.VPNavBarMenuLink:last-child {
+  height: 2.5rem;
+  line-height: 2.5rem;
+  align-self: center;
+  padding: 0 1rem;
+  margin: 0;
+  border: 1px solid var(--automate-accent);
+  border-radius: 0.25rem;
+  background: var(--automate-accent);
+  color: var(--automate-on-fill);
+}
+
+.VPNavBarMenuLink:last-child:hover,
+.VPNavBarMenuLink:last-child.active {
+  color: var(--automate-on-fill);
+}
+
+.VPNavBarMenuLink:last-child:focus-visible {
+  outline: 2px solid var(--automate-accent);
+  outline-offset: 3px;
+}
+
+/* The custom three-mode control in the nav replaces VitePress's duplicate switch. */
+@media (min-width: 960px) {
+  .VPNavBar .VPNavBarExtra {
+    display: none !important;
+  }
+}
+
+.VPDoc .content-container {
+  max-width: 48rem;
+}
+
+.VPDoc:has(.story) .content-container {
+  max-width: 72rem !important;
+}
+
+.VPDoc:has(.story) .vp-doc > p,
+.VPDoc:has(.story) .vp-doc > ul,
+.VPDoc:has(.story) .vp-doc > ol {
+  max-width: 48rem;
+}
+
+.vp-doc p,
+.vp-doc li {
+  line-height: 1.75;
+}
+
+.vp-doc > p {
+  font-size: 1.03rem;
+}
+
+.vp-doc details {
+  border: 1px solid var(--automate-border);
+  border-radius: 0.25rem;
+  background: var(--automate-surface);
+}
+
+.vp-doc details > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.concept-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+}
+.concept-comparison > div {
+  padding: 1.5rem;
+  border: 1px solid var(--automate-border);
+  background: var(--automate-surface);
+  border-radius: 0.3rem;
+}
+.concept-comparison > div > span {
+  font: 0.65rem var(--automate-font-mono);
+  color: var(--automate-fg-muted);
+  letter-spacing: 0.08em;
+}
+.concept-comparison strong {
+  display: block;
+  margin: 0.7rem 0 1.5rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.03em;
+}
+.concept-comparison p {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--automate-fg-muted);
+}
+.concept-track {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  padding: 0.8rem 0;
+  border-block: 1px solid var(--automate-border);
+}
+.concept-track span {
+  color: var(--automate-fg-muted);
+}
+.concept-result {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.8rem 0;
+  border-block: 1px solid var(--automate-border);
+  color: var(--automate-danger);
+  font-size: 0.85rem;
+}
+@media (max-width: 640px) {
+  .concept-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+
+.vp-doc > div > p:first-of-type {
+  font-size: 1.08rem;
+  line-height: 1.65;
+  color: var(--automate-fg-muted);
+}
+
+.vp-doc a {
+  text-underline-offset: 0.18em;
+}
+
+.vp-doc .guide-hub {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
   margin-top: 2.5rem;
+}
+
+.vp-doc .guide-hub__card {
+  display: flex;
+  flex-direction: column;
+  min-height: 12rem;
+  padding: 1.5rem;
+  border: 1px solid var(--automate-border);
+  border-radius: 0.25rem;
+  background: var(--automate-surface);
+  color: var(--automate-fg);
+  text-decoration: none;
+}
+
+.vp-doc .guide-hub__card:hover {
+  border-color: var(--automate-border-strong);
+}
+
+.vp-doc .guide-hub__card:focus-visible {
+  outline: 2px solid var(--automate-accent);
+  outline-offset: 3px;
+}
+
+.vp-doc .guide-hub__card > span {
+  font-family: var(--automate-font-mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  color: var(--automate-fg-muted);
+}
+
+.vp-doc .guide-hub__card strong {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: auto;
+  font-size: 1.3rem;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+
+.vp-doc .guide-hub__card small {
+  margin-top: 0.65rem;
+  font-size: 0.87rem;
+  line-height: 1.5;
+  color: var(--automate-fg-muted);
+}
+
+@media (max-width: 640px) {
+  .vp-doc .guide-hub {
+    grid-template-columns: 1fr;
+  }
+  .vp-doc .guide-hub__card {
+    min-height: 10rem;
+  }
 }
 
 .VPHome .VPHero .name {
@@ -245,5 +447,89 @@ html:not([data-theme='light']) {
 
   .vp-doc .custom-block {
     border-left: 3px solid CanvasText;
+  }
+}
+
+/* The custom pickers are the sole language/appearance controls, on both nav surfaces. */
+.VPNavBarAppearance,
+.VPNavScreenAppearance,
+.VPNavBarTranslations,
+.VPNavScreenTranslations {
+  display: none !important;
+}
+
+/* A single compact action row in either reading direction. */
+.VPNavBar .VPNavBarExtra,
+.VPNavScreenSocialLinks,
+.VPNavBarSearch .DocSearch-Button-Placeholder,
+.VPNavBarSearch .DocSearch-Button-Keys {
+  display: none !important;
+}
+.VPNavBar .VPNavBarSocialLinks {
+  display: flex;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.VPNavBar .VPNavBarSocialLinks .VPSocialLink,
+.VPNavBarSearch .DocSearch-Button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--automate-fg);
+  justify-content: center;
+}
+.VPNavBarSearch .DocSearch-Button:hover,
+.VPNavBar .VPSocialLink:hover {
+  background: var(--automate-surface-muted);
+}
+.VPNavBarSearch .DocSearch-Search-Icon {
+  width: 20px;
+  height: 20px;
+}
+.VPNavBar .language-trigger {
+  margin-inline-start: 0;
+}
+@media (max-width: 480px) {
+  .VPNavBarTitle .title {
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+  }
+  .VPNavBar .theme-picker,
+  .VPNavBar .language-trigger,
+  .VPNavBar .VPNavBarSocialLinks .VPSocialLink,
+  .VPNavBarSearch .DocSearch-Button {
+    width: 36px;
+  }
+}
+@media (max-width: 767px) {
+  .VPNavBar .content-body {
+    gap: 0;
+  }
+  .VPNavBar .VPNavBarSocialLinks {
+    padding: 0 !important;
+    border: 0 !important;
+    margin: 0 !important;
+  }
+}
+@media (max-width: 480px) {
+  .VPNavBar .VPNavBarHamburger {
+    width: 32px;
+    flex-shrink: 0;
+  }
+}
+.VPNavBar .VPNavBarSocialLinks::before {
+  display: none !important;
+}
+@media (max-width: 480px) {
+  body {
+    min-width: 0;
+  }
+  .VPNavBar .wrapper {
+    padding-inline: 12px;
   }
 }

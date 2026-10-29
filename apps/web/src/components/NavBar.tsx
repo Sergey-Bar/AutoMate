@@ -101,7 +101,7 @@ export function SectionTabs(): React.ReactElement | null {
       data-testid="section-tabs"
       data-chrome="secondary"
       aria-label={`${label} pages`}
-      className="-mx-4 mb-4 overflow-x-auto border-b border-border px-4 sm:-mx-6 sm:mb-6 sm:px-6"
+      className="-mx-4 mb-4 shrink-0 overflow-x-auto border-b border-border px-4 sm:-mx-6 sm:mb-6 sm:px-6"
     >
       <ul className="flex gap-1">
         {tabs.map((tab) => {

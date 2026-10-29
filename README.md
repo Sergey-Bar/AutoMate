@@ -1,24 +1,29 @@
 <div align="center">
   <h1>Automate</h1>
-  <p><strong>A self-hosted QA control plane: one home for your test evidence, quality gates and flaky tests.</strong></p>
+  <p><strong>Every test. One clear answer.</strong></p>
+  <p>A self-hosted home for test runs, evidence, and release decisions.</p>
   <p>
     <a href="https://github.com/Sergey-Bar/AutoMate/actions/workflows/unified-ci.yml"><img alt="CI" src="https://github.com/Sergey-Bar/AutoMate/actions/workflows/unified-ci.yml/badge.svg?branch=main"></a>
-    <a href="https://sergey-bar.github.io/AutoMate/"><img alt="Docs" src="https://img.shields.io/badge/docs-site-2EA44F"></a>
-    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-2EA44F.svg"></a>
-    <img alt="Node.js 24" src="https://img.shields.io/badge/Node.js-24-5FA04E?logo=node.js">
-    <img alt="pnpm 11" src="https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white">
-    <img alt="TypeScript 6" src="https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white">
+    <a href="https://sergey-bar.github.io/AutoMate/"><img alt="Docs" src="https://img.shields.io/badge/docs-site-555555"></a>
+    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-555555.svg"></a>
   </p>
 </div>
 
-Automate is a local-first QA control plane. Send it the report your test runner already
-writes — Playwright, JUnit, k6 or OWASP ZAP — and it keeps the run, every test's status
-and retry history, and the original bytes as evidence, then shows it all in a live
-dashboard.
+<p align="center"><a href="site/guide/install.md"><strong>Get started</strong></a> &nbsp; · &nbsp; <a href="site/guide/concepts.md">Explore the concepts</a> &nbsp; · &nbsp; <a href="https://sergey-bar.github.io/AutoMate/">Documentation</a></p>
+
+Automate is a local-first QA control plane. Send it the reports your test tools already produce — Playwright, JUnit, k6 or
+OWASP ZAP. It keeps each run, retry and artifact together, then shows your team what
+passed, what needs attention and what was never measured.
 
 ![The runs view](docs/assets/runs.png)
 
-## What you get
+## From run to decision
+
+| See the signal                                                           | Keep the evidence                                                 | Make the call                                                                   |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Compare runs and spot flaky retries without losing the original outcome. | Open traces, screenshots and reports from the run they belong to. | Read quality gates that distinguish passed, failed, unknown and not configured. |
+
+## More capabilities
 
 - **One result model for every producer.** Retries are recorded as `flaky`, not as passes.
 - **Quality gates** that answer `unknown` or `not_configured` instead of quietly passing.

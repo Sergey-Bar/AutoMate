@@ -6,9 +6,10 @@ outline: deep
 
 # Sending results
 
-Your test framework already writes a report. Automate reads that file: you do not add a
-plugin to your suite or change how your tests run. One HTTP request per report turns it
-into a run with tests, statuses, retries and the original bytes kept as evidence.
+Your tests already create a report. Send that file to Automate and inspect the result
+alongside its original evidence.
+
+<GuideStoryboard kind="upload" />
 
 ## The upload
 
@@ -26,6 +27,8 @@ curl --fail-with-body \
   http://127.0.0.1:3000/api/v1/reporter/upload
 ```
 
+::: details See every upload field
+
 | Field                     | Purpose                                                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `file`                    | The report. Exactly one file part.                                                                                                   |
@@ -35,6 +38,8 @@ curl --fail-with-body \
 | `commitSha`               | The commit under test.                                                                                                               |
 | `environment`             | Free text, such as `staging`.                                                                                                        |
 | `startedAt`, `finishedAt` | ISO 8601 timestamps with seconds, when the report does not carry them.                                                               |
+
+:::
 
 **Declare the format.** The declared format wins; without it the file name decides, and
 the content only decides when neither does. A JUnit file sent as `format=playwright` is
