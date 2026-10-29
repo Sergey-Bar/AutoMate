@@ -74,7 +74,7 @@
     "test:e2e": "pr-blocking",
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
-    "test:e2e:profiles": "pr-reporting",
+    "test:e2e:profiles": "pr-blocking",
     "test:render": "pr-blocking",
     "status:10": "pr-blocking",
     "review:pr": "pr-reporting",
@@ -198,7 +198,7 @@
     },
     "test:e2e:profiles": {
       "requires": [],
-      "why": "**`pr-reporting` until three stable runs** (plan task 19, `.kilo/plans/1793102400000-profiles-and-remote-plan.md`). The matrix boots the API's own entry point once per deployment profile against the job's PostgreSQL, beside the suite's server, and checks what each profile serves and what each refuses to start with. It is new and it starts processes, so the first runs are what show whether it is stable on the runner: a required check that flakes teaches reviewers to read red as noise. It graduates in **one commit** that moves this tier to `pr-blocking` and drops the step's `continue-on-error` in `unified-ci.yml`, once the job summary of three consecutive runs on main reads `success`. No browser: every case is HTTP, so the job installs none. Not in `verify`: it needs a database."
+      "why": "**Graduated to `pr-blocking` on 2026-10-29, in one commit that moved this tier and dropped the step's `continue-on-error`** (plan task 19, `.kilo/plans/1793102400000-profiles-and-remote-plan.md`). The matrix boots the API's own entry point once per deployment profile against the job's PostgreSQL, beside the suite's server, and checks what each profile serves and what each refuses to start with. It was `pr-reporting` while it was new, because it starts processes and a required check that flakes teaches reviewers to read red as noise. The condition was three consecutive runs on main; four were read from the job logs, each 4 of 4 passed: `bfee225` (59.2 s), `053d676` (53.6 s), `d48e416` (44.8 s) and `546e3e2` (36.2 s). No browser: every case is HTTP, so the job installs none. Not in `verify`: it needs a database."
     },
     "test:render": {
       "requires": [],

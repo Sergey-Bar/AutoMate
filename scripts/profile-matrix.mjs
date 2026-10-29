@@ -4,8 +4,8 @@
  *
  * A wrapper rather than a bare `playwright test --project=profile-matrix`, because that project
  * exists only with `AUTOMATE_PROFILE_MATRIX=1` (`playwright.config.ts`): a plain `pnpm test:e2e`
- * runs every project, and the matrix is `pr-reporting` until it has three stable runs, so it
- * must not ride in the required Product E2E job before then. An environment variable set inside
+ * runs every project, and the matrix is a required job of its own, so riding in Product E2E as
+ * well would boot every profile twice per pull request. An environment variable set inside
  * a package script is not portable across shells; set here, it is.
  */
 import { spawnSync } from 'node:child_process';

@@ -144,3 +144,9 @@ Recorded here as tasks land, so the next session reads the state from the tree.
   with `continue-on-error` on the step.
 - Still open: graduating the matrix to `pr-blocking` once three consecutive runs on main record
   `success` in the job summary: one commit that moves the tier and drops `continue-on-error`.
+- 2026-10-29 — The matrix graduated to `pr-blocking`: four consecutive runs on main (`bfee225`,
+  `053d676`, `d48e416`, `546e3e2`) each passed 4 of 4, read from the job logs. The nightly is
+  green again too: the mutation floors (`MNT-152`) and the time limits of the quality-baseline
+  and mutation jobs (`MNT-153`, `MNT-154`) were fixed, and a dispatched run on `546e3e2` passed
+  every job. **Every task of this plan is done.** What stays open is recorded rather than
+  planned: no real Cloudflare, Entra, Okta or collector run, and the ledger's open rows.
