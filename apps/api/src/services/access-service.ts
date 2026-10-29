@@ -139,6 +139,28 @@ export async function revokeAccessToken(options: Options, id: string): Promise<A
   return summary(row);
 }
 
+/**
+ * Revokes the live access tokens a person made (PRO-17): the ones whose creator is
+ * `user:<id>`, in one workspace when their membership there ends, or in every workspace when
+ * their account is disabled. A token the installation's admin or another person made is the
+ * workspace's and is untouched. Returns how many were revoked, for the audit row.
+ */
+export async function revokeTokensMadeBy(
+  db: Options['db'],
+  userId: string,
+  scope: { workspaceId: string } | 'everywhere',
+  now = new Date(),
+): Promise<number> {
+  const filters = [eq(accessTokens.createdBy, `user:${userId}`), isNull(accessTokens.revokedAt)];
+  if (scope !== 'everywhere') filters.push(eq(accessTokens.workspaceId, scope.workspaceId));
+  const revoked = await db
+    .update(accessTokens)
+    .set({ revokedAt: now })
+    .where(and(...filters))
+    .returning({ id: accessTokens.id });
+  return revoked.length;
+}
+
 /** The caller a presented token makes, or `null` for one that is unknown or revoked. */
 export async function authenticateToken(options: Options, token: string): Promise<Caller | null> {
   if (!token.startsWith(TOKEN_PREFIX)) return null;

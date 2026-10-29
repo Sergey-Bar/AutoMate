@@ -64,6 +64,12 @@ export interface WorkspaceLookups {
   /** Whether the caller is the installation's own admin, who may enter any workspace. */
   installationLevel: (context: Context) => Promise<boolean>;
   workspaceExists: (workspaceId: string) => Promise<boolean>;
+  /**
+   * Whether a browser's token cookie counts, as `browserCredentialsCount` decides in
+   * `http/roles.ts`: not under enforced single sign-on without break-glass. A cookie that signs
+   * nobody in must not decide where they are sent either. Absent means it counts.
+   */
+  browserCredentials?: boolean;
 }
 
 const JOB_PATH = /^\/api\/v1\/jobs\/([^/]+)\//u;
@@ -108,7 +114,9 @@ async function credentialWorkspace(
   lookups: WorkspaceLookups,
 ): Promise<string | null> {
   const bearer = bearerToken(context.req.header('authorization'));
-  const presented = bearer ?? getCookie(context, BROWSER_SIGN_IN);
+  const cookie =
+    lookups.browserCredentials === false ? undefined : getCookie(context, BROWSER_SIGN_IN);
+  const presented = bearer ?? cookie;
   if (presented?.startsWith(TOKEN_PREFIX) === true) {
     const own = await lookups.tokenWorkspace(presented);
     if (own !== null) return own;

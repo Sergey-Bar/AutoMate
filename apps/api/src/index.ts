@@ -1373,6 +1373,8 @@ if (databaseResources !== undefined) {
     installationLevel: async (context) =>
       isInstallationAdmin(await callerOf(context, accessResolver)),
   });
+  // A browser's token cookie steers only where it signs anyone in (`callerOf`'s rule).
+  lookups.browserCredentials = browserCredentialsCount(accessResolver);
   // Before the dispatch: these are about which workspace to be in.
   app.route(
     '/',

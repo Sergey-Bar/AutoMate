@@ -6860,30 +6860,46 @@
       "title": "Behind the Cloudflare tunnel every request has the tunnel's address, so sign-in limits are shared and the audit trail records the tunnel",
       "band": "Major",
       "provenance": "hand",
-      "status": "debt",
+      "status": "fixed",
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
       "summary": "The edge appends its TCP peer to `X-Forwarded-For`, and the API keys the per-address sign-in limits and the audit row's address on that last hop. Behind the tunnel the peer is always the `cloudflared` container, so any person Access lets in can use up the sign-in limits for every remote user, and every remote audit row carries the same address.",
       "confirmedBy": "Independent review of PR #111 on 2026-10-28, from `infra/nginx/edge.conf` and `defaultClientKey` in `routes/auth.ts`.",
-      "owner": "The repository owner.",
-      "removalCondition": "Closed when a request that reached the edge through the tunnel is keyed on the `CF-Connecting-IP` Cloudflare sets, a request from any other peer never is, and a test shows two remote visitors with separate sign-in limits and their own audit addresses.",
-      "resolution": "Recorded as debt, not fixed. Trusting the header safely needs the edge to accept it only on the tunnel's own connection and never from a client that sets it, which is a design of its own. Until then the remote guide says what is shared, and Access stands in front of every limit: nobody it refuses reaches them."
+      "resolution": "The removal condition is met at the edge, so the API needed no change: it already keys the sign-in limits and the audit address on the last `X-Forwarded-For` hop the edge writes. The tunnel's public hostname now points at `edge:8081`, a listener the compose file does not publish, which writes Cloudflare's `CF-Connecting-IP` as that hop. Run on 2026-10-29 with the real `edge.conf` in `nginx:1.27-alpine` beside an echo upstream: through 8081 the API saw `203.0.113.7` from the header, and a forged `X-Forwarded-For` beside it was replaced; without the header it saw the peer; on 8080 a forged `CF-Connecting-IP` was ignored and the peer was forwarded. A tunnel left pointed at `edge:8080` keeps working with the old shared address, and the remote guide says how to move it. The listener has no HTTPS redirect, so a LAN certificate and a tunnel now mix.",
+      "evidence": [
+        {
+          "path": "scripts/lib/edge-tls.test.mjs",
+          "asserts": "The edge has a tunnel listener on 8081 whose every location forwards `CF-Connecting-IP` (falling back to the peer) as the address the API keys on, with no HTTPS redirect; no other listener reads the header; and the compose file publishes 8080 and 8443 and not 8081."
+        },
+        {
+          "path": "infra/nginx/edge.conf",
+          "asserts": "The tunnel listener, `map $http_cf_connecting_ip $automate_tunnel_client`, and the reason it is safe only on an unpublished port."
+        }
+      ]
     },
     {
       "id": "PRO-17",
       "title": "Disabling or deprovisioning a person leaves the access tokens they created working",
       "band": "Major",
       "provenance": "hand",
-      "status": "debt",
+      "status": "fixed",
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
       "summary": "SCIM deactivation and disabling on _Members_ revoke the person's sessions and nothing else. Access tokens belong to the workspace and record who created them as free text, so a token a departed person made for CI keeps its role until an admin revokes it.",
       "confirmedBy": "Independent review of PR #111 on 2026-10-28, traced through `routes/scim.ts`, `routes/members.ts` and `access_tokens.created_by`.",
-      "owner": "The repository owner.",
-      "removalCondition": "Closed when an access token records the person who created it by user id, and disabling or deprovisioning that person revokes it or makes an admin choose to keep it, with a test that a deprovisioned person's token is refused.",
-      "resolution": "Recorded as debt. Revoking a workspace's CI tokens because one person left would stop that workspace's pipelines without warning, so it stays the admin's decision: the profiles and remote guides say that disabling revokes no token, and where to revoke them."
+      "resolution": "A token a person makes already records them as `user:<id>`, so no schema change was needed. `revokeTokensMadeBy` (`apps/api/src/services/access-service.ts`) revokes them: in one workspace when the membership there ends, on Members or by SCIM DELETE, and in every workspace when the account is disabled or deprovisioned. The audit row of each carries `tokensRevoked`. A token the installation's admin made belongs to no person and is never revoked this way, and the guides now say that is the kind to give CI. This reverses the earlier decision to leave revocation to an admin: a departed person's credential working until someone remembers it is the larger risk.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/members.test.ts",
+          "asserts": "Removing a person revokes the tokens they made in that workspace only, disabling them revokes every token they made in every workspace and records how many, and tokens another person or the installation's admin made are untouched."
+        },
+        {
+          "path": "apps/api/src/routes/scim.test.ts",
+          "asserts": "SCIM deactivation revokes every token the person made, and a DELETE that leaves them in no workspace revokes theirs too, while the workspace token made by an admin token survives."
+        }
+      ]
     },
     {
       "id": "PRO-18",
@@ -6913,12 +6929,39 @@
       "title": "Minor edges of several workspaces, enforced SSO and restore that the review found and this wave left open",
       "band": "Minor",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
       "summary": "Two admins demoting each other at once can both pass the last-admin check. The web create-workspace form shows for any admin of the current workspace, while the API allows only the installation's admin and the default workspace's. Under enforced SSO the workspace dispatch still reads a browser's token cookie and `GET /api/v1/auth/session` still reports an installation session, though neither signs anyone in. A restore skips the release check when `AUTOMATE_VERSION` was never written, leaving the migration count. GitHub webhooks reach the default workspace's projects only, which the profiles guide says.",
-      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed."
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/members.test.ts",
+          "asserts": "Two admins demoting each other at once: one succeeds, one is LAST_ADMIN, and one admin is left."
+        },
+        {
+          "path": "apps/api/src/routes/workspaces.test.ts",
+          "asserts": "The workspace list reports canCreate to exactly the callers the create route admits, and to none below team."
+        },
+        {
+          "path": "apps/web/src/components/Workspaces.test.tsx",
+          "asserts": "The create form follows the API's canCreate, not the current workspace's role."
+        },
+        {
+          "path": "apps/api/src/http/workspace-dispatch.test.ts",
+          "asserts": "Under enforced SSO without break-glass the token cookie does not steer the workspace; a bearer still does."
+        },
+        {
+          "path": "apps/api/src/routes/auth-sso.test.ts",
+          "asserts": "GET /api/v1/auth/session does not report an installation session that enforced SSO ignores."
+        },
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "A never-updated install records the release compose.yml pins, and a restore onto an older one is refused."
+        }
+      ],
+      "resolution": "Each fixed with the test above, which failed first. The last-admin changes are queued in the process, because an install is one API process (ADR-006). GitHub webhooks reaching only the default workspace's projects is a scope limit rather than an edge case, and is carried on as PRO-20."
     },
     {
       "id": "MNT-152",
@@ -6984,6 +7027,21 @@
         }
       ],
       "resolution": "The limit is raised to 150 minutes. Splitting the job per package would finish sooner but is a change to how the ratchet reads its reports, not to its budget. The next nightly is what shows the job finishing."
+    },
+    {
+      "id": "PRO-20",
+      "title": "GitHub webhooks reach only the default workspace's projects",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "A webhook delivery carries no workspace credential, so it is read in the default workspace, and one for a repository registered in another workspace is answered `ignored`, `unknown-repository`. That workspace's scheduled delivery syncs still run, so its data arrives late rather than never.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and `apps/api/src/routes/github-webhook.test.ts`, which pins the behaviour in a second workspace.",
+      "owner": "The repository owner.",
+      "removalCondition": "Closed when a delivery is matched to its repository across every workspace, after its HMAC is verified, and queues a sync in the workspace that registered it, with a test that a repository registered outside the default workspace syncs on a push.",
+      "resolution": "Recorded as debt. The profiles guide says webhooks reach the default workspace only, and that the scheduled syncs still run."
     }
   ]
 }

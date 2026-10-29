@@ -408,6 +408,9 @@ test('the ports a document may name include the worker and the runner health por
   // name :3001 and :3002 without being reported as drift.
   assert.ok(environment.realPorts.has('3001'), 'the worker health port is derived');
   assert.ok(environment.realPorts.has('3002'), 'the runner health port is derived');
+  // The edge's own listeners: the tunnel's entrance (8081) is published nowhere, so no compose
+  // mapping names it, and the remote guide still has to.
+  assert.ok(environment.realPorts.has('8081'), 'the edge tunnel listener is derived');
   assert.ok(environment.realPorts.has('3000'), 'and the ports that were already derived still are');
 });
 test('the committed documentation does not drift from the code', () => {

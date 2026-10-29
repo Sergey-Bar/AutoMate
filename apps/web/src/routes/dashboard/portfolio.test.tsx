@@ -25,6 +25,7 @@ function stubApi(role: 'admin' | null) {
         return reply({
           current: 'default',
           workspaces: [{ id: 'default', name: 'Default', role: 'admin' }],
+          canCreate: false,
         });
       return reply({ error: { message: 'No project p-1' } }, 404);
     }),

@@ -95,3 +95,50 @@ test('the image ships both scripts where they run, and the CLI that creates the 
   );
   assert.match(DOCKERFILE, /EXPOSE 8080 8443/);
 });
+
+/**
+ * The `server` block in `edge.conf` that listens on `port`, by brace depth.
+ *
+ * @param {number} port
+ * @returns {string}
+ */
+function serverListening(port) {
+  const start = EDGE_CONF.search(new RegExp(`server \\{\\s*listen ${String(port)};`));
+  assert.ok(start >= 0, `edge.conf has no server listening on ${String(port)}`);
+  let depth = 0;
+  for (let index = EDGE_CONF.indexOf('{', start); index < EDGE_CONF.length; index += 1) {
+    if (EDGE_CONF[index] === '{') depth += 1;
+    if (EDGE_CONF[index] === '}') depth -= 1;
+    if (depth === 0) return EDGE_CONF.slice(start, index + 1);
+  }
+  throw new Error(`the server on ${String(port)} is not closed`);
+}
+
+test('a visitor through the tunnel is keyed by the address Cloudflare saw (PRO-16)', () => {
+  // Behind the tunnel every request came from the cloudflared container, so the sign-in
+  // limits counted every remote visitor as one and the audit trail recorded the tunnel. The
+  // tunnel gets a listener of its own that forwards Cloudflare's `CF-Connecting-IP` as the
+  // address the API keys on. It must be reachable only on the compose network: on a port a
+  // browser can reach, anyone could set that header and pick their own address.
+  const tunnel = serverListening(8081);
+  assert.match(
+    EDGE_CONF,
+    /map \$http_cf_connecting_ip \$automate_tunnel_client \{\s*''\s+\$remote_addr;\s*default\s+\$http_cf_connecting_ip;\s*\}/,
+  );
+  const forwarded = [...tunnel.matchAll(/proxy_set_header X-Forwarded-For (\S+);/g)].map(
+    (match) => match[1],
+  );
+  assert.ok(forwarded.length >= 3, 'every location in the tunnel server sets X-Forwarded-For');
+  assert.deepEqual([...new Set(forwarded)], ['$automate_tunnel_client']);
+  // Cloudflare ends TLS, so the API sees https, and the LAN certificate's redirect does not apply.
+  assert.doesNotMatch(tunnel, /http-redirect/);
+  assert.match(tunnel, /proxy_set_header X-Forwarded-Proto https;/);
+  // Every other listener keeps appending its own peer, and never reads the header.
+  const plain = serverListening(8080);
+  assert.doesNotMatch(plain, /cf_connecting_ip|automate_tunnel_client/);
+  assert.doesNotMatch(ENTRYPOINT, /cf_connecting_ip|automate_tunnel_client/);
+  // Not published: the compose file maps 8080 and 8443 to the host, and nothing else.
+  const compose = read('infra/compose/docker-compose.unified.yml');
+  assert.doesNotMatch(compose, /:8081['"]?\s*$/m);
+  assert.match(compose, /public hostname points at `http:\/\/edge:8081`/);
+});

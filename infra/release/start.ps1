@@ -104,6 +104,20 @@ function Get-Setting([string]$Name, [string]$Default) {
   if ($value) { return $value } else { return $Default }
 }
 
+# The release this install runs: AUTOMATE_VERSION once `update` has written it, otherwise the
+# tag compose.yml pins by default. An install never updated has no AUTOMATE_VERSION at all, and
+# reading only that left its backups with no release and its restores with no release check.
+function Get-InstalledVersion {
+  $pinned = ''
+  $compose = Join-Path $PSScriptRoot 'compose.yml'
+  if (Test-Path -LiteralPath $compose) {
+    $match = Select-String -LiteralPath $compose -Pattern 'automate-api:\$\{AUTOMATE_VERSION:-([^}]*)\}' |
+      Select-Object -First 1
+    if ($match) { $pinned = $match.Matches[0].Groups[1].Value }
+  }
+  return Get-Setting 'AUTOMATE_VERSION' $pinned
+}
+
 # The compose command line. The tunnel's profile is there while this install is remote, so
 # start, status and logs include it, and always with -AllProfiles: stop and uninstall have to
 # reach a tunnel an earlier --remote cloudflare started, which has `restart: unless-stopped`.
@@ -473,7 +487,7 @@ function Backup-Automate([string[]]$Rest) {
     Write-AsciiLines (Join-Path $workPath 'manifest.env') @(
       'format=1',
       "created=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))",
-      "version=$(Get-Setting 'AUTOMATE_VERSION' '')",
+      "version=$(Get-InstalledVersion)",
       "migrations=$count",
       "vault=$(Get-TextSha256 (Get-Setting 'VAULT_SECRET' ''))"
     )
@@ -541,7 +555,7 @@ function Restore-Automate([string[]]$Rest) {
     Fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. On this install, keep a copy of .env, then set only VAULT_SECRET in it to the value in $given\env and run the restore again; the rest of .env stays, because this install's database keeps the POSTGRES_PASSWORD it was first started with. On a new host, copy $given\env to .env before the first start."
   }
   $taken = [string]$manifest['version']
-  $current = Get-Setting 'AUTOMATE_VERSION' ''
+  $current = Get-InstalledVersion
   if ($taken -and $current -and (Test-VersionNewer $taken $current)) {
     Fail "This backup is from Automate $taken, which is newer than this install ($current). Update first: .\start.cmd update --version $taken"
   }

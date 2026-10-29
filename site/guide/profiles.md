@@ -105,8 +105,9 @@ Everything in `team`, plus:
   give your identity provider the base URL `https://<your host>/scim/v2` and that token. Assign
   people to the `automate-viewer`, `automate-operator` or `automate-admin` groups to set their
   role. Deactivating someone in the identity provider ends every session they hold at once,
-  and they cannot sign in again. Access tokens they issued are the workspace's, not theirs, and
-  keep working: revoke those on the Access page. Behind Cloudflare Access, add a _Bypass_
+  and they cannot sign in again. Every access token they made is revoked with them, in every
+  workspace, so a token one person made for CI stops when they leave: make CI tokens as the
+  installation's admin if they should outlive any one person. Behind Cloudflare Access, add a _Bypass_
   policy for the path `/scim/v2`: the SCIM token is the credential there.
 
   A SCIM token belongs to the workspace it was issued in, and the default workspace's is the
@@ -114,16 +115,17 @@ Everything in `team`, plus:
   people there, sets their group there and removes them from there, and changes a person's
   account (deactivating them, their email, their name) only for people who are in no other
   workspace; for anyone else it is answered with a 403. Removing someone ends their membership
-  of that workspace and nothing else, unless it was their last: a person left in no workspace
-  is deactivated.
+  of that workspace and the access tokens they made there, and nothing else, unless it was
+  their last: a person left in no workspace is deactivated.
 
 People who signed in appear on _Map → Members_, where an admin changes a role, disables someone
-or removes them. Removing someone takes away their membership of that workspace and nothing
-else: their sessions go on serving the other workspaces they are in. Disabling someone is
-their whole account, signed out everywhere, so it is for the installation's admin and the
-default workspace's admins; a workspace's own admins can disable only people who are in no
-other workspace. Disabling does not revoke the access tokens a person issued, which belong to
-the workspace: revoke those on the Access page. The last admin of a workspace cannot be removed
+or removes them. Removing someone takes away their membership of that workspace and the access
+tokens they made there: their sessions go on serving the other workspaces they are in.
+Disabling someone is their whole account, signed out everywhere and every token they made
+revoked, so it is for the installation's admin and the default workspace's admins; a
+workspace's own admins can disable only people who are in no other workspace. A token the
+installation's admin made belongs to no person and outlives everyone, which is the kind to give
+CI. The last admin of a workspace cannot be removed
 or demoted, and nobody can be disabled while they are the last admin of any workspace.
 
 ## Several workspaces

@@ -148,6 +148,26 @@ describe('members', () => {
     ]);
   });
 
+  it('keeps the last admin when two admins demote each other at once (PRO-19)', async () => {
+    const { call, db, ana, bo } = await harness();
+    await db
+      .update(schema.workspaceMembers)
+      .set({ role: 'admin' })
+      .where(eq(schema.workspaceMembers.userId, bo));
+    // Each check read the other as an enabled admin before either write landed, so both
+    // demotions passed and the workspace was left with none.
+    const results = await Promise.all([
+      call('PATCH', `/api/v1/members/${ana}`, { role: 'viewer' }),
+      call('PATCH', `/api/v1/members/${bo}`, { role: 'viewer' }),
+    ]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+    const admins = await db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.role, 'admin'));
+    expect(admins.filter((row) => row.workspaceId === 'ws-1')).toHaveLength(1);
+  });
+
   it('keeps the last admin: it can be neither demoted, removed nor disabled', async () => {
     const { call, db, ana } = await harness();
     const sessions = new DrizzleSessionStore(db as never);
@@ -189,6 +209,49 @@ describe('members', () => {
     };
     expect(listed.members.find((member) => member.email === 'bo@example.com')?.disabled).toBe(true);
     expect((await call('PATCH', `/api/v1/members/${bo}`, { disabled: false })).status).toBe(200);
+  });
+
+  /**
+   * PRO-17. Access tokens belong to the workspace, and a token a person made records them as
+   * its creator (`user:<id>`). Disabling the person used to revoke their sessions and nothing
+   * else, so a token they made for CI kept their role after they left.
+   */
+  it('revokes the tokens a person made: all of them on disable, only this workspace ones on removal', async () => {
+    const { call, db, bo, ana } = await harness();
+    await member(db, 'ws-2', bo, 'viewer');
+    const token = async (workspaceId: string, createdBy: string, name: string) =>
+      db.insert(schema.accessTokens).values({
+        workspaceId,
+        name,
+        role: 'operator',
+        tokenHash: `hash-${name}`,
+        displayPrefix: 'amt_xx',
+        createdBy,
+      });
+    await token('ws-1', `user:${bo}`, 'bo-ci-1');
+    await token('ws-2', `user:${bo}`, 'bo-ci-2');
+    await token('ws-1', `user:${ana}`, 'ana-ci');
+    await token('ws-1', 'session', 'installation-ci');
+    const live = async () =>
+      (await db.select().from(schema.accessTokens))
+        .filter((row) => row.revokedAt === null)
+        .map((row) => row.name)
+        .sort();
+
+    expect((await call('DELETE', `/api/v1/members/${bo}`)).status).toBe(200);
+    expect(await live()).toEqual(['ana-ci', 'bo-ci-2', 'installation-ci']);
+
+    await member(db, 'ws-1', bo, 'viewer');
+    // Bo is in two workspaces, so the account is the installation's admin to disable.
+    expect(
+      (await call('PATCH', `/api/v1/members/${bo}`, { disabled: true }, 'amt_installation')).status,
+    ).toBe(200);
+    expect(await live()).toEqual(['ana-ci', 'installation-ci']);
+    const audits = await db.select().from(schema.auditEvents);
+    expect(audits.map((entry) => [entry.action, entry.details])).toContainEqual([
+      'member.disable',
+      { tokensRevoked: 1 },
+    ]);
   });
 
   it('adds a person who has signed in before to this workspace, with a role', async () => {

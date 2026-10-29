@@ -188,6 +188,20 @@ describe('choosing a workspace', () => {
 });
 
 describe('creating a workspace', () => {
+  it('is offered in the list exactly to the callers the create route admits (PRO-19)', async () => {
+    // The web form followed the current workspace's role, so an admin of a workspace other than
+    // the default saw a form the API refused. The list now says, from the guard's own rule.
+    const offered = async (h: Awaited<ReturnType<typeof harness>>, caller: string) =>
+      ((await (await h.call(caller, 'GET', '/api/v1/workspaces')).json()) as { canCreate: boolean })
+        .canCreate;
+    const team = await harness();
+    expect(await offered(team, 'admin')).toBe(true);
+    expect(await offered(team, 'ana')).toBe(true);
+    expect(await offered(team, 'bo')).toBe(false);
+    expect(await offered(team, 'bo-beside-token')).toBe(false);
+    const startup = await harness('startup');
+    expect(await offered(startup, 'admin')).toBe(false);
+  });
   it('is the installation admin’s, or a default-workspace admin’s, and makes the person its admin', async () => {
     const { call, db, ana } = await harness();
     const created = await call('ana', 'POST', '/api/v1/workspaces', {

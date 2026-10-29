@@ -367,6 +367,14 @@ manifest_value() {
   sed -n "s/^$2=//p" "$1/manifest.env" | tail -n 1
 }
 
+# The release this install runs: AUTOMATE_VERSION once `update` has written it, otherwise the
+# tag compose.yml pins by default. An install never updated has no AUTOMATE_VERSION at all, and
+# reading only that left its backups with no release and its restores with no release check.
+installed_version() {
+  pinned="$(sed -n 's/.*automate-api:\${AUTOMATE_VERSION:-\([^}]*\)}.*/\1/p' compose.yml 2>/dev/null | head -n 1)"
+  setting AUTOMATE_VERSION "$pinned"
+}
+
 # SQL against the maintenance database, for what cannot run inside the database it changes:
 # creating, dropping and renaming databases. PostgreSQL refuses those while anyone else is
 # connected, so other sessions on the three a restore touches are ended first. Stops at the
@@ -447,7 +455,7 @@ backup() {
   {
     say "format=1"
     say "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    say "version=$(setting AUTOMATE_VERSION '')"
+    say "version=$(installed_version)"
     say "migrations=$count"
     say "vault=$(sha256_text "$(setting VAULT_SECRET '')")"
   } > "$work/manifest.env"
@@ -497,7 +505,7 @@ restore() {
   [ "$(manifest_value "$folder" vault)" = "$(sha256_text "$(setting VAULT_SECRET '')")" ] \
     || fail "This backup was made with a different VAULT_SECRET, so the credentials stored in it could not be read. On this install, keep a copy of .env, then set only VAULT_SECRET in it to the value in $folder/env and run the restore again; the rest of .env stays, because this install's database keeps the POSTGRES_PASSWORD it was first started with. On a new host, copy $folder/env to .env before the first start."
   taken="$(manifest_value "$folder" version)"
-  current="$(setting AUTOMATE_VERSION '')"
+  current="$(installed_version)"
   if [ -n "$taken" ] && [ -n "$current" ] && version_newer "$taken" "$current"; then
     fail "This backup is from Automate $taken, which is newer than this install ($current). Update first: ./start.sh update --version $taken"
   fi

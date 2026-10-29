@@ -18,16 +18,13 @@ function describe(failure: unknown): string {
 
 export function WorkspacePanel({
   admin,
-  canCreate,
   onChanged,
 }: {
   admin: AdminClient;
-  /** Whether to offer the create form: an admin, on the team or enterprise profile. */
-  canCreate: boolean;
   /** Called after a switch, to reload what the page shows. */
   onChanged: () => void;
 }): React.ReactElement | null {
-  const list = useResource<{ current: string; workspaces: WorkspaceEntry[] }>(
+  const list = useResource<{ current: string; workspaces: WorkspaceEntry[]; canCreate: boolean }>(
     () => admin.listWorkspaces(),
     [admin],
   );
@@ -74,7 +71,9 @@ export function WorkspacePanel({
         Each workspace has its own projects, runs, tokens, members and audit trail. Your role can
         differ from one to the next.
       </p>
-      {canCreate ? (
+      {/* The API's answer, from the rule its create route enforces (PRO-19): an admin of a
+          workspace other than the default is shown no form the route would refuse. */}
+      {list.value.canCreate ? (
         <form
           aria-label="New workspace"
           onSubmit={create}

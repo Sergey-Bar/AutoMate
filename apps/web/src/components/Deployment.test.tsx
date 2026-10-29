@@ -7,7 +7,8 @@ import { expectNoBlockingAxeViolations } from '../test-axe.js';
 import type { WhoAmI } from '../lib/health-client.js';
 import type { AdminClient } from '../lib/admin-client.js';
 
-function makeAdminDouble(): AdminClient {
+/** `canCreate` is the API's answer, from the rule its create route enforces. */
+function makeAdminDouble(canCreate = false): AdminClient {
   return {
     listMembers: vi.fn(),
     updateMember: vi.fn(),
@@ -19,6 +20,7 @@ function makeAdminDouble(): AdminClient {
     listWorkspaces: vi.fn(async () => ({
       current: 'default',
       workspaces: [{ id: 'default', name: 'Default', role: 'admin' as const }],
+      canCreate,
     })),
     selectWorkspace: vi.fn(async () => undefined),
     createWorkspace: vi.fn(async () => undefined),
@@ -89,7 +91,7 @@ describe('the deployment page', () => {
   });
 
   it('offers the workspace switcher, and the create form only to a team admin', async () => {
-    const admin = makeAdminDouble();
+    const admin = makeAdminDouble(true);
     const health = makeHealthDouble('admin', {
       whoami: vi.fn(async () => ({
         actor: 'session',

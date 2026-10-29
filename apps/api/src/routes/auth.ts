@@ -190,6 +190,11 @@ export function createAuthRoutes(options: AuthRouteOptions) {
   app.get('/api/v1/auth/session', async (context) => {
     const record = await readSession(context, sessions);
     if (!record) throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
+    // An installation session signs nobody in under enforced SSO without break-glass
+    // (`callerOf`), so it is not reported as one either. A person's session still is.
+    const ignored =
+      options.sso?.enforced === true && !options.sso.breakGlass && record.userId === undefined;
+    if (ignored) throw new DomainError('UNAUTHENTICATED', 'Unauthorized');
     return context.json(sessionResponse(record));
   });
 

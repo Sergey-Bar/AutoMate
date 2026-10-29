@@ -10,7 +10,7 @@ import {
   sourceOf,
   type CallerResolver,
 } from '../http/roles.js';
-import { audit, type Caller } from '../services/access-service.js';
+import { audit, revokeTokensMadeBy, type Caller } from '../services/access-service.js';
 import type { ProjectRegistryServiceOptions } from '../services/project-registry-service.js';
 import { isEnabledAdmin, memberElsewhere } from '../services/user-service.js';
 
@@ -58,6 +58,22 @@ const AddSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   role: z.enum(['viewer', 'operator', 'admin']),
 });
+
+/**
+ * One change to who is an admin at a time, across every workspace's composition (PRO-19).
+ *
+ * The last-admin rule is a check and then a write, so two admins demoting each other at once
+ * both read the other as an enabled admin, both passed, and the workspace was left with none.
+ * Changes are queued here instead: each one checks against what the one before it wrote. An
+ * install is one API process (ADR-006), which is why a lock in the process is enough; a second
+ * process would need the database to take it.
+ */
+let adminChanges: Promise<unknown> = Promise.resolve();
+function oneAdminChangeAtATime<T>(change: () => Promise<T>): Promise<T> {
+  const run = adminChanges.then(change, change);
+  adminChanges = run.catch(() => undefined);
+  return run;
+}
 
 const UserIdSchema = z.string().uuid();
 
@@ -169,15 +185,20 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
       details,
     });
 
-  /** Disables or enables the account. Disabling signs the person out of every session at once. */
+  /**
+   * Disables or enables the account. Disabling signs the person out of every session at once
+   * and revokes every access token they made, in every workspace (PRO-17).
+   */
   const setDisabled = async (context: Context, userId: string, disabled: boolean) => {
     const now = new Date();
     await options.db
       .update(users)
       .set({ disabledAt: disabled ? now : null, updatedAt: now })
       .where(eq(users.id, userId));
-    if (disabled) await sessions.revokeForUser(userId, now);
-    await record(context, disabled ? 'member.disable' : 'member.enable', userId);
+    if (!disabled) return record(context, 'member.enable', userId);
+    await sessions.revokeForUser(userId, now);
+    const tokensRevoked = await revokeTokensMadeBy(options.db, userId, 'everywhere', now);
+    return record(context, 'member.disable', userId, { tokensRevoked });
   };
 
   app.get('/api/v1/members', admin, async (context) => {
@@ -237,11 +258,13 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
     return context.json({ userId: person.id, role: parsed.data.role }, 201);
   });
 
-  app.patch('/api/v1/members/:userId', admin, async (context) => {
-    const userId = context.req.param('userId');
-    const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
-    if (!parsed.success) return invalid(context, 'Invalid member change', parsed.error.issues);
-    const { role, disabled } = parsed.data;
+  /** A role change and/or a disable, checked whole before anything is written. */
+  const changeMember = async (
+    context: Context,
+    userId: string,
+    role: 'viewer' | 'operator' | 'admin' | undefined,
+    disabled: boolean | undefined,
+  ) => {
     const current = await membership(userId);
     // Every check before any write, so a change refused in part is refused whole.
     if (disabled !== undefined) await mayChangeAccount(context, userId);
@@ -255,16 +278,33 @@ export function createMembersRoutes(options: MembersRouteOptions): Hono {
       await record(context, 'member.role', userId, { from: current.role, to: role });
     }
     if (disabled !== undefined) await setDisabled(context, userId, disabled);
+  };
+
+  app.patch('/api/v1/members/:userId', admin, async (context) => {
+    const userId = context.req.param('userId');
+    const parsed = PatchSchema.safeParse(await context.req.json().catch(() => null));
+    if (!parsed.success) return invalid(context, 'Invalid member change', parsed.error.issues);
+    const { role, disabled } = parsed.data;
+    await oneAdminChangeAtATime(() => changeMember(context, userId, role, disabled));
     return context.json({ ok: true });
   });
 
   app.delete('/api/v1/members/:userId', admin, async (context) => {
     const userId = context.req.param('userId');
-    const current = await membership(userId);
-    await keepAnAdmin(userId, current);
-    // The membership and nothing else: the person's sessions and account are not ours to end.
-    await options.db.delete(workspaceMembers).where(and(here, eq(workspaceMembers.userId, userId)));
-    await record(context, 'member.remove', userId, { role: current.role });
+    await oneAdminChangeAtATime(async () => {
+      const current = await membership(userId);
+      await keepAnAdmin(userId, current);
+      // The membership, and the tokens they made here: their sessions and account are not
+      // ours to end, but a credential they made for this workspace should not outlive their
+      // place in it.
+      await options.db
+        .delete(workspaceMembers)
+        .where(and(here, eq(workspaceMembers.userId, userId)));
+      const tokensRevoked = await revokeTokensMadeBy(options.db, userId, {
+        workspaceId: options.workspaceId,
+      });
+      await record(context, 'member.remove', userId, { role: current.role, tokensRevoked });
+    });
     return context.json({ ok: true });
   });
 

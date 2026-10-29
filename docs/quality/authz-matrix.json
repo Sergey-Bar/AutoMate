@@ -471,7 +471,7 @@
       "method": "DELETE",
       "path": "/api/v1/members/:userId",
       "access": "admin",
-      "workspaceScoped": false,
+      "workspaceScoped": true,
       "evidenceTest": "apps/api/src/routes/members.test.ts",
       "composition": "database"
     },
