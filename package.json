@@ -23,6 +23,7 @@
     "test:integration": "node --test --test-concurrency=1 scripts/lib/*.test.mjs tests/e2e/support/ports-agree.test.mjs local/test/bounded-read.test.mjs",
     "oci:build": "node ./scripts/oci-build.mjs",
     "oci:verify": "node ./scripts/oci-verify.mjs",
+    "oci:smoke": "node ./scripts/oci-smoke.mjs",
     "typecheck": "pnpm typecheck:scripts && pnpm typecheck:e2e && turbo run typecheck",
     "typecheck:e2e": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings=0",

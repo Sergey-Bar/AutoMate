@@ -90,6 +90,7 @@
     "test:performance": "nightly",
     "oci:build": "release",
     "oci:verify": "release",
+    "oci:smoke": "pr-blocking",
     "migrate:apply": "never-in-ci",
     "prepare": "pr-blocking",
     "dev": "never-in-ci",
@@ -178,6 +179,11 @@
       "requires": ["docker|podman"],
       "preinstalledInJobImage": true,
       "why": "The ubuntu runner image ships both, so no install step is needed."
+    },
+    "oci:smoke": {
+      "requires": ["docker|podman"],
+      "preinstalledInJobImage": true,
+      "why": "**`oci:build` builds the runner images and `oci:verify` inspects them, and neither starts one.** The ZAP image exited 1 on every start as its own user for as long as it existed (ledger MNT-157) with both gates green. This starts each image `oci:build` produced under the isolation its manifest declares (user, network, read-only root with a `/tmp` tmpfs, memory, pids, CPU, every capability dropped) and fails unless it exits 0 with output inside 180 s. Run against the pre-MNT-157 ZAP Dockerfile it failed with `Unable to create home directory`; against main it passed for all three. `pr-blocking` from the start because that was watched in both directions before it was wired, and it needs nothing but the Docker the ubuntu runner already ships."
     },
     "oci:verify": {
       "requires": ["docker|podman"],
