@@ -38,6 +38,7 @@ import path from 'node:path';
 import { clearInterval, setInterval } from 'node:timers';
 import { TextDecoder } from 'node:util';
 import { resolveInside } from './detect.mjs';
+import { readFileBoundedSync } from './bounded-read.mjs';
 import { launch } from './proctree.mjs';
 import { PLACEHOLDER, redactPersonal, redactSecrets } from './redact.mjs';
 
@@ -189,9 +190,26 @@ export function resolveExecutable(command, where) {
   return null;
 }
 
-/** @param {Buffer} buffer */
+/** @param {Uint8Array} buffer */
 function decode(buffer) {
   return new TextDecoder('utf-8', { fatal: false }).decode(buffer);
+}
+
+/**
+ * Opens a file for reading, or null when it does not exist. One call rather than an
+ * existence check and then an open, which a rename between them would race
+ * (CodeQL js/file-system-race).
+ *
+ * @param {string} file
+ * @returns {number | null}
+ */
+function openIfPresent(file) {
+  try {
+    return openSync(file, 'r');
+  } catch (error) {
+    if (/** @type {{ code?: string }} */ (error).code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 /**
@@ -246,18 +264,19 @@ export function createRunner(options) {
     };
     for (const stream of /** @type {const} */ (['stdout', 'stderr'])) {
       const raw = path.join(dir, `${stream}.raw`);
-      if (!existsSync(raw)) continue;
       try {
-        const size = statSync(raw).size;
-        info[`${stream}Bytes`] = size;
-        if (size > limits.maxOutputBytes * 2) throw new Error('too-large-to-redact');
-        const text = decode(readFileSync(raw));
+        const read = readFileBoundedSync(raw, limits.maxOutputBytes * 2);
+        if (read.status === 'not-a-file') throw new Error('not-a-file');
+        info[`${stream}Bytes`] = read.info.size;
+        if (read.status === 'too-large') throw new Error('too-large-to-redact');
+        const text = decode(read.bytes);
         const redacted = redactPersonal(redactSecrets(text, secrets), {
           roots: root === null ? [] : [root],
         });
         writeFileSync(path.join(dir, `${stream}.txt`), redacted, 'utf8');
-      } catch {
-        info.withheld = true;
+      } catch (error) {
+        // A stream the child never wrote is not withheld output.
+        if (/** @type {{ code?: string }} */ (error).code !== 'ENOENT') info.withheld = true;
       } finally {
         rmSync(raw, { force: true });
       }
@@ -774,8 +793,8 @@ export function createRunner(options) {
       }
       if (run.output?.withheld === true)
         return { text: '', truncated: false, final: true, withheld: true };
-      if (run.state === 'running' && existsSync(raw)) {
-        const fd = openSync(raw, 'r');
+      const fd = run.state === 'running' ? openIfPresent(raw) : null;
+      if (fd !== null) {
         try {
           const size = fstatSync(fd).size;
           const start = Math.max(0, size - wanted);

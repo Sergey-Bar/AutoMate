@@ -131,3 +131,27 @@ describe('several sites are one run, not several', () => {
     expect(result.provenance['adapterVersion']).toBe(ZAP_XML_ADAPTER_VERSION);
   });
 });
+
+describe('reading cost (CodeQL js/polynomial-redos)', () => {
+  it('reads a report of many unclosed alert items in linear time', () => {
+    // A lazy `<alertitem>([\s\S]*?)</alertitem>` ran to the end of the document from every
+    // unclosed item, so this took seconds.
+    const closed = new TextDecoder().decode(report([{ risk: 3, name: 'SQL Injection' }]));
+    const hostile = closed.replace(
+      '</OWASPZAPReport>',
+      `${'<alertitem>a'.repeat(60_000)}</OWASPZAPReport>`,
+    );
+    const started = performance.now();
+    const result = parse(new TextEncoder().encode(hostile));
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(result.attempts.map((attempt) => attempt.title)).toContain('SQL Injection');
+  });
+
+  it('reads alert items whatever the case of their tag', () => {
+    const text = new TextDecoder()
+      .decode(report([{ risk: 2, name: 'Header missing' }]))
+      .replaceAll('<alertitem>', '<AlertItem>')
+      .replaceAll('</alertitem>', '</ALERTITEM>');
+    expect(parse(new TextEncoder().encode(text)).attempts).toHaveLength(1);
+  });
+});

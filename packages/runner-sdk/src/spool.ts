@@ -592,7 +592,9 @@ export class DurableSpool implements SpoolQueue {
    * `fileBytes` where it was, so the guard still sees the hole and truncates it.
    */
   private async appendDurably(payload: Buffer): Promise<void> {
-    const handle = await open(this.path, 'a');
+    // 0o600 when it is created: the spool may sit under the OS temp directory, and the
+    // directory check alone would leave the file to the process umask.
+    const handle = await open(this.path, 'a', 0o600);
     try {
       let written = 0;
       // A single write is not guaranteed to write everything, even on a regular file,

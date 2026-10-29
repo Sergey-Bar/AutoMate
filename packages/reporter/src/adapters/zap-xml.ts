@@ -58,7 +58,30 @@ interface ZapAlert {
   host: string;
 }
 
-const ALERT_ITEM = /<alertitem>([\s\S]*?)<\/alertitem>/giu;
+const OPEN_ITEM = '<alertitem>';
+const CLOSE_ITEM = '</alertitem>';
+
+/**
+ * The text inside each `<alertitem>…</alertitem>`, in order, tag names in any case. A scan
+ * rather than `/<alertitem>([\s\S]*?)<\/alertitem>/gi`: with an unclosed item, the lazy body
+ * ran to the end of the document from every `<alertitem>` after it, so a report of many
+ * unclosed items cost the square of its length. An unclosed item ends the reading, as the
+ * pattern did.
+ */
+function alertItemBodies(document: string): string[] {
+  // ASCII only, so every index into `lower` is the same index into `document`.
+  const lower = document.replace(/[A-Z]/gu, (letter) => letter.toLowerCase());
+  const bodies: string[] = [];
+  let open = lower.indexOf(OPEN_ITEM);
+  while (open !== -1) {
+    const start = open + OPEN_ITEM.length;
+    const close = lower.indexOf(CLOSE_ITEM, start);
+    if (close === -1) break;
+    bodies.push(document.slice(start, close));
+    open = lower.indexOf(OPEN_ITEM, close + CLOSE_ITEM.length);
+  }
+  return bodies;
+}
 
 /**
  * Reads the alert items out of the report.
@@ -70,9 +93,7 @@ const ALERT_ITEM = /<alertitem>([\s\S]*?)<\/alertitem>/giu;
  */
 function readAlerts(document: string): ZapAlert[] {
   const alerts: ZapAlert[] = [];
-  for (const match of document.matchAll(ALERT_ITEM)) {
-    const body = match[1];
-    if (body === undefined) continue;
+  for (const body of alertItemBodies(document)) {
     const host = /<site\b[^>]*\bhost="([^"]*)"/iu.exec(hostOf(document, body));
     alerts.push({
       pluginId: tag(body, 'pluginid'),

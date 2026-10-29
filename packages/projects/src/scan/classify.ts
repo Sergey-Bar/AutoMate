@@ -36,8 +36,10 @@ const RULES: ReadonlyArray<readonly [RegExp, ToolKind]> = [
   [/security|scan|zap|vuln/u, 'sast'],
   [/\btest|vitest|jest|mocha|pytest|spec|go test|cargo test/u, 'unit'],
   [/\bdb[:-]|migrat|drizzle|prisma|seed/u, 'database'],
-  [/^docs?\b|docs?:|site:|storybook|typedoc|openapi/u, 'docs'],
-  [/^(dev|start|serve|watch|preview)\b|:dev\b/u, 'dev'],
+  // Each alternative grouped, so where the anchor applies is written down: a script named
+  // `docs` or `doc…`, or anything that mentions a docs, site or API-reference tool.
+  [/(?:^docs?\b)|(?:docs?:)|(?:site:)|(?:storybook)|(?:typedoc)|(?:openapi)/u, 'docs'],
+  [/(?:^(?:dev|start|serve|watch|preview)\b)|(?::dev\b)/u, 'dev'],
   [/build|compile|bundle|oci|docker|pack/u, 'build'],
   [/verify|check|gate|preflight|findings|quality|tenancy/u, 'ci'],
 ];

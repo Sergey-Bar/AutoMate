@@ -153,6 +153,24 @@ const COBERTURA_ADAPTER: CoverageAdapter = {
  * reports 10/10 covered for a class with four missed lines, because instruction
  * coverage and line coverage differ on any method with a branch.
  */
+/**
+ * A JaCoCo class's `LINE` counter element, or `''`. Each `<counter …>` is read once and its
+ * type checked, rather than `/<counter\b[^>]*type="LINE"[^>]*\/?>/`, whose two unbounded
+ * `[^>]*` around the type retry each other: one long element with many `type=` attributes
+ * cost the square of its length.
+ */
+function lineCounterOf(body: string): string {
+  let from = body.indexOf('<counter');
+  while (from !== -1) {
+    const end = body.indexOf('>', from);
+    if (end === -1) return '';
+    const element = body.slice(from, end + 1);
+    if (/^<counter\b/u.test(element) && element.includes('type="LINE"')) return element;
+    from = body.indexOf('<counter', end);
+  }
+  return '';
+}
+
 const JACOCO_ADAPTER: CoverageAdapter = {
   format: 'jacoco-xml',
   mediaTypes: ['application/xml'],
@@ -174,7 +192,7 @@ const JACOCO_ADAPTER: CoverageAdapter = {
       // directory; the extension does not, so it comes from the source file.
       const sourceFile = /sourcefilename="([^"]*)"/u.exec(attributes)?.[1];
       const path = sourceFile?.includes('/') ? sourceFile : `${name}.java`;
-      const lineCounter = /<counter\b[^>]*type="LINE"[^>]*\/?>/u.exec(body)?.[0] ?? '';
+      const lineCounter = lineCounterOf(body);
       const missed = Number(/missed="(\d+)"/u.exec(lineCounter)?.[1] ?? Number.NaN);
       const covered = Number(/covered="(\d+)"/u.exec(lineCounter)?.[1] ?? Number.NaN);
       if (!Number.isFinite(missed) || !Number.isFinite(covered)) continue;
