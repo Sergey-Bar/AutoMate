@@ -867,6 +867,11 @@ function derivePorts(read) {
       ports.add(match[2] ?? '');
     }
   }
+  // The edge's own listeners. The tunnel's entrance (`edge:8081`) is published nowhere, so no
+  // compose mapping names it, and the remote guide has to.
+  for (const match of read('infra/nginx/edge.conf').matchAll(/^\s*listen\s+(\d{2,5})\s*;/gm)) {
+    ports.add(match[1] ?? '');
+  }
   return new Set([...ports].filter((port) => port !== ''));
 }
 

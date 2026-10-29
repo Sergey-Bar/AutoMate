@@ -22,8 +22,9 @@ refuses a tunnel.
    tunnel of type _Cloudflared_, and copy its token. Skip the install command it shows:
    the `cloudflared` container in the Automate stack runs the tunnel for you.
 2. **Give it a public hostname.** On the tunnel's _Public hostname_ tab, add
-   `automate.example.com` with service type `HTTP` and URL `edge:8080`. That is the
-   stack's front door on the compose network; nothing on your machine is published.
+   `automate.example.com` with service type `HTTP` and URL `edge:8081`. That is the
+   stack's tunnel entrance on the compose network; nothing on your machine is published, and
+   Automate sees each visitor's own address rather than the tunnel's.
 3. **Put Access in front of it.** Open _Access → Applications_, add a _Self-hosted_
    application for the same hostname, and add a policy that allows your team, such as
    _Emails ending in_ `@example.com`. On the application's overview, copy the
@@ -88,7 +89,8 @@ first time they arrive, just as an OIDC sign-in makes one. That gives you three 
 
 - **They appear on _Map → Members_**, where an admin changes their role, disables them or
   adds them to another workspace. Their role in each workspace is their membership there.
-  Removing them from a workspace ends that membership and nothing else. Disabling them is
+  Removing them from a workspace ends that membership and revokes the access tokens they made
+  there, and nothing else. Disabling them is
   their whole account, so a workspace's own admins can do it only for people who are in no
   other workspace; the installation's admin and the default workspace's admins can for anyone.
 - **The role map still decides the default workspace.** A person a rule names gets that
@@ -99,8 +101,8 @@ first time they arrive, just as an OIDC sign-in makes one. That gives you three 
   other workspace is membership only.
 - **SCIM reaches them.** A person your identity provider provisions is linked by email on
   their first visit and keeps the provisioned role. Deactivate them in the provider and
-  Automate refuses their next request, without waiting for their Access session to end. Access
-  tokens they issued are the workspace's and keep working: revoke those on the Access page.
+  Automate refuses their next request, without waiting for their Access session to end, and
+  revokes every access token they made.
   Set `CF_ACCESS_DEFAULT_ROLE=none` to admit only the people SCIM or the map names.
 
 A person is the Access team and its user id, never the email alone. So a person who already
@@ -146,22 +148,22 @@ this tunnel.
 - **A tunnel needs a login.** `AUTOMATE_REMOTE=cloudflare` with `ACCESS_CONTROL=open`, or
   without both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`, refuses to start. So does a
   tunnel on the `solo` profile.
-- **A LAN certificate and a tunnel do not mix on one port.** With `lan-cert` issued, the edge
-  redirects plain HTTP to HTTPS. Point the tunnel at `https://edge:8443` with _No TLS Verify_
-  instead, or skip the LAN certificate.
+- **A LAN certificate and a tunnel mix.** With `lan-cert` issued, the edge redirects plain
+  HTTP on `8080` to HTTPS. The tunnel entrance on `8081` never redirects: Cloudflare already
+  serves the visitor over HTTPS.
 
-## One address for everyone behind the tunnel
+## Each visitor's own address
 
-Every request through the tunnel reaches Automate from the `cloudflared` container, so every
-remote user has the same address as far as Automate can tell. Until Automate reads the
-visitor's address that Cloudflare forwards, two things follow:
+Every request through the tunnel reaches the edge from the `cloudflared` container. On
+`edge:8081` the edge passes on the visitor's address that Cloudflare sends in
+`CF-Connecting-IP`, so each remote person has their own sign-in limits and their own address
+in the audit trail. That port is reachable only inside the stack, which is what makes the
+header safe to read: nobody outside can send it.
 
-- **Sign-in limits are shared.** The per-address limits on signing in count every remote user
-  together, so one person Access lets in can use them up for everyone until the window passes.
-  Nobody Access refuses ever reaches them.
-- **The audit trail records the tunnel's address**, not the visitor's. The actor, the time and
-  the request id are still each person's, and Cloudflare's Access logs keep the visitor's
-  address.
+A tunnel set up before this, still pointed at `edge:8080`, keeps working, but every remote
+visitor then has the tunnel's address: they share one sign-in budget, and the audit trail
+records the tunnel. Change the hostname's URL to `edge:8081` on the tunnel's _Public
+hostname_ tab; nothing needs restarting.
 
 ## Turning it off
 

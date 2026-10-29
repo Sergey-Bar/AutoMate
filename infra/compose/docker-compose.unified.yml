@@ -292,7 +292,10 @@ services:
   cloudflared:
     # Optional: `start --remote cloudflare` (ADR-014). Cloudflare Tunnel dials out to
     # Cloudflare, so nothing here is published and no router port is opened; the tunnel's
-    # public hostname points at `http://edge:8080`. A tunnel is still exposure, which is why
+    # public hostname points at `http://edge:8081`, the edge's tunnel listener, which keys a
+    # visitor by the address Cloudflare saw (PRO-16) and is not published either. A tunnel
+    # still pointed at `edge:8080` works, with every visitor sharing the tunnel's address.
+    # A tunnel is still exposure, which is why
     # the API refuses to start one without a login and both CF_ACCESS_* settings. The token
     # comes from the Zero Trust dashboard and lives in .env, never in this file.
     profiles: ['cloudflare']
