@@ -10,7 +10,7 @@
  * - A limit that is hit, a file that cannot be read and a link that is not followed are
  *   recorded with a reason; they never abort the scan silently.
  */
-import { lstat, open, readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { lstat, open, opendir, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { detectFormat } from './ingest.mjs';
 
@@ -93,6 +93,13 @@ export async function scanRepository(root, options = {}) {
   }
   const parsed = path.parse(path.resolve(root));
   if (parsed.root === path.resolve(root)) return failed(root, 'filesystem-root');
+  // A folder that cannot be listed is refused here, with a reason, rather than scanned as
+  // an empty folder: "nothing found" would be a claim about a folder nobody could read.
+  const listable = await opendir(root).then(
+    (handle) => handle.close().then(() => true),
+    () => false,
+  );
+  if (!listable) return failed(root, 'unreadable');
 
   /** @type {Array<{ relativePath: string, size: number, modifiedMs: number }>} */
   const files = [];

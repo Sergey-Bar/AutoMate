@@ -75,6 +75,7 @@
     "test:e2e:api": "pr-blocking",
     "test:e2e:vertical": "pr-blocking",
     "test:e2e:profiles": "pr-blocking",
+    "test:local:browser": "pr-blocking",
     "test:render": "pr-blocking",
     "status:10": "pr-blocking",
     "review:pr": "pr-reporting",

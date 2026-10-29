@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Owner:** maintainers
-**Last reviewed:** 2026-10-19
+**Last reviewed:** 2026-10-29
 
 What has been built in [`local/`](../../local/README.md), what its tests show, where it
 departs from the rest of this blueprint, and what could not be checked. Where this document
@@ -10,8 +10,8 @@ and an older one disagree about whether something exists, this one is the later 
 more careful.
 
 Nothing here is a capability of the server platform, and nothing here has been released.
-The code is dependency-free Node (ESM with JSDoc types), outside the pnpm workspace globs,
-tested by running each test file directly with Node.
+The code is dependency-free Node (ESM with JSDoc types), outside the pnpm workspace globs.
+Its tests run in `pnpm test:integration`, so `pnpm verify` and CI run every one of them.
 
 ## What exists
 
@@ -23,7 +23,7 @@ tested by running each test file directly with Node.
 | Scanner and detect   | R-001 to R-004             | `local/src/detect.mjs`                                       | Read-only (tree digest unchanged), links not followed outside the repository, every finding has evidence           |
 | Analysis             | R-010                      | `local/src/analysis.mjs`                                     | Metrics K-01 to K-13 match hand computation; a missing figure is null with a reason, never zero                    |
 | Engine and interface | R-015, R-016               | `local/src/engine.mjs`, `server.mjs`                         | Token, Host and Origin checks, cookie sessions, no CORS, mutants of each check fail the tests; no network use      |
-| Pages                | R-010 to R-014, R-020      | `local/src/ui*.mjs`                                          | Structure checks on every page and state: labels, captions, landmarks, no script or inline style; escaping         |
+| Pages                | R-010 to R-014, R-020      | `local/src/ui*.mjs`                                          | Structure checks on every page and state; axe and keyboard reach in Chromium, both colour schemes; escaping        |
 | Redaction            | R-017, R-018               | `local/src/redact.mjs`, `diagnostics.mjs`                    | Paths, user and host names removed from shown text; diagnostics written for inspection                             |
 | Runner               | R-021 to R-026             | `local/src/runner.mjs`, `proctree.mjs`, `job-launcher.ps1`   | See below                                                                                                          |
 | Toolbox              | R-027 to R-029             | `local/src/toolbox.mjs`, `local/catalog/tools.json`          | A catalog schema that rejects executable content; recommendations need evidence; installs go through the runner    |
@@ -31,8 +31,9 @@ tested by running each test file directly with Node.
 | AI interface         | R-032                      | `local/src/ai.mjs`                                           | Interface only; see below                                                                                          |
 | Cobertura, ZIP       | R-033 (one format), R-034  | `local/src/cobertura.mjs`, `zip.mjs`, `engine.importArchive` | Hand-written Cobertura fixtures parse; hostile archives are refused per entry; nothing is written to disk          |
 
-The tests are in `local/test/`: 21 files and 222 tests, all passing on the machine they were
-written on (Windows, Node 24). Key behaviours were also checked by deliberately breaking them
+The tests are in `local/test/`. The Node files run in `pnpm test:integration` on Windows and on
+the ubuntu CI runner; `local/test/browser/` runs in Chromium through `pnpm test:local:browser`.
+Key behaviours were also checked by deliberately breaking them
 (for example removing the consent comparison, the environment allowlist, the redaction step,
 the job-object assignment, the CRC check, the dismissal fingerprint) and confirming a test
 fails. That is a spot check of the tests, not a proof they are complete.
@@ -97,15 +98,28 @@ worth having is still undecided.
 - **Team features: the decision is to build none now.** See
   [team-features-decision.md](./team-features-decision.md).
 
+## MVP-0 exit criteria
+
+Each criterion in the [PRD](./prd.md) and the test that fails if it stops holding.
+
+| Exit criterion                                                                         | Test                                                                                                                               |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| No unknown, missing or incomplete outcome is reported as a pass                        | `corpus.test.mjs`: "an unknown, missing or incomplete outcome is never reported as a pass"                                         |
+| Raw bytes read back with an equal SHA-256 for every golden fixture                     | `corpus.test.mjs`, `store.test.mjs`; `offline.test.mjs` downloads each original through the launcher and compares it               |
+| Product plus indeterminate plus non-product outcomes equal the total, for every run    | `corpus.test.mjs`: "per-run counts reconcile"                                                                                      |
+| A scan of a hashed tree leaves it unchanged                                            | `detect.test.mjs`, including read-only files; `offline.test.mjs` digests the tree around a scan through the launcher               |
+| A report with zero tests is representable and shown as such                            | `analysis.test.mjs`, `corpus.test.mjs`; `ui.test.mjs` "dashboard, zero tests"; `offline.test.mjs` reads it on the served dashboard |
+| The replacement readers produce the corpus goldens                                     | `corpus.test.mjs`: "every fixture matches its hand-authored golden"                                                                |
+| Offline: starts, scans, ingests, shows the dashboard, and makes no outbound connection | `offline.test.mjs`: the real launcher under `offline-guard.mjs`, which refuses and records any TCP, DNS or UDP use but loopback    |
+
+The guard is proved able to see what it is there to catch: the first test in
+`offline.test.mjs` makes a connection, a lookup and a `fetch` under it and requires all three
+in its record.
+
 ## What could not be verified
 
-- **The repository's own gates were not run on `local/`.** `pnpm` and the workspace
-  dependencies are not installed on the machine this was built on. Formatting was checked
-  with a Prettier 2 binary borrowed from another project and linting with ESLint 10 using a
-  reduced copy of the root rules (without the sonarjs and security plugins). The root
-  `eslint .`, `format:check`, duplication and complexity gates glob over `local/`, so they
-  may report findings this work did not see. Typecheck, coverage ratchet, the secret scan,
-  Semgrep, Gitleaks and the findings ledger were not run on it.
+- **The repository's gates now run on `local/`,** except typecheck: no tsconfig includes it,
+  so its JSDoc types are unchecked.
 - **The real report adapters were not run** against the corpus (R-037, M1-1). The readers
   here are independent, small implementations.
 - **Fixtures are partly synthetic.** The JUnit and lcov corpus includes output of the Node
@@ -113,22 +127,25 @@ worth having is still undecided.
   published formats; no coverage tool or CI system produced them.
 - **No real package manager was run.** Install tests use stand-in programs that record how
   they were called.
-- **Accessibility was checked structurally only** (labels, captions, landmarks, headings,
-  no inline script or style). No browser, screen reader or contrast measurement was used,
-  so R-020 is not verified.
+- **Accessibility is checked by machine, not by people.** `local/test/browser/` runs axe
+  (WCAG 2.2 A and AA) on every MVP-0 page in both colour schemes, and Tabs through a
+  dashboard checking order and a visible focus. No screen reader has been used.
 - **No performance figure exists.** Every limit, threshold and timeout is a proposal.
 - **Phase 0 validation was not run** (R-036): the personas are still hypotheses.
-- **Not built:** retention and history settings (R-019), a link from every dashboard
-  number to the tests behind it (R-011 is partly met: report pages list the tests), a
+- **Not built:** retention and history settings (R-019), a list of results per
+  dashboard figure (R-011 is met in two steps: each figure links to the reports behind it,
+  and each report page lists its tests and offers the original file), a
   Windows package and an upgrade test (M1-10), and the catalog update channel.
 
 ## Running it
 
 ```text
 node local/bin/automate-local.mjs serve
-node local/test/runner.test.mjs
+node --test --test-concurrency=1 local/test/*.test.mjs
+pnpm test:local:browser
 ```
 
-Each test file runs on its own. The Node test runner (`node --test`) hung in the
-environment this was built in when children were spawned with piped output, so the files are
-run directly.
+`serve` prints an address with a one-time token after the `#`; open it in a browser on the
+same computer. The Node test runner once hung on spawned children with piped output in the
+environment this was first built in; the tests redirect child output to files, and they pass
+under `node --test` on Windows and in CI.

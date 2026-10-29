@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { URLSearchParams } from 'node:url';
 import { createEngine } from '../src/engine.mjs';
-import { startServer } from '../src/server.mjs';
+import { FOLDER_REFUSALS, startServer } from '../src/server.mjs';
 import { BOOTSTRAP_SCRIPT_SOURCE } from '../src/ui.mjs';
 import { FILES_DIR } from './support.mjs';
 
@@ -224,6 +225,7 @@ test('pages after login allow no script, are not cached, and cannot be framed', 
 test('the server is bound to loopback on an assigned port, and two servers get different ports', async () => {
   await withServer(async ({ server }) => {
     assert.equal(server.host, '127.0.0.1');
+    assert.equal(server.boundAddress, '127.0.0.1', 'the socket itself is bound to loopback');
     assert.ok(server.port > 0);
     const dir = mkdtempSync(path.join(tmpdir(), 'automate-server-data-'));
     const engine = createEngine({ dataDir: dir });
@@ -362,6 +364,54 @@ test('events stream with ids, and a reconnecting client receives only what it mi
       const laterIds = [...later.matchAll(/^id: (\d+)$/gm)].map((m) => Number(m[1]));
       assert.deepEqual(laterIds, ids.slice(2));
       assert.ok(!later.includes('scan.started'));
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5 });
+  }
+});
+
+test('every reason the scanner refuses a folder has its own sentence on the form', () => {
+  const source = readFileSync(path.resolve(import.meta.dirname, '..', 'src', 'detect.mjs'), 'utf8');
+  const reasons = [...source.matchAll(/failed\(root, '([a-z-]+)'\)/g)].map((m) => m[1]).sort();
+  assert.deepEqual(reasons, ['filesystem-root', 'not-a-directory', 'unreadable']);
+  assert.deepEqual(Object.keys(FOLDER_REFUSALS).sort(), reasons);
+});
+
+test('the folder form refuses a missing path, a file and a filesystem root, each with its own message', async () => {
+  const root = repository({ 'file.txt': 'x' });
+  try {
+    await withServer(async ({ server }) => {
+      const granted = await call(server, {
+        method: 'POST',
+        path: '/api/v1/session',
+        headers: { Authorization: `Bearer ${server.token}` },
+      });
+      const cookie = String(granted.headers['set-cookie']?.[0] ?? '').split(';')[0] ?? '';
+      const submit = (target) =>
+        call(server, {
+          method: 'POST',
+          path: '/ui/repositories',
+          headers: {
+            Cookie: cookie,
+            Origin: server.url,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ path: target }).toString(),
+        });
+      for (const [target, message] of [
+        [path.join(root, 'missing'), 'That path is not a folder.'],
+        [path.join(root, 'file.txt'), 'That path is not a folder.'],
+        [
+          path.parse(root).root,
+          'A whole drive or filesystem root is not accepted; choose a project folder.',
+        ],
+      ]) {
+        const response = await submit(target);
+        assert.equal(response.status, 400, target);
+        const page = response.body.toString();
+        assert.ok(page.includes(message), `${target}: ${page.slice(0, 200)}`);
+        assert.match(page, /role="alert"/);
+      }
     });
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 5 });

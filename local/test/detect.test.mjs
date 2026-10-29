@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -271,6 +273,108 @@ test('a path that is not a repository is refused with a reason', async () => {
     assert.deepEqual((await scanRepository(path.join(repo.root, 'file.txt'))).status, 'failed');
     assert.equal((await scanRepository(path.join(repo.root, 'missing'))).reason, 'not-a-directory');
     assert.equal((await scanRepository(path.parse(repo.root).root)).reason, 'filesystem-root');
+  } finally {
+    repo.cleanup();
+  }
+});
+
+/**
+ * Makes a directory unlistable by its own user: `chmod 000` on POSIX, an access-control
+ * entry denying "list folder" on Windows, where the mode bits do not apply.
+ *
+ * @param {string} directory
+ * @returns {() => void} restores access
+ */
+function denyListing(directory) {
+  if (process.platform !== 'win32') {
+    chmodSync(directory, 0o000);
+    return () => chmodSync(directory, 0o700);
+  }
+  const who = `${process.env['USERDOMAIN'] ?? '.'}\\${process.env['USERNAME'] ?? ''}`;
+  execFileSync('icacls', [directory, '/deny', `${who}:(RD)`], { stdio: 'ignore' });
+  return () => execFileSync('icacls', [directory, '/remove:d', who], { stdio: 'ignore' });
+}
+
+test('a folder that cannot be read is refused with a reason, before anything is walked', async (t) => {
+  const repo = repository({ 'reports/junit.xml': JUNIT });
+  const restore = denyListing(repo.root);
+  try {
+    let listable = true;
+    try {
+      readdirSync(repo.root);
+    } catch {
+      listable = false;
+    }
+    // Root ignores both mechanisms; the refusal cannot be shown to a superuser.
+    if (listable) {
+      t.diagnostic('the directory stayed listable (running as a superuser?)');
+      assert.equal(process.getuid?.(), 0, 'access was not denied for a normal user');
+      return;
+    }
+    const result = await scanRepository(repo.root);
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'unreadable');
+  } finally {
+    restore();
+    repo.cleanup();
+  }
+});
+
+test('read-only files are left exactly as they were', async () => {
+  const repo = repository({
+    'package.json': JSON.stringify({ devDependencies: { vitest: '^1' } }),
+    'reports/junit.xml': JUNIT,
+  });
+  const files = ['package.json', path.join('reports', 'junit.xml')].map((f) =>
+    path.join(repo.root, f),
+  );
+  try {
+    for (const file of files) chmodSync(file, 0o444);
+    const before = treeDigest(repo.root);
+    const result = await scanRepository(repo.root);
+    assert.equal(result.status, 'complete');
+    assert.equal(result.reports.length, 1);
+    assert.equal(treeDigest(repo.root), before);
+    for (const file of files)
+      assert.equal(statSync(file).mode & 0o222, 0, `${file} stays read-only`);
+  } finally {
+    for (const file of files) chmodSync(file, 0o644);
+    repo.cleanup();
+  }
+});
+
+test('every piece of evidence is a path:line that names a real line of that file', async () => {
+  const repo = repository({
+    'package.json': JSON.stringify(
+      { scripts: { test: 'jest' }, devDependencies: { jest: '^29', '@playwright/test': '^1' } },
+      null,
+      2,
+    ),
+    'jest.config.js': 'module.exports = {};\n',
+    'pyproject.toml': '[tool.pytest.ini_options]\naddopts = "-q"\n',
+    '.github/workflows/ci.yml': 'name: ci\non: push\n',
+  });
+  try {
+    const { projects } = await scanRepository(repo.root);
+    const cited = projects.flatMap((p) => [
+      ...p.findings.flatMap((f) => f.evidence),
+      ...p.commands.map((c) => c.evidence),
+    ]);
+    assert.ok(cited.length >= 5, `only ${String(cited.length)} pieces of evidence`);
+    for (const entry of cited) {
+      // `path:line`, optionally followed by a space and the quoted line.
+      const space = entry.indexOf(' ');
+      const location = space === -1 ? entry : entry.slice(0, space);
+      const quoted = space === -1 ? undefined : entry.slice(space + 1);
+      const colon = location.lastIndexOf(':');
+      const file = location.slice(0, colon);
+      const line = location.slice(colon + 1);
+      assert.ok(colon > 0 && /^\d+$/.test(line), `"${entry}" is not path:line`);
+      const lines = readFileSync(path.join(repo.root, ...file.split('/')), 'utf8').split('\n');
+      const actual = lines[Number(line) - 1];
+      assert.ok(actual !== undefined, `${entry}: there is no line ${line}`);
+      if (quoted !== undefined) assert.ok(actual.includes(quoted.trim()), `${entry}: wrong line`);
+    }
   } finally {
     repo.cleanup();
   }
