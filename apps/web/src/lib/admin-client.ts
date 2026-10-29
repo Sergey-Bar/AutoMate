@@ -57,8 +57,8 @@ export interface AdminClient {
   verifyAudit(): Promise<AuditVerification>;
   /** A link the browser downloads; the session cookie is the credential. */
   exportUrl(format: 'ndjson' | 'csv'): string;
-  /** The workspaces this caller may enter, and the one this request is in. */
-  listWorkspaces(): Promise<{ current: string; workspaces: WorkspaceEntry[] }>;
+  /** The workspaces this caller may enter, the one this request is in, and whether it may create one. */
+  listWorkspaces(): Promise<{ current: string; workspaces: WorkspaceEntry[]; canCreate: boolean }>;
   selectWorkspace(workspaceId: string): Promise<void>;
   createWorkspace(id: string, name: string): Promise<void>;
 }
@@ -112,6 +112,7 @@ export function createAdminClient(baseUrl = '', fetchImpl: typeof fetch = fetch)
           workspaces: z.array(
             z.object({ id: z.string(), name: z.string(), role: MemberSchema.shape.role }),
           ),
+          canCreate: z.boolean(),
         }),
       ),
     selectWorkspace: async (workspaceId) => {

@@ -53,7 +53,11 @@ function admin(overrides: Partial<AdminClient> = {}): AdminClient {
     })),
     exportUrl: (format) => `/api/v1/audit/export${format === 'csv' ? '?format=csv' : ''}`,
     addMember: vi.fn(async () => undefined),
-    listWorkspaces: vi.fn(async () => ({ current: 'default-workspace', workspaces: [] })),
+    listWorkspaces: vi.fn(async () => ({
+      current: 'default-workspace',
+      workspaces: [],
+      canCreate: false,
+    })),
     selectWorkspace: vi.fn(async () => undefined),
     createWorkspace: vi.fn(async () => undefined),
     ...overrides,

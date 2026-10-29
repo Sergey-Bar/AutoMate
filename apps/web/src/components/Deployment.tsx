@@ -69,11 +69,6 @@ export function DeploymentPage({
   );
 }
 
-/** Whether several workspaces are a shape this profile offers (ADR-014: team and up). */
-function offersWorkspaces(profile: Profile): boolean {
-  return profile === 'team' || profile === 'enterprise';
-}
-
 function DeploymentBody({
   who,
   admin,
@@ -115,11 +110,7 @@ function DeploymentBody({
         </Panel>
       </div>
       {admin === undefined ? null : (
-        <WorkspacePanel
-          admin={admin}
-          canCreate={who.role === 'admin' && offersWorkspaces(profile)}
-          onChanged={() => window.location.reload()}
-        />
+        <WorkspacePanel admin={admin} onChanged={() => window.location.reload()} />
       )}
       <Panel title="Profiles">
         <Table aria-label="Deployment profiles">

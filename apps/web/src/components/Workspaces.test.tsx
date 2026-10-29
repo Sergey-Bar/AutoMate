@@ -21,6 +21,8 @@ function client(overrides: Partial<AdminClient> = {}): AdminClient {
         { id: 'default-workspace', name: 'Default workspace', role: 'admin' as const },
         { id: 'mobile', name: 'Mobile', role: 'viewer' as const },
       ],
+      // The caller is an admin here, and still the API says no: the form follows the API.
+      canCreate: false,
     })),
     selectWorkspace: vi.fn(async () => undefined),
     createWorkspace: vi.fn(async () => undefined),
@@ -28,13 +30,19 @@ function client(overrides: Partial<AdminClient> = {}): AdminClient {
   } as AdminClient;
 }
 
+/** The same client, with the API saying this caller may create a workspace. */
+function creator(admin: AdminClient): AdminClient {
+  return {
+    ...admin,
+    listWorkspaces: async () => ({ ...(await admin.listWorkspaces()), canCreate: true }),
+  };
+}
+
 describe('the workspace panel', () => {
   it('lists the workspaces the caller may enter, marks the current one, and switches', async () => {
     const admin = client();
     const onChanged = vi.fn();
-    const { container } = render(
-      <WorkspacePanel admin={admin} canCreate={false} onChanged={onChanged} />,
-    );
+    const { container } = render(<WorkspacePanel admin={admin} onChanged={onChanged} />);
     const select = await screen.findByLabelText('Current workspace');
     expect(select).toHaveValue('default-workspace');
     fireEvent.change(select, { target: { value: 'mobile' } });
@@ -47,7 +55,7 @@ describe('the workspace panel', () => {
   it('creates a workspace and moves into it, when the caller may', async () => {
     const admin = client();
     const onChanged = vi.fn();
-    render(<WorkspacePanel admin={admin} canCreate onChanged={onChanged} />);
+    render(<WorkspacePanel admin={creator(admin)} onChanged={onChanged} />);
     const form = await screen.findByRole('form', { name: 'New workspace' });
     fireEvent.change(screen.getByLabelText('Id'), { target: { value: 'web' } });
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Web' } });
@@ -63,7 +71,7 @@ describe('the workspace panel', () => {
         throw Object.assign(new Error('409'), { detail: 'Several workspaces need team' });
       }),
     });
-    render(<WorkspacePanel admin={admin} canCreate onChanged={() => undefined} />);
+    render(<WorkspacePanel admin={creator(admin)} onChanged={() => undefined} />);
     fireEvent.change(await screen.findByLabelText('Id'), { target: { value: 'x' } });
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'X' } });
     fireEvent.submit(screen.getByRole('form', { name: 'New workspace' }));
@@ -77,7 +85,7 @@ describe('the workspace panel', () => {
       }),
     });
     const onChanged = vi.fn();
-    render(<WorkspacePanel admin={admin} canCreate={false} onChanged={onChanged} />);
+    render(<WorkspacePanel admin={admin} onChanged={onChanged} />);
     fireEvent.change(await screen.findByLabelText('Current workspace'), {
       target: { value: 'mobile' },
     });
@@ -94,7 +102,7 @@ describe('the workspace panel', () => {
       }),
     });
     const { container } = render(
-      <WorkspacePanel admin={admin} canCreate onChanged={() => undefined} />,
+      <WorkspacePanel admin={creator(admin)} onChanged={() => undefined} />,
     );
     await waitFor(() => expect(admin.listWorkspaces).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();

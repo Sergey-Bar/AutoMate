@@ -154,12 +154,21 @@ export function createWorkspacesRoutes(options: WorkspacesRouteOptions): Hono {
     ).length === 1;
 
   /** The installation's admin, or a person who is an admin of the default workspace. */
-  const installationAdmin: MiddlewareHandler = guard('admin', async (context, next) => {
-    const caller = await options.defaultCaller(context);
+  const installationAdminOf = async (context: Context): Promise<boolean> => {
+    if (isInstallationAdmin(await options.defaultCaller(context))) return true;
     const userId = await options.sessionUser(context);
-    const defaultAdmin = userId !== null && (await adminOfDefault(userId));
-    if (!isInstallationAdmin(caller) && !defaultAdmin) {
-      if (caller.role === null && userId === null) {
+    return userId !== null && (await adminOfDefault(userId));
+  };
+
+  /** Whether creating a workspace is open to this caller at all: the route's own rule. */
+  const mayCreate = async (context: Context): Promise<boolean> =>
+    (options.profile === 'team' || options.profile === 'enterprise') &&
+    (await installationAdminOf(context));
+
+  const installationAdmin: MiddlewareHandler = guard('admin', async (context, next) => {
+    if (!(await installationAdminOf(context))) {
+      const caller = await options.defaultCaller(context);
+      if (caller.role === null && (await options.sessionUser(context)) === null) {
         throw new DomainError(ErrorCode.UNAUTHENTICATED, 'Sign in, or send an access token');
       }
       throw new DomainError(
@@ -174,6 +183,8 @@ export function createWorkspacesRoutes(options: WorkspacesRouteOptions): Hono {
     context.json({
       current: await options.current(context),
       workspaces: (await accessible(context)).entries,
+      // What the web app offers the create form to, so it cannot offer one the route refuses.
+      canCreate: await mayCreate(context),
     }),
   );
 

@@ -88,6 +88,7 @@ describe('createAdminClient', () => {
     const listed = {
       current: 'default',
       workspaces: [{ id: 'default', name: 'Default', role: 'admin' }],
+      canCreate: true,
     };
     const { client, calls } = server({
       'GET /api/v1/workspaces': listed,
