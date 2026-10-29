@@ -148,10 +148,9 @@ set per workspace, so the same person can be an admin in one and a viewer in ano
   that issued it.
 - **Runners** are one pool the whole install shares; a job reports back to the workspace it
   came from.
-- **GitHub webhooks** reach the default workspace's projects only. A delivery carries no
-  workspace credential, so it is looked up in the default workspace, and one for a repository
-  registered elsewhere is answered `ignored`, `unknown-repository`. That workspace's scheduled
-  syncs still run.
+- **GitHub webhooks** serve every workspace. One receiver and one `GITHUB_WEBHOOK_SECRET` per
+  install: a delivery is matched by its repository, after its signature checks, and queues a
+  sync in each workspace that registered that repository.
 
 Workspaces need `DATABASE_URL`: an install without a database has the one workspace.
 

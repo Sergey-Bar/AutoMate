@@ -23,7 +23,8 @@ import {
  *
  * The payload is GitHub's description of an event, and a description is not data this install
  * stores. The receiver reads **one** field from it — the repository's full name — and only to
- * decide which of this workspace's projects to sync; the sync then asks GitHub's API with the
+ * decide which projects to sync, in whichever workspace registered them; the sync then asks
+ * GitHub's API with the
  * project's own token. A forged or stale payload can therefore at most cause a sync, which
  * reads what GitHub says now.
  *
@@ -130,7 +131,11 @@ export function isHandledEvent(event: string): boolean {
   return (GITHUB_WEBHOOK_EVENTS as readonly string[]).includes(event);
 }
 
-/** Queues a sync for each enabled source of the repository the payload names. */
+/**
+ * Queues a sync for each enabled source of the repository the payload names, in every
+ * workspace that registered it (PRO-20). Each sync is written in its source's own workspace,
+ * the only tenancy boundary; the payload decides which repository, never which workspace.
+ */
 export async function handleGitHubEvent(
   options: DeliveryOptions,
   event: string,
@@ -141,10 +146,16 @@ export async function handleGitHubEvent(
   if (!parsed.success) {
     return { status: 'ignored', event, reason: 'no-repository', queued: 0 };
   }
-  const sources = await enabledSourcesForRepository(options, parsed.data.repository.full_name);
+  const sources = await enabledSourcesForRepository(
+    options,
+    parsed.data.repository.full_name,
+    'everywhere',
+  );
   if (sources.length === 0) {
     return { status: 'ignored', event, reason: 'unknown-repository', queued: 0 };
   }
-  for (const source of sources) await queueDeliverySync(options, source, 'webhook');
+  for (const source of sources) {
+    await queueDeliverySync({ ...options, workspaceId: source.workspaceId }, source, 'webhook');
+  }
   return { status: 'queued', event, reason: null, queued: sources.length };
 }

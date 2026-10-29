@@ -257,12 +257,18 @@ export async function requestDeliverySync(
   return queueDeliverySync(options, await ensureSource(options, project), 'operator');
 }
 
-/** The enabled sources of the projects whose GitHub repository is `fullName`. */
+/**
+ * The enabled sources of the projects whose GitHub repository is `fullName`: in the options'
+ * workspace, or in `'everywhere'` for the webhook receiver, which is installation-wide (its
+ * secret is one per install, and a delivery carries no workspace credential).
+ */
 export async function enabledSourcesForRepository(
   options: DeliveryOptions,
   fullName: string,
+  scope: 'workspace' | 'everywhere' = 'workspace',
 ): Promise<DeliverySourceRow[]> {
   const wanted = fullName.toLowerCase();
+  const enabled = eq(deliverySources.enabled, true);
   const rows = await options.db
     .select({ source: deliverySources, repositoryUrl: projects.repositoryUrl })
     .from(deliverySources)
@@ -274,7 +280,9 @@ export async function enabledSourcesForRepository(
       ),
     )
     .where(
-      and(eq(deliverySources.workspaceId, options.workspaceId), eq(deliverySources.enabled, true)),
+      scope === 'everywhere'
+        ? enabled
+        : and(eq(deliverySources.workspaceId, options.workspaceId), enabled),
     );
   return rows
     .filter((row) => {
