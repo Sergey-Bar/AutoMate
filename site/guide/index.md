@@ -42,4 +42,4 @@ for short definitions with examples.
 
 Building from source? Use the [developer quickstart](getting-started.md). You can also read
 [how the repository tests itself](testing-strategy.md), [how it is maintained](maintenance.md),
-and [the design language](design-language.md) shared by the product and this site.
+and [the console's design language](design-language.md).

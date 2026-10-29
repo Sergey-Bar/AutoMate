@@ -7133,6 +7133,25 @@
       "resolution": "`scripts/oci-smoke.mjs` starts each built image with the isolation its manifest declares, and the new `Runner images` job runs build, verify and smoke on every pull request. It is `pr-blocking` because it was watched failing on the defect and passing on the fix before it was wired."
     },
     {
+      "id": "MNT-159",
+      "title": "site:doctor check 8 read one stylesheet, so a palette in a sibling file passed it",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "Check 8, named 'the site uses the product palette', read only `site/.vitepress/theme/custom.css`. The public-site redesign added `lupin.css`, which points twelve `--automate-*` tokens and the VitePress variables at a hex palette with a violet accent, and check 8 stayed green. `site/guide/design-language.md` and AGENTS.md went on saying the check made two palettes impossible and the fonts were committed once.",
+      "confirmedBy": "A new test writes `rogue-palette.css` beside `custom.css` with a hex token; check 8 passed it before the change and fails it after. The test that the exception is named in the check's output failed before the change.",
+      "evidence": [
+        {
+          "path": "scripts/lib/site-doctor-dom.test.mjs",
+          "asserts": "A literal colour in any theme stylesheet other than the named exception fails check 8, and the exception is printed."
+        }
+      ],
+      "resolution": "Check 8 reads every stylesheet under `site/.vitepress/theme/`, and `lupin.css` is the one named exception (`SITE_PALETTE_EXCEPTION`), printed in the check's note and recorded in `site/.vitepress/DESIGN-SYSTEM.md`. The design-language page and the AGENTS.md design-system table now describe the site's palette and its Geist fonts as that exception, and the console keeps its accent with no hue and its fonts in one place."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
