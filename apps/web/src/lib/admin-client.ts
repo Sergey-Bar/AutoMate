@@ -112,7 +112,9 @@ export function createAdminClient(baseUrl = '', fetchImpl: typeof fetch = fetch)
           workspaces: z.array(
             z.object({ id: z.string(), name: z.string(), role: MemberSchema.shape.role }),
           ),
-          canCreate: z.boolean(),
+          // Absent from an API older than the web bundle: the form is then not offered, rather
+          // than the whole switcher failing to parse.
+          canCreate: z.boolean().default(false),
         }),
       ),
     selectWorkspace: async (workspaceId) => {
