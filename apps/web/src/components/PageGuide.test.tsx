@@ -33,6 +33,15 @@ describe('contextual page guidance', () => {
     );
   });
 
+  it('describes quarantine as the API does: approved entries are released, rejections are final', () => {
+    // `QUARANTINE_TRANSITIONS` in apps/api/src/modules/dashboard/schemas.ts allows
+    // approved -> released, and auto-quarantine releases entries after a clean streak.
+    const { remember } = pageGuidance.quarantine;
+    expect(remember).not.toMatch(/approved[^.]*final/i);
+    expect(remember).toMatch(/released/i);
+    expect(remember).toMatch(/reject[^.]*final/i);
+  });
+
   it('does not display unrelated guidance on an unknown path', () => {
     const view = render(<PageGuide pathname="/not-a-page" />);
     expect(view.container.innerHTML).toBe('');

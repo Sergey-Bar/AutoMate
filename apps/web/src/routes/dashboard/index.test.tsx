@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   createMemoryHistory,
   createRootRoute,
@@ -78,6 +78,21 @@ describe('RunsListPage', () => {
     renderRunsPage(api);
     await waitFor(() => expect(screen.getByTestId('runs-list-error')).toBeInTheDocument());
     expect(screen.getByText('Network error')).toBeInTheDocument();
+  });
+
+  it('loads the runs again when the retry button is pressed', async () => {
+    const getRuns = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValue([passedRun]);
+    renderRunsPage(makeApi({ getRuns }));
+    const retry = await screen.findByRole('button', { name: 'Try loading runs again' });
+    // The page also polls and refetches on events, so the click is measured on its own:
+    // it must start a request then and there, not leave the next poll to do it.
+    const before = getRuns.mock.calls.length;
+    fireEvent.click(retry);
+    expect(getRuns).toHaveBeenCalledTimes(before + 1);
+    await waitFor(() => expect(screen.queryByTestId('runs-list-error')).not.toBeInTheDocument());
   });
 
   it('renders empty state without claiming a passing release', async () => {

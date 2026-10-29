@@ -105,7 +105,8 @@ export const pageGuidance = {
       'Review the evidence before deciding.',
       'Record the resolution and check the final state.',
     ],
-    remember: 'Pending entries still count. Approved and rejected decisions are final.',
+    remember:
+      'Pending entries still count. A rejection is final; an approved entry stays until it is released, by hand or after a clean streak.',
   },
   'test-history': {
     purpose: 'Follow the same test across its recorded runs.',
