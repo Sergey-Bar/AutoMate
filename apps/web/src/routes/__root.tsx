@@ -8,6 +8,7 @@ import { ToastProvider } from '../components/Toasts.js';
 import { Shortcuts } from '../components/Shortcuts.js';
 import { PreferencesProvider } from '../theme/preferences.js';
 import { createHealthClient } from '../lib/health-client.js';
+import { PageGuide } from '../components/PageGuide.js';
 
 export const Route = createRootRoute({
   /**
@@ -55,6 +56,7 @@ function RootComponent() {
                * no tab row was an empty first child of <main>.
                */}
               <SectionTabs />
+              <PageGuide pathname={pathname} />
               <div data-page className="flex min-h-0 flex-1 flex-col">
                 <SessionGate health={health} bypass={pathname === '/dashboard/pair'}>
                   <Outlet />

@@ -3,23 +3,43 @@ title: Guide
 description: Getting the stack up, sending results, and how the repository tests and maintains itself.
 ---
 
-# Guide
+# A clear path to your first answer.
 
-Read these in order the first time. Each page links the code it describes.
+Start with what you want to do. Each guided path explains what you need, where to begin
+and what you will learn.
 
-| Page                                                    | What it is for                                                                                    |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [Getting started](getting-started.md)                   | `pnpm install`, the API, the web console, and the database                                        |
-| [Core concepts](concepts.md)                            | Runs, attempts, results and evidence — and why a run is a chain rather than a green tick          |
-| [Sending results](sending-results.md)                   | Upload a Playwright, JUnit, k6 or ZAP report from any CI job                                      |
-| [Quality gates and quarantine](quality-gates.md)        | How a run is judged, and how a flaky test is set aside without being hidden                       |
-| [How this repository tests itself](testing-strategy.md) | The test layers, the gate chain, and the rules that keep a green suite honest                     |
-| [How this project is maintained](maintenance.md)        | The findings ledger, dependency policy, review passes and the cadence                             |
-| [The design language](design-language.md)               | The plane, the accent, the type, the motion, the escape hatches, and why `info` is not the accent |
+New to terms like **run**, **artifact** or **quality gate**? Open [Words explained](glossary.md)
+for short definitions with examples.
 
-::: info This section is the only place the palette is written down
-The product's own tokens are in `packages/ui/src/tokens/theme.css`, and every number on
-the design-language page has an assertion behind it. This section does not restate them
-authoritatively — it explains why they are the numbers they are, which is the part a
-table of hex values cannot carry.
-:::
+<StartHere />
+
+## Find a guide directly
+
+<div class="guide-hub">
+  <a class="guide-hub__card" href="install">
+    <span>01 / START</span>
+    <strong>Get Automate running <span aria-hidden="true">↗</span></strong>
+    <small>Install locally and open the console.</small>
+  </a>
+  <a class="guide-hub__card" href="sending-results">
+    <span>02 / CONNECT</span>
+    <strong>Send your first results <span aria-hidden="true">↗</span></strong>
+    <small>Upload a Playwright, JUnit, k6 or ZAP report.</small>
+  </a>
+  <a class="guide-hub__card" href="concepts">
+    <span>03 / UNDERSTAND</span>
+    <strong>Read a run <span aria-hidden="true">↗</span></strong>
+    <small>Understand attempts, outcomes and evidence.</small>
+  </a>
+  <a class="guide-hub__card" href="quality-gates">
+    <span>04 / DECIDE</span>
+    <strong>Set a quality gate <span aria-hidden="true">↗</span></strong>
+    <small>Make release decisions with explicit states.</small>
+  </a>
+</div>
+
+## Go deeper
+
+Building from source? Use the [developer quickstart](getting-started.md). You can also read
+[how the repository tests itself](testing-strategy.md), [how it is maintained](maintenance.md),
+and [the design language](design-language.md) shared by the product and this site.

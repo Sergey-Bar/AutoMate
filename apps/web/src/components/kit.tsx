@@ -58,7 +58,7 @@ export function PageHeader({
         <h1 className="text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{title}</h1>
         {subtitle === undefined ? null : (
           <div
-            className="mt-0.5 max-w-measure truncate text-sm text-fg-muted"
+            className="mt-0.5 max-w-measure text-sm leading-relaxed text-fg-muted"
             title={typeof subtitle === 'string' ? subtitle : undefined}
           >
             {subtitle}
