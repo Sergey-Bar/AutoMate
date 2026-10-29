@@ -7068,6 +7068,29 @@
       "resolution": "The regexes are replaced by index scans or escaped; the reads go through one handle (`readCheckedFile`, `readFileBounded`, the k6 summary read) so the size and type checks describe the bytes read; the spool is created with mode 0600. Twenty-two alerts are dismissed on GitHub with the reason recorded on each."
     },
     {
+      "id": "MNT-156",
+      "title": "A grouped Dependabot update could never pass the commit-message gate, and runner manifests drifted from their images",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "#119 (nginx 1.29 and ZAP 2.17 across two directories) failed `Commit message` on `body-max-line-length`: Dependabot writes one line per directory, 106 characters here, and has no setting to wrap it, so every grouped update across directories was blocked for good. Reading the same updates showed a second gap: `infra/runners/k6` and `infra/runners/zap` record the tool version both in the Dockerfile's FROM tag and in `manifest.json`, Dependabot bumps only the first, and nothing compared them, so #119 and #121 would have left the manifests at 2.16.1 and 0.57.0 over 2.17.0 and 2.3.0 images.",
+      "confirmedBy": "`commitlint --from <sha>~1 --to <sha>` on #119's commit failed with main's config and passes with this one; a 101-character body line in any other commit still fails. `runner-manifests.test.mjs` failed on both manifests with the two Dependabot bumps applied, before the manifests were updated.",
+      "evidence": [
+        {
+          "path": "scripts/lib/commitlint-config.test.mjs",
+          "asserts": "Dependabot's generated body is exempt from the body line limit only with its exact trailer; every other body keeps the 100-character limit."
+        },
+        {
+          "path": "scripts/lib/runner-manifests.test.mjs",
+          "asserts": "Each runner whose base image is its tool records the FROM tag as `toolVersion`, and every runner directory is classified."
+        }
+      ],
+      "resolution": "The built-in body rule is replaced by one that skips a body carrying Dependabot's exact sign-off trailer; header, type and `scope-enum` still apply to its commits. The k6 and ZAP bumps from #121 and #119 land here with their manifests updated, and the manifest test makes the next bump fail until its manifest follows."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
