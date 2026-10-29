@@ -38,3 +38,21 @@ updates:
     groups:
       actions-minor-and-patch:
         update-types: ['minor', 'patch']
+
+  # Base images are pinned by tag and digest (`scripts/lib/dockerfile-contract.test.mjs`), so
+  # a rebuilt image upstream reaches these Dockerfiles only through a pull request that moves
+  # both. Minor and patch together, majors on their own, as for npm.
+  - package-ecosystem: 'docker'
+    directories:
+      - '/infra/docker'
+      - '/infra/runners/k6'
+      - '/infra/runners/playwright'
+      - '/infra/runners/zap'
+    schedule:
+      interval: 'weekly'
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 3
+    groups:
+      docker-minor-and-patch:
+        update-types: ['minor', 'patch']
