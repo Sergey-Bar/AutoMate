@@ -20,7 +20,7 @@
     "test:contract": "turbo run test --filter=@automate/contract-tests",
     "test:runner": "turbo run test --filter=@automate/runner --filter=@automate/runner-sdk --filter=@automate/worker",
     "test:performance": "node ./scripts/performance-gate.mjs",
-    "test:integration": "node --test --test-concurrency=1 scripts/lib/*.test.mjs tests/e2e/support/ports-agree.test.mjs",
+    "test:integration": "node --test --test-concurrency=1 scripts/lib/*.test.mjs tests/e2e/support/ports-agree.test.mjs local/test/bounded-read.test.mjs",
     "oci:build": "node ./scripts/oci-build.mjs",
     "oci:verify": "node ./scripts/oci-verify.mjs",
     "typecheck": "pnpm typecheck:scripts && pnpm typecheck:e2e && turbo run typecheck",
