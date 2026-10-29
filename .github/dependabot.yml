@@ -56,3 +56,9 @@ updates:
     groups:
       docker-minor-and-patch:
         update-types: ['minor', 'patch']
+    # The runtime is Node 24 (`engines` in the root package.json, and the CI `NODE_VERSION`).
+    # A Node major in an image moves with those, by hand, never on its own: an image on 26
+    # beside tests on 24 ships code nobody ran on the runtime it ships with.
+    ignore:
+      - dependency-name: 'node'
+        update-types: ['version-update:semver-major']

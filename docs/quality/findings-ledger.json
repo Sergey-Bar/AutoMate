@@ -7033,15 +7033,19 @@
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
       "provenance": "hand",
-      "status": "debt",
+      "status": "fixed",
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
       "summary": "A webhook delivery carries no workspace credential, so it is read in the default workspace, and one for a repository registered in another workspace is answered `ignored`, `unknown-repository`. That workspace's scheduled delivery syncs still run, so its data arrives late rather than never.",
       "confirmedBy": "Independent review of PR #111 on 2026-10-28, and `apps/api/src/routes/github-webhook.test.ts`, which pins the behaviour in a second workspace.",
-      "owner": "The repository owner.",
-      "removalCondition": "Closed when a delivery is matched to its repository across every workspace, after its HMAC is verified, and queues a sync in the workspace that registered it, with a test that a repository registered outside the default workspace syncs on a push.",
-      "resolution": "Recorded as debt. The profiles guide says webhooks reach the default workspace only, and that the scheduled syncs still run."
+      "resolution": "The receiver is installation-wide, so `enabledSourcesForRepository(..., 'everywhere')` reads every workspace's enabled sources for the repository after the signature verifies, and each sync is queued in its source's own workspace. The installation-wide delivery syncer already ran every workspace's queue. The payload still decides only the repository, never the workspace.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/github-webhook.test.ts",
+          "asserts": "A delivery received by one workspace's composition for a repository registered in another queues the sync in the registering workspace, and the replay record stays the receiver's."
+        }
+      ]
     }
   ]
 }

@@ -219,11 +219,17 @@ describe('a verified delivery', () => {
     expect(await syncs(db)).toEqual([]);
   });
 
-  it('queues nothing for another workspace’s project of the same repository', async () => {
+  it('queues a sync in the workspace that registered the repository, whichever one received it (PRO-20)', async () => {
+    // A delivery carries no workspace credential, so the default workspace's composition
+    // receives every one. A repository registered in another workspace was answered
+    // `unknown-repository` and synced only on the schedule.
     const { app, db } = await harness({ workspaceId: 'ws-2' });
     const response = await deliver(app, 'push', PUSH);
-    expect(await response.json()).toMatchObject({ reason: 'unknown-repository' });
-    expect(await syncs(db)).toEqual([]);
+    expect(await response.json()).toMatchObject({ status: 'queued', queued: 1 });
+    expect((await db.select().from(schema.deliverySyncs)).map((row) => row.workspaceId)).toEqual([
+      'ws-1',
+    ]);
+    // The replay record is the receiver's: one delivery, kept once.
     const recorded = await db.select().from(schema.webhookDeliveries);
     expect(recorded.map((row) => row.workspaceId)).toEqual(['ws-2']);
   });
