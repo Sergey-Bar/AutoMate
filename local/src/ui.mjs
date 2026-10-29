@@ -201,12 +201,24 @@ export function dashboardPage(dash) {
 
   const noReports = kpis.testsFound.value === null && kpis.coverageByType.value === null;
   const empty = noReports
-    ? `<div class="card"><h2>No test results found</h2><p>${
+    ? `<div class="card" id="no-results"><h2>No test results found</h2><p>${
         kpis.reportsFound.found === 0
           ? 'No report files were found in this folder.'
           : 'Report files were found, but none could be read; see the list below.'
-      } Nothing is shown as zero because nothing was measured.</p></div>`
+      } Nothing is shown as zero because nothing was measured.</p><p>Next: run your tests so they write a report into this folder, then <a href="#rescan">rescan</a>. Nothing is run for you.</p></div>`
     : '';
+
+  // A report with no tests is a result (K-01), and a total of 0 alone does not say so.
+  const emptyReports = kpis.testsFound.emptyReports ?? 0;
+  const zeroTests =
+    emptyReports > 0
+      ? `<p><strong>${String(emptyReports)} report${
+          emptyReports === 1 ? ' contains' : 's contain'
+        } no tests.</strong> ${
+          emptyReports === 1 ? 'It is' : 'They are'
+        } counted as read, with nothing to pass or fail.</p>`
+      : '';
+  const behind = '<p><a href="#all-reports">The reports behind these figures</a></p>';
 
   const outcomes = kpis.testsByOutcome.value
     ? `<table><caption>Tests by outcome (K-02)</caption><thead><tr><th scope="col">Outcome</th><th scope="col" class="num">Tests</th></tr></thead><tbody>${Object.entries(
@@ -308,7 +320,7 @@ export function dashboardPage(dash) {
     }</p>
 ${banners.join('')}${empty}
 <div class="grid">
-<section class="card" aria-labelledby="h-tests"><h2 id="h-tests">Results</h2>${outcomes}
+<section class="card" aria-labelledby="h-tests"><h2 id="h-tests">Results</h2>${outcomes}${zeroTests}
 <table><caption>Rates (K-03, K-04, K-05, K-06, K-07)</caption><tbody>${rateCell(
       kpis.firstPassRate,
       'First-pass rate',
@@ -316,8 +328,8 @@ ${banners.join('')}${empty}
       kpis.retryRecoveredRate,
       'Retry-recovered rate',
     )}${durations}</tbody></table>
-<p class="muted">A pass rate is not a quality score. A retry-recovered rate counts only retries a report records; it is not a flakiness measure.</p></section>
-<section class="card" aria-labelledby="h-cov"><h2 id="h-cov">Coverage</h2>${coverage}</section>
+<p class="muted">A pass rate is not a quality score. A retry-recovered rate counts only retries a report records; it is not a flakiness measure.</p>${behind}</section>
+<section class="card" aria-labelledby="h-cov"><h2 id="h-cov">Coverage</h2>${coverage}${behind}</section>
 <section class="card" aria-labelledby="h-rep"><h2 id="h-rep">Reports</h2>
 <p>Found ${String(kpis.reportsFound.found)}; read ${String(
       kpis.reportsFound.read,
@@ -331,12 +343,12 @@ ${banners.join('')}${empty}
 <section class="card" aria-labelledby="h-tools"><h2 id="h-tools">Test tools detected (K-12)</h2>${tools}</section>
 </div>
 <h2>Disagreements</h2>${disagreements}
-<h2>All reports</h2>${
+<h2 id="all-reports">All reports</h2>${
       reports
         ? `<table><caption>Reports read, with completeness</caption><thead><tr><th scope="col">Report</th><th scope="col">Format</th><th scope="col">Result</th><th scope="col">Completeness</th><th scope="col">File age</th></tr></thead><tbody>${reports}</tbody></table>`
         : '<p>None.</p>'
     }
-<form method="post" action="/ui/repositories"><input type="hidden" name="path" value="${esc(
+<form id="rescan" method="post" action="/ui/repositories"><input type="hidden" name="path" value="${esc(
       repository.root_path,
     )}"><button type="submit">Rescan</button></form>
 <h2>Import a CI artifact archive</h2>

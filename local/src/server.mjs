@@ -29,6 +29,18 @@ import {
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
+/**
+ * What the folder form says for each reason `scanRepository` refuses a folder. Every reason
+ * it can return has a sentence here; `server.test.mjs` holds the two lists together.
+ *
+ * @type {Record<string, string>}
+ */
+export const FOLDER_REFUSALS = {
+  'not-a-directory': 'That path is not a folder.',
+  'filesystem-root': 'A whole drive or filesystem root is not accepted; choose a project folder.',
+  unreadable: 'That folder cannot be read by your account, so nothing was scanned.',
+};
+
 const sha256Source = (text) => `'sha256-${createHash('sha256').update(text).digest('base64')}'`;
 
 /** The policy for pages: one inline stylesheet and, on the bootstrap page only, one script. */
@@ -343,14 +355,10 @@ export async function startServer(options) {
       const target = form.get('path') ?? '';
       const result = await engine.scan(target);
       if (result.status === 'failed') {
-        const messages = {
-          'not-a-directory': 'That path is not a folder that can be read.',
-          'filesystem-root': 'A filesystem root is not accepted.',
-        };
         ctx.html(
           400,
           onboardingPage({
-            message: messages[result.reason] ?? 'That folder could not be scanned.',
+            message: FOLDER_REFUSALS[result.reason] ?? 'That folder could not be scanned.',
           }),
         );
         return true;
@@ -374,6 +382,8 @@ export async function startServer(options) {
 
   return {
     host,
+    /** The address the socket is actually bound to, as the operating system reports it. */
+    boundAddress: address.address,
     port: address.port,
     token,
     url: `http://${host}:${String(address.port)}`,

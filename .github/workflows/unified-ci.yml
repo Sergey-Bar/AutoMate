@@ -588,6 +588,10 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
       - name: Full current E2E
         run: pnpm test:e2e
+      # AUTOMATE (local)'s R-020 in the same Chromium: axe in both colour schemes and
+      # keyboard reach on its MVP-0 pages. It starts its own launcher and needs no database.
+      - name: Local product accessibility
+        run: pnpm test:local:browser
       - name: Upload E2E evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

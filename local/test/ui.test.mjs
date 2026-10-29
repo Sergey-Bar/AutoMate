@@ -118,6 +118,44 @@ test('dashboard, empty: no reports shows what was found and no zero-filled metri
   assert.match(html, /jest/);
 });
 
+test('dashboard, empty: the card offers one safe next action, and the rescan it names is on the page', async () => {
+  const { html } = await render({ 'package.json': '{}' });
+  const card = /<div class="card" id="no-results">([\s\S]*?)<\/div>/.exec(html)?.[1] ?? '';
+  assert.match(card, /Next: run your tests so they write a report into this folder, then/);
+  assert.match(card, /<a href="#rescan">rescan<\/a>/);
+  assert.match(html, /<form id="rescan" method="post" action="\/ui\/repositories">/);
+});
+
+test('dashboard, zero tests: a report with no tests is said so, not hidden behind a total of 0', async () => {
+  const { html, dash } = await render({ 'reports/zero.xml': fixture('junit-zero-tests.xml') });
+  assertWellFormedPage(html, 'dashboard (zero tests)');
+  assert.equal(dash.kpis.testsFound.value, 0);
+  assert.match(html, /1 report contains no tests\./);
+  const mixed = await render({
+    'reports/a.xml': fixture('junit-basic.xml'),
+    'reports/b.xml': fixture('junit-zero-tests.xml'),
+    // A second zero-test report with different bytes, so it is not counted as a copy.
+    'reports/c.xml': `${fixture('junit-zero-tests.xml').toString()}<!-- another run -->\n`,
+  });
+  assert.match(mixed.html, /2 reports contain no tests\./);
+  const none = await render({ 'reports/a.xml': fixture('junit-basic.xml') });
+  assert.doesNotMatch(none.html, /contains? no tests/);
+});
+
+test('dashboard, drill-down: the figures point at the reports behind them, and each report is linked', async () => {
+  const { html, dash } = await render({
+    'reports/junit.xml': fixture('junit-basic.xml'),
+    'coverage/lcov.info': fixture('node-lcov.info'),
+  });
+  assert.match(html, /<h2 id="all-reports">All reports<\/h2>/);
+  for (const section of ['h-tests', 'h-cov']) {
+    const body =
+      new RegExp(`aria-labelledby="${section}">([\\s\\S]*?)</section>`).exec(html)?.[1] ?? '';
+    assert.match(body, /<a href="#all-reports">/, `${section} links to the reports behind it`);
+  }
+  for (const item of dash.items) assert.ok(html.includes(`href="/reports/${item.sha256}"`));
+});
+
 test('dashboard, partial: a limit hit is announced and the figures say they cover only what was read', async () => {
   const files = { 'reports/junit.xml': fixture('junit-basic.xml') };
   for (let i = 0; i < 20; i += 1) files[`filler/f${String(i)}.txt`] = 'x';

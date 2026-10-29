@@ -7152,6 +7152,37 @@
       "resolution": "Check 8 reads every stylesheet under `site/.vitepress/theme/`, and `lupin.css` is the one named exception (`SITE_PALETTE_EXCEPTION`), printed in the check's note and recorded in `site/.vitepress/DESIGN-SYSTEM.md`. The design-language page and the AGENTS.md design-system table now describe the site's palette and its Geist fonts as that exception, and the console keeps its accent with no hue and its fonts in one place."
     },
     {
+      "id": "MNT-160",
+      "title": "AUTOMATE (local) MVP-0: an unreadable folder scanned as empty, a zero-test report was not shown, and the offline criterion had no test",
+      "band": "Major",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "Read against the PRD's MVP-0 exit criteria and requirements. A folder the user could not list (R-002) was not refused: `scanRepository` checked only that the path was a directory, so it scanned as `complete` with nothing found, a claim about a folder nobody could read. The dashboard never rendered `testsFound.emptyReports`, so a report with zero tests showed as a total of 0 (exit criterion 5). The offline criterion (exit criterion 7, R-015) rested on regexes over a subset of source files; nothing ran the launcher with the network refused. Only `bounded-read.test.mjs` of the 22 local test files ran in CI, the browser half of R-020 had never run, the empty dashboard offered no next action (R-014), and no figure linked to the reports behind it (R-011).",
+      "confirmedBy": "Each new test was run on the old code first. The unreadable-folder test returned `complete` instead of `failed`; the end-to-end offline test reached the served dashboard and failed on the missing zero-test sentence; the three dashboard tests failed. The browser tests were checked by breaking them: a low-contrast muted colour failed axe in the scheme it was changed in, a removed focus outline failed the keyboard test, and a removed skip link failed the skip-link test.",
+      "evidence": [
+        {
+          "path": "local/test/offline.test.mjs",
+          "asserts": "The real launcher under a guard that refuses and records any non-loopback TCP, DNS or UDP use scans a folder through the form, shows the dashboard, serves every report and its original bytes, records nothing, and leaves the folder unchanged; the guard is shown to catch a connection, a lookup and a fetch."
+        },
+        {
+          "path": "local/test/detect.test.mjs",
+          "asserts": "An unlistable folder is refused as `unreadable`; read-only files are left as they were; every piece of evidence is a path:line naming a real line."
+        },
+        {
+          "path": "local/test/ui.test.mjs",
+          "asserts": "A zero-test report is said so on the dashboard; the empty dashboard offers one next action; the figures link to the reports behind them."
+        },
+        {
+          "path": "local/test/server.test.mjs",
+          "asserts": "Every refusal reason the scanner returns has its own sentence on the folder form, and the socket itself is bound to loopback."
+        }
+      ],
+      "resolution": "The scanner refuses an unlistable folder with `unreadable`, and the folder form has a sentence for every refusal. The dashboard says how many reports contain no tests, names the next step when nothing was found, and links each figure to the reports behind it. `offline-guard.mjs` and `offline.test.mjs` prove the offline criterion end to end. Every `local/test/*.test.mjs` runs in `pnpm test:integration`, so `verify` and CI run them, and `pnpm test:local:browser` runs axe in both colour schemes and keyboard reach in Chromium in the Product E2E job. `docs/local/implementation-status.md` maps each exit criterion to its test. Not done: a typecheck of `local/`, and Phase 0 user validation, which the roadmap's Phase 1 exit also requires."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
