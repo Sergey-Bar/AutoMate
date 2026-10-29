@@ -7091,6 +7091,25 @@
       "resolution": "The built-in body rule is replaced by one that skips a body carrying Dependabot's exact sign-off trailer; header, type and `scope-enum` still apply to its commits. The k6 and ZAP bumps from #121 and #119 land here with their manifests updated, and the manifest test makes the next bump fail until its manifest follows."
     },
     {
+      "id": "MNT-157",
+      "title": "The ZAP runner image could not start as the user it is built to run as",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "`infra/runners/zap` switches to uid 65532, which the upstream image has no passwd entry for. Java's `user.home` was therefore `?`, and `zap.sh -version` exited 1 with `Unable to create home directory: /zap/?/.ZAP/`, on 2.16.1 and on 2.17.0 alike. With a home but no Firefox profile, ZAP's client add-on waited for ever on `firefox -CreateProfile` (a thread dump showed `FirefoxProfileManager.getOrCreateProfile` in `ProcessImpl.waitFor`). Under the manifest's read-only root it also could not write its state. Nothing ran the image: `oci:build` builds and `oci:verify` inspects, so the defect was invisible to every gate.",
+      "confirmedBy": "Built and run with Docker on 2026-10-29: the image from main exited 1 with the home-directory error; the stock image as its own `zap` user printed 2.17.0 in 15 s. After the fix the image prints 2.17.0 and exits 0, including with `--read-only --network none --cap-drop ALL --tmpfs /tmp`. `pnpm oci:build` and `pnpm oci:verify` pass for all three runners, and k6 reports v2.3.0 under the same flags.",
+      "evidence": [
+        {
+          "path": "scripts/lib/runner-manifests.test.mjs",
+          "asserts": "The ZAP runner user has a passwd entry, a home inside the chowned tree with the bundled Firefox profile, and ZAP's state directory on /tmp under a read-only root."
+        }
+      ],
+      "resolution": "The Dockerfile adds a passwd entry for 65532 with home `/automation/home`, copies the upstream Firefox profile there, and points ZAP's state at `/tmp/zap` with `-dir`, so a read-only root needs only a `/tmp` tmpfs. The test reads the Dockerfile; it failed before the change. No CI job runs the runner images, so a regression in ZAP's startup itself would still be seen only by running one."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
