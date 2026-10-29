@@ -201,6 +201,27 @@ test('reports are found in build output only where a report location is named', 
   }
 });
 
+test('Istanbul JSON beside lcov is not mistaken for a broken report', async () => {
+  // Jest and Vitest write coverage-summary.json and coverage-final.json next to lcov.info.
+  // They were read as Playwright reports and rejected, so an ordinary project's dashboard
+  // said two of its reports were not complete.
+  const repo = repository({
+    'coverage/lcov.info': 'TN:\nSF:a.js\nDA:1,1\nend_of_record\n',
+    'coverage/coverage-summary.json': '{"total":{"lines":{"total":1,"covered":1,"pct":100}}}',
+    'coverage/coverage-final.json': '{"/abs/a.js":{"path":"/abs/a.js","s":{}}}',
+    'packages/a/coverage/coverage-final.json': '{}',
+  });
+  try {
+    const { reports } = await scanRepository(repo.root);
+    assert.deepEqual(
+      reports.map((r) => r.relativePath),
+      ['coverage/lcov.info'],
+    );
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('a link back to a parent directory does not make the scan loop', async () => {
   const repo = repository({ 'a/package.json': JSON.stringify({ devDependencies: { jest: '1' } }) });
   try {

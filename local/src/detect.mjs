@@ -577,6 +577,13 @@ async function detectGo(view, project, dir, file, paths) {
 // ── Report discovery ────────────────────────────────────────────────────────────────────
 
 /**
+ * Coverage files written beside lcov in formats this product does not read (Istanbul's
+ * JSON). Matched by name inside report areas, they were sniffed as broken Playwright
+ * reports and every Jest or Vitest project showed two incomplete reports.
+ */
+const NOT_REPORTS = new Set(['coverage-summary.json', 'coverage-final.json']);
+
+/**
  * Whether a path looks like it could be a report worth sniffing.
  *
  * @param {string} relativePath
@@ -585,6 +592,7 @@ export function isReportShaped(relativePath) {
   const ext = path.extname(relativePath).toLowerCase();
   if (!REPORT_EXTENSIONS.has(ext)) return false;
   const segments = relativePath.split('/');
+  if (NOT_REPORTS.has(segments.at(-1) ?? '')) return false;
   if (segments.some((segment) => REPORT_AREAS.has(segment))) return true;
   return /(junit|test-?results?|report|lcov|coverage|cobertura|results)/i.test(
     segments.at(-1) ?? '',
