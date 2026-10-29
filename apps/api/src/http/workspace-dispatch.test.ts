@@ -60,6 +60,21 @@ describe('the request’s workspace', () => {
     expect(await resolve({ authorization: 'Bearer amt_unknown' })).toBe(DEFAULT);
   });
 
+  it('reads the browser token cookie only where it signs anyone in (PRO-19)', async () => {
+    // Under enforced single sign-on a token cookie authenticates nobody, so it must not steer
+    // either: the person beside it is routed by their own memberships. A bearer still decides.
+    const sso = {
+      browserCredentials: false,
+      sessionUser: vi.fn(async () => 'u-1'),
+      memberships: vi.fn(async () => [DEFAULT]),
+    };
+    expect(await resolve({ cookie: 'automate_token=amt_b' }, sso)).toBe(DEFAULT);
+    expect(await resolve({ authorization: 'Bearer amt_b' }, sso)).toBe('ws-b');
+    expect(
+      await resolve({ cookie: 'automate_token=amt_b' }, { ...sso, browserCredentials: true }),
+    ).toBe('ws-b');
+  });
+
   it('passes over a token nobody holds any more to the person who also signed in', async () => {
     // A browser still carrying the sign-in cookie of a revoked token, beside a person's session:
     // the caller resolver passes over the token to the person, and so does the workspace.

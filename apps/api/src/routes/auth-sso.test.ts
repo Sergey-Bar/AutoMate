@@ -5,7 +5,7 @@ import {
   syntheticCookieSecret,
   syntheticInstallationKey,
 } from '../test-support/synthetic-credentials.js';
-import { createAuthRoutes } from './auth.js';
+import { createAuthRoutes, memoryBackend } from './auth.js';
 
 /**
  * Enforced single sign-on (ADR-014, enterprise): a browser signs in through the identity
@@ -65,5 +65,32 @@ describe('the installation key under enforced single sign-on', () => {
     const { app: target, onBreakGlass } = app({ enforced: false, breakGlass: false });
     expect((await login(target)).status).toBe(200);
     expect(onBreakGlass).not.toHaveBeenCalled();
+  });
+
+  it('does not report an installation session that no longer counts (PRO-19)', async () => {
+    // A browser that signed in with the key before SSO was enforced, or under a break-glass
+    // since switched off, still holds the cookie. `callerOf` ignores it, so the session route
+    // must not tell the web app it is signed in.
+    const backend = memoryBackend(COOKIE_SECRET, 60_000);
+    const routes = (sso: { enforced: boolean; breakGlass: boolean }) =>
+      withErrorBoundary(
+        createAuthRoutes({
+          cookieSecret: COOKIE_SECRET,
+          installationId: '00000000-0000-4000-8000-000000000001',
+          installationKeyHash: hashCredential(COOKIE_SECRET, KEY),
+          sessionTtlMs: 60_000,
+          secureCookies: false,
+          sessionBackend: backend,
+          sso: { ...sso, onBreakGlass: vi.fn() },
+        }),
+      );
+    const signedIn = await login(routes({ enforced: true, breakGlass: true }));
+    const cookie = (signedIn.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const session = (target: ReturnType<typeof routes>) =>
+      target.request('/api/v1/auth/session', { headers: { cookie } });
+    expect((await session(routes({ enforced: true, breakGlass: true }))).status).toBe(200);
+    expect((await session(routes({ enforced: false, breakGlass: false }))).status).toBe(200);
+    const refused = await session(routes({ enforced: true, breakGlass: false }));
+    expect(refused.status).toBe(401);
   });
 });
