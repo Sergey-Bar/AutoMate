@@ -7183,6 +7183,25 @@
       "resolution": "The scanner refuses an unlistable folder with `unreadable`, and the folder form has a sentence for every refusal. The dashboard says how many reports contain no tests, names the next step when nothing was found, and links each figure to the reports behind it. `offline-guard.mjs` and `offline.test.mjs` prove the offline criterion end to end. Every `local/test/*.test.mjs` runs in `pnpm test:integration`, so `verify` and CI run them, and `pnpm test:local:browser` runs axe in both colour schemes and keyboard reach in Chromium in the Product E2E job. `docs/local/implementation-status.md` maps each exit criterion to its test. Not done: a typecheck of `local/`, and Phase 0 user validation, which the roadmap's Phase 1 exit also requires."
     },
     {
+      "id": "MNT-161",
+      "title": "AUTOMATE (local) showed every Jest or Vitest project as having two incomplete reports",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-30",
+      "summary": "Found by scanning a folder laid out the way Jest and Vitest write coverage: `coverage/lcov.info` beside `coverage-summary.json` and `coverage-final.json`. The two Istanbul JSON files sit in a report area, so they were ingested, read as Playwright JSON, rejected as `not-playwright`, and the dashboard said '2 reports are not complete' on an ordinary project.",
+      "confirmedBy": "The scan of that folder reported found 4, read 2, rejected 2 and the banner; after the change, found 2, read 2, rejected 0 and no banner. The new detect test failed before the change.",
+      "evidence": [
+        {
+          "path": "local/test/detect.test.mjs",
+          "asserts": "Istanbul's coverage-summary.json and coverage-final.json beside lcov are not offered as reports, in the root and in a package."
+        }
+      ],
+      "resolution": "The scanner does not offer those two file names as reports. Any other report-shaped file that is not a report is still listed as rejected with its reason (R-013)."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
