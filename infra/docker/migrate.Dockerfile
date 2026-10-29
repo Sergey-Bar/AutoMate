@@ -1,4 +1,4 @@
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS build
 WORKDIR /src
 # Corepack reads `packageManager` from package.json, so the image uses the repository's pnpm.
 RUN corepack enable
@@ -13,7 +13,7 @@ RUN pnpm install --frozen-lockfile \
 # One migration image for both stacks. `db-migrate.Dockerfile` was this file with
 # `NODE_ENV=production` added, so the dev and production stacks applied migrations from two
 # images that could drift; `NODE_ENV` changes nothing the runner reads.
-FROM node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
+FROM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS runtime
 ARG AUTOMATE_VERSION=dev
 ARG AUTOMATE_REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/Sergey-Bar/AutoMate" \
