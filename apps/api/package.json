@@ -37,7 +37,7 @@
     "croner": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "^4.0.6",
-    "hono": "^4.13.13",
+    "hono": "^4.13.14",
     "openid-client": "catalog:",
     "zod": "catalog:"
   },
