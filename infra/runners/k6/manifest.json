@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "k6",
-  "toolVersion": "0.57.0",
+  "toolVersion": "2.3.0",
   "imageDigest": null,
   "buildStatus": "unbuilt",
   "user": 65532,
