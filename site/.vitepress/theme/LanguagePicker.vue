@@ -6,6 +6,9 @@ const { lang, page } = useData();
 const dialog = ref<HTMLDialogElement | null>(null);
 const current = computed(() => translations.find((item) => item.lang === lang.value));
 const hebrew = computed(() => lang.value === 'he');
+// The dialog's own labels exist in English and Hebrew; elsewhere they are marked English
+// so a screen reader does not read them with another language's voice.
+const labelLang = computed(() => (hebrew.value ? undefined : 'en'));
 watch(
   () => page.value.relativePath,
   () => dialog.value?.close(),
@@ -15,6 +18,7 @@ watch(
   <button
     class="language-trigger"
     type="button"
+    :lang="labelLang"
     :aria-label="hebrew ? 'בחירת שפה' : 'Select language'"
     :title="hebrew ? 'בחירת שפה' : 'Select language'"
     aria-haspopup="dialog"
@@ -40,24 +44,27 @@ watch(
   >
     <div class="language-dialog__header">
       <div>
-        <h2 id="language-title">{{ hebrew ? 'בחרו את השפה שלכם' : 'Choose your language' }}</h2>
+        <h2 id="language-title" :lang="labelLang">
+          {{ hebrew ? 'בחרו את השפה שלכם' : 'Choose your language' }}
+        </h2>
       </div>
       <button
         type="button"
         class="language-close"
+        :lang="labelLang"
         :aria-label="hebrew ? 'סגירה' : 'Close language menu'"
         @click="dialog?.close()"
       >
         ×
       </button>
     </div>
-    <nav class="language-grid" :aria-label="hebrew ? 'שפות' : 'Languages'">
+    <nav class="language-grid" :lang="labelLang" :aria-label="hebrew ? 'שפות' : 'Languages'">
       <a
         v-for="item in translations"
         :key="item.code"
         :lang="item.lang"
         :href="withBase(item.code === 'en' ? '/' : `/${item.code}/`)"
-        :aria-current="item.lang === lang ? 'page' : undefined"
+        :aria-current="item.lang === lang ? 'true' : undefined"
         @click="dialog?.close()"
       >
         <bdi>{{ item.label }}</bdi

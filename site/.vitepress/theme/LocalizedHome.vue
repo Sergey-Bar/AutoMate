@@ -22,7 +22,7 @@ const copy = computed(
       >
     </div>
     <p class="localized-home__note">{{ copy.note }}</p>
-    <figure>
+    <figure lang="en" dir="ltr">
       <img
         :src="preview"
         alt="Current AutoMate interface showing test runs, outcomes, and release-readiness signals"

@@ -122,28 +122,30 @@ const path = computed(() => paths[selected.value]);
         {{ item.role }}
       </button>
     </div>
-    <div :key="selected" class="start-here__path" aria-live="polite">
-      <div class="start-here__intro">
-        <span>{{ path.label }}</span>
-        <h3>{{ path.title }}</h3>
-        <p>{{ path.intro }}</p>
-        <div class="start-here__outcome">
-          <span>BY THE END</span>
-          <p>{{ path.outcome }}</p>
+    <div aria-live="polite">
+      <div :key="selected" class="start-here__path">
+        <div class="start-here__intro">
+          <span>{{ path.label }}</span>
+          <h3>{{ path.title }}</h3>
+          <p>{{ path.intro }}</p>
+          <div class="start-here__outcome">
+            <span>BY THE END</span>
+            <p>{{ path.outcome }}</p>
+          </div>
         </div>
+        <ol class="start-here__steps">
+          <li v-for="(step, index) in path.steps" :key="step.title">
+            <a :href="withBase(step.link)"
+              ><span class="start-here__number">0{{ index + 1 }}</span>
+              <div>
+                <strong>{{ step.title }}</strong>
+                <p>{{ step.detail }}</p>
+              </div>
+              <span aria-hidden="true">↗</span></a
+            >
+          </li>
+        </ol>
       </div>
-      <ol class="start-here__steps">
-        <li v-for="(step, index) in path.steps" :key="step.title">
-          <a :href="withBase(step.link)"
-            ><span class="start-here__number">0{{ index + 1 }}</span>
-            <div>
-              <strong>{{ step.title }}</strong>
-              <p>{{ step.detail }}</p>
-            </div>
-            <span aria-hidden="true">↗</span></a
-          >
-        </li>
-      </ol>
     </div>
   </section>
 </template>

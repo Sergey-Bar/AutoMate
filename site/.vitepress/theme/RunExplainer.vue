@@ -54,31 +54,33 @@ const scenario = computed(() => scenarios[selected.value]);
         {{ item.label }}
       </button>
     </div>
-    <div :key="selected" class="run-lab__canvas" aria-live="polite">
-      <div class="run-lab__timeline">
-        <template v-for="(attempt, index) in scenario.attempts" :key="index">
-          <span v-if="index > 0" class="run-lab__arrow" aria-hidden="true">→</span>
-          <div
-            class="run-lab__attempt"
-            :class="
-              attempt === 'Passed'
-                ? 'tone-pass'
-                : attempt === 'Failed'
-                  ? 'tone-fail'
-                  : 'tone-unknown'
-            "
-          >
-            <span class="run-lab__symbol" aria-hidden="true">{{
-              attempt === 'Passed' ? '✓' : attempt === 'Failed' ? '×' : '?'
-            }}</span>
-            <small>ATTEMPT {{ index + 1 }}</small
-            ><strong>{{ attempt }}</strong>
-          </div>
-        </template>
-      </div>
-      <div class="run-lab__verdict" :class="`tone-${scenario.tone}`">
-        <small>REPORTED TEST STATUS</small><strong>{{ scenario.outcome }}</strong>
-        <p>{{ scenario.explanation }}</p>
+    <div aria-live="polite">
+      <div :key="selected" class="run-lab__canvas">
+        <div class="run-lab__timeline">
+          <template v-for="(attempt, index) in scenario.attempts" :key="index">
+            <span v-if="index > 0" class="run-lab__arrow" aria-hidden="true">→</span>
+            <div
+              class="run-lab__attempt"
+              :class="
+                attempt === 'Passed'
+                  ? 'tone-pass'
+                  : attempt === 'Failed'
+                    ? 'tone-fail'
+                    : 'tone-unknown'
+              "
+            >
+              <span class="run-lab__symbol" aria-hidden="true">{{
+                attempt === 'Passed' ? '✓' : attempt === 'Failed' ? '×' : '?'
+              }}</span>
+              <small>ATTEMPT {{ index + 1 }}</small
+              ><strong>{{ attempt }}</strong>
+            </div>
+          </template>
+        </div>
+        <div class="run-lab__verdict" :class="`tone-${scenario.tone}`">
+          <small>REPORTED TEST STATUS</small><strong>{{ scenario.outcome }}</strong>
+          <p>{{ scenario.explanation }}</p>
+        </div>
       </div>
     </div>
     <p class="run-lab__note">

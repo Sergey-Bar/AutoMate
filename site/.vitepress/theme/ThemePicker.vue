@@ -25,6 +25,7 @@ const label = computed(() => {
     data-testid="site-theme-toggle"
     :aria-label="label"
     :title="label"
+    :lang="lang === 'he' ? undefined : 'en'"
     @click="emit('update:modelValue', next)"
   >
     <svg
