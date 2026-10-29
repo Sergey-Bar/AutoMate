@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "name": "zap",
-  "toolVersion": "2.16.1",
+  "toolVersion": "2.17.0",
   "imageDigest": null,
   "buildStatus": "unbuilt",
   "user": 65532,
