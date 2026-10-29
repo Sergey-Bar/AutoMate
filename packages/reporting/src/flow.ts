@@ -235,13 +235,23 @@ const escapeRegExp = (character: string) => character.replace(/[.+^${}()|[\]\\]/
 export function codeownersMatches(pattern: string, path: string): boolean {
   const trimmed = pattern.trim();
   if (trimmed === '' || trimmed.startsWith('#')) return false;
-  const anchored = trimmed.startsWith('/') || trimmed.replace(/\/+$/u, '').includes('/');
+  const anchored = trimmed.startsWith('/') || trimTrailingSlashes(trimmed).includes('/');
   const directoryOnly = trimmed.endsWith('/');
-  const body = trimmed.replace(/^\/+/u, '').replace(/\/+$/u, '');
+  const body = trimTrailingSlashes(trimmed.replace(/^\/+/u, ''));
   if (body === '') return false;
   const prefix = anchored ? '' : '(?:.*/)?';
   const suffix = directoryOnly ? '/.*' : '(?:/.*)?';
   return new RegExp(`^${prefix}${globSource(body)}${suffix}$`, 'u').test(path);
+}
+
+/**
+ * `value` without its trailing `/`s. A loop rather than `/\/+$/`, which retries from every
+ * slash of a run that is not at the end, so its cost grows with the square of the run.
+ */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 /** The single-segment wildcards; `**` is handled before these are consulted. */

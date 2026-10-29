@@ -176,6 +176,16 @@ describe('jacoco, which Java writes as XML', () => {
     const withoutLine = JACOCO.replace(/<counter type="LINE"[^/]*\/>/u, '');
     expect(parseCoverage('jacoco-xml', ENC(withoutLine)).coveredFraction).toBeNull();
   });
+
+  it('finds the LINE counter whatever its attribute order, and among other counters', () => {
+    const reordered = JACOCO.replace(
+      '<counter type="LINE" missed="4" covered="6"/>',
+      '<counter missed="4" covered="6" type="LINE" />',
+    );
+    expect(parseCoverage('jacoco-xml', ENC(reordered)).files).toEqual([
+      { path: 'com/example/Service.java', coveredLines: 6, totalLines: 10 },
+    ]);
+  });
 });
 
 describe('go, which writes a profile format that is neither', () => {

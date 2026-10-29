@@ -390,3 +390,11 @@ describe('flowScorecard', () => {
     expect(card.metrics.every((metric) => metric.value === null)).toBe(true);
   });
 });
+
+describe('codeownersMatches, trailing slashes', () => {
+  it('reads any number of trailing slashes as one directory marker', () => {
+    expect(codeownersMatches('/src//', 'src/a.ts')).toBe(true);
+    expect(codeownersMatches('docs///', 'docs/a.md')).toBe(true);
+    expect(codeownersMatches('docs///', 'docs')).toBe(false);
+  });
+});

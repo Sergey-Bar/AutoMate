@@ -168,6 +168,22 @@ describe('the tenant comes from the caller, not from the source', () => {
 
     expect(calls[0]?.url).toBe('https://acme.atlassian.net/rest/api/3/myself');
   });
+
+  it('trims trailing slashes in linear time, whatever precedes them (CodeQL js/polynomial-redos)', async () => {
+    // `/\/+$/` retries from every slash of a run that is not at the end, so a long run
+    // followed by anything else took seconds.
+    const calls = stubFetchSequence([{ ok: true, status: 200, body: {} }]);
+    const started = performance.now();
+    await jiraAdapter.execute(
+      {
+        operation: 'authTest',
+        input: { baseUrl: `https://acme.atlassian.net/${'/'.repeat(200_000)}x/` },
+      },
+      'token',
+    );
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(calls[0]?.url.endsWith('/x/rest/api/3/myself')).toBe(true);
+  });
 });
 
 describe('operation dispatch', () => {

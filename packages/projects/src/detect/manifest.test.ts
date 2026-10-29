@@ -202,3 +202,14 @@ describe('stringArrayField', () => {
     expect(stringArrayField(null, 'k')).toEqual([]);
   });
 });
+
+describe('TOML names are matched literally (CodeQL js/incomplete-sanitization)', () => {
+  it('reads a header or key that holds regular-expression characters as itself', () => {
+    // Only `.`, `[` and `]` were escaped, so a `+` or a `\` changed the pattern.
+    const text = '[tool.c++]\nflags = ["a"]\n[tool.c\\d]\nflags = ["b"]\n[other]\nk+ = ["c"]\n';
+    expect(tomlStringArray(tomlSection(text, 'tool.c++'), 'flags')).toEqual(['a']);
+    expect(tomlStringArray(tomlSection(text, 'tool.c\\d'), 'flags')).toEqual(['b']);
+    expect(tomlSection(text, 'tool.c+')).toBe('');
+    expect(tomlStringArray(tomlSection(text, 'other'), 'k+')).toEqual(['c']);
+  });
+});

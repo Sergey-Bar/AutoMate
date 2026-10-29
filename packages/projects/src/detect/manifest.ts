@@ -64,8 +64,13 @@ export function allEvidenceFor(
  * `pyproject.toml`, and a real parser would be a second implementation of a
  * specification nobody in this repository needs the rest of.
  */
+/** `value` as a literal inside a regular expression: every metacharacter, the backslash too. */
+function escapeRegExp(value: string): string {
+  return value.replaceAll(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
 export function tomlSection(text: string, header: string): string {
-  const pattern = new RegExp(`^\\s*\\[${header.replaceAll(/[.[\]]/g, '\\$&')}\\]\\s*$`, 'm');
+  const pattern = new RegExp(`^\\s*\\[${escapeRegExp(header)}\\]\\s*$`, 'm');
   const start = pattern.exec(text);
   if (!start) return '';
   const rest = text.slice(start.index + start[0].length);
@@ -83,9 +88,7 @@ const ARRAY_BODY = String.raw`(?:"[^"]*"|'[^']*'|[^\]"'])*`;
 
 /** Names listed in a TOML array of strings, e.g. `dependencies = ["a", "b"]`. */
 export function tomlStringArray(section: string, key: string): string[] {
-  const pattern = new RegExp(
-    String.raw`${key.replaceAll(/[.[\]]/g, '\\$&')}\s*=\s*\[(${ARRAY_BODY})\]`,
-  );
+  const pattern = new RegExp(String.raw`${escapeRegExp(key)}\s*=\s*\[(${ARRAY_BODY})\]`);
   const body = pattern.exec(section)?.[1];
   if (!body) return [];
   return [...body.matchAll(/["']([^"']+)["']/g)]

@@ -49,10 +49,23 @@ function globToRegExp(pattern: string): RegExp {
   return new RegExp(`${prefix}${source}${directory ? '/.*' : '(?:/.*)?'}$`, 'u');
 }
 
+/**
+ * A line without its trailing comment: everything from a `#` that follows whitespace. A scan
+ * rather than `/\s+#.*$/`, which retries from every character of a whitespace run with no `#`
+ * after it, so a long one cost the square of its length. A `#` at the start of the line is a
+ * whole-line comment, and is the caller's to skip.
+ */
+function withoutComment(raw: string): string {
+  for (let index = 1; index < raw.length; index += 1) {
+    if (raw[index] === '#' && /\s/u.test(raw[index - 1] ?? '')) return raw.slice(0, index);
+  }
+  return raw;
+}
+
 export function parseCodeowners(text: string): OwnerRule[] {
   const rules: OwnerRule[] = [];
   for (const raw of text.split(/\r?\n/u)) {
-    const line = raw.replace(/\s+#.*$/u, '').trim();
+    const line = withoutComment(raw).trim();
     if (line.length === 0 || line.startsWith('#')) continue;
     // A non-empty line always has a first field.
     const [pattern = '', ...owners] = line.split(/\s+/u);

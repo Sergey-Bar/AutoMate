@@ -122,7 +122,17 @@ function requireBaseUrl(input: unknown): string {
       'input.baseUrl must use https: the bearer token would cross the network in clear text',
     );
   }
-  return raw.replace(/\/+$/, '');
+  return trimTrailingSlashes(raw);
+}
+
+/**
+ * `raw` without its trailing `/`s. A loop rather than `/\/+$/`, which backtracks from every
+ * `/` in a run that is not at the end, so its cost grows with the square of the run.
+ */
+function trimTrailingSlashes(raw: string): string {
+  let end = raw.length;
+  while (end > 0 && raw[end - 1] === '/') end -= 1;
+  return raw.slice(0, end);
 }
 
 export const jiraAdapter: ConnectorAdapter = {
