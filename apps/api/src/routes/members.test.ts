@@ -148,6 +148,26 @@ describe('members', () => {
     ]);
   });
 
+  it('keeps the last admin when two admins demote each other at once (PRO-19)', async () => {
+    const { call, db, ana, bo } = await harness();
+    await db
+      .update(schema.workspaceMembers)
+      .set({ role: 'admin' })
+      .where(eq(schema.workspaceMembers.userId, bo));
+    // Each check read the other as an enabled admin before either write landed, so both
+    // demotions passed and the workspace was left with none.
+    const results = await Promise.all([
+      call('PATCH', `/api/v1/members/${ana}`, { role: 'viewer' }),
+      call('PATCH', `/api/v1/members/${bo}`, { role: 'viewer' }),
+    ]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 409]);
+    const admins = await db
+      .select()
+      .from(schema.workspaceMembers)
+      .where(eq(schema.workspaceMembers.role, 'admin'));
+    expect(admins.filter((row) => row.workspaceId === 'ws-1')).toHaveLength(1);
+  });
+
   it('keeps the last admin: it can be neither demoted, removed nor disabled', async () => {
     const { call, db, ana } = await harness();
     const sessions = new DrizzleSessionStore(db as never);
