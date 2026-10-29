@@ -571,16 +571,15 @@ jobs:
           retention-days: 14
 
   profile-matrix:
-    name: Profile matrix (reporting)
+    name: Profile matrix
     needs: quality
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     # Plan task 19: the four deployment profiles, each booted from the API's own entry point
     # against this job's PostgreSQL, checking what each serves and what each refuses to start
-    # with. `pr-reporting` (scripts/gate-tooling.json), so a failure is reported and does not
-    # fail the job. It graduates to `pr-blocking` in one commit that moves the tier and drops
-    # the step's `continue-on-error`, once three consecutive runs on main record `success` in
-    # the job summary. No Chromium: every case is HTTP.
+    # with. `pr-blocking` since 2026-10-29: it was `pr-reporting` until four consecutive runs on
+    # main (bfee225, 053d676, d48e416, 546e3e2) passed 4 of 4, and graduated in one commit that
+    # moved the tier and dropped `continue-on-error`. No Chromium: every case is HTTP.
     services:
       postgres:
         image: postgres:16-alpine
@@ -614,14 +613,8 @@ jobs:
           cache: pnpm
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
-      - name: Profile matrix (reporting)
-        id: matrix
-        continue-on-error: true
+      - name: Profile matrix
         run: pnpm test:e2e:profiles
-      - name: Record the outcome
-        if: always()
-        run: |
-          echo "Profile matrix: ${{ steps.matrix.outcome }}" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload profile-matrix results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9

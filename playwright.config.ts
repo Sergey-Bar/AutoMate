@@ -145,8 +145,8 @@ const DEDICATED_SPECS = [
   // does not read. It gets its own project below so `pnpm test:e2e` still runs it.
   'accessibility/routes.spec.ts',
   // The deployment profiles (plan task 19). It boots the API's own entry point once per profile
-  // beside the suite's server, which is minutes of wall clock, and it is `pr-reporting` until it
-  // has three stable runs, so it must not ride in the required `product` run before then.
+  // beside the suite's server, which is minutes of wall clock, and it has a required job of its
+  // own (`Profile matrix`), so riding in the `product` run as well would run it twice.
   PROFILE_MATRIX_SPEC,
 ];
 
@@ -187,7 +187,7 @@ const PROFILE_MATRIX_PROJECT = 'profile-matrix';
  * The profile matrix boots APIs of its own, one per deployment profile, and is set by
  * `scripts/profile-matrix.mjs` — the one path `pnpm test:e2e:profiles` takes. Its project
  * exists only in this mode, for the budget's reason: `pnpm test:e2e` runs every project, and
- * the matrix is `pr-reporting` until it has three stable runs.
+ * the matrix is its own required job rather than part of Product E2E.
  */
 const profileMatrix = process.env['AUTOMATE_PROFILE_MATRIX'] === '1';
 

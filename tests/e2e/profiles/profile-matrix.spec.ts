@@ -23,7 +23,7 @@ import { bootRefusal, startApi } from '../support/processes.js';
  * profile shares the suite's installation key and cookie secret, because they all read the one
  * installation row of one database.
  *
- * `pr-reporting` until three stable runs on main (`scripts/gate-tooling.json`).
+ * `pr-blocking` since four consecutive passing runs on main (`scripts/gate-tooling.json`).
  */
 
 const DATABASE_URL = process.env['DATABASE_URL']?.trim() ?? '';
