@@ -7029,6 +7029,45 @@
       "resolution": "The limit is raised to 150 minutes. Splitting the job per package would finish sooner but is a change to how the ratchet reads its reports, not to its budget. The next nightly is what shows the job finishing."
     },
     {
+      "id": "MNT-155",
+      "title": "CodeQL's first scan of main found quadratic regexes, file-system races and an unescaped TOML name",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "fixed",
+      "wave": "MAINT-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-29",
+      "summary": "`codeql.yml` was added in #118 and its first scan opened 39 alerts. Read one by one, these were real: polynomial regexes on input the product does not control (Jira base URL trailing slashes took 16 s on 50,000 slashes, CODEOWNERS comment stripping 12 s, the ZAP alert-item scan 6.4 s, plus the trailing-slash strip in flow metrics and the coverage line-counter attribute scan); a TOML dependency name used as a regex without escaping, so `a.b` matched `axb`; an alternation in the scan classifier whose anchors bound only its ends; the runner spool created with the default mode; and stat-then-read sequences in the agent-config scan, the k6 summary read and the local tool's report, archive and output reads, where the file read could differ from the file checked. The others were test code, the operator's own spawn arguments, dev tooling writing its own output, or a pattern CodeQL mistook for a regex; each is dismissed on GitHub with that reason.",
+      "confirmedBy": "Each fix has a test that names the CodeQL rule. The TOML test failed before the escape and passes after; the timing tests for Jira, CODEOWNERS and ZAP took 16 s, 12 s and 6.4 s before the change and under one second after.",
+      "evidence": [
+        {
+          "path": "packages/connectors/jira/src/index.test.ts",
+          "asserts": "Trailing slashes are trimmed in linear time, whatever precedes them."
+        },
+        {
+          "path": "packages/projects/src/health/codeowners.test.ts",
+          "asserts": "A long run of whitespace is read in linear time; a trailing comment is dropped and a `#` inside a token is kept."
+        },
+        {
+          "path": "packages/reporter/src/adapters/zap-xml.test.ts",
+          "asserts": "Many unclosed alert items are read in linear time, whatever the case of their tag."
+        },
+        {
+          "path": "packages/projects/src/detect/manifest.test.ts",
+          "asserts": "TOML names are matched literally."
+        },
+        {
+          "path": "apps/api/src/infrastructure/checked-file.test.ts",
+          "asserts": "A name that now means another file is refused, and a file over the limit when it is read is refused."
+        },
+        {
+          "path": "local/test/bounded-read.test.mjs",
+          "asserts": "The size check, the type check and the read go through one handle."
+        }
+      ],
+      "resolution": "The regexes are replaced by index scans or escaped; the reads go through one handle (`readCheckedFile`, `readFileBounded`, the k6 summary read) so the size and type checks describe the bytes read; the spool is created with mode 0600. Twenty-two alerts are dismissed on GitHub with the reason recorded on each."
+    },
+    {
       "id": "PRO-20",
       "title": "GitHub webhooks reach only the default workspace's projects",
       "band": "Minor",
