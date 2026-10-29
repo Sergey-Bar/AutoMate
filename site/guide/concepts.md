@@ -6,18 +6,17 @@ outline: deep
 
 # Core concepts
 
-Automate stores test **evidence**, not just test **outcomes**. Every concept on this page
-exists so that a reader of a result can ask "where did this come from?" and get an answer
-that points at bytes.
+Every result has a path back to the report that produced it. Explore that path first;
+the technical definitions are below.
+
+<GuideStoryboard kind="concepts" />
 
 ## The chain
 
-A run is a chain of links, and each link can be missing:
+A run has six links. Each one answers a different question about what happened and
+where the evidence came from.
 
-```mermaid
-flowchart LR
-  Job --> Lease --> Attempt --> Result["Normalized result"] --> Artifact --> Digest["SHA-256 digest"]
-```
+::: details See the technical definitions
 
 | Link              | What it is                                                                                                      |
 | ----------------- | --------------------------------------------------------------------------------------------------------------- |
@@ -28,10 +27,21 @@ flowchart LR
 | Artifact          | The raw report and any declared files, stored as objects.                                                       |
 | Digest            | A SHA-256 over exactly the bytes that arrived, so two uploads of one report are recognised as one.              |
 
+:::
+
 The dashboard shows which links a run has. A run with a result but no artifact is a
 different, weaker claim than one with both, and the console says so instead of rounding up.
 
 ## Runs and their phase
+
+<div class="concept-comparison">
+  <div><span>WHERE IS THE RUN?</span><strong>Collecting evidence</strong><div class="concept-track"><span>Run ✓</span><b>Collect →</b><span>Evaluate</span></div><p>The execution is still gathering reports and artifacts.</p></div>
+  <div><span>WHAT HAPPENED TO THE TESTS?</span><strong>Tests failed</strong><div class="concept-result">× <span>Failure recorded</span></div><p>A failure can already be known while collection continues.</p></div>
+</div>
+
+**Both can be true at the same time.** Phase describes progress; outcome describes the result.
+
+::: details All run phases and terminal states
 
 A run moves through phases — `queued`, `assigned`, `preparing`, `running`, `collecting`,
 `normalizing`, `analyzing`, `gate_evaluation` — and ends in one terminal phase: `complete`,
@@ -42,9 +52,15 @@ Keeping them apart is what lets the console show a run that is still collecting 
 after its tests failed, and what keeps "the runner died" from being reported as "the tests
 failed".
 
+:::
+
 ## Test statuses
 
-The canonical model has more than pass and fail, because QA teams need the difference:
+The full attempt history explains the status. Try the same test with different outcomes:
+
+<RunExplainer />
+
+::: details All test statuses and their meanings
 
 | Status      | Meaning                                                                |
 | ----------- | ---------------------------------------------------------------------- |
@@ -56,6 +72,8 @@ The canonical model has more than pass and fail, because QA teams need the diffe
 | `timed_out` | Stopped by its deadline.                                               |
 | `cancelled` | Stopped because the run was cancelled.                                 |
 | `unknown`   | The report did not say, or could not be read. Never counted as a pass. |
+
+:::
 
 `queued` and `running` are the two live states before one of these.
 

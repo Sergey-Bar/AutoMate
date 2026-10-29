@@ -91,7 +91,18 @@ export function RunsListPage({ api = defaultApiClient }: { api?: ApiClient }) {
           headingLevel={2}
           data-testid="runs-list-error"
           title="Runs unavailable"
-          description={error.message}
+          description="Automate could not load your runs. Try again. If this continues, ask the installation owner to check the API service and its logs."
+          action={
+            <div className="space-y-3">
+              <Button onClick={() => void refresh()}>Try loading runs again</Button>
+              <details className="text-sm text-fg-muted">
+                <summary className="cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-border-focus">
+                  Technical details
+                </summary>
+                <p className="mt-2">{error.message}</p>
+              </details>
+            </div>
+          }
         />
       </PageFrame>
     );

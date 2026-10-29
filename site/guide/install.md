@@ -29,10 +29,25 @@ The first run:
 - creates `.env` with new random secrets;
 - downloads the images, which takes a few minutes;
 - starts the stack and waits until it is ready;
-- opens `http://localhost:8080` and prints the key to sign in with (also saved in `.env`
+- opens `http://localhost:8080` and prints the installation key (also saved in `.env`
   as `AUTOMATE_INSTALLATION_KEY`).
 
 Running it again just starts what is already there.
+
+### What should I see next?
+
+On the default **solo** profile, the console opens for the operator on this machine.
+You do not need to sign in. The script also prints an installation key; keep it with
+the installation's configuration.
+
+For other people to use the same installation, first [choose a shared profile](profiles.md).
+That guide explains the network and sign-in setup for a small team or an organisation.
+
+### What should I do first?
+
+1. [Explore a run](concepts.md) to learn where results and evidence appear.
+2. [Send a report](sending-results.md) from your existing test suite.
+3. [Read the quality gate](quality-gates.md) to understand what the evidence says about readiness.
 
 ## Everyday commands
 
@@ -61,18 +76,19 @@ Set these in `.env` (or in your shell) and start again.
 | `AUTOMATE_PUBLIC_URL` | `http://localhost:<port>` | The URL users open, if it is not that |
 
 ::: warning Opening it to your network
-Automate has **no login** in front of it. With the default `AUTOMATE_BIND=127.0.0.1` only
-this machine can reach it. Setting `AUTOMATE_BIND=0.0.0.0` makes it reachable by anyone who
-can reach this machine's port, and the start script warns you when you do. Do it only on a
-network you trust, or put an authenticating proxy in front.
+With the default `AUTOMATE_BIND=127.0.0.1`, only this machine can reach Automate.
+The solo profile refuses settings that make it reachable from another machine.
+To share it, choose the appropriate [profile](profiles.md), then follow
+[LAN mode](lan-mode.md) or [remote access](remote-cloudflare.md). Changing the bind
+address alone is not a complete shared installation setup.
 :::
 
 ## Keep `.env`
 
 `.env` holds the secrets that sign sessions and encrypt stored connector credentials. The
-start scripts never overwrite it. If you lose it, the data is still in Docker's volumes but
-the install cannot read its own encrypted credentials; `uninstall --purge` and a fresh
-start is the way back.
+start scripts never overwrite it. If you lose it, the data may still be in Docker's volumes
+but the installation cannot read credentials encrypted with the missing key. Restore the
+original `.env` from your backup. A fresh installation does not recover those credentials.
 
 ## Troubleshooting
 

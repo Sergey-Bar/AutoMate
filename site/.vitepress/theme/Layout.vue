@@ -1,143 +1,98 @@
 <script setup lang="ts">
 import DefaultTheme from 'vitepress/theme';
 import { useData } from 'vitepress';
-import { computed } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import Home from './Home.vue';
+import LocalizedHome from './LocalizedHome.vue';
+import PageJourney from './PageJourney.vue';
+import ThemePicker from './ThemePicker.vue';
+import LanguagePicker from './LanguagePicker.vue';
+import SiteFooter from './SiteFooter.vue';
+import { pageJourneys } from './page-journeys';
 
-/**
- * The site shell: the default theme's chrome, a theme switch, and the front page.
- *
- * **The switch exists because the product has one.** `apps/web` ships dark and light
- * palettes, the tokens this site imports are defined in both, and a documentation
- * site that can only ever show you one of them is a site that cannot document the
- * other. So the control is here rather than being dropped because VitePress's default
- * theme does not ship one.
- *
- * The label names the *destination*, not the current state, which is the same
- * decision `ThemeToggle.tsx` makes in the product and for the same reason: "Toggle
- * theme" tells a reader nothing about what pressing it will do.
- *
- * Three themes, not two: `system` is a real mode in `ThemeProvider`, and a switch
- * that offered only dark and light would make `system` undocumented on this site.
- *
- * ## `home-hero-after`, not a `Layout` swap
- *
- * VitePress resolves `layout: home` to its own `VPHome`, which draws a hero and a
- * feature grid out of front matter and has no slot that looks for a registered
- * `Home` component. Passing the component through the documented
- * `home-hero-after` slot keeps the nav, the footer and the outline, and `site/index.md`
- * sets `hero: false` so VitePress's own hero is not drawn above the evidence chain.
- */
-const { theme, isDark } = useData();
+/** Public-site shell. Lupin theme preference is independent of the application console. */
+const { isDark, page, lang } = useData();
 
 type SiteTheme = 'dark' | 'light' | 'system';
 
-const NEXT: Record<SiteTheme, SiteTheme> = {
-  dark: 'light',
-  light: 'system',
-  system: 'dark',
-};
+const siteTheme = ref<SiteTheme>('light');
+const STORAGE_KEY = 'lupin-site-theme';
+let systemPreference: MediaQueryList | undefined;
 
-const LABEL: Record<SiteTheme, string> = {
-  dark: 'dark',
-  light: 'light',
-  system: 'your system setting',
-};
+function syncSystemTheme(): void {
+  if (siteTheme.value === 'system' && systemPreference) {
+    isDark.value = systemPreference.matches;
+    document.documentElement.classList.toggle('dark', isDark.value);
+    document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
+  }
+}
 
-const siteTheme = computed<SiteTheme>(() => {
-  const value = theme.value;
-  return value === 'light' || value === 'system' ? value : 'dark';
+onMounted(() => {
+  systemPreference = window.matchMedia('(prefers-color-scheme: dark)');
+  systemPreference.addEventListener('change', syncSystemTheme);
+  let saved: string | null = null;
+  try {
+    saved = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    /* Keep the picker usable when storage is unavailable. */
+  }
+  apply(saved === 'dark' || saved === 'system' ? saved : 'light', false);
+  window.addEventListener('storage', onSavedThemeChange);
 });
 
-function apply(next: SiteTheme): void {
-  if (next === 'system') {
-    theme.value = 'auto';
+onUnmounted(() => {
+  systemPreference?.removeEventListener('change', syncSystemTheme);
+  window.removeEventListener('storage', onSavedThemeChange);
+});
+
+function onSavedThemeChange(event: StorageEvent): void {
+  if (event.key !== STORAGE_KEY) return;
+  if (event.newValue === null) {
+    apply('light', false);
     return;
   }
-  theme.value = next;
+  if (event.newValue === 'light' || event.newValue === 'dark' || event.newValue === 'system') {
+    apply(event.newValue, false);
+  }
+}
+
+function apply(next: SiteTheme, persist = true): void {
+  siteTheme.value = next;
+  isDark.value = next === 'system' ? (systemPreference?.matches ?? true) : next === 'dark';
+  document.documentElement.classList.toggle('dark', isDark.value);
+  document.documentElement.setAttribute('data-theme', isDark.value ? 'dark' : 'light');
+  if (persist) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      /* The current tab still follows the selected appearance. */
+    }
+  }
 }
 </script>
 
 <template>
   <DefaultTheme.Layout>
-    <template #nav-bar-title-after>
-      <button
-        type="button"
-        class="site-theme-toggle"
-        data-testid="site-theme-toggle"
-        :title="`Current theme: ${LABEL[siteTheme]}. Click to change.`"
-        :aria-label="`Theme: ${LABEL[siteTheme]}. Switch to ${LABEL[NEXT[siteTheme]]}.`"
-        @click="apply(NEXT[siteTheme])"
-      >
-        <span aria-hidden="true">{{
-          siteTheme === 'light' ? 'Light' : siteTheme === 'system' ? 'Auto' : 'Dark'
-        }}</span>
-        <span class="site-theme-toggle__mark" aria-hidden="true">{{ isDark ? '●' : '○' }}</span>
-      </button>
+    <template #doc-before>
+      <PageJourney
+        v-if="pageJourneys[page.relativePath]"
+        :key="page.relativePath"
+        :journey="pageJourneys[page.relativePath]"
+      />
+    </template>
+    <template #nav-bar-content-after>
+      <LanguagePicker />
+      <ThemePicker
+        class="desktop-theme-picker"
+        :model-value="siteTheme"
+        @update:model-value="apply"
+      />
     </template>
 
+    <template #layout-bottom><SiteFooter /></template>
     <template #home-hero-after>
-      <Home />
+      <Home v-if="lang === 'en'" />
+      <LocalizedHome v-else />
     </template>
   </DefaultTheme.Layout>
 </template>
-
-<style scoped>
-/*
- * Three tokens and a focus ring.
- *
- * Every colour here is a `var()` into the product's tokens, so the switch is on the
- * plane and reads as part of the chrome rather than as a widget dropped onto the
- * nav bar. There is no literal colour in this block, and `site-doctor` check 8 fails
- * if one appears.
- */
-.site-theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-left: 0.75rem;
-  padding: 0.2rem 0.5rem;
-  font-family: var(--automate-font-mono);
-  font-size: 0.75rem;
-  color: var(--automate-fg-muted);
-  background: transparent;
-  border: 1px solid var(--automate-border);
-  border-radius: 0.375rem;
-  cursor: pointer;
-  transition:
-    color 150ms ease,
-    border-color 150ms ease;
-}
-
-.site-theme-toggle:hover {
-  color: var(--automate-fg);
-  border-color: var(--automate-border-strong);
-}
-
-.site-theme-toggle:focus-visible {
-  outline: 2px solid var(--automate-accent);
-  outline-offset: 2px;
-}
-
-.site-theme-toggle__mark {
-  font-size: 0.5rem;
-  line-height: 1;
-  color: var(--automate-accent);
-}
-
-.site-theme-toggle__mark--light {
-  color: var(--automate-fg-muted);
-}
-
-/*
- * One media query, and it is the reduced-transparency hatch rather than
- * reduced-motion: this control has no animation of its own to switch off, but the
- * page behind it may gain some, and the border is the one thing here that carries
- * information.
- */
-@media (prefers-reduced-transparency: reduce) {
-  .site-theme-toggle {
-    border-color: var(--automate-border-strong);
-  }
-}
-</style>

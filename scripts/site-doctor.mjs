@@ -27,7 +27,7 @@
  * not be a stale copy of a machine-checked source. The five DOM checks are the ones
  * that need a browser to be worth anything.
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { collectDriftEnvironment, driftFindings, ASSERTIONS } from './lib/docs-drift.mjs';
 import { twelvePage } from './lib/site-ten-page.mjs';
@@ -420,6 +420,14 @@ function checkHeadings(pages) {
  */
 const SITE_THEME_CSS = 'site/.vitepress/theme/custom.css';
 const PRODUCT_ENTRY_CSS = 'apps/web/src/index.css';
+const SITE_THEME_DIR = 'site/.vitepress/theme';
+/**
+ * The one stylesheet allowed its own colours: the public site's identity palette,
+ * recorded as a site-only exception in `site/.vitepress/DESIGN-SYSTEM.md` and on the
+ * design-language page. It is named here so the exception is one file a reviewer reads,
+ * and every other theme stylesheet is still held to "no literal colour".
+ */
+const SITE_PALETTE_EXCEPTION = 'site/.vitepress/theme/lupin.css';
 
 /** The name both halves of check 8 report under, so a dropped half is visible. */
 const CHECK_8_NAME = 'the site uses the product palette, and every image has alt text';
@@ -521,6 +529,13 @@ function checkSitePalette() {
   // `forced-colors` are the *operating system's* palette by name, and a hex there
   // would be the one place the user has explicitly overridden us.
   problems.push(...literalColours(themeCss, SITE_THEME_CSS));
+  // Every other stylesheet beside it, so a palette cannot move one file over.
+  for (const name of readdirSync(path.join(ROOT, SITE_THEME_DIR)).sort()) {
+    const relative = `${SITE_THEME_DIR}/${name}`;
+    if (!name.endsWith('.css') || relative === SITE_THEME_CSS) continue;
+    if (relative === SITE_PALETTE_EXCEPTION) continue;
+    problems.push(...literalColours(read(relative), relative));
+  }
   return problems;
 }
 
@@ -567,7 +582,7 @@ function checkImages(pages) {
     name: CHECK_8_NAME,
     outcome: problems.length === 0 ? 'pass' : 'fail',
     problems,
-    note: '',
+    note: `site palette exception: ${SITE_PALETTE_EXCEPTION}, recorded in site/.vitepress/DESIGN-SYSTEM.md; every other theme stylesheet has no literal colour.`,
   };
 }
 

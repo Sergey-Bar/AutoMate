@@ -1,0 +1,15 @@
+{
+  "fonts": [
+    {
+      "file": "Geist-Variable.woff2",
+      "sha256": "2ffebe993e969069a9789d15164b7715d42491b5835516c5e3b935d5f81b05f1"
+    },
+    {
+      "file": "GeistMono-Variable.woff2",
+      "sha256": "afaacc4c5fbba89d2ebf7a02dc4070208540874592a5504d57175782fe893101"
+    }
+  ],
+  "license": "OFL.txt",
+  "upstream": "https://github.com/vercel/geist-font",
+  "revision": "b5d164a0c066c2c9bfcd5ab65dd8244551f0ac06"
+}

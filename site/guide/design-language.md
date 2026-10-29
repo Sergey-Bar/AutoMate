@@ -86,7 +86,9 @@ first field `data-autofocus` instead.
 ## The accent
 
 `--automate-accent` is `#e5e5e5` in dark and `#171717` in light — the foreground tone, with
-no hue. `theme.test.ts` holds it under 0.01 OKLCH chroma in both themes.
+no hue. `theme.test.ts` holds it under 0.01 OKLCH chroma in both themes. This is the
+console's accent; the public documentation site has its own (see
+[what this site is made of](#what-this-site-is-made-of)).
 
 It is allowed in three places:
 
@@ -275,8 +277,12 @@ the one outcome that query exists to prevent.
 `site/.vitepress/theme/custom.css` imports `packages/ui/src/tokens/theme.css` and
 `fonts.css`. It does not copy them. `pnpm site:doctor` check 8 asserts that the site
 imports only token stylesheets the product also imports, that it imports `theme.css`
-specifically, and that no literal colour appears in it — so the site and the console
-cannot drift into two palettes.
+specifically, and that no literal colour appears in any theme stylesheet but one.
 
-The site is a separate Vite build, so the two font binaries are emitted into its bundle
-as well as the app's; they are committed once.
+That one is `site/.vitepress/theme/lupin.css`, the public site's own identity. It maps the
+product tokens onto a separate site palette with a violet accent, and self-hosts the Geist
+fonts from `site/public/fonts/` with their hashes in `fonts/manifest.json`. It is a
+site-only exception, recorded in `site/.vitepress/DESIGN-SYSTEM.md`. The console keeps the
+accent with no hue described above, and its two font binaries are committed once, in
+`packages/ui/src/assets/fonts/`. Check 8 names the exception, so a palette in any other
+site stylesheet still fails.

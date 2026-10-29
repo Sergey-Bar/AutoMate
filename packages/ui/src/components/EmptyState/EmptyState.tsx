@@ -8,7 +8,7 @@ const emptyStateVariants = cva(
     variants: {
       variant: {
         default: 'bg-transparent',
-        card: 'bg-bg-elevated rounded-xl border border-border-default shadow-sm',
+        card: 'bg-bg-elevated rounded-xl border border-border-default',
       },
     },
     defaultVariants: {
@@ -62,7 +62,9 @@ export const EmptyState = forwardRef<HTMLDivElement, EmptyStateProps>(
           </div>
         )}
         <Heading className="mb-1 text-lg font-semibold text-text-primary">{title}</Heading>
-        <p className="mb-6 max-w-sm text-sm text-text-secondary">{description}</p>
+        <p className={cn('max-w-sm text-sm leading-relaxed text-text-secondary', action && 'mb-6')}>
+          {description}
+        </p>
         {action && <div>{action}</div>}
       </div>
     );

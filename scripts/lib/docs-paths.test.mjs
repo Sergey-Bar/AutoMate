@@ -257,6 +257,35 @@ test('the cited path check reaches the documents it claims to', () => {
 });
 
 test('no site navigation entry points at a page that does not exist', () => {
+  const site = path.join(REPO_ROOT, 'site');
+  /**
+   * Whether `id` is an anchor on the page `page` names. The home page (`''`) is drawn
+   * by `Home.vue`, so its anchors are that component's ids; any other page's anchors
+   * are its explicit `{#id}` / `id="..."` marks and its heading slugs.
+   *
+   * @param {string} page
+   * @param {string} id
+   */
+  const anchorOn = (page, id) => {
+    if (page === '') {
+      const home = readFileSync(path.join(site, '.vitepress', 'theme', 'Home.vue'), 'utf8');
+      return home.includes(`id="${id}"`);
+    }
+    const file = [path.join(site, `${page}.md`), path.join(site, page, 'index.md')].find((f) =>
+      existsSync(f),
+    );
+    if (file === undefined) return false;
+    const markdown = readFileSync(file, 'utf8');
+    if (markdown.includes(`{#${id}}`) || markdown.includes(`id="${id}"`)) return true;
+    return [...markdown.matchAll(/^#{1,6}\s+(.+)$/gm)].some(
+      ([, heading = '']) =>
+        heading
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}\s-]/gu, '')
+          .trim()
+          .replace(/\s+/g, '-') === id,
+    );
+  };
   // VitePress does not validate `themeConfig` links, so a nav entry pointing at an
   // unwritten page builds green and ships a 404. The first version of the site had
   // seven of them, which is how a stub site starts making claims it cannot back.
@@ -272,7 +301,11 @@ test('no site navigation entry points at a page that does not exist', () => {
     // `/` is the home page, which is `site/index.md`.
     .filter((link) => link !== '/')
     .filter((link) => {
-      const page = link.replace(/^\//, '').replace(/\/$/, '');
+      // `/#product` is a section of a page: the page must exist, and the id must be
+      // on that page, not merely somewhere in the theme.
+      const [pagePart = '', fragment] = link.split('#');
+      const page = pagePart.replace(/^\//, '').replace(/\/$/, '');
+      if (fragment !== undefined && !anchorOn(page, fragment)) return true;
       if (page === '') return false;
       // A section landing page is `index.md` inside the directory, which is what
       // `/guide/` means under `cleanUrls`. Resolving it to `guide.md` was correct

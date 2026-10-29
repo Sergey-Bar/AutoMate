@@ -6,7 +6,10 @@ outline: deep
 
 # Quality gates and quarantine
 
-Two decisions a QA team makes about every run, and both are recorded rather than implied.
+See what was measured, what passed and which signals are missing. Every decision stays
+attached to its evidence.
+
+<GuideStoryboard kind="gates" />
 
 ## Quality gates
 

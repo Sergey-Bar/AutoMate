@@ -3,11 +3,11 @@ import { Outlet, createRootRoute, redirect, useRouterState } from '@tanstack/rea
 import { BottomTabBar, NavBar, SectionTabs } from '../components/NavBar.js';
 import { ThemeProvider } from '../theme/ThemeProvider.js';
 import { GlobalCommandPalette } from '../components/GlobalCommandPalette.js';
-import { SessionGate } from '../components/SessionGate.js';
 import { ToastProvider } from '../components/Toasts.js';
 import { Shortcuts } from '../components/Shortcuts.js';
 import { PreferencesProvider } from '../theme/preferences.js';
 import { createHealthClient } from '../lib/health-client.js';
+import { PageContent } from '../components/PageContent.js';
 
 export const Route = createRootRoute({
   /**
@@ -55,11 +55,9 @@ function RootComponent() {
                * no tab row was an empty first child of <main>.
                */}
               <SectionTabs />
-              <div data-page className="flex min-h-0 flex-1 flex-col">
-                <SessionGate health={health} bypass={pathname === '/dashboard/pair'}>
-                  <Outlet />
-                </SessionGate>
-              </div>
+              <PageContent health={health} pathname={pathname}>
+                <Outlet />
+              </PageContent>
             </main>
             <BottomTabBar />
           </div>

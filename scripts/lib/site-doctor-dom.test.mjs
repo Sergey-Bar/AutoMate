@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -139,4 +139,25 @@ test('check 8 catches a literal colour in the site stylesheet', () => {
     writeFileSync(siteTheme, original, 'utf8');
   }
   assert.equal(readFileSync(siteTheme, 'utf8'), original);
+});
+
+test('check 8 reads every theme stylesheet, not only custom.css', () => {
+  // `lupin.css` re-pointed the product tokens at a hex palette from a sibling file and
+  // check 8 stayed green, because it read one file. A palette in any other stylesheet
+  // must fail; `lupin.css` is the one named, recorded exception.
+  const rogue = path.join(sitePackage, '.vitepress', 'theme', 'rogue-palette.css');
+  try {
+    writeFileSync(rogue, ':root {\n  --automate-accent: #ff0000;\n}\n', 'utf8');
+    assert.match(
+      runDoctor(),
+      /rogue-palette\.css:2` has a literal colour/,
+      'a hex palette in a second theme stylesheet passed check 8',
+    );
+  } finally {
+    rmSync(rogue, { force: true });
+  }
+});
+
+test('the site palette exception is one named file, and the check says so', () => {
+  assert.match(built, /site palette exception: site\/\.vitepress\/theme\/lupin\.css/);
 });
