@@ -170,6 +170,22 @@ overrides:
   # (`@usebruno/cli > @usebruno/requests > @azure/identity`); the runner never signs in to Azure,
   # but `pnpm audit --audit-level=high` blocks every pull request until the tree carries 7.1.0.
   '@azure/msal-node@>=5.0.0-beta.0 <7.1.0': ^7.1.0
+  # Dependabot alerts of 2026-10-28, all transitive. `@usebruno/cli` 4.3.0 is the latest and
+  # still declares the vulnerable ranges, so the fix has to be here until it moves.
+  # - qs <6.16.1: GHSA-q8mj-m7cp-5q26 and GHSA-6pq8-jhm2-2vcw, DoS in `stringify` with comma
+  #   arrays. Reached through `typed-rest-client` (dev).
+  # - yaml <2.8.3: GHSA-48c2-rrv3-qjmp, stack overflow on deeply nested collections.
+  #   `@usebruno/js` and `@usebruno/filestore` pin 2.3.4.
+  # - uuid <11.1.1: GHSA-w5hq-g745-h8pq, missing bounds check when `buf` is passed. 11.x keeps
+  #   the CommonJS entry `@usebruno/js` requires; 12 and later are ESM only.
+  # - csv-parse <7.0.2: GHSA-8cw4-87c7-c6xx, prototype replacement through `columns`. A
+  #   major past the CLI's `^5.5.6`; its breaking changes (6.0.0: renamed options and error
+  #   codes, the `lib/sync` path) do not touch the one call it makes, `parse(text, { columns:
+  #   true, skip_empty_lines: true })`, and 7.0.0 has none. `apps/runner`'s Bruno tests run it.
+  'qs@<6.16.1': ^6.16.1
+  'yaml@>=2.0.0 <2.8.3': ^2.8.3
+  'uuid@<11.1.1': ^11.1.1
+  'csv-parse@<7.0.2': ^7.0.2
   # Removed 2026-10-21: `uuid@<11.1.1: ^11.1.1`, through storybook. Storybook 10 no longer
   # depends on `uuid`, so nothing in the tree resolves it and the override matched nothing.
 

@@ -111,3 +111,39 @@ test('the runner image advertises every capability an agent adapter requires (le
     assert.ok(advertised.has(capability), `the runner image does not advertise \`${capability}\``);
   }
 });
+
+/**
+ * Every base image is pinned by digest, beside the tag that names it (OpenSSF Scorecard
+ * Pinned-Dependencies). A tag is a pointer its publisher can move, so `node:24.22.1-alpine`
+ * built today and in a month are not the same bytes; the digest is. Dependabot's `docker`
+ * entries in `.github/dependabot.yml` move tag and digest together.
+ *
+ * @param {string} text a Dockerfile
+ * @returns {string[]} the `FROM` images that are not pinned, stage aliases excepted
+ */
+function unpinnedImages(text) {
+  const aliases = new Set(stages(text).map((stage) => stage.name));
+  return stages(text)
+    .map((stage) => stage.from)
+    .filter((from) => !aliases.has(from) && !/^[^@\s]+:[^@\s]+@sha256:[0-9a-f]{64}$/u.test(from));
+}
+
+test('the pin check refuses a tag alone, a digest alone, and accepts a stage alias', () => {
+  assert.deepEqual(unpinnedImages('FROM node:24-alpine AS build\nFROM build\n'), [
+    'node:24-alpine',
+  ]);
+  assert.deepEqual(unpinnedImages(`FROM node@sha256:${'a'.repeat(64)}\n`), [
+    `node@sha256:${'a'.repeat(64)}`,
+  ]);
+  assert.deepEqual(unpinnedImages(`FROM node:24@sha256:${'a'.repeat(64)} AS b\nFROM b\n`), []);
+});
+
+test('every Dockerfile pins its base images by tag and digest', () => {
+  const files = [
+    ...['api', 'worker', 'runner', 'migrate', 'web', 'edge'].map(
+      (name) => `infra/docker/${name}.Dockerfile`,
+    ),
+    ...['k6', 'playwright', 'zap'].map((name) => `infra/runners/${name}/Dockerfile`),
+  ];
+  for (const file of files) assert.deepEqual(unpinnedImages(read(file)), [], file);
+});
