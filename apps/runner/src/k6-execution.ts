@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn, type SpawnOptions } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, open, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { K6_JSON_ADAPTER_VERSION, parseK6Summary } from '@automate/reporter';
 import {
@@ -314,12 +314,32 @@ export class K6ExecutionAdapter implements ExecutionProvider {
     context: ExecutionContext,
     startedAt: Date,
   ): Promise<Verdict> {
-    const info = await stat(summaryPath).catch(() => undefined);
-    if (info === undefined) return { result: null, problem: 'k6 wrote no summary' };
-    if (info.size > this.options.artifactMaxBytes) {
-      throw new RunnerInfrastructureError(`Artifact exceeds configured limit: ${SUMMARY_FILE}`);
+    // One handle for the size and the read, so a summary that grows after the check is
+    // still bounded (CodeQL js/file-system-race).
+    const handle = await open(summaryPath, 'r').catch(() => undefined);
+    if (handle === undefined) return { result: null, problem: 'k6 wrote no summary' };
+    let bytes: Buffer;
+    try {
+      const limit = this.options.artifactMaxBytes;
+      const size = (await handle.stat()).size;
+      if (size > limit) {
+        throw new RunnerInfrastructureError(`Artifact exceeds configured limit: ${SUMMARY_FILE}`);
+      }
+      // One byte past the observed size, so growth after the stat is seen.
+      const buffer = Buffer.alloc(size + 1);
+      let read = 0;
+      while (read < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, read, buffer.length - read, read);
+        if (bytesRead === 0) break;
+        read += bytesRead;
+      }
+      if (read > size) {
+        throw new RunnerInfrastructureError(`Artifact changed while it was read: ${SUMMARY_FILE}`);
+      }
+      bytes = buffer.subarray(0, read);
+    } finally {
+      await handle.close();
     }
-    const bytes = await readFile(summaryPath);
     try {
       return {
         problem: undefined,

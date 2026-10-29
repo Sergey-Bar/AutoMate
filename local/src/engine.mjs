@@ -5,10 +5,10 @@
  * browser. Imports only Node built-ins and this package; it makes no network request.
  */
 import { randomBytes } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { computeKpis, effectiveRuns } from './analysis.mjs';
+import { readFileBounded } from './bounded-read.mjs';
 import { isReportShaped, scanRepository } from './detect.mjs';
 import { detectFormat } from './ingest.mjs';
 import { applyDismissals, computeFindings } from './findings.mjs';
@@ -148,15 +148,16 @@ export function createEngine(options) {
         let outcome;
         let sha256 = null;
         try {
-          const info = await stat(absolute);
-          if (info.size > MAX_REPORT_BYTES) {
+          const read = await readFileBounded(absolute, MAX_REPORT_BYTES);
+          if (read.status === 'not-a-file') {
+            outcome = 'unreadable:EISDIR';
+          } else if (read.status === 'too-large') {
             outcome = 'too-large';
           } else {
-            const bytes = new Uint8Array(await readFile(absolute));
-            const ingested = store.ingest(bytes, {
+            const ingested = store.ingest(read.bytes, {
               path: report.external ? `external:${report.relativePath}` : report.relativePath,
               observedAt: now().toISOString(),
-              modifiedMs: info.mtimeMs,
+              modifiedMs: read.info.mtimeMs,
               ingestOptions: { repoRoot: root },
             });
             sha256 = ingested.sha256;
@@ -329,10 +330,11 @@ export function createEngine(options) {
       const repository = store.getRepository(repositoryId);
       if (repository === undefined) return { status: 'failed', reason: 'no-such-repository' };
       const absolute = path.resolve(archivePath);
-      const info = await stat(absolute).catch(() => null);
-      if (info === null || !info.isFile()) return { status: 'failed', reason: 'not-a-file' };
-      if (info.size > MAX_ARCHIVE_BYTES) return { status: 'failed', reason: 'archive-too-large' };
-      const bytes = new Uint8Array(await readFile(absolute));
+      const archive = await readFileBounded(absolute, MAX_ARCHIVE_BYTES).catch(() => null);
+      if (archive === null || archive.status === 'not-a-file')
+        return { status: 'failed', reason: 'not-a-file' };
+      if (archive.status === 'too-large') return { status: 'failed', reason: 'archive-too-large' };
+      const { bytes, info } = archive;
       const listed = listZip(bytes);
       if (!listed.ok) return { status: 'failed', reason: listed.reason };
 

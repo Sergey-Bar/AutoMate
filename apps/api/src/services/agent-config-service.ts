@@ -1,6 +1,7 @@
 import type { Dirent } from 'node:fs';
-import { lstat, readFile, readdir } from 'node:fs/promises';
+import { lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
+import { readCheckedFile } from '../infrastructure/checked-file.js';
 import { and, asc, eq } from 'drizzle-orm';
 import { mcpServers } from '@automate/db';
 import {
@@ -94,7 +95,14 @@ async function readCandidate(walk: Walk, full: string, relative: string): Promis
     walk.ignored += 1;
     return;
   }
-  walk.files.push({ path: relative, text: await readFile(full, 'utf8') });
+  // Through the handle that checked it again: a name swapped for a link since `lstat`, or a
+  // file grown past the limit, is ignored rather than read.
+  const bytes = await readCheckedFile(full, stats, MAX_AGENT_CONFIG_FILE_BYTES);
+  if (bytes === null) {
+    walk.ignored += 1;
+    return;
+  }
+  walk.files.push({ path: relative, text: bytes.toString('utf8') });
 }
 
 async function walkDirectory(walk: Walk, directory: string, depth: number): Promise<void> {
