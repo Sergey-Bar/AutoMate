@@ -284,9 +284,10 @@
     "PRO-16": "fixed",
     "PRO-17": "fixed",
     "PRO-18": "fixed",
-    "PRO-19": "open",
+    "PRO-19": "fixed",
     "MNT-152": "fixed",
     "MNT-153": "fixed",
-    "MNT-154": "fixed"
+    "MNT-154": "fixed",
+    "PRO-20": "debt"
   }
 }

@@ -6929,12 +6929,39 @@
       "title": "Minor edges of several workspaces, enforced SSO and restore that the review found and this wave left open",
       "band": "Minor",
       "provenance": "hand",
-      "status": "open",
+      "status": "fixed",
       "wave": "PRO-2026-10",
       "confirmed": true,
       "confirmedOn": "2026-10-28",
       "summary": "Two admins demoting each other at once can both pass the last-admin check. The web create-workspace form shows for any admin of the current workspace, while the API allows only the installation's admin and the default workspace's. Under enforced SSO the workspace dispatch still reads a browser's token cookie and `GET /api/v1/auth/session` still reports an installation session, though neither signs anyone in. A restore skips the release check when `AUTOMATE_VERSION` was never written, leaving the migration count. GitHub webhooks reach the default workspace's projects only, which the profiles guide says.",
-      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed."
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and reading the code while the other findings were fixed.",
+      "evidence": [
+        {
+          "path": "apps/api/src/routes/members.test.ts",
+          "asserts": "Two admins demoting each other at once: one succeeds, one is LAST_ADMIN, and one admin is left."
+        },
+        {
+          "path": "apps/api/src/routes/workspaces.test.ts",
+          "asserts": "The workspace list reports canCreate to exactly the callers the create route admits, and to none below team."
+        },
+        {
+          "path": "apps/web/src/components/Workspaces.test.tsx",
+          "asserts": "The create form follows the API's canCreate, not the current workspace's role."
+        },
+        {
+          "path": "apps/api/src/http/workspace-dispatch.test.ts",
+          "asserts": "Under enforced SSO without break-glass the token cookie does not steer the workspace; a bearer still does."
+        },
+        {
+          "path": "apps/api/src/routes/auth-sso.test.ts",
+          "asserts": "GET /api/v1/auth/session does not report an installation session that enforced SSO ignores."
+        },
+        {
+          "path": "scripts/lib/start-scripts.test.mjs",
+          "asserts": "A never-updated install records the release compose.yml pins, and a restore onto an older one is refused."
+        }
+      ],
+      "resolution": "Each fixed with the test above, which failed first. The last-admin changes are queued in the process, because an install is one API process (ADR-006). GitHub webhooks reaching only the default workspace's projects is a scope limit rather than an edge case, and is carried on as PRO-20."
     },
     {
       "id": "MNT-152",
@@ -7000,6 +7027,21 @@
         }
       ],
       "resolution": "The limit is raised to 150 minutes. Splitting the job per package would finish sooner but is a change to how the ratchet reads its reports, not to its budget. The next nightly is what shows the job finishing."
+    },
+    {
+      "id": "PRO-20",
+      "title": "GitHub webhooks reach only the default workspace's projects",
+      "band": "Minor",
+      "provenance": "hand",
+      "status": "debt",
+      "wave": "PRO-2026-10",
+      "confirmed": true,
+      "confirmedOn": "2026-10-28",
+      "summary": "A webhook delivery carries no workspace credential, so it is read in the default workspace, and one for a repository registered in another workspace is answered `ignored`, `unknown-repository`. That workspace's scheduled delivery syncs still run, so its data arrives late rather than never.",
+      "confirmedBy": "Independent review of PR #111 on 2026-10-28, and `apps/api/src/routes/github-webhook.test.ts`, which pins the behaviour in a second workspace.",
+      "owner": "The repository owner.",
+      "removalCondition": "Closed when a delivery is matched to its repository across every workspace, after its HMAC is verified, and queues a sync in the workspace that registered it, with a test that a repository registered outside the default workspace syncs on a push.",
+      "resolution": "Recorded as debt. The profiles guide says webhooks reach the default workspace only, and that the scheduled syncs still run."
     }
   ]
 }
