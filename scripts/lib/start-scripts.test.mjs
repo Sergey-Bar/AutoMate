@@ -726,6 +726,38 @@ for (const [kind, shell] of /** @type {const} */ ([
   );
 
   test(
+    `${label}: a never-updated install records its release, so an older one refuses its backup`,
+    { skip },
+    async () => {
+      // PRO-19. AUTOMATE_VERSION is written only by `update`, so a fresh install recorded
+      // `version=` and the restore skipped the release check, leaving only the migration count.
+      // The release the compose file pins is what the install runs, and is read instead.
+      const where = install();
+      const server = await readyServer();
+      try {
+        const base = { AUTOMATE_PORT: String(server.port), FAKE_MIGRATIONS: '34' };
+        const folder = await installWithBackup(kind, where, base);
+        assert.equal(readEnv(path.join(where.dir, '.env')).get('AUTOMATE_VERSION'), undefined);
+        const manifest = readFileSync(path.join(where.dir, folder, 'manifest.env'), 'utf8');
+        assert.match(manifest, /^version=2\.5\.0$/mu);
+        writeFileSync(where.log, '');
+        writeFileSync(path.join(where.dir, 'compose.yml'), releaseCompose(SOURCE, '2.4.0'));
+        const older = await run(kind, where, ['restore', folder], base);
+        assert.notEqual(older.status, 0, older.output);
+        assert.match(older.output, /2\.5\.0.*newer.*2\.4\.0/u);
+        assert.equal(
+          calls(where.log).some((argv) => argv.includes('pg_restore')),
+          false,
+          'a backup from a newer release was restored',
+        );
+      } finally {
+        await server.close();
+        where.cleanup();
+      }
+    },
+  );
+
+  test(
     `${label}: restore refuses a damaged, newer or foreign backup, and restores a good one`,
     { skip },
     async () => {
